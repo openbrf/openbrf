@@ -29,7 +29,7 @@ const noop = (): void => {
 
 function page(rows: { personId: string; name: string }[]) {
   return {
-    rows: rows.map((row) => ({ ...row, apartment: null, movedOutOn: null })),
+    rows,
     stats: { apartments: 1, persons: rows.length, members: rows.length },
     page: 1,
     pageCount: 1,

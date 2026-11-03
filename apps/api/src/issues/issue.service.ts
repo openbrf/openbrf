@@ -24,7 +24,7 @@ import {
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
-import { type Principal, principalCan } from "../authorization/capabilities";
+import type { Principal } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { readAuthors } from "../feed/feed-author";
@@ -243,13 +243,12 @@ export interface IssueStatusMove {
 export interface OpenIssueInput {
   typeId: string;
   /**
-   * The resident it is opened for, chosen from the address book. Absent or
-   * null opens an internal issue. Only a handler who reads the address book
-   * names one (see `IssueService.open`).
+   * The residency of the resident it is opened for, as the resident picker
+   * (`IssueResidentsService`) offered it: the resident becomes the reporter
+   * and the residency's apartment the issue's. Absent or null opens an
+   * internal issue.
    */
-  reporterPersonId?: string | null;
-  /** One of the named resident's own apartments, when it is in one. */
-  apartmentId?: string | null;
+  residencyId?: string | null;
   location?: string | null;
   description: string;
 }
@@ -582,50 +581,19 @@ export class IssueService {
    * a type to, do not decide it. The issue records which handler entered it,
    * and is filed with the type's default priority and assignee as a report is.
    *
-   * A named resident is chosen from the address book, so only a handler who
-   * reads it names one, and the resident is a current resident; the apartment
-   * is then one of theirs, as a resident's own report is held to theirs. ADR
-   * 0054 leaves open how the property manager names a resident (its question
-   * 6), and the product decision log's decision 11 keeps the property manager
-   * out of the address book: until that is decided, the property manager opens
-   * internal issues and refers a resident's matter to the board, rather than
-   * reaching the register through this form.
+   * A named resident is named by a residency the resident picker offers
+   * (`IssueResidentsService`), so any handler names one, the property manager
+   * included, and none of them through the address book (ADR 0054). The
+   * residency must be held today, read in the transaction that files the
+   * issue: its person is the reporter and its apartment the issue's. A
+   * residency that has ended, has not begun or does not exist is answered
+   * alike.
    */
   async open(
     principal: Principal,
     input: OpenIssueInput,
   ): Promise<QueuedIssueView> {
-    const now = new Date();
-    const reporterPersonId = input.reporterPersonId ?? null;
-    if (
-      (reporterPersonId !== null || input.apartmentId != null) &&
-      !principalCan(principal, "addressBook:read")
-    ) {
-      throw new IssueError(
-        "Only a handler who reads the address book opens an issue for a named resident.",
-        "reporter-not-nameable",
-      );
-    }
-    if (reporterPersonId === null && input.apartmentId != null) {
-      throw new IssueError("No such apartment.", "apartment-not-found");
-    }
-
-    if (reporterPersonId !== null) {
-      const resident = await this.prisma.residency.findFirst({
-        where: {
-          personId: reporterPersonId,
-          ...residencyHeldOn(localDayOf(now)),
-        },
-        select: { personId: true },
-      });
-      if (resident === null) {
-        throw new IssueError("No such resident.", "resident-not-found");
-      }
-    }
-    const apartmentId =
-      reporterPersonId === null || input.apartmentId == null
-        ? null
-        : await this.requireOwnApartment(reporterPersonId, input.apartmentId);
+    const residencyId = input.residencyId ?? null;
 
     const issue = await this.prisma.$transaction(async (tx) => {
       /*
@@ -652,12 +620,27 @@ export class IssueService {
         throw new IssueError("No such issue type.", "type-not-found");
       }
 
+      const resident =
+        residencyId === null
+          ? null
+          : await tx.residency.findFirst({
+              where: {
+                id: residencyId,
+                ...residencyHeldOn(localDayOf(new Date())),
+              },
+              select: { personId: true, apartmentId: true },
+            });
+      if (residencyId !== null && resident === null) {
+        throw new IssueError("No such resident.", "resident-not-found");
+      }
+      const reporterPersonId = resident?.personId ?? null;
+
       const filed = await this.file(tx, {
         typeId: type.id,
         statusId: newStatus.id,
         reporterPersonId,
         enteredByPersonId: principal.personId,
-        apartmentId,
+        apartmentId: resident?.apartmentId ?? null,
         location:
           input.location == null || input.location.trim() === ""
             ? null
@@ -1942,13 +1925,16 @@ function nextState(
 
 type QueueRecord = Prisma.IssueGetPayload<{ include: typeof ISSUE_INCLUDE }>;
 
-interface ApartmentRecord {
+export interface ApartmentRecord {
   id: string;
   number: string;
   address: { street: string; number: string };
 }
 
-function toApartmentView(apartment: ApartmentRecord): IssueApartmentView {
+/** An apartment as the issue screens name it: designation and entrance. */
+export function toApartmentView(
+  apartment: ApartmentRecord,
+): IssueApartmentView {
   return {
     id: apartment.id,
     number: apartment.number,

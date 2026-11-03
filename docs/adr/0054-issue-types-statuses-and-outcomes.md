@@ -4,9 +4,9 @@ Date: 2026-11-02
 
 ## Status
 
-Accepted, with the questions under
-[Open questions](#open-questions) left to the owner. The first of four records
-for the issue module (ADRs 0054 to 0057). It replaces the rule the schema
+Accepted. The questions under [Open questions](#open-questions) are left to the
+owner, except questions 4 and 6, which the owner has decided. The first of four
+records for the issue module (ADRs 0054 to 0057). It replaces the rule the schema
 states over `IssueStatus`, "Deliberately three states", and the audience on
 `IssueType`. Changes the glossary rows _issue_ (ärende) and _issue type_
 (ärendetyp), and adds the terms the module names (see
@@ -68,6 +68,8 @@ only (decision 13).
 "A handler" in these records is a person holding `issues:handle` whom the type,
 and the case, let in: a board member with a seat today, an administrator, and
 the property manager where the type is handled by every handler. "The board
+only" lets in an administrator without a seat as well as a board member with
+one (the owner's answer to question 4, below). "The board
 only" is enforced inside `IssueService`, on every read and every write, by the
 same function for the screen, the actions, the counts, search and the mail and
 reminder recipients. That is where the masking of a protected reporter already
@@ -186,6 +188,53 @@ handler entered it and which handler, and shows it. For a named resident, that
 resident is the reporter, and every rule about a reporter applies to them,
 masking included.
 
+The resident is named from a picker of its own, not from the address book (the
+owner's answer to question 6). The handler chooses an apartment, by its
+designation, and then one of the people living there today. There is no
+free-text search, and nobody who has moved out or has not yet moved in is
+listed. A resident with protected personal data is listed as protected, with
+neither name nor identifier. The picker answers each resident by residency
+rather than by person, and the case is opened with that residency: its person
+becomes the reporter and its apartment the case's, and no person identifier
+reaches the handler through the picker. Its routes need `issues:handle`, never
+`addressBook:read`, and each read asks the database again whether the person
+asking handles issues today, as every read of a case does. Each list of an
+apartment's residents writes an audit entry, `ISSUE_RESIDENTS_LISTED`, naming
+the apartment and how many residents were listed, never who. The list of
+apartments names nobody and is not audited, as the apartment binder's chooser
+is not.
+
+#### Threat review: residents' names by apartment
+
+What it discloses. A handler who does not read the address book, which today
+means the property manager, learns who lives in an apartment they choose: the
+names on the door, and that a protected resident lives there without who. It is
+the read decision 11 of the product decision log otherwise keeps from them, cut
+down to the one question opening a case needs.
+
+What it does not. No contact details, personal identity number, role in the
+apartment, move dates, former residents, residents still to move in, or
+residents of other apartments. It cannot be asked where a named person lives:
+the only way in is an apartment. A protected resident's name and person
+identifier are never in the answer. Opening a case for them is still possible,
+and they are then masked as every protected reporter is.
+
+The threat. A property manager, or somebody with their account, walks every
+apartment and assembles a list of residents by apartment, a copy of part of the
+register outside the association's control. The controls are that every walk is
+on the audit log by apartment, actor and time, so a walk of the whole house
+stands out and is on the actor's own access report. The association's processor
+agreement (personuppgiftsbiträdesavtal) binds the property manager's staff to
+confidentiality and to the association's purpose. And the grant is one an
+administrator can take back, effective on the next read. Rate limiting is not
+added: one apartment at a time is what a handler on the telephone needs, and a
+limit low enough to stop a walk would stop a busy day.
+
+Residual risk, which follows from decision 14 and the owner's answer to
+question 6: a property manager learns the names of the residents of each
+apartment they choose, as a caretaker reading the doors would. If an association does not want that, it keeps the
+property manager off the instance, or the board opens such cases itself.
+
 ### The migration
 
 `NEW`, `IN_PROGRESS` and `DONE` move onto the three default statuses of those
@@ -224,9 +273,9 @@ status (status), statusbetydelse (status meaning, with `NEW`, `IN_PROGRESS`,
 `WAITING` and `DONE`), utfall (outcome, with the five values above), vänteorsak
 (waiting reason, with `REPORTER`, `CONTRACTOR`, `PARTS` and `DECISION`) and
 återöppning (reopening). The rows leave open what this record leaves open: which
-status a reopened case enters, whether a reply ends a wait, and how an
-administrator without a seat stands to a type the board handles alone (questions
-2 to 4).
+status a reopened case enters and whether a reply ends a wait (questions 2 and
+3). The _handler_ row states the owner's answer to question 4: an administrator
+without a seat handles a type the board handles alone.
 
 ## Open questions
 
@@ -242,30 +291,29 @@ wrote this record:
 3. **Whether a reporter's reply ends a wait on the reporter** by itself, or only
    alerts the assignee.
 4. **An administrator without a board seat and a type handled by the board
-   only.** An administrator holds every capability by derivation, while the
-   apartment binder is read under a capability a seat alone confers. Which of
-   the two a board-only type follows.
+   only.** Decided; see below.
 5. **What marks Störningar as ring-fenced** (decision 32): a setting any type may
    carry, and who may set it, or the seeded type alone.
-6. **How the property manager names a resident** on a case they open (decision 14) without a register read: the product decision log's decision 11 keeps
-   them out of the address book.
+6. **How the property manager names a resident** on a case they open (decision 14) without a register read. Decided; see below.
 7. **_target date_ for senast klart**, in place of the plan's _due date_, for the
    reason above.
 
-### Interim answers while questions 4 and 6 wait for the owner
+### The owner's answers to questions 4 and 6
 
-The change that built handling had to answer both to be built at all. Neither
-answer below is a decision of this record. Both are put to the owner, and the
-change that applies the owner's answers replaces this section:
+Decided by the owner on 2026-11-03. Both replace the interim answers the
+handling change had taken.
 
-- **Question 4.** An administrator without a seat is let into a type the board
-  handles alone. They hold `issues:configure`, so leaving them out would protect
-  nothing: they could open the type to every handler and read it.
-- **Question 6.** The property manager opens internal issues with no reporter
-  and names no resident. A resident is named from the address book, and the
-  service refuses a resident named by anybody who does not read it, so nothing
-  reaches the register through the form that decision 11 of the product
-  decision log keeps the property manager out of.
+- **Question 4.** An administrator without a seat handles a type the board
+  handles alone, and a case closed to all but the board. "The board only" keeps
+  out the property manager and nobody else. Leaving the administrator out would
+  protect nothing: they hold `issues:configure`, and could open the type to
+  every handler and read it. `issueHandlersWhere` in the issues module states
+  the rule, and its spec holds it to the capabilities of every combination of
+  roles.
+- **Question 6.** Any handler, the property manager included, names a resident
+  from the picker described under [Cases a handler opens](#cases-a-handler-opens):
+  the apartment first, then who lives there today, with protected residents
+  masked and no search. The address book stays closed to the property manager.
 
 ## Consequences
 
@@ -273,8 +321,8 @@ change that applies the owner's answers replaces this section:
   to the type's settings. Each of the places that spells a status today moves in
   the same change, and the public-form purge reads the `DONE` meaning
   ([ADR 0057](0057-purging-issues-in-two-layers.md)).
-- The property manager's role widens: they may open cases, and a board-only type
-  is closed to them. `PRODUCT.md` and the comment over
+- The property manager's role widens: they may open cases, naming a resident
+  from the picker, and a board-only type is closed to them. `PRODUCT.md` and the comment over
   `PROPERTY_MANAGER_CAPABILITIES` say so.
 - A reporter's form offers the types whose reporters include them, as today; the
   board's internal categories are still shown to nobody who does not handle

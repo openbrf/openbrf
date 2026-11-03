@@ -4,10 +4,8 @@ import { useTranslation } from "react-i18next";
 
 import { type IssueTypeView, openIssue } from "../api/issues";
 import type { TranslationKey } from "../i18n/translation-key";
-import { type PersonOption, PersonSearch } from "../moves/PersonSearch";
 import {
   FIELD,
-  FIELD_DATA,
   FIELD_MULTILINE,
   HINT,
   LABEL,
@@ -17,12 +15,11 @@ import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessage, useSaveAction } from "../ui/save-state";
+import { IssueResidentPicker, type ResidentPick } from "./IssueResidentPicker";
 
 const OPEN_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "type-not-found": "issues.open.errors.typeNotFound",
   "resident-not-found": "issues.open.errors.residentNotFound",
-  "apartment-not-found": "issues.open.errors.apartmentNotFound",
-  "reporter-not-nameable": "issues.open.errors.reporterNotNameable",
 };
 
 const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
@@ -32,16 +29,14 @@ const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
 
 interface Draft {
   typeId: string;
-  person: PersonOption | null;
-  apartmentId: string;
+  resident: ResidentPick;
   location: string;
   description: string;
 }
 
 const EMPTY: Draft = {
   typeId: "",
-  person: null,
-  apartmentId: "",
+  resident: { apartmentId: "", residencyId: "" },
   location: "",
   description: "",
 };
@@ -52,20 +47,18 @@ const EMPTY: Draft = {
  * all. The issue shows that a handler entered it, and which.
  *
  * Under any switched-on type the handler handles, whoever its reporters are:
- * the handler files it, not a form. A resident is named from the address book,
- * so the field is offered only to a handler who reads it; the property
- * manager, who never does (decision 11 of the product decision log), opens
- * internal issues, as ADR 0054 leaves how they would name a resident to the
- * owner.
+ * the handler files it, not a form. A resident is named from the resident
+ * picker, the apartment and then who lives there today, which every handler
+ * gets, the property manager included: it is not the address book, which the
+ * property manager never reads (decision 11 of the product decision log, ADR
+ * 0054).
  */
 export function OpenIssuePanel({
   types,
-  canNameResident,
   onOpened,
 }: {
   /** The types the handler handles, with their statuses. */
   types: readonly IssueTypeView[];
-  canNameResident: boolean;
   onOpened: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -89,7 +82,6 @@ export function OpenIssuePanel({
   };
 
   const complete = draft.typeId !== "" && draft.description.trim() !== "";
-  const apartments = draft.person?.apartments ?? [];
 
   return (
     <Panel
@@ -123,12 +115,9 @@ export function OpenIssuePanel({
           }
           void open.submit({
             typeId: draft.typeId,
-            ...(draft.person === null
+            ...(draft.resident.residencyId === ""
               ? {}
-              : { reporterPersonId: draft.person.personId }),
-            ...(draft.person === null || draft.apartmentId === ""
-              ? {}
-              : { apartmentId: draft.apartmentId }),
+              : { residencyId: draft.resident.residencyId }),
             ...(draft.location.trim() === ""
               ? {}
               : { location: draft.location.trim() }),
@@ -171,50 +160,13 @@ export function OpenIssuePanel({
           </label>
         </div>
 
-        {canNameResident ? (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <PersonSearch
-              id="open-issue-resident"
-              label={t("issues.open.resident")}
-              selected={draft.person}
-              onSelect={(person) => {
-                change({
-                  person,
-                  // Their only apartment, when they have one: the common case,
-                  // and the one a handler would otherwise pick by hand.
-                  apartmentId:
-                    person?.apartments?.length === 1
-                      ? (person.apartments[0]?.id ?? "")
-                      : "",
-                });
-              }}
-            />
-            {draft.person === null || apartments.length === 0 ? null : (
-              <label className={LABEL}>
-                {t("issues.report.apartment")}
-                <select
-                  value={draft.apartmentId}
-                  onChange={(event) => {
-                    change({ apartmentId: event.target.value });
-                  }}
-                  className={FIELD_DATA}
-                >
-                  <option value="">{t("issues.report.apartmentNone")}</option>
-                  {apartments.map((apartment) => (
-                    <option key={apartment.id} value={apartment.id}>
-                      {apartment.number}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-          </div>
-        ) : null}
-        <p className={HINT}>
-          {canNameResident
-            ? t("issues.open.residentHint")
-            : t("issues.open.internalOnly")}
-        </p>
+        <IssueResidentPicker
+          pick={draft.resident}
+          onPick={(resident) => {
+            change({ resident });
+          }}
+        />
+        <p className={HINT}>{t("issues.open.residentHint")}</p>
 
         <label className={LABEL}>
           {t("issues.report.descriptionLabel")}

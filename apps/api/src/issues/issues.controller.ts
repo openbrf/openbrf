@@ -37,6 +37,10 @@ import {
   type ReportableIssueTypeView,
 } from "./issue-type.service";
 import {
+  type IssueResidentChoice,
+  IssueResidentsService,
+} from "./issue-residents.service";
+import {
   type IssueApartmentView,
   type IssueHandlerView,
   type IssuePhotoView,
@@ -66,11 +70,18 @@ const statusMoveSchema = z.object({
   outcome: z.enum(ISSUE_CLOSING_OUTCOMES).optional(),
 });
 
-/** A handler's opening of an issue (decision 14). */
-const openSchema = z.object({
+/**
+ * A handler's opening of an issue (decision 14).
+ *
+ * Strict, so a field this route no longer reads - a resident named by person
+ * and apartment, as the address book named one - is refused rather than
+ * dropped: dropped, it would file an internal issue for a handler who meant
+ * to name somebody.
+ */
+const openSchema = z.strictObject({
   typeId: z.string().min(1).max(64),
-  reporterPersonId: z.string().min(1).max(64).nullish(),
-  apartmentId: z.string().min(1).max(64).nullish(),
+  /** A residency the resident picker offered; absent for an internal issue. */
+  residencyId: z.string().min(1).max(64).nullish(),
   location: z.string().max(ISSUE_REPORT_LIMITS.location).nullish(),
   description: z.string().trim().min(1).max(ISSUE_REPORT_LIMITS.description),
 });
@@ -245,6 +256,7 @@ export class IssueQueueController {
   constructor(
     private readonly issues: IssueService,
     private readonly types: IssueTypeService,
+    private readonly residents: IssueResidentsService,
   ) {}
 
   /**
@@ -283,6 +295,30 @@ export class IssueQueueController {
     @Body() body: unknown,
   ): Promise<QueuedIssueView> {
     return this.issues.open(requirePrincipal(request), openSchema.parse(body));
+  }
+
+  /**
+   * The apartments a handler names a resident from, by designation (the
+   * resident picker, ADR 0054).
+   */
+  @Get("apartments")
+  async apartments(
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssueApartmentView[]> {
+    return this.residents.apartments(actingPersonId(request));
+  }
+
+  /**
+   * Who lives in one apartment today, by name, a protected resident's
+   * withheld, keyed by residency. No search, and nobody who has moved out or
+   * not yet in. Audited.
+   */
+  @Get("apartments/:apartmentId/residents")
+  async residentsOf(
+    @Param("apartmentId") apartmentId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssueResidentChoice[]> {
+    return this.residents.residents(actingPersonId(request), apartmentId);
   }
 
   /** Who the issue may be assigned to: names, and nothing else. */

@@ -812,12 +812,11 @@ const MEMBER_CAPABILITIES: readonly GrantableCapability[] = [
  * to every handler and never one it keeps to the board, and it includes opening
  * an issue, which is filing without being a resident. The people an issue can
  * be assigned to are named to the property manager by a names-only read of its
- * own, never by the address book. Naming a resident on an issue they open would
- * need a read of the register, so until the owner decides how (ADR 0054,
- * question 6) the property manager opens internal issues with no reporter, and
- * `IssueService.open` refuses a resident named by anybody who does not read
- * the address book. Anything beyond that is still a breach of the promise
- * above.
+ * own, never by the address book, and so is a resident they name on an issue
+ * they open: the resident picker (`IssueResidentsService`, ADR 0054 question 6)
+ * answers the people living in one chosen apartment today, a protected
+ * resident masked, with no search, under `issues:handle`. Anything beyond that
+ * is still a breach of the promise above.
  */
 const PROPERTY_MANAGER_CAPABILITIES: readonly GrantableCapability[] = [
   "issues:handle",

@@ -37,10 +37,9 @@ import { DomainError } from "../http/domain-error";
  * handle the issue now, a person the list never offered or one who stopped
  * handling since it was read; a person who does not exist gets the same
  * answer, so the route names nobody. `target-date-invalid` is a date the
- * calendar does not have. `reporter-not-nameable` is a handler who does not
- * read the address book naming a resident on an issue they open (ADR 0054,
- * question 6), and `resident-not-found` a resident who does not live here
- * today, or nobody at all, answered alike for the reason an apartment is.
+ * calendar does not have. `resident-not-found` is a residency named on an
+ * issue a handler opens that is not held today - ended, not yet begun, or
+ * none at all - answered alike for the reason an apartment is.
  */
 export type IssueReason =
   | "type-not-found"
@@ -60,7 +59,6 @@ export type IssueReason =
   | "too-many-statuses"
   | "assignee-not-a-handler"
   | "target-date-invalid"
-  | "reporter-not-nameable"
   | "resident-not-found";
 
 export class IssueError extends DomainError {
@@ -78,8 +76,7 @@ export class IssueError extends DomainError {
       reason === "default-status-required" ||
       reason === "too-many-statuses"
         ? HttpStatus.CONFLICT
-        : reason === "public-reporting-disabled" ||
-            reason === "reporter-not-nameable"
+        : reason === "public-reporting-disabled"
           ? HttpStatus.FORBIDDEN
           : reason === "post-not-reportable" ||
               reason === "waiting-reason-required" ||

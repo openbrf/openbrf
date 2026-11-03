@@ -21,13 +21,6 @@ import { FIELD, HINT, LABEL } from "../ui/controls";
 export interface PersonOption {
   personId: string;
   name: string;
-  /**
-   * The apartments the register's rows place the person in today, for a
-   * caller that files something against one of them (an issue a handler
-   * opens for a resident), as the search found them. The move flows read only
-   * the person, and an option they build carries none.
-   */
-  apartments?: { id: string; number: string }[];
 }
 
 export function PersonSearch({
@@ -90,18 +83,7 @@ export function PersonSearch({
         // One row per residency, so the same person can come back twice.
         const seen = new Map<string, PersonOption>();
         for (const row of page.rows) {
-          const apartments = seen.get(row.personId)?.apartments ?? [];
-          seen.set(row.personId, {
-            personId: row.personId,
-            name: row.name,
-            apartments:
-              row.apartment !== null && row.movedOutOn === null
-                ? [
-                    ...apartments,
-                    { id: row.apartment.id, number: row.apartment.number },
-                  ]
-                : apartments,
-          });
+          seen.set(row.personId, { personId: row.personId, name: row.name });
         }
         setAnswer({ search, options: [...seen.values()], failed: false });
       } catch (error) {

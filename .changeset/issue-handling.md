@@ -21,8 +21,9 @@ Issues can be assigned, prioritised, given a target date and kept to the board
   urgent. A type with no assignee, or one whose assignee no longer handles it,
   files its issues unassigned.
 - **Who handles a type.** A type is handled by every handler or by the board
-  alone. The board is a board member with a seat or an administrator. A single
-  issue can be closed to all but the board. The property manager is not shown an
+  alone. The board here means a board member with a seat, or an administrator
+  whether or not they hold a seat. A single issue can be closed to all but the
+  board. The property manager is not shown an
   issue or a type the board keeps to itself, in the queue or through the
   actions. They are not served its photographs, even from an address they
   opened before, and a post in the feed does not show them its status. Their
@@ -30,11 +31,16 @@ Issues can be assigned, prioritised, given a target date and kept to the board
   offered to report under leave out a type the board keeps to itself. Handing a
   type to the board, or closing an issue to it, unassigns a property manager who
   was its assignee.
-- **Issues a handler opens.** A handler opens an issue for a named resident, who
-  is then its reporter and sees it among their own reports, or opens an internal
-  issue with no reporter. The issue shows which handler entered it. A resident
-  is named from the address book, so the property manager opens internal issues
-  only.
+- **Issues a handler opens.** Any handler, the property manager included, opens
+  an issue for a named resident, who is then its reporter and sees it among
+  their own reports, or opens an internal issue with no reporter. The issue
+  shows which handler entered it. A resident is named from a picker, not the
+  address book: the handler chooses an apartment, then one of the people living
+  there today. The picker has no search and lists nobody who has moved out or
+  not yet moved in. A resident with protected personal data is listed as
+  protected and never by name. Each list of an apartment's residents is
+  recorded in the audit log, with the apartment and how many were listed but
+  not who.
 - **Timeline.** Each issue has a timeline of who did what and when: reported or
   opened, assigned, priority, target date, status and access. It is read from
   the audit log. A handler with protected personal data is never named on it.

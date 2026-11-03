@@ -3,6 +3,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
+import { addLocalDays, dateColumnOf, localDayOf } from "@openbrf/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
@@ -19,6 +20,7 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { lockIssueType } from "./issue-lock";
+import { IssueResidentsService } from "./issue-residents.service";
 import { IssueService } from "./issue.service";
 
 /**
@@ -61,6 +63,12 @@ const resident = person("resident", "Rune", "Boende");
 const shielded = person("shielded", "Sara", "Skyddad");
 /** A board member with protected personal data, as a handler. */
 const shieldedBoard = person("shielded-board", "Sven", "Skyddad");
+/** The picker's apartment: who lived, lives and will live there. */
+const former = person("former", "Fanny", "Flyttad");
+const leaving = person("leaving", "Lars", "Lamnar");
+const arriving = person("arriving", "Anna", "Ankommer");
+const outToday = person("out-today", "Olle", "Utflytt");
+const inToday = person("in-today", "Ingrid", "Inflytt");
 const people = [
   board,
   admin,
@@ -69,12 +77,36 @@ const people = [
   resident,
   shielded,
   shieldedBoard,
+  former,
+  leaving,
+  arriving,
+  outToday,
+  inToday,
 ];
 const personIds = people.map((entry) => entry.personId);
 
 const addressId = `ih-address-${suffix}`;
 const apartmentId = `ih-apartment-${suffix}`;
 const shieldedApartmentId = `ih-apartment-shielded-${suffix}`;
+const pickerApartmentId = `ih-apartment-picker-${suffix}`;
+const apartmentIds = [apartmentId, shieldedApartmentId, pickerApartmentId];
+
+/** Each residency's identifier, which is what the resident picker answers. */
+const residencyIds = {
+  resident: `ih-residency-resident-${suffix}`,
+  shielded: `ih-residency-shielded-${suffix}`,
+  tenantManager: `ih-residency-tenant-manager-${suffix}`,
+  former: `ih-residency-former-${suffix}`,
+  leaving: `ih-residency-leaving-${suffix}`,
+  arriving: `ih-residency-arriving-${suffix}`,
+  outToday: `ih-residency-out-today-${suffix}`,
+  inToday: `ih-residency-in-today-${suffix}`,
+};
+
+/** The association's calendar day, as the service reads residencies on it. */
+function dayFromToday(days: number): Date {
+  return dateColumnOf(addLocalDays(localDayOf(new Date()), days));
+}
 
 const typeIds = {
   routed: `ih-type-routed-${suffix}`,
@@ -239,6 +271,7 @@ beforeAll(async () => {
     data: [
       { id: apartmentId, addressId, number: "1501", floor: 5 },
       { id: shieldedApartmentId, addressId, number: "1502", floor: 5 },
+      { id: pickerApartmentId, addressId, number: "1503", floor: 5 },
     ],
   });
 
@@ -278,22 +311,68 @@ beforeAll(async () => {
   await prisma.residency.createMany({
     data: [
       {
+        id: residencyIds.resident,
         personId: resident.personId,
         apartmentId,
         role: "MEMBER" as const,
         movedInOn: new Date("2024-01-01"),
       },
       {
+        id: residencyIds.shielded,
         personId: shielded.personId,
         apartmentId: shieldedApartmentId,
         role: "MEMBER" as const,
         movedInOn: new Date("2024-01-01"),
       },
       {
+        id: residencyIds.tenantManager,
         personId: tenantManager.personId,
         apartmentId,
         role: "MEMBER" as const,
         movedInOn: new Date("2024-01-01"),
+      },
+      // Moved out last year: a former resident.
+      {
+        id: residencyIds.former,
+        personId: former.personId,
+        apartmentId: pickerApartmentId,
+        role: "MEMBER" as const,
+        movedInOn: new Date("2020-01-01"),
+        movedOutOn: dayFromToday(-365),
+      },
+      // A move-out scheduled for next month: still lives here today.
+      {
+        id: residencyIds.leaving,
+        personId: leaving.personId,
+        apartmentId: pickerApartmentId,
+        role: "MEMBER" as const,
+        movedInOn: new Date("2020-01-01"),
+        movedOutOn: dayFromToday(30),
+      },
+      // A move-in next month: does not live here yet.
+      {
+        id: residencyIds.arriving,
+        personId: arriving.personId,
+        apartmentId: pickerApartmentId,
+        role: "MEMBER" as const,
+        movedInOn: dayFromToday(30),
+      },
+      // Moves out today, the first day the residency is not held.
+      {
+        id: residencyIds.outToday,
+        personId: outToday.personId,
+        apartmentId: pickerApartmentId,
+        role: "RESIDENT" as const,
+        movedInOn: new Date("2020-01-01"),
+        movedOutOn: dayFromToday(0),
+      },
+      // Moves in today, the first day the residency is held.
+      {
+        id: residencyIds.inToday,
+        personId: inToday.personId,
+        apartmentId: pickerApartmentId,
+        role: "RESIDENT" as const,
+        movedInOn: dayFromToday(0),
       },
     ],
   });
@@ -358,7 +437,7 @@ afterAll(async () => {
   });
   await prisma.person.deleteMany({ where: { id: { in: personIds } } });
   await prisma.apartment.deleteMany({
-    where: { id: { in: [apartmentId, shieldedApartmentId] } },
+    where: { id: { in: apartmentIds } },
   });
   await prisma.address.deleteMany({ where: { id: addressId } });
   await app.close();
@@ -1019,8 +1098,7 @@ describe("issues a handler opens", () => {
       url: "/api/issue-queue",
       payload: {
         typeId: plain.id,
-        reporterPersonId: resident.personId,
-        apartmentId,
+        residencyId: residencyIds.resident,
         description: "Ringde om dörren",
       },
       cookie: cookies[board.personId],
@@ -1062,8 +1140,7 @@ describe("issues a handler opens", () => {
       url: "/api/issue-queue",
       payload: {
         typeId: plain.id,
-        reporterPersonId: shielded.personId,
-        apartmentId: shieldedApartmentId,
+        residencyId: residencyIds.shielded,
         description: "Skyddad anmälan",
       },
       cookie: cookies[admin.personId],
@@ -1083,7 +1160,7 @@ describe("issues a handler opens", () => {
     expect(timeline.body).not.toContain(shielded.personId);
   });
 
-  it("lets the property manager open an internal issue and never name a resident", async () => {
+  it("lets the property manager open an internal issue, and one for a resident named from the picker", async () => {
     const internal = await inject({
       method: "POST",
       url: "/api/issue-queue",
@@ -1096,29 +1173,66 @@ describe("issues a handler opens", () => {
       enteredBy: { kind: "person", personId: manager.personId },
     });
 
-    for (const payload of [
-      { reporterPersonId: resident.personId },
-      { reporterPersonId: resident.personId, apartmentId },
-    ]) {
-      const refused = await inject({
-        method: "POST",
-        url: "/api/issue-queue",
-        payload: { typeId: plain.id, description: "Namngiven", ...payload },
-        cookie: cookies[manager.personId],
-      });
-      expect(refused.statusCode).toBe(403);
-      expect(refused.json<{ reason: string }>().reason).toBe(
-        "reporter-not-nameable",
+    // The way the form does it: the apartment, then who lives there.
+    const listed = await inject({
+      method: "GET",
+      url: `/api/issue-queue/apartments/${apartmentId}/residents`,
+      cookie: cookies[manager.personId],
+    });
+    expect(listed.statusCode).toBe(200);
+    const rune = listed
+      .json<ResidentChoice[]>()
+      .find(
+        (choice) =>
+          choice.name === `${resident.firstName} ${resident.lastName}`,
       );
-    }
+    expect(rune).toEqual({
+      kind: "person",
+      residencyId: residencyIds.resident,
+      name: `${resident.firstName} ${resident.lastName}`,
+    });
+
+    const named = await inject({
+      method: "POST",
+      url: "/api/issue-queue",
+      payload: {
+        typeId: plain.id,
+        residencyId: rune?.residencyId,
+        description: "Ringde om tvättstugan",
+      },
+      cookie: cookies[manager.personId],
+    });
+    expect(named.statusCode).toBe(201);
+    const row = named.json<QueuedRow>();
+    expect(row).toMatchObject({
+      reporter: { kind: "resident", personId: resident.personId },
+      apartment: { id: apartmentId },
+      enteredBy: { kind: "person", personId: manager.personId },
+      enteredByHandler: true,
+    });
+    expect(await entries(row.id)).toEqual([
+      {
+        action: "ISSUE_OPENED",
+        actorPersonId: manager.personId,
+        targetPersonId: resident.personId,
+        channel: "WEB",
+        context: { typeId: plain.id, internal: false },
+      },
+    ]);
+
     // Nor under a type the board keeps to itself.
     const kept = await inject({
       method: "POST",
       url: "/api/issue-queue",
-      payload: { typeId: boardOnly.id, description: "Försäkring" },
+      payload: {
+        typeId: boardOnly.id,
+        residencyId: residencyIds.resident,
+        description: "Försäkring",
+      },
       cookie: cookies[manager.personId],
     });
     expect(kept.statusCode).toBe(404);
+    expect(kept.json<{ reason: string }>().reason).toBe("type-not-found");
   });
 
   it("refuses an issue the property manager opens under a type handed to the board while they wait for it, and files nothing", async () => {
@@ -1171,34 +1285,190 @@ describe("issues a handler opens", () => {
     expect(await prisma.issue.count({ where: { typeId: racing.id } })).toBe(0);
   });
 
-  it("refuses an apartment that is not the named resident's, and a person who does not live here", async () => {
-    const apartment = await inject({
+  it("names nobody who does not live here today, and takes no person identifier", async () => {
+    for (const residencyId of [
+      residencyIds.former,
+      residencyIds.arriving,
+      residencyIds.outToday,
+      `ih-residency-nobody-${suffix}`,
+    ]) {
+      const refused = await inject({
+        method: "POST",
+        url: "/api/issue-queue",
+        payload: { typeId: plain.id, residencyId, description: "Bor inte här" },
+        cookie: cookies[board.personId],
+      });
+      expect(refused.statusCode).toBe(404);
+      expect(refused.json<{ reason: string }>().reason).toBe(
+        "resident-not-found",
+      );
+    }
+
+    // A person or an apartment named the way the address book once did is
+    // refused, rather than dropped into an internal issue.
+    const before = await prisma.issue.count({ where: { typeId: plain.id } });
+    const unread = await inject({
       method: "POST",
       url: "/api/issue-queue",
       payload: {
         typeId: plain.id,
         reporterPersonId: resident.personId,
-        apartmentId: shieldedApartmentId,
-        description: "Fel lägenhet",
+        apartmentId,
+        description: "Gammal väg",
       },
-      cookie: cookies[board.personId],
+      cookie: cookies[manager.personId],
     });
-    expect(apartment.json<{ reason: string }>().reason).toBe(
+    expect(unread.statusCode).toBe(400);
+    expect(await prisma.issue.count({ where: { typeId: plain.id } })).toBe(
+      before,
+    );
+  });
+});
+
+interface ResidentChoice {
+  kind: "person" | "protected";
+  residencyId: string;
+  name?: string;
+}
+
+describe("the resident picker", () => {
+  async function residentsOf(reader: { personId: string }, apartment: string) {
+    return inject({
+      method: "GET",
+      url: `/api/issue-queue/apartments/${apartment}/residents`,
+      cookie: cookies[reader.personId],
+    });
+  }
+
+  async function listings(reader: { personId: string }, apartment: string) {
+    return prisma.auditLogEntry.findMany({
+      where: {
+        action: "ISSUE_RESIDENTS_LISTED",
+        actorPersonId: reader.personId,
+        targetId: apartment,
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { targetKind: true, targetPersonId: true, context: true },
+    });
+  }
+
+  it("offers every apartment by designation to every handler, the property manager included", async () => {
+    for (const reader of [board, admin, manager]) {
+      const response = await inject({
+        method: "GET",
+        url: "/api/issue-queue/apartments",
+        cookie: cookies[reader.personId],
+      });
+      expect(response.statusCode).toBe(200);
+      const ours = response
+        .json<{ id: string; number: string; address: string }[]>()
+        .filter((apartment) => apartmentIds.includes(apartment.id));
+      expect(ours).toEqual([
+        { id: apartmentId, number: "1501", address: `Ansvarsgatan ${suffix}` },
+        {
+          id: shieldedApartmentId,
+          number: "1502",
+          address: `Ansvarsgatan ${suffix}`,
+        },
+        {
+          id: pickerApartmentId,
+          number: "1503",
+          address: `Ansvarsgatan ${suffix}`,
+        },
+      ]);
+    }
+  });
+
+  it("lists who lives there today: a scheduled move-out and a move-in today, not a former resident, a move-in ahead or a move-out today", async () => {
+    const response = await residentsOf(manager, pickerApartmentId);
+    expect(response.statusCode).toBe(200);
+    expect(response.json<ResidentChoice[]>()).toEqual([
+      {
+        kind: "person",
+        residencyId: residencyIds.inToday,
+        name: `${inToday.firstName} ${inToday.lastName}`,
+      },
+      {
+        kind: "person",
+        residencyId: residencyIds.leaving,
+        name: `${leaving.firstName} ${leaving.lastName}`,
+      },
+    ]);
+    // Names and residencies, and no person identifier of anybody's.
+    for (const entry of [former, leaving, arriving, outToday, inToday]) {
+      expect(response.body).not.toContain(entry.personId);
+    }
+    expect(response.body).not.toContain(former.lastName);
+    expect(response.body).not.toContain(arriving.lastName);
+    expect(response.body).not.toContain(outToday.lastName);
+
+    // Audited with the apartment and how many, never who.
+    expect(await listings(manager, pickerApartmentId)).toEqual([
+      {
+        targetKind: "apartment",
+        targetPersonId: null,
+        context: { residents: 2 },
+      },
+    ]);
+  });
+
+  it("masks a protected resident, with neither name nor person identifier", async () => {
+    const response = await residentsOf(manager, shieldedApartmentId);
+    expect(response.statusCode).toBe(200);
+    expect(response.json<ResidentChoice[]>()).toEqual([
+      { kind: "protected", residencyId: residencyIds.shielded },
+    ]);
+    expect(response.body).not.toContain(shielded.personId);
+    expect(response.body).not.toContain(shielded.firstName);
+    expect(response.body).not.toContain(shielded.lastName);
+  });
+
+  it("is no search of the register: the property manager still cannot read the address book", async () => {
+    for (const url of [
+      `/api/address-book?search=${encodeURIComponent(resident.lastName)}`,
+      `/api/address-book/apartments/${apartmentId}`,
+    ]) {
+      const refused = await inject({
+        method: "GET",
+        url,
+        cookie: cookies[manager.personId],
+      });
+      expect(refused.statusCode).toBe(403);
+    }
+  });
+
+  it("gives nothing to a person who does not handle issues, and answers an unknown apartment with nothing it records", async () => {
+    for (const url of [
+      "/api/issue-queue/apartments",
+      `/api/issue-queue/apartments/${apartmentId}/residents`,
+    ]) {
+      const refused = await inject({
+        method: "GET",
+        url,
+        cookie: cookies[resident.personId],
+      });
+      expect(refused.statusCode).toBe(403);
+    }
+
+    /*
+     * The service asks the database on its own, whatever the route let
+     * through: a person who handles nothing today is shown no apartment and no
+     * resident, and leaves no entry, as a seat that ended or a grant taken
+     * back between the guard and the read would.
+     */
+    const service = app.get(IssueResidentsService);
+    expect(await service.apartments(resident.personId)).toEqual([]);
+    await expect(
+      service.residents(resident.personId, apartmentId),
+    ).rejects.toMatchObject({ reason: "apartment-not-found" });
+    expect(await listings(resident, apartmentId)).toEqual([]);
+
+    const unknown = await residentsOf(board, `ih-apartment-nowhere-${suffix}`);
+    expect(unknown.statusCode).toBe(404);
+    expect(unknown.json<{ reason: string }>().reason).toBe(
       "apartment-not-found",
     );
-    const stranger = await inject({
-      method: "POST",
-      url: "/api/issue-queue",
-      payload: {
-        typeId: plain.id,
-        reporterPersonId: manager.personId,
-        description: "Bor inte här",
-      },
-      cookie: cookies[board.personId],
-    });
-    expect(stranger.json<{ reason: string }>().reason).toBe(
-      "resident-not-found",
-    );
+    expect(await listings(board, `ih-apartment-nowhere-${suffix}`)).toEqual([]);
   });
 });
 

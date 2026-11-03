@@ -814,6 +814,7 @@
           "ISSUE_PRIORITY_CHANGED": "Prioriteten för ett ärende ändrades",
           "ISSUE_TARGET_DATE_CHANGED": "Senast klart för ett ärende ändrades",
           "ISSUE_ACCESS_CHANGED": "Vilka som hanterar ett ärende ändrades",
+          "ISSUE_RESIDENTS_LISTED": "Någon som hanterar ärenden visades vilka som bor i en lägenhet, för att lägga upp ett ärende",
           "MOVE_IN_RECORDED": "En inflyttning registrerades",
           "MOVE_OUT_RECORDED": "En utflyttning registrerades",
           "PLUGIN_ENABLED": "Ett tillägg slogs på",
@@ -1693,7 +1694,7 @@
       "defaultAssignee": "Ansvarig när det anmäls",
       "defaultAssigneeNamed": "{{name}}: ansvarig när det anmäls",
       "noDefaultAssignee": "Ingen: meddela alla som hanterar",
-      "handledByBoardHint": "Förvaltaren ser inte de här ärendena. När en typ blir styrelsens tas förvaltaren bort som ansvarig på dess ärenden.",
+      "handledByBoardHint": "Styrelsen och en administratör hanterar de här ärendena, också en administratör utan plats i styrelsen. Förvaltaren ser dem inte. När en typ blir styrelsens tas förvaltaren bort som ansvarig på dess ärenden.",
       "handledByEveryHandlerHint": "Alla som hanterar ärenden ser de här ärendena, förvaltaren också. Ett ärende utan ansvarig meddelas till alla."
     },
     "issueReporting": {
@@ -3682,7 +3683,7 @@
       "saving": "Sparar...",
       "boardOnly": "Bara styrelsen hanterar ärendet",
       "boardOnlyNamed": "{{type}}: bara styrelsen hanterar ärendet",
-      "boardOnlyHint": "Stänger ärendet för förvaltaren. En förvaltare kan stänga ett ärende så men inte öppna det igen, och ser det inte längre när det är stängt. Styrelsen och en administratör kan öppna det igen.",
+      "boardOnlyHint": "Stänger ärendet för förvaltaren. Styrelsen och en administratör, med eller utan plats i styrelsen, hanterar det fortfarande. En förvaltare kan stänga ett ärende så men inte öppna det igen, och ser det inte längre när det är stängt. Styrelsen och en administratör kan öppna det igen.",
       "typeBoardOnly": "Bara styrelsen hanterar ärenden av den här typen.",
       "readFailed": "Ansvariga eller tidslinjen gick inte att läsa just nu. Stäng och öppna ärendet igen.",
       "errors": {
@@ -3717,16 +3718,23 @@
       "title": "Lägg upp ett ärende",
       "description": "För något en boende tog upp per telefon eller i dörren, eller något de som hanterar ärenden själva tar upp. Ärendet visar att det lades upp av den som hanterar ärenden.",
       "resident": "Åt en boende",
-      "residentHint": "Utan boende blir det ett internt ärende utan anmälare. En boende som ärendet läggs upp åt är dess anmälare och ser det bland sina egna anmälningar.",
-      "internalOnly": "Du lägger upp interna ärenden utan anmälare. Något en boende tagit upp går till styrelsen, som kan lägga upp det i den boendes namn.",
+      "apartment": "Lägenhet",
+      "apartmentNone": "Välj en lägenhet",
+      "residentNone": "Ingen boende: ett internt ärende",
+      "residentProtected": "Skyddad identitet",
+      "residentProtectedNumbered": "Skyddad identitet {{number}}",
+      "residentsLoading": "Läser vilka som bor där...",
+      "residentsEmpty": "Ingen bor i lägenheten i dag. Ärendet läggs upp som ett internt ärende.",
+      "residentsFailed": "Det gick inte att läsa vilka som bor i lägenheten.",
+      "residentsRetry": "Försök igen",
+      "apartmentsFailed": "Det gick inte att läsa lägenheterna. Ärendet kan ändå läggas upp som ett internt ärende.",
+      "residentHint": "Välj lägenheten och sedan vem som bor där i dag för att lägga upp ärendet i en boendes namn. Utan boende blir det ett internt ärende utan anmälare. En boende som ärendet läggs upp åt är dess anmälare och ser det bland sina egna anmälningar.",
       "submit": "Lägg upp ärendet",
       "opening": "Lägger upp...",
       "opened": "Ärendet är upplagt och ligger i kön.",
       "errors": {
         "typeNotFound": "Du kan inte lägga upp ärenden av den typen. Ladda om sidan.",
-        "residentNotFound": "Den personen bor inte här. Välj någon som gör det, eller lämna den boende tom.",
-        "apartmentNotFound": "Lägenheten är inte den boendes. Välj igen.",
-        "reporterNotNameable": "Bara styrelsen anger en boende på ett ärende den lägger upp.",
+        "residentNotFound": "Den boende bor inte längre i lägenheten. Välj lägenheten igen, eller lämna den boende tom.",
         "unknown": "Ärendet gick inte att lägga upp just nu. Försök igen."
       }
     }

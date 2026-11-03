@@ -19,10 +19,11 @@ import { activeBoardSeatWhere } from "../mail/board-recipients";
  *
  * `EVERY_HANDLER` is everybody holding `issues:handle`: an administrator, a
  * board member with a seat today, and the property manager. `BOARD` leaves the
- * property manager out. It keeps the administrator in, which ADR 0054 left
- * open (its question 4): an administrator holds `issues:configure`, so one
- * left out of a type the board keeps to itself could open it to every handler
- * and read it anyway, and a rule its subject can lift is no protection.
+ * property manager out and keeps the administrator in, seat or not, as the
+ * owner decided (ADR 0054, question 4): an administrator holds
+ * `issues:configure`, so one left out of a type the board keeps to itself
+ * could open it to every handler and read it anyway, and a rule its subject
+ * can lift is no protection.
  *
  * Nothing about an address or an account: this says who handles, not who can be
  * reached. A seat with no address on record still handles, and is assignable.

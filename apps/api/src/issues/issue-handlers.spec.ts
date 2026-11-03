@@ -63,10 +63,27 @@ describe("who handles an issue", () => {
     });
   });
 
-  it("reads the board as an administrator or a seat, and never the property manager", () => {
+  it("reads the board as an administrator, seat or not, or a seat, and never the property manager", () => {
+    // The administrator by role alone, so one without a seat is let in (the
+    // owner's answer to ADR 0054's question 4).
     expect(issueHandlersWhere("BOARD", now)).toStrictEqual({
       OR: [ADMIN, activeBoardSeatWhere(now)],
     });
+  });
+
+  it("lets into the board's types exactly whoever could open them to every handler", () => {
+    /*
+     * Why the administrator without a seat is in: whoever holds
+     * issues:configure can hand a type back to every handler, so the board's
+     * scope is that holder and nobody else. Held for every combination of
+     * roles, so a role that came to configure types without handling the
+     * board's, or the other way round, fails here.
+     */
+    for (const roles of everyCombination()) {
+      expect(capabilitiesFor(roles).has("issues:configure")).toBe(
+        roles.isAdmin || roles.isBoardMember,
+      );
+    }
   });
 
   it("tightens an issue past its type and never loosens it", () => {

@@ -4,6 +4,7 @@ import { ActionsModule } from "../actions/actions.module";
 import { MediaModule } from "../media/media.module";
 import { IssueActionsRegistrar } from "./issue-actions.registrar";
 import { IssuePurgeService } from "./issue-purge.service";
+import { IssueResidentsService } from "./issue-residents.service";
 import { IssueTypeService } from "./issue-type.service";
 import { IssueService } from "./issue.service";
 import {
@@ -13,8 +14,9 @@ import {
 } from "./issues.controller";
 
 /**
- * Reported issues: the board's type catalogue, the resident's report, and the
- * queue whoever handles issues works from.
+ * Reported issues: the board's type catalogue, the resident's report, the
+ * queue whoever handles issues works from, and the resident picker a handler
+ * names a resident from on an issue they open.
  *
  * MediaModule is imported for the photographs, and ActionsModule for the
  * queue's read actions (ADR 0040), which is not global because the registry is
@@ -40,6 +42,7 @@ import {
     IssueService,
     IssueTypeService,
     IssuePurgeService,
+    IssueResidentsService,
     IssueActionsRegistrar,
   ],
   exports: [IssueService, IssueTypeService],

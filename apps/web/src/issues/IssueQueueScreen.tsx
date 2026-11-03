@@ -123,11 +123,7 @@ export function IssueQueueScreen({
        * which is a claim the notice above would not undo.
        */}
       {ready && !loadFailed && types !== null ? (
-        <OpenIssuePanel
-          types={types}
-          canNameResident={viewer.capabilities.includes("addressBook:read")}
-          onOpened={reload}
-        />
+        <OpenIssuePanel types={types} onOpened={reload} />
       ) : null}
 
       {ready && !loadFailed ? (

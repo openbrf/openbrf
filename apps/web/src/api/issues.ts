@@ -193,12 +193,19 @@ export interface IssueTypeInput {
 /** An issue a handler opens: for a named resident, or with no reporter. */
 export interface OpenIssueInput {
   typeId: string;
-  /** Only a handler who reads the address book names a resident. */
-  reporterPersonId?: string;
-  apartmentId?: string;
+  /** A residency the resident picker offered; absent for an internal issue. */
+  residencyId?: string;
   location?: string;
   description: string;
 }
+
+/**
+ * One resident the picker offers a handler, keyed by residency: a name, or
+ * that the name is protected. Never a person identifier.
+ */
+export type IssueResidentChoice =
+  | { kind: "person"; residencyId: string; name: string }
+  | { kind: "protected"; residencyId: string };
 
 /**
  * One step of an issue's timeline: who did what, and when. Never a reporter's
@@ -319,6 +326,24 @@ export function setIssueStatus(
         : { waitingReason: input.waitingReason }),
       ...(input.outcome === undefined ? {} : { outcome: input.outcome }),
     },
+  );
+}
+
+/**
+ * Every apartment, by designation, for the resident picker on an issue a
+ * handler opens. Under issues:handle, so the property manager reads it too.
+ */
+export function fetchIssueApartments(): Promise<ApiResult<IssueApartment[]>> {
+  return apiRequest("GET", "/api/issue-queue/apartments");
+}
+
+/** Who lives in one apartment today, as the picker offers them. Audited. */
+export function fetchIssueResidents(
+  apartmentId: string,
+): Promise<ApiResult<IssueResidentChoice[]>> {
+  return apiRequest(
+    "GET",
+    `/api/issue-queue/apartments/${encodeURIComponent(apartmentId)}/residents`,
   );
 }
 

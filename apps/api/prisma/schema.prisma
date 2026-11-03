@@ -1839,6 +1839,8 @@ enum AuditAction {
   ISSUE_TARGET_DATE_CHANGED
   /// An issue was closed to all but the board, or opened again to every handler its type lets in.
   ISSUE_ACCESS_CHANGED
+  /// A handler was told who lives in one apartment today, to name a resident on an issue they open. The entry names the apartment and how many residents were listed, never who.
+  ISSUE_RESIDENTS_LISTED
   /// A person was moved into an apartment.
   MOVE_IN_RECORDED
   /// A residency was given its move-out date.
