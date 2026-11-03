@@ -79,7 +79,7 @@ export class IssueRedactionService {
   ): Promise<void> {
     let changed = true;
     if (redaction.target === "photo" || redaction.target === "attachment") {
-      await this.removeFile(handlerPersonId, issueId, redaction);
+      changed = await this.removeFile(handlerPersonId, issueId, redaction);
     } else {
       changed = await this.redactText(handlerPersonId, issueId, redaction);
     }
@@ -229,14 +229,16 @@ export class IssueRedactionService {
     handlerPersonId: string,
     issueId: string,
     redaction: Extract<IssueRedaction, { id: string }>,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const fileId = await this.fileOf(this.prisma, issueId, redaction);
     if (fileId === null) {
       throw targetNotFound();
     }
     refuseHeld(await requireHandled(this.prisma, issueId, handlerPersonId));
 
-    await this.media.remove(fileId, handlerPersonId, "WEB", {
+    // Whether the file was removed: false for one already gone and for one
+    // the lock above found no longer the redaction's to take.
+    return this.media.remove(fileId, handlerPersonId, "WEB", {
       // A name somebody gave a photograph of their home is free text too.
       recordFileName: false,
       // A storage failure fails the redaction, and the file stays to retry.
