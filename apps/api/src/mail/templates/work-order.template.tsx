@@ -22,10 +22,13 @@ export interface WorkOrderMailProps {
  * they read back first, in a preview rendered by this template, so the mail
  * that leaves is the one they saw.
  *
- * The one mail whose body is free text a handler wrote about an issue.
- * Every other mail about an issue says only that something happened and links
- * to it (decision 21), because its reader can sign in; a contractor cannot, so
- * the work order is the message. The preview is what answers for that.
+ * The one mail whose body is free text a handler wrote about an issue, and the
+ * one exception to decision 21: every other mail about an issue says only that
+ * something happened and links to it, because its reader can sign in. A
+ * contractor cannot, so the work order is the message; the owner made it the
+ * exception on 2026-11-03 (ADR 0055, question 3). It holds as long as what
+ * makes it narrow holds: the preview the server enforces, nothing else from the
+ * issue, and a text with a personal identity number refused.
  *
  * Sent under the `issues` processing, which therefore names the mail server
  * and the contractors among its recipients.

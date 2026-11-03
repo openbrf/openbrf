@@ -41,12 +41,14 @@ a preview, and the issue keeps the record of it (ADR 0055).
   Outside production, a work order sent with no mail server set up is recorded
   as not sent.
   A work order whose contractor was removed, or whose text was erased, before
-  its mail went out is not mailed and is recorded as not sent.
+  its sending began is not mailed and is recorded as not sent; one removed
+  after that cannot be called back.
   The timeline shows that a work order was sent, and the audit log records the
   sending with the length of the text and none of its words. A reporter's data
   subject access report lists the work orders sent about their issues: to
   whom, when, and whether the mail went out. The text of a work order is erased
-  a year after its issue was closed.
+  ten years after its issue was closed, when a claim about the work it ordered
+  becomes time-barred; whom it went to and when stays.
 - **Ring-fenced types.** The board ring-fences an issue type in the settings,
   and each change is recorded in the audit log. A work order on an issue whose
   type is ring-fenced is refused in the service, its preview included.

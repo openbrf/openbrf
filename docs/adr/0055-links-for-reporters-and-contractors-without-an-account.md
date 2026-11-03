@@ -243,24 +243,27 @@ reporter's link is not behind that gate.
 The fallback is built first, because it is what a release ships with whatever
 the review says, and it asks nothing of the switch. Building it took a provisional
 answer to three of the open questions below. Questions 2 and 4 stand until the
-owner answers them; question 3 conflicts with the owner's own plan and is put
-to the owner rather than answered here:
+owner answers them; question 3 conflicted with the owner's own plan, was put to
+the owner, and is answered:
 
 - **Question 2.** The contractor register holds an email address beside the
   name, the trade and the telephone number, optional, and a contractor without
   one is listed and offered for no work order.
-- **Question 3, open.** As built, the mail is the work order: the handler's
-  text, the contractor's name in the greeting and the association's in the
-  heading, and nothing else from the case; a text holding a personal identity
-  number is refused. The issue module's plan says both that no mail carries
-  free text, the reporter's or the handler's, so that nothing a person wrote
-  passes through the mail provider (decision 21), and that a work order is
-  mailed while the contractor's link is off (decision 25). A mailed work order
-  that carries no free text says nothing a contractor can act on, so the two
-  cannot both hold. Reading decision 21 as covering only the notices sent to
-  people who can sign in would decide the conflict rather than report it, so
-  it is not this record's answer: the question is the owner's, and the mailed
-  work order stays built, unreleased, until the owner decides it.
+- **Question 3, answered by the owner on 2026-11-03.** The mail is the work
+  order: the handler's text, the contractor's name in the greeting and the
+  association's in the heading, and nothing else from the case; a text holding
+  a personal identity number is refused. The issue module's plan says both that
+  no mail carries free text, the reporter's or the handler's, so that nothing a
+  person wrote passes through the mail provider (decision 21), and that a work
+  order is mailed while the contractor's link is off (decision 25). A mailed
+  work order that carries no free text says nothing a contractor can act on, so
+  the two could not both hold. The owner chose to keep the mailed text: a work
+  order to a contractor is an exception to decision 21, and the only one. It is
+  narrow by construction, and stays an exception only while it stays narrow: the
+  server sends only what the handler previewed, the mail carries nothing else
+  from the case (no report, no reporter, no photographs, no link), and a text
+  with a personal identity number is refused. Every other mail about an issue
+  keeps to decision 21.
 - **Question 4.** A work order on a case whose reporter has protected personal
   data is not refused. Nothing of the case goes into it but what the handler
   writes, and the form tells the handler to keep the reporter's name and home
@@ -293,8 +296,19 @@ A contractor switched off stays named on the work orders sent them. A
 contractor removed from the register is erased from them as well: the copy of
 the name and address on each is cleared, and the work order stays, saying that
 it went out, when and what it said. That is how a sole trader's erasure is
-honoured. The text of a work order is erased a year after its case was closed,
-by the nightly purge; the year is a default for the owner to confirm. A
+honoured; the owner confirmed both on 2026-11-03. The text of a work order is
+erased ten years after its case was closed, by the nightly purge. The owner
+asked for it to be kept as long as the law allows, to keep the history of what
+was asked of whom, and ten years is that bound: the text is the association's
+evidence of what it ordered, a claim about the work becomes time-barred ten
+years after it arose (preskriptionslagen (1981:130) 2 §), and the work is done
+before the case is closed. Bookkeeping needs less, to the end of the seventh
+year after the financial year (bokföringslagen (1999:1078) 7 kap. 2 §), and
+past ten years storage limitation (GDPR art. 5(1)(e)) leaves the text no
+purpose. A legal hold or a restriction against the case's reporter keeps it
+longer. A dispute with the contractor that interrupts the limitation starts ten
+years again, and nothing keeps the text for it until the legal hold on a case
+that [ADR 0057](0057-purging-issues-in-two-layers.md) describes is built. A
 reporter's data subject access report lists, under each of their cases, the
 work orders sent about it: to whom, when, and whether the mail went out, not
 the text, which may be about other people.
@@ -326,8 +340,9 @@ wrote this record:
    provisionally under [The mailed work order](#the-mailed-work-order).
 3. **A mailed work order and decision 21.** Decision 21 puts no free text in any
    mail. A work order mailed under the fallback of decision 25 is the handler's
-   own text; whether decision 21 reaches it. Put to the owner, with the
-   conflict stated, under [The mailed work order](#the-mailed-work-order).
+   own text; whether decision 21 reaches it. Answered by the owner on
+   2026-11-03: a work order to a contractor is the one exception to decision 21,
+   under [The mailed work order](#the-mailed-work-order).
 4. **A work order on an apartment whose household has protected personal data.**
    The contractor needs to know where to go. What the work order may say, and
    whether such a work order is refused, as the plan's research proposes.

@@ -59,7 +59,7 @@ work order and the contractor's notes, and every photograph and every file a
 contractor uploaded, removed from storage and not only unlinked. What stays of a
 work order is the record of who received it and when, and which kinds of data it
 carried, because that is what art. 15(1)(c) and art. 19 ask the association to
-answer (decision 23); its words go with the rest. The free-text
+answer (decision 23); its words go too, on a clock of their own (below). The free-text
 location goes with them because decision 33 removes free text, and "the bathroom
 in 1101, the neighbour's dog" is free text whatever field it was typed into.
 
@@ -74,6 +74,13 @@ years from 1 to 10, 2 by default, and the board sets it. Two has no legal source
 board mailbox here (decision 33). A ring-fenced type has a clock of its own, one
 year after closing, which the board cannot change while the legal review of
 decision 32 is pending.
+
+The text of a work order has a clock of its own too: ten years after closing,
+whatever the board's setting. The owner asked on 2026-11-03 for it to be kept as
+long as the law allows, and ten years is where the general limitation period
+for a claim about the work ends (preskriptionslagen (1981:130) 2 §); the reasons
+are in [ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md#the-mailed-work-order).
+The nightly issue purge already erases it on that clock (`WORK_ORDER_BODY_RETENTION_DAYS`).
 
 A case reopened before its date stops the clock, because reopening clears
 `closedAt`. The 30 days in which a reply reopens a case (ADR 0054) are inside the

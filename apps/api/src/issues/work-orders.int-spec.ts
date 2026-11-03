@@ -16,6 +16,7 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { IssuePurgeService } from "./issue-purge.service";
+import { WORK_ORDER_BODY_RETENTION_DAYS } from "./issue-retention";
 import { WorkOrderMailerService } from "./work-order-mailer.service";
 
 /**
@@ -1109,7 +1110,10 @@ describe("the sending", () => {
       where: { id: issueId },
       data: {
         statusId: plain.statusIds.DONE,
-        closedAt: new Date("2020-01-01"),
+        closedAt: new Date(
+          Date.now() -
+            (WORK_ORDER_BODY_RETENTION_DAYS + 1) * 24 * 60 * 60 * 1000,
+        ),
       },
     });
 

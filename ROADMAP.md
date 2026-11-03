@@ -351,8 +351,10 @@ locally the application runs from source beside the PostgreSQL that
       handler's text and nothing else from the issue: not the report, not who
       made it, not the photographs, and no link. A ring-fenced issue type
       reaches no contractor, refused in the service, the preview included.
-      This is how a work order travels while the contractor's own link waits
-      for its legal review (ADR 0055)
+      The text of a work order is erased ten years after its issue was closed,
+      when a claim about the work becomes time-barred, and the record of whom
+      it went to and when stays. This is how a work order travels while the
+      contractor's own link waits for its legal review (ADR 0055)
 - [x] One page, one audience: the board's work on its own pages under the
       Styrelsen section, each signed on its own heading, the overview as the
       house's notice board with one line for whoever works a queue, and a phone

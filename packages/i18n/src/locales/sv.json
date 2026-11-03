@@ -6223,7 +6223,7 @@
           "name": "Felanmälningar",
           "purpose": "Ta emot och åtgärda fel i huset, med de arbetsorder som skickas till entreprenörer.",
           "legalBasisNote": "Berättigat intresse: att förvalta fastigheten. Den som anmäler kan självmant skriva uppgifter om hälsa (art. 9).",
-          "retention": "Kopplingen till personen tas bort vid gallringen; ärendet och bilderna behålls. Anmälningar från det öppna formuläret gallras 365 dagar efter avslut."
+          "retention": "Kopplingen till personen tas bort vid gallringen; ärendet och bilderna behålls. Anmälningar från det öppna formuläret gallras 365 dagar efter avslut. Texten i en arbetsorder till en entreprenör raderas tio år efter att ärendet avslutats, när ett anspråk om arbetet preskriberas (preskriptionslagen 2 §); vem den gick till och när sparas."
         },
         "documents": {
           "name": "Dokumentarkiv",

@@ -141,8 +141,8 @@ export interface IssuePurgeRunSummary {
  * ## Work-order text
  *
  * The same run erases the text of the work orders sent about any closed issue,
- * whoever reported it, once `WORK_ORDER_BODY_RETENTION_DAYS` have passed since
- * it was closed (see `issue-retention.ts`). Unlike the description, that text
+ * whoever reported it, once `WORK_ORDER_BODY_RETENTION_DAYS`, ten years, have
+ * passed since it was closed (see `issue-retention.ts`). Unlike the description, that text
  * is not the association's record of its building but a copy of a mail it sent
  * a firm, in a handler's words that may name the reporter or a neighbour; the
  * row stays with whom it went to and when, which is the record of the
