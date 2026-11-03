@@ -2135,7 +2135,7 @@
     },
     "callers": {
       "title": "Vilka det betjänar utöver de boende",
-      "description": "Administratören godkände var och en av de här vid installationen, efter styrelsens beslut. En grupp som dras tillbaka betjänas inte från nästa anrop, och tillägget förblir installerat. Godkänns den igen betjänas den från nästa anrop. En ny version behåller en tillbakadragen grupp tillbakadragen.",
+      "description": "Administratören godkände var och en av de här vid installationen, efter styrelsens beslut. En grupp som dras tillbaka ger inte längre tillgång från nästa anrop, och tillägget förblir installerat. En person betjänas ändå om en annan grupp som tillägget fortfarande betjänar, eller att bo här, ger tillgång. Godkänns gruppen igen ger den tillgång från nästa anrop. En ny version behåller en tillbakadragen grupp tillbakadragen.",
       "served": "Betjänas",
       "withdrawn": "Tillbakadragen",
       "withdraw": "Dra tillbaka",
