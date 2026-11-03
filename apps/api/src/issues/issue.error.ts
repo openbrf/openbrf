@@ -46,7 +46,7 @@ import { DomainError } from "../http/domain-error";
  * reopening window ago, or was merged into another (ADR 0054). It is also a
  * known fault published on an issue that is done. `no-reporter` is a handler writing to the reporter of an
  * issue nobody can read the answer on: an internal issue, a report from the
- * website's form, whose reporter has no account to read a thread in, and one
+ * website's form, whose reporter has no account to read a conversation in, and one
  * whose reporter was purged.
  * `personal-identity-number` is text the board writes back, a message, a note
  * or a saved reply, carrying a personal identity number, refused with where it

@@ -120,6 +120,7 @@ function statusFor(reason: MemberChargeReason): number {
     case "not-found":
     case "person-not-found":
     case "apartment-not-found":
+    case "issue-not-found":
       /*
        * A person or an apartment the register does not hold is answered as
        * absent rather than as an invalid field, and so is a charge that is not

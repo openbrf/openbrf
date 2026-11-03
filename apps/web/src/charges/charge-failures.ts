@@ -34,6 +34,9 @@ const CHARGE_FAILURES: Readonly<
   "not-found": "charges.errors.notFound",
   "person-not-found": "charges.errors.personNotFound",
   "apartment-not-found": "charges.errors.apartmentNotFound",
+  // The issue a charge is made from, gone or no longer the reader's to handle
+  // since the form opened: answered alike, as the issue queue answers it.
+  "issue-not-found": "charges.errors.issueNotFound",
 
   "party-required": "charges.errors.partyRequired",
   "party-ambiguous": "charges.errors.partyAmbiguous",

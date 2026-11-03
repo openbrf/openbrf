@@ -1,20 +1,30 @@
-import { ISSUE_PRIORITIES, type IssuePriority } from "@openbrf/shared";
+import {
+  ISSUE_COST_RESPONSIBILITIES,
+  ISSUE_PRIORITIES,
+  type IssueCostResponsibility,
+  type IssuePriority,
+} from "@openbrf/shared";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactElement } from "react";
 import { Trans, useTranslation } from "react-i18next";
 
 import type { ApiResult } from "../api/client";
 import {
   assignIssue,
+  fetchHandlerResponsibilityGuide,
   fetchIssueHandlers,
   fetchIssueTimeline,
   type IssueHandler,
   type IssueTimelineStep,
   type IssueTypeView,
   type QueuedIssue,
+  type ResponsibilityGuide,
   setIssueBoardOnly,
+  setIssueCostResponsibility,
   setIssuePriority,
   setIssueTargetDate,
 } from "../api/issues";
+import { type ChargeRow, fetchIssueCharges } from "../charges/charges-api";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
   FIELD,
@@ -28,12 +38,14 @@ import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import {
+  ISSUE_COST_RESPONSIBILITY_LABEL,
   ISSUE_MEANING_LABEL,
   ISSUE_OUTCOME_LABEL,
   ISSUE_PRIORITY_LABEL,
   ISSUE_WAITING_REASON_LABEL,
 } from "./issue-labels";
 import { IssueHandlerName, issueHandlerName } from "./IssueHandlerName";
+import { ResponsibilityGuideTable } from "./ResponsibilityGuideTable";
 
 const HANDLING_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.handling.errors.issueNotFound",
@@ -48,12 +60,16 @@ const STALE_REASONS: ReadonlySet<string> = new Set([
   "assignee-not-a-handler",
 ]);
 
-/** One act on an issue's handling, so the four share one save in flight. */
+/** One act on an issue's handling, so the five share one save in flight. */
 type HandlingAct =
   | { kind: "assignee"; assigneePersonId: string | null }
   | { kind: "priority"; priority: IssuePriority }
   | { kind: "targetDate"; targetDate: string | null }
-  | { kind: "access"; boardOnly: boolean };
+  | { kind: "access"; boardOnly: boolean }
+  | {
+      kind: "costResponsibility";
+      costResponsibility: IssueCostResponsibility | null;
+    };
 
 function perform(
   issueId: string,
@@ -68,6 +84,11 @@ function perform(
       return setIssueTargetDate({ issueId, targetDate: act.targetDate });
     case "access":
       return setIssueBoardOnly({ issueId, boardOnly: act.boardOnly });
+    case "costResponsibility":
+      return setIssueCostResponsibility({
+        issueId,
+        costResponsibility: act.costResponsibility,
+      });
   }
 }
 
@@ -78,8 +99,15 @@ function personIdOf(handler: IssueHandler | null): string {
 
 /**
  * Handling one issue (ADR 0054): who it is given to, how urgent it is, the day
- * it is meant to be done by, and whether it is closed to all but the board -
- * with its timeline under them.
+ * it is meant to be done by, who pays, and whether it is closed to all but the
+ * board - with its timeline under them.
+ *
+ * Who pays sits beside the association's responsibility guide, which is what
+ * a handler decides it from (decision 27), and beside the charges made from
+ * the issue for a reader who may read charges (decision 26). That reader is
+ * the only one shown an amount: the issue itself carries none, and the
+ * charges are read from the charges module under its own capability, which
+ * the property manager does not hold - so the panel does not ask.
  *
  * Mounted only while a handler has the issue open, because it reads two things
  * of its own: the people the issue may be assigned to, a names-only read that
@@ -91,11 +119,18 @@ function personIdOf(handler: IssueHandler | null): string {
 export function IssueHandling({
   issue,
   type,
+  canManageCharges = false,
   onChanged,
 }: {
   issue: QueuedIssue;
   /** The issue's type, for the board's names of the statuses on the timeline. */
   type: IssueTypeView | undefined;
+  /**
+   * Whether the reader holds `memberCharges:manage`, which decides whether the
+   * charges made from the issue are read at all. Courtesy only: the API
+   * refuses the read without it.
+   */
+  canManageCharges?: boolean;
   onChanged: () => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
@@ -132,6 +167,8 @@ export function IssueHandling({
       active = false;
     };
   }, [issue.id, revision, reads]);
+
+  const guide = useHandlerGuide(issue);
 
   const save = useSaveAction(
     (act: HandlingAct) => perform(issue.id, act),
@@ -257,6 +294,58 @@ export function IssueHandling({
       />
 
       <section className="flex flex-col gap-2">
+        <ChoiceForm
+          key={`cost:${issue.costResponsibility ?? ""}`}
+          label={t("issues.handling.costResponsibility")}
+          ariaLabel={t("issues.handling.costResponsibilityNamed", named)}
+          initial={issue.costResponsibility ?? ""}
+          disabled={busy}
+          saving={busy}
+          onDraftChanged={onDraftChanged}
+          options={[
+            { value: "", label: t("issues.handling.costResponsibilityUnset") },
+            ...ISSUE_COST_RESPONSIBILITIES.map((value) => ({
+              value,
+              label: t(ISSUE_COST_RESPONSIBILITY_LABEL[value]),
+            })),
+          ]}
+          onSave={(value) => {
+            void save.submit({
+              kind: "costResponsibility",
+              costResponsibility:
+                value === "" ? null : (value as IssueCostResponsibility),
+            });
+          }}
+        />
+        {/*
+          At the formal step and not before it: once a handler says the cost
+          is the tenant-owner's, the next thing the board may want is for them
+          to put it right, and a reply here is not how BRL 7 kap. 12 a § asks
+          for that. It stays on an issue closed with that outcome, because the
+          reply field stays with it.
+        */}
+        {issue.costResponsibility === "TENANT_OWNER" ||
+        issue.outcome === "TENANT_OWNER_RESPONSIBILITY" ? (
+          <Notice tone="info">{t("issues.handling.notANoticeToRemedy")}</Notice>
+        ) : null}
+        <details className="flex flex-col gap-2">
+          <summary className="min-h-11 cursor-pointer py-2 text-small font-semibold">
+            {t("issues.guide.title")}
+          </summary>
+          {guide === "failed" ? (
+            <p className={HINT}>{t("issues.guide.loadFailed")}</p>
+          ) : guide === null ? null : (
+            <ResponsibilityGuideTable
+              guide={guide}
+              caption={t("issues.guide.title")}
+            />
+          )}
+        </details>
+      </section>
+
+      {canManageCharges ? <IssueCharges issue={issue} /> : null}
+
+      <section className="flex flex-col gap-2">
         <h3 className="text-label text-ink-muted uppercase">
           {t("issues.timeline.title")}
         </h3>
@@ -293,6 +382,133 @@ export function IssueHandling({
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * The responsibility guide as a handler reads it, adopted or not.
+ *
+ * Read again whenever the queue brings the issue again - `issue` is a new
+ * object with every read of the queue and the same one between them - so a
+ * guide the board has changed since the panel opened reaches a handler who
+ * keeps it open, and a handler does not choose who pays from superseded
+ * guidance. The last guide stays on screen while the next is read; a read
+ * that fails replaces it with the failure, because the guide on screen can no
+ * longer be said to be the board's current one.
+ */
+function useHandlerGuide(
+  issue: QueuedIssue,
+): ResponsibilityGuide | "failed" | null {
+  const [guide, setGuide] = useState<ResponsibilityGuide | "failed" | null>(
+    null,
+  );
+  useEffect(() => {
+    let active = true;
+    void fetchHandlerResponsibilityGuide().then((read) => {
+      if (!active) {
+        return;
+      }
+      setGuide(read.ok ? read.value : "failed");
+    });
+    return () => {
+      active = false;
+    };
+  }, [issue]);
+  return guide;
+}
+
+/**
+ * The charges made from the issue, with their amounts, and the way to make
+ * another ("Skapa debitering", decision 26).
+ *
+ * Mounted only for a reader who may read charges. Read again whenever the
+ * queue is read - `issue` is a new object with every read of the queue and the
+ * same one between them - so a charge made in another tab shows, and charges
+ * withheld because the reporter has become protected stop being shown, without
+ * closing the panel; an answer for an earlier read is dropped. Making one
+ * opens the charges screen with the form filled in from the issue, where the
+ * amount is entered and where it lives.
+ */
+function IssueCharges({ issue }: { issue: QueuedIssue }): ReactElement {
+  const { t } = useTranslation();
+  /** The last answer, with the issue it answered for. */
+  const [read, setRead] = useState<{
+    issueId: string;
+    /** Null where the API withholds them: the reporter is protected. */
+    charges: ChargeRow[] | null | "failed";
+  } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void fetchIssueCharges(issue.id).then((answer) => {
+      if (active) {
+        setRead({
+          issueId: issue.id,
+          charges: answer.ok ? answer.value.charges : "failed",
+        });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [issue]);
+
+  /*
+   * Another issue's answer is never shown under this one. The same issue's
+   * last answer stays while a newer revision is read, rather than flashing
+   * back to "reading".
+   */
+  const charges = read?.issueId === issue.id ? read.charges : "reading";
+
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-label text-ink-muted uppercase">
+        {t("issues.charges.title")}
+      </h3>
+      {charges === "reading" ? (
+        <p role="status" className={HINT}>
+          {t("issues.charges.loading")}
+        </p>
+      ) : charges === "failed" ? (
+        <p className={HINT}>{t("issues.charges.loadFailed")}</p>
+      ) : charges === null ? (
+        <p className={HINT}>{t("issues.charges.withheld")}</p>
+      ) : charges.length === 0 ? (
+        <p className={HINT}>{t("issues.charges.none")}</p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {charges.map((charge) => (
+            <li
+              key={charge.chargeId}
+              className="flex flex-wrap gap-x-3 text-small"
+            >
+              <span className="font-data text-data text-ink-muted">
+                {charge.chargedOn}
+              </span>
+              <span>{charge.reason}</span>
+              <span>
+                <Trans
+                  i18nKey="issues.charges.amount"
+                  values={{ amount: charge.amount }}
+                  components={DATA_TAGS}
+                />
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className={HINT}>{t("issues.charges.hint")}</p>
+      <div>
+        <Link
+          to="/board/charges"
+          search={{ issue: issue.id }}
+          aria-label={t("issues.charges.createNamed", { type: issue.typeName })}
+          className={`${SECONDARY_BUTTON} inline-flex items-center`}
+        >
+          {t("issues.charges.create")}
+        </Link>
+      </div>
+    </section>
   );
 }
 
@@ -549,6 +765,16 @@ function TimelineSentence({
           {step.published
             ? t("issues.timeline.knownFaultPublished")
             : t("issues.timeline.knownFaultWithdrawn")}
+        </>
+      );
+    case "costResponsibility":
+      return (
+        <>
+          {step.to === null
+            ? t("issues.timeline.costResponsibilityRemoved")
+            : t("issues.timeline.costResponsibility", {
+                who: t(ISSUE_COST_RESPONSIBILITY_LABEL[step.to]),
+              })}
         </>
       );
   }

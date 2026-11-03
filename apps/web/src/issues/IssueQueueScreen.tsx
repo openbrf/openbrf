@@ -127,7 +127,14 @@ export function IssueQueueScreen({
       ) : null}
 
       {ready && !loadFailed ? (
-        <IssueQueuePanel issues={queue} types={types} onChanged={reload} />
+        <IssueQueuePanel
+          issues={queue}
+          types={types}
+          onChanged={reload}
+          canManageCharges={viewer.capabilities.includes(
+            "memberCharges:manage",
+          )}
+        />
       ) : null}
     </BoardPage>
   );

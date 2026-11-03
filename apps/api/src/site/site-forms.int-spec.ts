@@ -25,6 +25,7 @@ import {
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { HONEYPOT_FIELD } from "../http/honeypot";
+import { ResponsibilityGuideService } from "../issues/responsibility-guide.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
@@ -334,6 +335,78 @@ describe("the forms on a public page", () => {
     expect(response.body.includes(MEMBER_TYPE)).toBe(false);
     expect(response.body.includes("<script")).toBe(false);
     expect(/\son[a-z]+=/i.test(response.body)).toBe(false);
+  });
+
+  it("show the report form the responsibility guide once the board adopts it, and never the example", async () => {
+    /*
+     * Decision 27: the guide is shown to reporters before they file, and the
+     * public form is one way to file. The example is not shown here either,
+     * for the reason it is not shown to a signed-in resident.
+     */
+    const guides = app.get(ResponsibilityGuideService);
+    const found = {
+      guide: await prisma.responsibilityGuide.findUnique({
+        where: { id: 1 },
+        select: { adoptedAt: true },
+      }),
+      items: await prisma.responsibilityGuideItem.findMany({
+        select: {
+          part: true,
+          responsibility: true,
+          note: true,
+          sortOrder: true,
+        },
+      }),
+    };
+    const part = `Golvbrunn ${suffix}`;
+    const page = async () =>
+      (await inject({ method: "GET", url: `/${publicSlug}` })).body;
+    try {
+      await guides.save({
+        items: [{ part, responsibility: "TENANT_OWNER", note: null }],
+        adopted: false,
+        version: (await guides.read()).version,
+      });
+      const example = await page();
+      expect(example.includes(part)).toBe(false);
+      expect(example.includes('class="site-form-guide"')).toBe(false);
+
+      await guides.save({
+        items: [{ part, responsibility: "TENANT_OWNER", note: null }],
+        adopted: true,
+        version: (await guides.read()).version,
+      });
+      const adopted = await page();
+      const guide = adopted.indexOf('<details class="site-form-guide">');
+      expect(guide).toBeGreaterThan(-1);
+      expect(guide).toBeLessThan(
+        adopted.indexOf(`<form action="/${publicSlug}/felanmalan"`),
+      );
+      expect(adopted).toContain(`<td>${part}</td>`);
+
+      // Over the confirmation that replaces the form, the guide goes with it.
+      const sent = (
+        await inject({
+          method: "GET",
+          url: `/${publicSlug}?skickat=felanmalan`,
+        })
+      ).body;
+      expect(sent.includes(part)).toBe(false);
+    } finally {
+      await prisma.$transaction(async (tx) => {
+        await tx.responsibilityGuideItem.deleteMany({});
+        await tx.responsibilityGuideItem.createMany({ data: found.items });
+        if (found.guide === null) {
+          await tx.responsibilityGuide.deleteMany({ where: { id: 1 } });
+        } else {
+          await tx.responsibilityGuide.upsert({
+            where: { id: 1 },
+            create: { id: 1, adoptedAt: found.guide.adoptedAt },
+            update: { adoptedAt: found.guide.adoptedAt },
+          });
+        }
+      });
+    }
   });
 
   it("are served under a policy that lets a form reach this instance only", async () => {

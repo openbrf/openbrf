@@ -14,10 +14,12 @@ import {
   fetchOwnApartments,
   fetchOwnIssues,
   fetchReportableTypes,
+  fetchReporterResponsibilityGuide,
   type IssueApartment,
   type KnownFault,
   type OwnIssue,
   type ReportableIssueType,
+  type ResponsibilityGuide,
 } from "../api/issues";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
@@ -48,6 +50,12 @@ interface Loaded {
   apartments: readonly IssueApartment[];
   own: readonly OwnIssue[];
   knownFaults: readonly KnownFault[];
+  /**
+   * The responsibility guide the board has adopted, shown before filing, or
+   * null: none adopted, or one that could not be read. Not a failed load
+   * either way - a report is filed without it.
+   */
+  guide: ResponsibilityGuide | null;
   loadFailed: boolean;
 }
 
@@ -57,6 +65,7 @@ const EMPTY: Loaded = {
   apartments: [],
   own: [],
   knownFaults: [],
+  guide: null,
   loadFailed: false,
 };
 
@@ -145,16 +154,18 @@ export function IssuesScreen({
   }, [fromPostId, canReport, t]);
 
   /**
-   * One read of the three lists. A list that could not be read comes back
-   * `null`, so a re-read that fails on one of them leaves what the screen
-   * already shows in place instead of replacing it with an empty list.
+   * One read of the three lists, the known faults and the guide. A list that
+   * could not be read comes back `null`, so a re-read that fails on one of them
+   * leaves what the screen already shows in place instead of replacing it with
+   * an empty list.
    */
   const read = useCallback(async () => {
-    const [types, apartments, own, knownFaults] = await Promise.all([
+    const [types, apartments, own, knownFaults, guide] = await Promise.all([
       canReport ? fetchReportableTypes() : null,
       canReport ? fetchOwnApartments() : null,
       canReport ? fetchOwnIssues() : null,
       canReport ? fetchKnownFaults() : null,
+      canReport ? fetchReporterResponsibilityGuide() : null,
     ]);
 
     return {
@@ -162,6 +173,12 @@ export function IssuesScreen({
       apartments: apartments?.ok === true ? apartments.value : null,
       own: own?.ok === true ? own.value : null,
       knownFaults: knownFaults?.ok === true ? knownFaults.value : null,
+      /**
+       * Not a failed load either way: a report is filed without the guide.
+       * `undefined` marks a read that failed, so a re-read keeps the guide on
+       * screen as it keeps the lists; `null` is "none adopted" or "not asked".
+       */
+      guide: guide === null ? null : guide.ok ? guide.value.guide : undefined,
       loadFailed:
         types?.ok === false ||
         apartments?.ok === false ||
@@ -194,6 +211,7 @@ export function IssuesScreen({
           own: next.own ?? (next.asked ? previous.own : []),
           knownFaults:
             next.knownFaults ?? (next.asked ? previous.knownFaults : []),
+          guide: next.guide === undefined ? previous.guide : next.guide,
           loadFailed: next.loadFailed,
         }));
       }
@@ -271,6 +289,7 @@ export function IssuesScreen({
               types={types}
               apartments={apartments}
               knownFaults={knownFaults}
+              guide={loaded.guide}
               {...(fromPost.kind === "read"
                 ? { prefill: fromPost.prefill }
                 : followUp === null

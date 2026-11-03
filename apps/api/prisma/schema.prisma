@@ -1839,6 +1839,8 @@ enum AuditAction {
   ISSUE_TARGET_DATE_CHANGED
   /// An issue was closed to all but the board, or opened again to every handler its type lets in.
   ISSUE_ACCESS_CHANGED
+  /// A handler recorded who pays for an issue: the association, the tenant-owner, or unclear. The entry names the issue and the value either side, never an amount.
+  ISSUE_COST_RESPONSIBILITY_CHANGED
   /// A handler was told who lives in one apartment today, to name a resident on an issue they open. The entry names the apartment and how many residents were listed, never who.
   ISSUE_RESIDENTS_LISTED
   /// An issue message was written, by the reporter or by a handler. The entry names the issue, the message, which side wrote it and the writer as its actor, never the text.
@@ -4304,6 +4306,30 @@ enum IssuePriority {
   LOW
 }
 
+/// Who bears the cost of an issue (kostnadsansvar, ADR 0054, decision 26), as
+/// a handler records it. Spelled once for both applications in
+/// `@openbrf/shared` (issue-responsibility.ts).
+///
+/// Deliberately no amount beside it, here or anywhere on an issue: what a
+/// tenant-owner is charged is a member charge (debitering), which links back
+/// to the issue, and a sum held here would be a second answer to what the
+/// member owes.
+enum IssueCostResponsibility {
+  /// Föreningen.
+  ASSOCIATION
+  /// Bostadsrättshavaren.
+  TENANT_OWNER
+  /// Oklart: a handler has looked and cannot yet say.
+  UNCLEAR
+}
+
+/// Who maintains a part of the home or the building (underhållsansvar), as a
+/// line of the association's responsibility guide states it (decision 27).
+enum MaintenanceResponsibility {
+  ASSOCIATION
+  TENANT_OWNER
+}
+
 /// Who handles the issues of a type (ADR 0054, decision 13): everybody holding
 /// `issues:handle`, or the board only - a board member with a seat and an
 /// administrator, never the property manager. Read inside `IssueService` on
@@ -4513,6 +4539,13 @@ model Issue {
   /// never past its type.
   boardOnly Boolean @default(false)
 
+  /// Who pays for it, as a handler records it, or null while nobody has said
+  /// (decision 26). Internal, like the assignee: what the reporter is told is
+  /// the outcome and what the handlers write to them. No amount, by the rule
+  /// on `IssueCostResponsibility`: a charge for it is a `MemberCharge` naming
+  /// this issue in `issueId`.
+  costResponsibility IssueCostResponsibility?
+
   /// The apartment the issue concerns, when it concerns one.
   ///
   /// SetNull rather than Restrict: an apartment removed from the register must
@@ -4620,6 +4653,56 @@ model IssuePhoto {
   @@unique([issueId, fileId])
   @@index([issueId, sortOrder])
   @@map("issue_photo")
+}
+
+/// The association's responsibility guide (ansvarsfördelning) as a whole:
+/// whether the board has adopted it as its reading of its own bylaws
+/// (decision 27). One row, held to `id = 1` by a check in the migration, and
+/// written the first time the board saves the guide.
+///
+/// BRL 7 kap. 12 § puts the upkeep of the apartment on the tenant-owner "om
+/// inte något annat bestämts i stadgarna", so where the line runs is each
+/// association's bylaws and never a fact the platform can state. The guide
+/// the product offers is an example to start from, and stays labelled as one
+/// until the board adopts it. Reporters are shown it only once it is adopted;
+/// handlers see it either way, with the label.
+model ResponsibilityGuide {
+  id Int @id @default(1)
+
+  /// When the board said the guide follows its bylaws, or null while it is
+  /// an example. Cleared again if the board withdraws it.
+  adoptedAt DateTime?
+
+  updatedAt DateTime @updatedAt
+
+  @@map("responsibility_guide")
+}
+
+/// One line of the responsibility guide: a part of the home or the building,
+/// who maintains it, and a note. The board's own text, monolingual and stored
+/// as written, as an issue type's name is.
+///
+/// Association records rather than personal data: the board writes about its
+/// building, and the text is scanned for a personal identity number on the
+/// way in, as everything the board writes for residents to read is.
+model ResponsibilityGuideItem {
+  id String @id @default(cuid())
+
+  /// "Golvbrunn, rensning".
+  part String
+
+  responsibility MaintenanceResponsibility
+
+  /// "Ytterdörrens utsida är föreningens", or null.
+  note String?
+
+  /// The board's order, which is the order a reader is shown.
+  sortOrder Int
+
+  createdAt DateTime @default(now())
+
+  @@index([sortOrder])
+  @@map("responsibility_guide_item")
 }
 
 /// Who wrote an issue message: the reporter, or a handler for the association.
@@ -7744,6 +7827,18 @@ model MemberCharge {
   /// Who recorded it. A plain column, per the model comment.
   recordedByPersonId String
 
+  /// The issue (ärende) the charge was made from, when it was ("Skapa
+  /// debitering", decision 26 of the issue module plan).
+  ///
+  /// The join runs from the charge to the issue and never the other way, so
+  /// the amount lives here and only here, as `KeyOrder` says of its own join.
+  /// A plain column and not a relation, so either side can go without the
+  /// other: removing the charge leaves the issue as it was, and an issue the
+  /// purge or a merge takes away leaves the charge, which is räkenskaps-
+  /// information on a seven-year clock of its own, naming an issue that no
+  /// longer answers. Set when the charge is recorded and never moved.
+  issueId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -7757,6 +7852,8 @@ model MemberCharge {
   @@index([personId, chargedOn])
   /// This apartment's charges, reached the same two ways.
   @@index([apartmentId, chargedOn])
+  /// The charges made from one issue, which its handlers read beside it.
+  @@index([issueId])
   @@map("member_charge")
 }
 
