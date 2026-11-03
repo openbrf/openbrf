@@ -10,10 +10,12 @@ import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import {
+  fetchKnownFaults,
   fetchOwnApartments,
   fetchOwnIssues,
   fetchReportableTypes,
   type IssueApartment,
+  type KnownFault,
   type OwnIssue,
   type ReportableIssueType,
 } from "../api/issues";
@@ -45,6 +47,7 @@ interface Loaded {
   types: readonly ReportableIssueType[];
   apartments: readonly IssueApartment[];
   own: readonly OwnIssue[];
+  knownFaults: readonly KnownFault[];
   loadFailed: boolean;
 }
 
@@ -53,6 +56,7 @@ const EMPTY: Loaded = {
   types: [],
   apartments: [],
   own: [],
+  knownFaults: [],
   loadFailed: false,
 };
 
@@ -74,6 +78,14 @@ const EMPTY: Loaded = {
  * that is gone - is said in a sentence, and the form opens empty: the feed
  * answers both as one, and so does this screen. Once the report is filed, the
  * screen offers the way back to the post, where its status now shows.
+ *
+ * ## Known faults, and a report that follows up another
+ *
+ * The form opens with the known faults the house is told of (decision 22),
+ * so a resident about to report the same thing sees that it is known. A
+ * report closed too long ago for a reply to reopen it, or merged into
+ * another, offers a new report linked to it instead (ADR 0054): the form
+ * opens on its type and says which report it follows up.
  */
 export function IssuesScreen({
   viewer,
@@ -91,6 +103,9 @@ export function IssuesScreen({
     read: Extract<FromPost, { kind: "read" | "unreadable" }>;
   } | null>(null);
   const [reportedFrom, setReportedFrom] = useState<string | null>(null);
+  /** The closed report a new one follows up, while the reporter writes it. */
+  const [followUp, setFollowUp] = useState<OwnIssue | null>(null);
+  const formRef = useRef<HTMLDivElement>(null);
   const fromPost: FromPost =
     fromPostId === null || !canReport
       ? { kind: "none" }
@@ -129,18 +144,23 @@ export function IssuesScreen({
    * already shows in place instead of replacing it with an empty list.
    */
   const read = useCallback(async () => {
-    const [types, apartments, own] = await Promise.all([
+    const [types, apartments, own, knownFaults] = await Promise.all([
       canReport ? fetchReportableTypes() : null,
       canReport ? fetchOwnApartments() : null,
       canReport ? fetchOwnIssues() : null,
+      canReport ? fetchKnownFaults() : null,
     ]);
 
     return {
       types: types?.ok === true ? types.value : null,
       apartments: apartments?.ok === true ? apartments.value : null,
       own: own?.ok === true ? own.value : null,
+      knownFaults: knownFaults?.ok === true ? knownFaults.value : null,
       loadFailed:
-        types?.ok === false || apartments?.ok === false || own?.ok === false,
+        types?.ok === false ||
+        apartments?.ok === false ||
+        own?.ok === false ||
+        knownFaults?.ok === false,
       /** Nothing was asked for: a viewer who cannot report has no lists. */
       asked: canReport,
     };
@@ -166,6 +186,8 @@ export function IssuesScreen({
           apartments:
             next.apartments ?? (next.asked ? previous.apartments : []),
           own: next.own ?? (next.asked ? previous.own : []),
+          knownFaults:
+            next.knownFaults ?? (next.asked ? previous.knownFaults : []),
           loadFailed: next.loadFailed,
         }));
       }
@@ -184,7 +206,7 @@ export function IssuesScreen({
     };
   }, [reload]);
 
-  const { ready, types, apartments, own, loadFailed } = loaded;
+  const { ready, types, apartments, own, knownFaults, loadFailed } = loaded;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -230,18 +252,45 @@ export function IssuesScreen({
 
       {ready && canReport && fromPost.kind !== "reading" ? (
         <>
-          <ReportIssuePanel
-            // Mounted again once the post is read, so the form opens with it.
-            key={fromPost.kind === "read" ? fromPost.prefill.postId : "blank"}
-            types={types}
-            apartments={apartments}
-            {...(fromPost.kind === "read" ? { prefill: fromPost.prefill } : {})}
-            onReported={(postId) => {
-              setReportedFrom(postId);
-              reload();
+          <div ref={formRef}>
+            <ReportIssuePanel
+              // Mounted again once the post is read, or a follow-up chosen, so
+              // the form opens with it.
+              key={
+                fromPost.kind === "read"
+                  ? fromPost.prefill.postId
+                  : followUp === null
+                    ? "blank"
+                    : `follows-${followUp.id}`
+              }
+              types={types}
+              apartments={apartments}
+              knownFaults={knownFaults}
+              {...(fromPost.kind === "read"
+                ? { prefill: fromPost.prefill }
+                : followUp === null
+                  ? {}
+                  : {
+                      followUp,
+                      onFollowUpCancelled: () => {
+                        setFollowUp(null);
+                      },
+                    })}
+              onReported={(postId) => {
+                setReportedFrom(postId);
+                setFollowUp(null);
+                reload();
+              }}
+            />
+          </div>
+          <OwnIssuesPanel
+            issues={own}
+            onChanged={reload}
+            onFollowUp={(issue) => {
+              setFollowUp(issue);
+              formRef.current?.scrollIntoView({ block: "start" });
             }}
           />
-          <OwnIssuesPanel issues={own} onClosed={reload} />
         </>
       ) : null}
     </div>

@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import {
   attachIssuePhoto,
   type IssueApartment,
+  type KnownFault,
+  type OwnIssue,
   type ReportableIssueType,
   reportIssue,
 } from "../api/issues";
@@ -22,6 +24,7 @@ import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { KnownFaultsList } from "./KnownFaultNotice";
 import type { PostPrefill } from "./post-prefill";
 
 /**
@@ -42,6 +45,8 @@ const REPORT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "post-not-found": "issues.report.errors.postNotFound",
   "post-not-reportable": "issues.report.errors.postNotReportable",
   "post-already-reported": "issues.report.errors.postAlreadyReported",
+  "issue-not-found": "issues.report.errors.followUpNotFound",
+  "follow-up-of-open-issue": "issues.report.errors.followUpOfOpenIssue",
   "invalid-body": "issues.report.errors.unknown",
 };
 
@@ -61,6 +66,17 @@ export interface ReportIssuePanelProps {
    * linked to. The caller mounts the form again when this changes.
    */
   prefill?: PostPrefill;
+  /**
+   * One's own closed issue this report follows up, chosen from its reply
+   * field once a reply no longer reopens it (ADR 0054). The form opens on its
+   * type when that is still offered. The caller mounts the form again when
+   * this changes.
+   */
+  followUp?: Pick<OwnIssue, "id" | "typeId" | "typeName">;
+  /** Called when the reporter drops the follow-up and writes a plain report. */
+  onFollowUpCancelled?: () => void;
+  /** The known faults the house is told of, shown before the form. */
+  knownFaults?: readonly KnownFault[];
   /**
    * Called once a report has been filed, so the caller can reload the list,
    * with the post it was made from, or null.
@@ -93,12 +109,24 @@ export function ReportIssuePanel({
   types,
   apartments,
   prefill,
+  followUp,
+  onFollowUpCancelled,
+  knownFaults = [],
   onReported,
 }: ReportIssuePanelProps): ReactElement {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(
     prefill === undefined
-      ? EMPTY
+      ? {
+          ...EMPTY,
+          // The earlier report's type, while it is still one this account
+          // may report under.
+          typeId:
+            followUp !== undefined &&
+            types.some((type) => type.id === followUp.typeId)
+              ? followUp.typeId
+              : "",
+        }
       : { ...EMPTY, description: prefill.description },
   );
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
@@ -135,6 +163,7 @@ export function ReportIssuePanel({
       description: string;
       photos: readonly File[];
       postId: string | null;
+      followsIssueId: string | null;
     }) => {
       const filed = await reportIssue({
         typeId: input.typeId,
@@ -142,6 +171,9 @@ export function ReportIssuePanel({
         location: input.location,
         description: input.description,
         ...(input.postId === null ? {} : { postId: input.postId }),
+        ...(input.followsIssueId === null
+          ? {}
+          : { followsIssueId: input.followsIssueId }),
       });
       if (!filed.ok) {
         return filed;
@@ -178,6 +210,7 @@ export function ReportIssuePanel({
       description: draft.description.trim(),
       photos,
       postId: fromPostId,
+      followsIssueId: followUp?.id ?? null,
     });
   };
 
@@ -235,6 +268,23 @@ export function ReportIssuePanel({
         ) : null
       }
     >
+      <KnownFaultsList faults={knownFaults} />
+
+      {followUp === undefined ? null : (
+        <Notice tone="info">
+          {t("issues.report.followUp", { type: followUp.typeName })}{" "}
+          {onFollowUpCancelled === undefined ? null : (
+            <button
+              type="button"
+              className={QUIET_BUTTON}
+              onClick={onFollowUpCancelled}
+            >
+              {t("issues.report.followUpCancel")}
+            </button>
+          )}
+        </Notice>
+      )}
+
       <LockedForm
         locked={submit.state.kind === "saving"}
         focusFallback={descriptionRef}

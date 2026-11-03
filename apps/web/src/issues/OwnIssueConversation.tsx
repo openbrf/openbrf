@@ -8,7 +8,7 @@ import {
   sendOwnIssueMessage,
 } from "../api/issues";
 import type { TranslationKey } from "../i18n/translation-key";
-import { HINT } from "../ui/controls";
+import { HINT, SECONDARY_BUTTON } from "../ui/controls";
 import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
 import { ConversationComposer } from "./ConversationComposer";
@@ -28,20 +28,26 @@ const REPLY_FAILURES: Readonly<Record<string, TranslationKey>> = {
  * manager, and never with a name (decision 19): that is the server's answer,
  * and nothing here could name a handler if it wanted to.
  *
- * A closed report takes no more messages; what a reply to a closed report does
- * is the reopening rule's (ADR 0054).
+ * What the field below the messages does is the server's answer
+ * (`replyMode`, ADR 0054): on an open report it sends a message; on one closed
+ * within the reopening window it says that the message reopens the report;
+ * after that, and on a report merged into another, it gives way to a new
+ * report that follows this one up.
  */
 export function OwnIssueConversation({
   issue,
-  onClosed,
+  onChanged,
+  onFollowUp,
 }: {
   issue: OwnIssue;
   /**
-   * Told when the server says the report is closed, which the list on screen
-   * does not yet know: the caller reads the list again, and the composer gives
-   * way to the closed report's notice.
+   * Told when the report changed: a reply reopened it, or the server says it
+   * is closed where the list on screen did not yet know. The caller reads the
+   * list again, and the field follows what it then says.
    */
-  onClosed: () => void;
+  onChanged: () => void;
+  /** Told when the reporter asks for a new report following this one up. */
+  onFollowUp: () => void;
 }): ReactElement {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -55,17 +61,21 @@ export function OwnIssueConversation({
       <summary className="flex min-h-11 cursor-pointer items-center text-small font-semibold">
         {t("issues.conversation.openOwn", { type: issue.typeName })}
       </summary>
-      {open ? <Thread issue={issue} onClosed={onClosed} /> : null}
+      {open ? (
+        <Thread issue={issue} onChanged={onChanged} onFollowUp={onFollowUp} />
+      ) : null}
     </details>
   );
 }
 
 function Thread({
   issue,
-  onClosed,
+  onChanged,
+  onFollowUp,
 }: {
   issue: OwnIssue;
-  onClosed: () => void;
+  onChanged: () => void;
+  onFollowUp: () => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const [messages, setMessages] = useState<OwnIssueMessage[] | null>(null);
@@ -91,8 +101,6 @@ function Thread({
       active = false;
     };
   }, [issue.id, reads]);
-
-  const closed = issue.meaning === "DONE";
 
   return (
     <div className="flex flex-col gap-3 pt-2">
@@ -133,15 +141,34 @@ function Thread({
         </ol>
       )}
 
-      {closed ? (
-        <p className={HINT}>{t("issues.conversation.closedOwn")}</p>
+      {issue.replyMode === "NEW_REPORT" ? (
+        <div className="flex flex-col gap-2">
+          <p className={HINT}>
+            {issue.mergedIntoMeaning === null
+              ? t("issues.conversation.closedOwn")
+              : t("issues.conversation.mergedOwn")}
+          </p>
+          <div>
+            <button
+              type="button"
+              className={SECONDARY_BUTTON}
+              onClick={onFollowUp}
+            >
+              {t("issues.conversation.followUp")}
+            </button>
+          </div>
+        </div>
       ) : (
         <ConversationComposer
           label={t("issues.conversation.message")}
           ariaLabel={t("issues.conversation.messageNamed", {
             type: issue.typeName,
           })}
-          hint={t("issues.conversation.ownHint")}
+          hint={
+            issue.replyMode === "REOPENS"
+              ? t("issues.conversation.reopensHint")
+              : t("issues.conversation.ownHint")
+          }
           sendLabel={t("issues.conversation.send")}
           sendingLabel={t("issues.conversation.sending")}
           failures={REPLY_FAILURES}
@@ -149,10 +176,14 @@ function Thread({
           send={(body) => sendOwnIssueMessage({ issueId: issue.id, body })}
           onSent={() => {
             setReads((count) => count + 1);
+            // The reply reopened it: the list says so once it is read again.
+            if (issue.replyMode === "REOPENS") {
+              onChanged();
+            }
           }}
           onRefused={(reason) => {
             if (reason === "issue-closed") {
-              onClosed();
+              onChanged();
             }
           }}
         />

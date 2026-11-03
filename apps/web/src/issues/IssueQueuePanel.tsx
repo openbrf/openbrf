@@ -30,6 +30,7 @@ import {
 import { IssueHandlerName } from "./IssueHandlerName";
 import { IssueConversation } from "./IssueConversation";
 import { IssueHandling } from "./IssueHandling";
+import { IssueLifecycle } from "./IssueLifecycle";
 import { IssuePriorityChip } from "./IssuePriorityChip";
 import { IssueStatusChip } from "./IssueStatusChip";
 
@@ -270,6 +271,7 @@ export function IssueQueuePanel({
                 <HandlingDisclosure
                   issue={issue}
                   type={type}
+                  candidates={issues}
                   onChanged={onChanged}
                 />
               </li>
@@ -290,10 +292,13 @@ export function IssueQueuePanel({
 function HandlingDisclosure({
   issue,
   type,
+  candidates,
   onChanged,
 }: {
   issue: QueuedIssue;
   type: IssueTypeView | undefined;
+  /** The issues on screen, which this one may be merged into. */
+  candidates: readonly QueuedIssue[];
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -311,6 +316,11 @@ function HandlingDisclosure({
       {open ? (
         <div className="flex flex-col gap-6 pt-2">
           <IssueHandling issue={issue} type={type} onChanged={onChanged} />
+          <IssueLifecycle
+            issue={issue}
+            candidates={candidates}
+            onChanged={onChanged}
+          />
           <IssueConversation issue={issue} onStale={onChanged} />
         </div>
       ) : null}

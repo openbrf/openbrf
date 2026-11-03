@@ -4,6 +4,7 @@ import type {
   IssueHandledBy,
   IssueOutcome,
   IssuePriority,
+  IssueReplyMode,
   IssueReporterGroup,
   IssueSignature,
   IssueStatusMeaning,
@@ -108,7 +109,7 @@ export interface IssuePhoto {
  * An issue as its reporter reads it: where it stands as the meaning of its
  * status, never the board's label for it.
  */
-export interface OwnIssue {
+export interface IssueRow {
   id: string;
   meaning: IssueStatusMeaning;
   typeId: string;
@@ -121,6 +122,50 @@ export interface OwnIssue {
   enteredByHandler: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface OwnIssue extends IssueRow {
+  /**
+   * What a reply does, as the server decided it: a message on an open issue,
+   * a reopening within the window after it closed, and after that, or once it
+   * was merged, a new report linked to it instead (ADR 0054).
+   */
+  replyMode: IssueReplyMode;
+  /** Where the issue it was merged into stands, while it is a duplicate. */
+  mergedIntoMeaning: IssueStatusMeaning | null;
+}
+
+/**
+ * A known fault (känt fel): a handler's notice about a fault the house already
+ * knows of, signed with a role and never a person, with the type's name.
+ */
+export interface KnownFault {
+  body: string;
+  signature: IssueSignature;
+  publishedAt: string;
+  typeName: string;
+}
+
+/**
+ * Another issue an issue is linked to, as a handler is told of it, or
+ * `hidden` when the reader does not handle it or it is gone.
+ */
+export type IssueReference =
+  | {
+      kind: "issue";
+      id: string;
+      typeName: string;
+      meaning: IssueStatusMeaning;
+      createdAt: string;
+    }
+  | { kind: "hidden" };
+
+/** The issues one issue is linked to (decisions 8 and 22). */
+export interface IssueLinks {
+  mergedInto: IssueReference | null;
+  duplicates: Extract<IssueReference, { kind: "issue" }>[];
+  follows: IssueReference | null;
+  followUps: Extract<IssueReference, { kind: "issue" }>[];
 }
 
 /**
@@ -139,7 +184,7 @@ export type IssueReporter =
   | { kind: "external"; name: string | null; email: string | null }
   | { kind: "unknown" };
 
-export type QueuedIssue = OwnIssue & {
+export type QueuedIssue = IssueRow & {
   /** The status it stands in, as the board named it for its type. */
   status: { id: string; label: string };
   waitingReason: IssueWaitingReason | null;
@@ -158,6 +203,8 @@ export type QueuedIssue = OwnIssue & {
   enteredBy: IssueHandler | null;
   /** Closed to every handler but the board on its own. */
   boardOnly: boolean;
+  /** Its known fault, while one is published. */
+  knownFault: Omit<KnownFault, "typeName"> | null;
 } & (
     | { reporter: Exclude<IssueReporter, { kind: "protected" }> }
     | {
@@ -178,6 +225,11 @@ export interface ReportIssueInput {
    * somebody already reported from is refused too.
    */
   postId?: string;
+  /**
+   * One's own closed issue this report follows up: what the reply field offers
+   * once a reply no longer reopens it (ADR 0054).
+   */
+  followsIssueId?: string;
 }
 
 export interface IssueTypeInput {
@@ -227,11 +279,14 @@ export type IssueTimelineStep = {
       toStatusId: string | null;
       waitingReason: IssueWaitingReason | null;
       outcome: IssueOutcome | null;
+      /** Reopened by the reporter's reply, who is never named here. */
+      byReporter: boolean;
     }
   | { kind: "assigned"; assignee: IssueHandler | null; byTypeDefault: boolean }
   | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
+  | { kind: "knownFault"; published: boolean }
 );
 
 /** A move to another status, with what its meaning requires. */
@@ -404,6 +459,70 @@ export function setIssueTargetDate(input: {
     "POST",
     `/api/issue-queue/${encodeURIComponent(input.issueId)}/target-date`,
     { targetDate: input.targetDate },
+  );
+}
+
+/** Merges the issue into another as its duplicate (decision 22). */
+export function mergeIssue(input: {
+  issueId: string;
+  intoIssueId: string;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/merge`,
+    { intoIssueId: input.intoIssueId },
+  );
+}
+
+/** The issues this one is merged into, merged from, follows or is followed by. */
+export function fetchIssueLinks(
+  issueId: string,
+): Promise<ApiResult<IssueLinks>> {
+  return apiRequest(
+    "GET",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/links`,
+  );
+}
+
+/** Publishes or rewrites the issue's known fault. */
+export function publishKnownFault(input: {
+  issueId: string;
+  body: string;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/known-fault`,
+    { body: input.body },
+  );
+}
+
+/** Withdraws the issue's known fault. */
+export function withdrawKnownFault(
+  issueId: string,
+): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "DELETE",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/known-fault`,
+  );
+}
+
+/** The known faults the house is told of, for the report form. */
+export function fetchKnownFaults(): Promise<ApiResult<KnownFault[]>> {
+  return apiRequest("GET", "/api/issues/known-faults");
+}
+
+/**
+ * Writes to the reporters of every issue merged into this one, one message on
+ * each duplicate's own conversation.
+ */
+export function sendToDuplicateReporters(input: {
+  issueId: string;
+  body: string;
+}): Promise<ApiResult<{ sent: number }>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/duplicate-messages`,
+    { body: input.body },
   );
 }
 

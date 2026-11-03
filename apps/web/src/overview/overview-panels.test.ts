@@ -176,6 +176,8 @@ const issue = (overrides: Partial<OwnIssue>): OwnIssue => ({
   apartment: null,
   photos: [],
   enteredByHandler: false,
+  replyMode: "MESSAGE",
+  mergedIntoMeaning: null,
   createdAt: "2026-10-01T08:00:00.000Z",
   updatedAt: "2026-10-01T08:00:00.000Z",
   ...overrides,

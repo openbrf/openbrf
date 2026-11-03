@@ -53,6 +53,13 @@ vi.mock("../api/issues", async (importOriginal) => ({
   fetchIssueAttachments: (id: string) =>
     conversationReads.fetchIssueAttachments(id),
   fetchIssueSavedReplies: () => conversationReads.fetchIssueSavedReplies(),
+  // The links beside the handling: none here; `IssueLifecycle.test.tsx`
+  // covers them.
+  fetchIssueLinks: () =>
+    Promise.resolve({
+      ok: true,
+      value: { mergedInto: null, duplicates: [], follows: null, followUps: [] },
+    }),
 }));
 
 function status(
@@ -135,6 +142,7 @@ function issue(
     assignee: null,
     enteredBy: null,
     boardOnly: false,
+    knownFault: null,
     ...overrides,
   } as QueuedIssue;
 }

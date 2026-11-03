@@ -10,8 +10,13 @@ import { OwnIssueConversation } from "./OwnIssueConversation";
 
 export interface OwnIssuesPanelProps {
   issues: readonly OwnIssue[];
-  /** Told when a report turns out to be closed, so the list is read again. */
-  onClosed: () => void;
+  /**
+   * Told when a report changed under the reader - it turned out to be closed,
+   * or a reply reopened it - so the list is read again.
+   */
+  onChanged: () => void;
+  /** Told when the reporter asks for a new report following up a closed one. */
+  onFollowUp: (issue: OwnIssue) => void;
 }
 
 /**
@@ -24,7 +29,8 @@ export interface OwnIssuesPanelProps {
  */
 export function OwnIssuesPanel({
   issues,
-  onClosed,
+  onChanged,
+  onFollowUp,
 }: OwnIssuesPanelProps): ReactElement {
   const { t } = useTranslation();
 
@@ -51,6 +57,15 @@ export function OwnIssuesPanel({
                   {localDayOfInstant(issue.createdAt)}
                 </span>
               </div>
+
+              {/* A duplicate's reporter follows the issue it was merged
+                  into, by where it stands and nothing else of it. */}
+              {issue.mergedIntoMeaning === null ? null : (
+                <p className="flex flex-wrap items-center gap-2 text-small">
+                  <span>{t("issues.mine.merged")}</span>
+                  <IssueStatusChip meaning={issue.mergedIntoMeaning} />
+                </p>
+              )}
 
               <p className="text-small whitespace-pre-line">
                 {issue.description}
@@ -98,7 +113,13 @@ export function OwnIssuesPanel({
                 </ul>
               )}
 
-              <OwnIssueConversation issue={issue} onClosed={onClosed} />
+              <OwnIssueConversation
+                issue={issue}
+                onChanged={onChanged}
+                onFollowUp={() => {
+                  onFollowUp(issue);
+                }}
+              />
             </li>
           ))}
         </ul>

@@ -34,6 +34,7 @@ const attachIssuePhoto = vi.fn();
 const fetchOwnIssues = vi.fn();
 const fetchOwnIssueMessages = vi.fn();
 const sendOwnIssueMessage = vi.fn();
+const fetchKnownFaults = vi.fn();
 
 vi.mock("../api/feed", () => ({
   fetchPost: (input: unknown) => fetchPost(input),
@@ -47,6 +48,7 @@ vi.mock("../api/issues", async (importOriginal) => ({
     ),
   fetchOwnApartments: () => Promise.resolve(ok([])),
   fetchOwnIssues: () => fetchOwnIssues(),
+  fetchKnownFaults: () => fetchKnownFaults(),
   fetchOwnIssueMessages: (id: string) => fetchOwnIssueMessages(id),
   sendOwnIssueMessage: (input: unknown) => sendOwnIssueMessage(input),
   fetchIssueQueue: () => Promise.resolve(ok([])),
@@ -92,6 +94,7 @@ const READER = viewer(["issues:report"]);
 beforeEach(() => {
   vi.clearAllMocks();
   fetchOwnIssues.mockResolvedValue(ok([]));
+  fetchKnownFaults.mockResolvedValue(ok([]));
   reportIssue.mockResolvedValue(ok({ id: "issue-1" }));
   attachIssuePhoto.mockResolvedValue(
     ok({
@@ -226,6 +229,8 @@ describe("a report made from a post", () => {
       apartment: null,
       photos: [],
       enteredByHandler: false,
+      replyMode: "MESSAGE" as const,
+      mergedIntoMeaning: null,
       createdAt: "2026-08-20T08:00:00.000Z",
       updatedAt: "2026-08-20T08:00:00.000Z",
     };
@@ -236,7 +241,9 @@ describe("a report made from a post", () => {
     render(<IssuesScreen viewer={READER} />);
 
     expect(await screen.findByText("Hissen står still.")).toBeTruthy();
-    fetchOwnIssues.mockResolvedValue(ok([{ ...report, meaning: "DONE" }]));
+    fetchOwnIssues.mockResolvedValue(
+      ok([{ ...report, meaning: "DONE", replyMode: "NEW_REPORT" }]),
+    );
     await session.click(screen.getByText("Meddelanden om Hiss"));
     await session.type(
       await screen.findByLabelText("Hiss: ditt meddelande"),
@@ -251,5 +258,82 @@ describe("a report made from a post", () => {
       expect(screen.queryByLabelText("Hiss: ditt meddelande")).toBeNull();
     });
     expect(screen.getByText("Hissen står still.")).toBeTruthy();
+  });
+});
+
+describe("known faults and a report that follows up another", () => {
+  it("shows the known faults the house is told of before the form", async () => {
+    fetchKnownFaults.mockResolvedValue(
+      ok([
+        {
+          body: "Hissen i port 14 står still. Tekniker kommer torsdag.",
+          signature: "PROPERTY_MANAGER",
+          publishedAt: "2026-08-20T08:00:00.000Z",
+          typeName: "Hiss",
+        },
+      ]),
+    );
+    render(<IssuesScreen viewer={READER} />);
+
+    expect(
+      await screen.findByText(
+        "Hissen i port 14 står still. Tekniker kommer torsdag.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Kända fel")).toBeTruthy();
+    expect(screen.getByText("Förvaltaren")).toBeTruthy();
+  });
+
+  it("files a new report linked to a closed one, on its type", async () => {
+    fetchOwnIssues.mockResolvedValue(
+      ok([
+        {
+          id: "issue-old",
+          meaning: "DONE",
+          typeId: "type-lift",
+          typeName: "Hiss",
+          location: null,
+          description: "Hissen stod still i våras.",
+          apartment: null,
+          photos: [],
+          enteredByHandler: false,
+          replyMode: "NEW_REPORT",
+          mergedIntoMeaning: null,
+          createdAt: "2026-03-20T08:00:00.000Z",
+          updatedAt: "2026-04-20T08:00:00.000Z",
+        },
+      ]),
+    );
+    fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    const session = userEvent.setup();
+    render(<IssuesScreen viewer={READER} />);
+
+    await session.click(await screen.findByText("Meddelanden om Hiss"));
+    await session.click(
+      await screen.findByRole("button", { name: "Gör en ny anmälan om detta" }),
+    );
+    expect(
+      await screen.findByText(
+        "Den här anmälan följer upp din tidigare anmälan om Hiss.",
+      ),
+    ).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Vad gäller det") as HTMLSelectElement).value,
+    ).toBe("type-lift");
+
+    await session.type(
+      screen.getByLabelText("Vad har hänt"),
+      "Hissen står still igen.",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka anmälan" }));
+
+    await waitFor(() => {
+      expect(reportIssue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          typeId: "type-lift",
+          followsIssueId: "issue-old",
+        }),
+      );
+    });
   });
 });
