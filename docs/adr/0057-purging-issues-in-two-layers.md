@@ -214,6 +214,8 @@ takes a case from somebody, or of a type's setting that shuts them out, names
 them only as the previous assignee in its context, so the report lists it among
 their entries as one about them, and withholds the previous assignee from the
 entry of the person it was given to, who is told only that the case had one.
+The report finds those entries through a partial index on that context key, so
+that it does not scan a log which only grows.
 
 The other new columns name somebody who acted, and each is answered by `actedAs`
 where its service records the act with that person as the actor: the handler who

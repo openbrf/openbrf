@@ -1407,6 +1407,24 @@ export class DataSubjectReportService {
     });
 
     /*
+     * A former assignee: the entry of the assignment that took an issue from
+     * them, or of a type's setting that shut them out, names them only as the
+     * previous assignee in its context (ADR 0057). Without it their report
+     * would omit the one record of having held the issue.
+     *
+     * Read apart from the query below, with the expression the partial index
+     * `audit_log_entry_previousAssignee_idx` is built on. Inside that query's
+     * OR the context arm has no index, and the planner scans the whole log,
+     * which only grows. The key is a literal in the SQL, as in the index: a
+     * bound parameter would not match the index's expression. It is
+     * PREVIOUS_ASSIGNEE_KEY.
+     */
+    const previousAssigneeEntries = await tx.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "audit_log_entry"
+      WHERE ("context" ->> 'previousAssigneePersonId') = ${personId}
+    `;
+
+    /*
      * Every entry naming this person, either way round. The log's two person
      * columns are plain columns rather than relations - the audit log has to
      * outlive the people it names - so this is one query with an OR rather
@@ -1417,18 +1435,7 @@ export class DataSubjectReportService {
         OR: [
           { targetPersonId: personId },
           { actorPersonId: personId },
-          /*
-           * A former assignee: the entry of the assignment that took an issue
-           * from them, or of a type's setting that shut them out, names them
-           * only as the previous assignee in its context (ADR 0057). Without
-           * this their report would omit the one record of having held it.
-           */
-          {
-            context: {
-              path: [PREVIOUS_ASSIGNEE_KEY],
-              equals: personId,
-            },
-          },
+          { id: { in: previousAssigneeEntries.map((entry) => entry.id) } },
         ],
       },
       orderBy: [{ createdAt: "desc" }],

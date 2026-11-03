@@ -695,6 +695,27 @@ describe("assigning, priority and target date", () => {
   });
 });
 
+describe("finding the entries that took an issue from a person", () => {
+  it("reads them through the index on the previous assignee, not a scan of the audit log", async () => {
+    /*
+     * The access report reads these entries with the query below. The planner
+     * is barred from a sequential scan for the one transaction, so this fails
+     * when the index is gone or the expression no longer matches it, whatever
+     * the size of this test database.
+     */
+    const plan = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL enable_seqscan = off`;
+      return tx.$queryRaw<{ "QUERY PLAN": string }[]>`
+        EXPLAIN SELECT "id" FROM "audit_log_entry"
+        WHERE ("context" ->> 'previousAssigneePersonId') = ${manager.personId}
+      `;
+    });
+    expect(plan.map((row) => row["QUERY PLAN"]).join("\n")).toContain(
+      "audit_log_entry_previousAssignee_idx",
+    );
+  });
+});
+
 describe("who handles a type and an issue", () => {
   it("keeps a board-only type's issues from the property manager on every read, and not from an administrator without a seat", async () => {
     const id = await filed(boardOnly, "kept");
