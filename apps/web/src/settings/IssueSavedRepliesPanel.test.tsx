@@ -154,4 +154,35 @@ describe("the saved replies", () => {
       screen.queryByText("De sparade svaren gick inte att läsa just nu."),
     ).toBeNull();
   });
+
+  it("keeps the retry in view while a refused write is said, when the list could not be read again", async () => {
+    createIssueSavedReply.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "personal-identity-number" },
+    });
+    const session = userEvent.setup();
+    render(<IssueSavedRepliesPanel />);
+    await screen.findByDisplayValue("Ditt ansvar enligt stadgarna");
+
+    // The re-read that follows the refusal fails.
+    fetchConfiguredSavedReplies.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    const [, titleField] = screen.getAllByLabelText("Namn");
+    const [, bodyField] = screen.getAllByLabelText("Text");
+    await session.type(titleField as HTMLElement, "Nummer");
+    await session.type(bodyField as HTMLElement, "Ring 19811218-9876");
+    await session.click(screen.getByRole("button", { name: "Lägg till" }));
+
+    expect(
+      await screen.findByText(
+        "Texten innehåller ett personnummer. Ta bort det och spara igen.",
+      ),
+    ).toBeTruthy();
+    expect(
+      await screen.findByText("De sparade svaren gick inte att läsa just nu."),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Försök igen" })).toBeTruthy();
+  });
 });

@@ -115,8 +115,8 @@ SELECT 'seed-issue-saved-reply-bylaws',
             THEN 'Yours under the bylaws'
             ELSE 'Ditt ansvar enligt stadgarna' END,
        CASE WHEN a."defaultLocale" = 'en'
-            THEN 'Thank you for your report. The association''s bylaws decide whether you as the tenant-owner or the association is responsible for maintaining what you describe. If the bylaws place it with you, you arrange the work and pay for it. Write here if you have any questions.'
-            ELSE 'Tack för din anmälan. Enligt föreningens stadgar avgörs det om det är du som bostadsrättshavare eller föreningen som ansvarar för underhållet av det du beskriver. Om stadgarna lägger ansvaret på dig ordnar och bekostar du åtgärden. Skriv här om du har frågor.' END,
+            THEN 'Thank you for your report. The association''s bylaws and the law decide whether you as the tenant-owner or the association is responsible for maintaining what you describe. If the bylaws and the law place it with you, you arrange the work and pay for it. Write here if you have any questions.'
+            ELSE 'Tack för din anmälan. Enligt föreningens stadgar och lagen avgörs det om det är du som bostadsrättshavare eller föreningen som ansvarar för underhållet av det du beskriver. Om stadgarna och lagen lägger ansvaret på dig ordnar och bekostar du åtgärden. Skriv här om du har frågor.' END,
        1,
        CURRENT_TIMESTAMP
 FROM "association" a

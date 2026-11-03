@@ -27,7 +27,8 @@ the conversation.
 - **Saved replies.** The board writes saved replies under Settings, and a
   handler inserts one into a message, edits it and sends it. A new instance
   starts with two: one acknowledging the issue and one saying that the bylaws
-  decide whether what was reported is the tenant-owner's to maintain. An instance
+  and the law decide whether what was reported is the tenant-owner's to
+  maintain. An instance
   already set up gets the same two when it upgrades, in its own language. They
   are templates for the board to reword to its own bylaws.
 

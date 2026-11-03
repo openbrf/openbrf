@@ -554,6 +554,31 @@ describe("a resident and the handlers converse", () => {
     expect(await prisma.issueMessage.count({ where: { issueId } })).toBe(0);
   });
 
+  it("refuses a message to a reporter whose person has no sign-in account", async () => {
+    const accountless = `ic-accountless-${suffix}`;
+    await prisma.person.create({
+      data: {
+        id: accountless,
+        firstName: "Kim",
+        lastName: `Utankonto${suffix}`,
+      },
+    });
+    try {
+      const issueId = await filed(plain, { reporterPersonId: accountless });
+
+      const refused = await write(
+        board,
+        `/api/issue-queue/${issueId}/messages`,
+        "Hej",
+      );
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json()).toMatchObject({ reason: "no-reporter" });
+      expect(await prisma.issueMessage.count({ where: { issueId } })).toBe(0);
+    } finally {
+      await prisma.person.delete({ where: { id: accountless } });
+    }
+  });
+
   it("refuses a personal identity number in what the board writes back, and stores the reporter's words as written", async () => {
     const issueId = await filed(plain);
 

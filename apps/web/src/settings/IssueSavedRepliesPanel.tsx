@@ -69,7 +69,7 @@ function perform(act: Act) {
  * The board's own words, sent in its name, so they are written here under
  * issues:configure and read by everybody who handles issues. Picking one in a
  * conversation fills the field and sends nothing. Two come with a new
- * instance, one of them saying that the bylaws decide whether what was
+ * instance, one of them saying that the bylaws and the law decide whether what was
  * reported is the tenant-owner's; the board rewords them to its own bylaws.
  */
 export function IssueSavedRepliesPanel(): ReactElement {
@@ -130,7 +130,8 @@ export function IssueSavedRepliesPanel(): ReactElement {
               FIELD_LABELS,
             )}
           </Notice>
-        ) : readFailed ? (
+        ) : null}
+        {readFailed ? (
           <LoadFailure
             messageKey="settings.issueSavedReplies.loadFailed"
             onRetry={() => {

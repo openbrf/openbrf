@@ -13,6 +13,7 @@ import { failureName } from "../logging/failure";
 import { holdsBoardSeat } from "../mail/board-recipients";
 import { readImageHeader } from "../media/image-bytes";
 import { mediaUrl, MediaService } from "../media/media.service";
+import { lockErasureEligibility } from "../retention/erasure-lock";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
 import { lockIssue, lockIssueForHandling } from "./issue-lock";
 import { IssueError, type IssueTextLocation } from "./issue.error";
@@ -203,9 +204,18 @@ export class IssueConversationService {
     refusePersonalIdentityNumbers({ body });
     const message = await this.prisma.$transaction(async (tx) => {
       const now = new Date();
+      await lockErasureEligibility(tx, handlerPersonId);
       await lockIssueForHandling(tx, issueId);
       const issue = await this.requireHandled(tx, issueId, handlerPersonId);
-      if (issue.reporterPersonId === null) {
+      // A person with no sign-in account cannot open the thread either.
+      const reporterAccount =
+        issue.reporterPersonId === null
+          ? null
+          : await tx.user.findUnique({
+              where: { personId: issue.reporterPersonId },
+              select: { id: true },
+            });
+      if (reporterAccount === null) {
         throw new IssueError(
           "Nobody can read an answer on this issue.",
           "no-reporter",
@@ -256,6 +266,7 @@ export class IssueConversationService {
   ): Promise<IssueNoteView> {
     refusePersonalIdentityNumbers({ body });
     const note = await this.prisma.$transaction(async (tx) => {
+      await lockErasureEligibility(tx, handlerPersonId);
       await lockIssueForHandling(tx, issueId);
       await this.requireHandled(tx, issueId, handlerPersonId);
       const written = await tx.issueNote.create({
