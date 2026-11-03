@@ -52,6 +52,11 @@ describe("findPhoneNumbers", () => {
       "\u{10400}cabcdefghijklmn0701234567",
       "0701234567",
     ],
+    [
+      "a line break between an id-shaped run and the number",
+      "cabcdefghijklmn\n0701234567",
+      "0701234567",
+    ],
     ["a label on each side", "Mobil0701234567privat", "0701234567"],
     [
       "a token one character short of an id",
