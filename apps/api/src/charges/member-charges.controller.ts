@@ -206,6 +206,15 @@ export class MemberChargesController {
      */
     if (charges !== null && issue.party === null) {
       issue = await this.issues.chargeBasis(reader, issueId);
+      /*
+       * A null party does not say that the reporter is unprotected: an
+       * unprotected reporter who is no resident has none either. The read
+       * itself does, so where it shows protection that the charges' read did
+       * not, the rows go with the party, as above.
+       */
+      if (issue.reporterProtected) {
+        return { issue: { ...issue, party: null }, charges: null };
+      }
     }
     return { issue, charges };
   }

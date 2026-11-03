@@ -363,6 +363,14 @@ describe("the responsibility guide", () => {
       ok: false,
       failure: { status: 500 },
     });
+    fetchResponsibilityGuide.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        adoptedAt: null,
+        items: [{ part: "Stammar", responsibility: "ASSOCIATION", note: null }],
+        version: "2026-11-02T09:00:00.000Z",
+      },
+    });
     const session = userEvent.setup();
     render(<ResponsibilityGuidePanel />);
 
@@ -371,5 +379,8 @@ describe("the responsibility guide", () => {
     expect(
       await screen.findByRole("button", { name: "Spara ansvarsfördelningen" }),
     ).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Rad 1: vad") as HTMLInputElement).value,
+    ).toBe("Stammar");
   });
 });

@@ -312,6 +312,12 @@ export interface IssueChargeBasis {
   issueId: string;
   typeName: string;
   costResponsibility: IssueCostResponsibility | null;
+  /**
+   * Whether the reporter's personal data is protected, from the same read as
+   * the party. A null party does not say it: an unprotected reporter who is no
+   * resident has none either.
+   */
+  reporterProtected: boolean;
   /** Who a charge for it is put on unless the board picks another, or null. */
   party:
     | { kind: "apartment"; apartmentId: string }
@@ -1345,6 +1351,7 @@ export class IssueService {
       issueId: issue.id,
       typeName: issue.typeName,
       costResponsibility: issue.costResponsibility,
+      reporterProtected: issue.reporter.kind === "protected",
       party:
         issue.apartment !== null
           ? { kind: "apartment", apartmentId: issue.apartment.id }

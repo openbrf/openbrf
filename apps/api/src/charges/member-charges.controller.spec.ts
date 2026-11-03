@@ -15,8 +15,11 @@ const ISSUE_ID = "issue-1";
 const READER = "reader-1";
 const request = { principal: { personId: READER } } as RequestWithPrincipal;
 
-function basis(party: IssueChargeBasis["party"]): IssueChargeBasis {
-  return { issueId: ISSUE_ID, party } as IssueChargeBasis;
+function basis(
+  party: IssueChargeBasis["party"],
+  reporterProtected = false,
+): IssueChargeBasis {
+  return { issueId: ISSUE_ID, party, reporterProtected } as IssueChargeBasis;
 }
 
 function controller(
@@ -68,5 +71,27 @@ describe("the charges of an issue", () => {
     expect(reads).toHaveBeenCalledTimes(1);
     expect(answer.issue.party).toBeNull();
     expect(answer.charges).toBeNull();
+  });
+
+  it("withholds the rows when the final read shows a protected reporter the charges' read did not", async () => {
+    const { subject, reads } = controller(
+      [basis(null), basis(null, true)],
+      [{ id: "charge-1", issueId: ISSUE_ID }],
+    );
+
+    const answer = await subject.forIssue(ISSUE_ID, request);
+
+    expect(reads).toHaveBeenCalledTimes(2);
+    expect(answer.issue.party).toBeNull();
+    expect(answer.charges).toBeNull();
+  });
+
+  it("keeps the rows of an unprotected reporter who is no resident", async () => {
+    const rows = [{ id: "charge-1", issueId: ISSUE_ID }];
+    const { subject } = controller([basis(null), basis(null)], rows);
+
+    const answer = await subject.forIssue(ISSUE_ID, request);
+
+    expect(answer.charges).toEqual(rows);
   });
 });

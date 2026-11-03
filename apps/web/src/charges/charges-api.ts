@@ -66,6 +66,7 @@ export interface IssueChargeBasis {
   issueId: string;
   typeName: string;
   costResponsibility: IssueCostResponsibility | null;
+  reporterProtected: boolean;
   party:
     | { kind: "apartment"; apartmentId: string }
     | { kind: "person"; personId: string }
