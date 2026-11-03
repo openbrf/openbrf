@@ -11,8 +11,8 @@
 
   A plugin that keeps records about a person (`personRecords`) is shown and
   recorded with former residents whether it names them or not. A person who moves
-  out keeps those records until each one's erase date, and they stay on the
-  person's access report, so the consent screen, `openbrf plugin add` and the
+  out keeps those records until each one's erase date, or longer under a
+  legal hold or restriction, and they stay on the person's access report, so the consent screen, `openbrf plugin add` and the
   plugin's row in the record of processing activities now name former residents
   after the categories the plugin declared. The SDK exports this as
   `processingDataSubjects`. A row seeded earlier keeps its categories until the
@@ -92,8 +92,9 @@
   - While a plugin access stands, the board cannot grant an erasure of its
     holder. The person's page gives the reason in Swedish and English, and no
     purge erases the person. Once the board withdraws the access, an erasure can
-    be granted and is carried out, the plugin's records about the person
-    included. A person who has only held a plugin access has never had a
+    be granted and is carried out, including the plugin's records about the
+    person, except those under a legal hold or a restriction. Those remain until
+    the hold or restriction no longer applies and their erase date has passed. A person who has only held a plugin access has never had a
     residency to count a retention period from, so the scheduled purge gives them
     no date. A granted erasure removes them, as it removes a board member who
     lives elsewhere once their term has ended.
