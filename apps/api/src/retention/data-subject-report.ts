@@ -21,6 +21,7 @@
 
 import type {
   AuditChannelName,
+  IssueCostResponsibility,
   IssueOutcome,
   IssueStatusMeaning,
   IssueWaitingReason,
@@ -555,6 +556,11 @@ export interface ReportIssue {
   outcome: IssueOutcome | null;
   /** Whom the issue awaits, while WAITING (ADR 0054). Null otherwise. */
   waitingReason: IssueWaitingReason | null;
+  /**
+   * Who a handler recorded as paying for it, or null while nobody has said
+   * (ADR 0054). Never an amount: a charge made from it is in `charges`.
+   */
+  costResponsibility: IssueCostResponsibility | null;
   location: string | null;
   description: string;
   reportedAt: string;

@@ -72,6 +72,20 @@ export async function lockWorkOrderSender(
 }
 
 /**
+ * The lock a transaction takes before it replaces the responsibility guide.
+ *
+ * A save deletes every line and writes the board's, and at READ COMMITTED two
+ * saves at once would each delete only the lines that existed when it began
+ * and both leave their own behind. An advisory lock for the reason `lockIssue`
+ * gives: the invariant is the whole table, not a row.
+ */
+export async function lockResponsibilityGuide(
+  tx: Prisma.TransactionClient,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"responsibility-guide"}))`;
+}
+
+/**
  * The locks a write takes before it decides whether its actor handles an
  * issue: the issue's type's, then the issue's own.
  *

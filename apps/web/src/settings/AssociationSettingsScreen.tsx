@@ -31,6 +31,7 @@ import { IssueReportingPanel } from "./IssueReportingPanel";
 import { ContractorsPanel } from "./ContractorsPanel";
 import { IssueSavedRepliesPanel } from "./IssueSavedRepliesPanel";
 import { IssueTypesPanel } from "./IssueTypesPanel";
+import { ResponsibilityGuidePanel } from "./ResponsibilityGuidePanel";
 import { MeetingBylawsPanel } from "./MeetingBylawsPanel";
 import { MotionDeadlinePanel } from "./MotionDeadlinePanel";
 import { DataProtectionContactsPanel } from "./DataProtectionContactsPanel";
@@ -428,6 +429,11 @@ export function AssociationSettingsScreen({
         /* The firms a work order goes to, beside the types whose issues
            need them, kept under the same capability. */
         return <ContractorsPanel />;
+      case "responsibilityGuide":
+        /* Beside the types it is read with: the board's reading of its own
+           bylaws on who maintains what, shown to the handlers deciding who
+           pays and, once adopted, to residents before they report. */
+        return <ResponsibilityGuidePanel />;
       case "issueSavedReplies":
         /* Beside the catalogue: what a handler answers a reporter with is the
            board's vocabulary as much as the types are. */

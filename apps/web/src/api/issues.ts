@@ -1,6 +1,7 @@
 import type {
   AuthorView,
   IssueClosingOutcome,
+  IssueCostResponsibility,
   IssueHandledBy,
   IssueOutcome,
   IssuePriority,
@@ -8,6 +9,7 @@ import type {
   IssueSignature,
   IssueStatusMeaning,
   IssueWaitingReason,
+  MaintenanceResponsibility,
 } from "@openbrf/shared";
 
 import { apiRequest, apiUpload, type ApiResult } from "./client";
@@ -160,6 +162,11 @@ export type QueuedIssue = OwnIssue & {
   enteredBy: IssueHandler | null;
   /** Closed to every handler but the board on its own. */
   boardOnly: boolean;
+  /**
+   * Who pays, or null while nobody has said. Never an amount: a charge made
+   * from the issue is read from the charges, by those who may read them.
+   */
+  costResponsibility: IssueCostResponsibility | null;
 } & (
     | { reporter: Exclude<IssueReporter, { kind: "protected" }> }
     | {
@@ -238,7 +245,32 @@ export type IssueTimelineStep = {
       kind: "workOrder";
       delivery: "pending" | "sent" | "failed" | "unconfirmed" | null;
     }
+  | {
+      kind: "costResponsibility";
+      from: IssueCostResponsibility | null;
+      to: IssueCostResponsibility | null;
+    }
 );
+
+/** One line of the association's responsibility guide (ansvarsfördelning). */
+export interface ResponsibilityGuideItem {
+  /** "Golvbrunn, rensning": the board's own text, stored as written. */
+  part: string;
+  responsibility: MaintenanceResponsibility;
+  note: string | null;
+}
+
+/**
+ * The association's responsibility guide. `adoptedAt` is null while it is an
+ * example the board has not said follows its bylaws, and every screen that
+ * shows it then says so.
+ */
+export interface ResponsibilityGuide {
+  adoptedAt: string | null;
+  items: ResponsibilityGuideItem[];
+  /** When it was last saved, or null if never: sent back with the next save. */
+  version: string | null;
+}
 
 /** A move to another status, with what its meaning requires. */
 export interface IssueStatusMoveInput {
@@ -411,6 +443,65 @@ export function setIssueTargetDate(input: {
     `/api/issue-queue/${encodeURIComponent(input.issueId)}/target-date`,
     { targetDate: input.targetDate },
   );
+}
+
+/** Who pays for the issue, or null to say nothing again. Never an amount. */
+export function setIssueCostResponsibility(input: {
+  issueId: string;
+  costResponsibility: IssueCostResponsibility | null;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/cost-responsibility`,
+    { costResponsibility: input.costResponsibility },
+  );
+}
+
+/**
+ * The responsibility guide as a handler reads it when deciding who pays:
+ * adopted or not. Under issues:handle, so the property manager reads it too.
+ */
+export function fetchHandlerResponsibilityGuide(): Promise<
+  ApiResult<ResponsibilityGuide>
+> {
+  return apiRequest("GET", "/api/issue-queue/responsibility-guide");
+}
+
+/**
+ * The guide a reporter is shown before filing: the adopted one, or null while
+ * it is an example. The server decides which, not this form.
+ */
+export function fetchReporterResponsibilityGuide(): Promise<
+  ApiResult<{ guide: ResponsibilityGuide | null }>
+> {
+  /*
+   * Bounded, body included: the screen waits for this read with the others
+   * before it shows the report form, and a form is filed without the guide
+   * when it fails. A timeout on the answer alone would leave a stalled body
+   * unbounded.
+   */
+  return apiRequest("GET", "/api/issues/responsibility-guide", undefined, {
+    signal: AbortSignal.timeout(10_000),
+  });
+}
+
+/** The guide as the board configures it. Under issues:configure. */
+export function fetchResponsibilityGuide(): Promise<
+  ApiResult<ResponsibilityGuide>
+> {
+  return apiRequest("GET", "/api/responsibility-guide");
+}
+
+/**
+ * Replaces the whole guide, and adopts it or withdraws the adoption. `version`
+ * is the one the editor read: a save made from an older one is refused.
+ */
+export function saveResponsibilityGuide(input: {
+  items: readonly ResponsibilityGuideItem[];
+  adopted: boolean;
+  version: string | null;
+}): Promise<ApiResult<ResponsibilityGuide>> {
+  return apiRequest("PUT", "/api/responsibility-guide", input);
 }
 
 /** Closes the issue to all but the board, or opens it again. */

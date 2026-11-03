@@ -22,6 +22,7 @@ import type { ChargeablePerson, ChargeParties } from "./charge-parties";
 import {
   type ChargeRow,
   correctCharge,
+  type IssueChargeBasis,
   recordCharge,
   type VatTreatment,
   VAT_TREATMENTS,
@@ -60,6 +61,16 @@ import {
  * the charged party is offered, because the server takes everything but the
  * party - a charge put on the wrong person is removed and recorded again, so
  * that the log says what happened.
+ *
+ * ## Made from an issue
+ *
+ * Opened from an issue ("Skapa debitering", decision 26 of the issue module
+ * plan), the form starts from it: the issue's apartment as the party, or the
+ * resident who reported it, and a reason naming the issue's type - never
+ * anything the reporter wrote, because the reason is copied into a file that
+ * leaves the association. The amount is left for the board to enter, here and
+ * only here. Every charge recorded from the form while it is open is linked
+ * to the issue, and says so above the fields.
  */
 /**
  * What one person's option reads.
@@ -90,12 +101,46 @@ function personOption(
     : shown;
 }
 
+/**
+ * The party a charge made from an issue starts on: the one the issue names,
+ * where the form offers it. A person or an apartment the lists do not hold -
+ * somebody who has moved out since - leaves the select on "choose", rather
+ * than holding an identifier the select cannot show.
+ */
+function startingParty(
+  fromIssue: IssueChargeBasis | undefined,
+  parties: ChargeParties,
+): { kind: "person" | "apartment"; personId: string; apartmentId: string } {
+  const party = fromIssue?.party ?? null;
+  if (party?.kind === "apartment") {
+    return {
+      kind: "apartment",
+      personId: "",
+      apartmentId: parties.apartments.some(
+        (apartment) => apartment.apartmentId === party.apartmentId,
+      )
+        ? party.apartmentId
+        : "",
+    };
+  }
+  return {
+    kind: "person",
+    personId:
+      party?.kind === "person" &&
+      parties.persons.some((person) => person.personId === party.personId)
+        ? party.personId
+        : "",
+    apartmentId: "",
+  };
+}
+
 export function RecordChargePanel({
   parties,
   today,
   onRecorded,
   correcting,
   onCancel,
+  fromIssue,
 }: {
   parties: ChargeParties;
   /** "YYYY-MM-DD". The default date, and the latest one the form offers. */
@@ -105,19 +150,32 @@ export function RecordChargePanel({
   correcting?: ChargeRow;
   /** Closes a correction without saving it. */
   onCancel?: () => void;
+  /**
+   * The issue a new charge is made from, which fills the form in and is
+   * linked to every charge recorded from it. Never with `correcting`.
+   */
+  fromIssue?: IssueChargeBasis;
 }): ReactElement {
   const { t } = useTranslation();
   const chargedOnRef = useRef<HTMLInputElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
 
-  const [partyKind, setPartyKind] = useState<"person" | "apartment">("person");
-  const [personId, setPersonId] = useState("");
-  const [apartmentId, setApartmentId] = useState("");
+  const start = startingParty(fromIssue, parties);
+  const [partyKind, setPartyKind] = useState<"person" | "apartment">(
+    start.kind,
+  );
+  const [personId, setPersonId] = useState(start.personId);
+  const [apartmentId, setApartmentId] = useState(start.apartmentId);
   const [chargedOn, setChargedOn] = useState(correcting?.chargedOn ?? today);
   const [amount, setAmount] = useState(correcting?.amount ?? "");
   const [amountInvalid, setAmountInvalid] = useState(false);
   const amountErrorId = useId();
-  const [reason, setReason] = useState(correcting?.reason ?? "");
+  const [reason, setReason] = useState(
+    correcting?.reason ??
+      (fromIssue === undefined
+        ? ""
+        : t("charges.record.fromIssueReason", { type: fromIssue.typeName })),
+  );
   const [vatTreatment, setVatTreatment] = useState<VatTreatment>(
     correcting?.vatTreatment ?? "EXEMPT",
   );
@@ -200,11 +258,18 @@ export function RecordChargePanel({
                   personId: partyKind === "person" ? personId : null,
                   apartmentId: partyKind === "apartment" ? apartmentId : null,
                   ...fields,
+                  issueId: fromIssue?.issueId ?? null,
                 })
               : correctCharge(correcting.chargeId, fields),
           );
         }}
       >
+        {correcting === undefined && fromIssue !== undefined ? (
+          <Notice tone="info">
+            {t("charges.record.fromIssue", { type: fromIssue.typeName })}
+          </Notice>
+        ) : null}
+
         {correcting === undefined ? (
           <>
             <fieldset className="flex flex-col gap-2">

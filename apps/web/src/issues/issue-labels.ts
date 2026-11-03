@@ -1,4 +1,5 @@
 import type {
+  IssueCostResponsibility,
   IssueHandledBy,
   IssueOutcome,
   IssuePriority,
@@ -6,6 +7,7 @@ import type {
   IssueSignature,
   IssueStatusMeaning,
   IssueWaitingReason,
+  MaintenanceResponsibility,
 } from "@openbrf/shared";
 
 import type { TranslationKey } from "../i18n/translation-key";
@@ -58,6 +60,21 @@ export const ISSUE_HANDLED_BY_LABEL = {
   EVERY_HANDLER: "issues.handledBy.EVERY_HANDLER",
   BOARD: "issues.handledBy.BOARD",
 } as const satisfies Readonly<Record<IssueHandledBy, TranslationKey>>;
+
+/** Who pays for an issue (kostnadsansvar): Föreningen, Bostadsrättshavaren, Oklart. */
+export const ISSUE_COST_RESPONSIBILITY_LABEL = {
+  ASSOCIATION: "issues.costResponsibility.ASSOCIATION",
+  TENANT_OWNER: "issues.costResponsibility.TENANT_OWNER",
+  UNCLEAR: "issues.costResponsibility.UNCLEAR",
+} as const satisfies Readonly<Record<IssueCostResponsibility, TranslationKey>>;
+
+/** Who maintains a part, as a line of the responsibility guide states it. */
+export const MAINTENANCE_RESPONSIBILITY_LABEL = {
+  ASSOCIATION: "issues.maintenanceResponsibility.ASSOCIATION",
+  TENANT_OWNER: "issues.maintenanceResponsibility.TENANT_OWNER",
+} as const satisfies Readonly<
+  Record<MaintenanceResponsibility, TranslationKey>
+>;
 
 /**
  * The role a handler's message is signed with (decision 19): what the reporter
