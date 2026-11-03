@@ -153,6 +153,7 @@ const TRANSFER_ID = `rep-transfer-${suffix}`;
 
 let createdAssociation = false;
 let previousDesignation: string | null = null;
+let previousOrganizationNumber: string | null = null;
 
 let ipCounter = 0;
 
@@ -401,7 +402,7 @@ beforeAll(async () => {
 
   const association = await prisma.association.findUnique({
     where: { id: 1 },
-    select: { propertyDesignation: true },
+    select: { propertyDesignation: true, organizationNumber: true },
   });
   if (association === null) {
     await prisma.association.create({
@@ -415,9 +416,18 @@ beforeAll(async () => {
     createdAssociation = true;
   } else {
     previousDesignation = association.propertyDesignation;
+    previousOrganizationNumber = association.organizationNumber;
+    // A row another suite set up for itself may carry only a name, and the
+    // supply refuses an association without an organisation number.
+    const organizationNumber = (association.organizationNumber ?? "").trim();
     await prisma.association.update({
       where: { id: 1 },
-      data: { propertyDesignation: `Talgoxen ${suffix}` },
+      data: {
+        propertyDesignation: `Talgoxen ${suffix}`,
+        ...(organizationNumber === ""
+          ? { organizationNumber: "769600-0101" }
+          : {}),
+      },
     });
   }
 
@@ -472,7 +482,10 @@ afterAll(async () => {
   } else {
     await prisma.association.update({
       where: { id: 1 },
-      data: { propertyDesignation: previousDesignation },
+      data: {
+        propertyDesignation: previousDesignation,
+        organizationNumber: previousOrganizationNumber,
+      },
     });
   }
   // The statutory archive is append-only, so the transfer, the termination, the
