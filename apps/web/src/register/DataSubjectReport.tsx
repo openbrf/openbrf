@@ -163,12 +163,19 @@ const CONSENT_SCOPE_LABEL = {
   BOARD_ROSTER: "register.person.consentScope.boardRoster",
 } as const satisfies Record<ConsentScope, TranslationKey>;
 
-/** Whether a work order's mail went out, in words that keep a failure open. */
+/**
+ * Whether a work order's mail went out, in words that keep a failure open
+ * unless it is known not to have gone out (`notSent`).
+ */
 const WORK_ORDER_DELIVERY_LABEL = {
   PENDING: "register.person.report.workOrder.delivery.PENDING",
   SENT: "register.person.report.workOrder.delivery.SENT",
   FAILED: "register.person.report.workOrder.delivery.FAILED",
-} as const satisfies Record<"PENDING" | "SENT" | "FAILED", TranslationKey>;
+  NOT_SENT: "register.person.report.workOrder.delivery.NOT_SENT",
+} as const satisfies Record<
+  "PENDING" | "SENT" | "FAILED" | "NOT_SENT",
+  TranslationKey
+>;
 
 /**
  * What each scope on a grant to a connected app lets the app do, in words.
@@ -1673,7 +1680,11 @@ export function DataSubjectReport({
                                 )}
                               {" · "}
                               {t(
-                                WORK_ORDER_DELIVERY_LABEL[order.deliveryStatus],
+                                WORK_ORDER_DELIVERY_LABEL[
+                                  order.notSent
+                                    ? "NOT_SENT"
+                                    : order.deliveryStatus
+                                ],
                               )}
                             </span>
                           ))}

@@ -282,7 +282,8 @@ sending is refused unless what it would send now matches it. The contractor's
 row is locked while the sending reads it, so a board member who changes the
 address at the same moment changes it either before the sending, which is then
 refused and previewed again, or after it. The same text to the same contractor
-on the same case within ten minutes is refused as a second press, and one
+on the same case within half an hour, as long as a preview lasts, is refused
+as a second press, and one
 handler may send twenty work orders an hour.
 
 The audit entry names the case, the work order, the contractor and the sender,

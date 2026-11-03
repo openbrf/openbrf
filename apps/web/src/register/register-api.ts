@@ -835,6 +835,8 @@ export interface DataSubjectReport {
       /** When it was written and queued; whether it went is `deliveryStatus`. */
       writtenAt: string;
       deliveryStatus: "PENDING" | "SENT" | "FAILED";
+      /** A failure known not to have gone out: "not sent", not "not confirmed". */
+      notSent: boolean;
     }[];
   }[];
   documents: {

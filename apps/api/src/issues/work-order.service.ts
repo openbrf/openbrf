@@ -26,13 +26,19 @@ import {
   previewMatches,
   type PreviewedWorkOrder,
   signPreview,
+  WORK_ORDER_PREVIEW_TTL_MS,
 } from "./work-order-preview-token";
 
 /**
  * How long the same text to the same contractor on the same issue is taken for
- * a second press of the same button, and refused.
+ * a second press of the same button, and refused: as long as a preview stays
+ * valid, so one preview can never be sent twice. A sending whose answer was
+ * lost, pressed again later than a shorter window, would otherwise find its
+ * first order gone from the check and mail the contractor a second time. The
+ * preview is the sending's key; what a repeat within it meets is this refusal,
+ * and the screen reads the record again to show the first.
  */
-export const WORK_ORDER_DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
+export const WORK_ORDER_DUPLICATE_WINDOW_MS = WORK_ORDER_PREVIEW_TTL_MS;
 
 /**
  * How many work orders one handler may send in an hour, from every issue
@@ -100,6 +106,13 @@ export interface IssueWorkOrdersView {
    * listed.
    */
   ringFenced: boolean;
+  /**
+   * Whether the issue is done. No work order is offered then either: its text
+   * would stand for ten years on a case whose reporter's address the closing
+   * job may already have cleared, so no later hold could reach it. The
+   * handler reopens the issue to write one.
+   */
+  closed: boolean;
   workOrders: WorkOrderView[];
 }
 
@@ -164,6 +177,7 @@ export class WorkOrderService {
     });
     return {
       ringFenced: issue.type.ringFenced,
+      closed: issue.closed,
       workOrders: await this.views(rows),
     };
   }
@@ -219,8 +233,8 @@ export class WorkOrderService {
    * different text, a preview over half an hour old - is refused, and the
    * handler previews again.
    *
-   * The same text to the same contractor on the same issue within ten minutes
-   * is refused as the second press it almost always is, and a handler has a
+   * The same text to the same contractor on the same issue within half an hour
+   * (the life of a preview) is refused as the second press it almost always is, and a handler has a
    * budget of sendings an hour across every issue, held under a lock of its
    * own.
    *
@@ -390,6 +404,12 @@ export class WorkOrderService {
         "work-order-ring-fenced",
       );
     }
+    if (issue.closed) {
+      throw new IssueError(
+        "A closed issue is reopened before a work order is written.",
+        "issue-closed",
+      );
+    }
 
     const body = normalizeFreeText(input.body).trim();
     if (body === "") {
@@ -432,12 +452,20 @@ export class WorkOrderService {
     const scope = await issueReaderScope(db, readerPersonId, new Date());
     const issue = await db.issue.findFirst({
       where: { id: issueId, ...issuesHandledWhere(scope) },
-      select: { id: true, type: { select: { ringFenced: true } } },
+      select: {
+        id: true,
+        type: { select: { ringFenced: true } },
+        status: { select: { meaning: true } },
+      },
     });
     if (issue === null) {
       throw new IssueError("No such issue.", "issue-not-found");
     }
-    return issue;
+    return {
+      id: issue.id,
+      type: issue.type,
+      closed: issue.status.meaning === "DONE",
+    };
   }
 
   private async views(rows: WorkOrderRow[]): Promise<WorkOrderView[]> {

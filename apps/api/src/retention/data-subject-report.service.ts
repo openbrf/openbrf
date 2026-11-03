@@ -81,6 +81,7 @@ import {
   terminationsDuringHolding,
 } from "./holding-periods";
 import { dueOn } from "../data-protection/data-subject-request";
+import { workOrderKnownNotSent } from "../issues/work-order-delivery";
 import { connectedAppHost } from "../connected-apps/client-host";
 import { ExportSlots } from "./export-slots";
 import { computePurgeDate } from "./purge-date";
@@ -701,6 +702,7 @@ export class DataSubjectReportService {
             recipientName: true,
             createdAt: true,
             deliveryStatus: true,
+            deliveryFailure: true,
           },
         },
       },
@@ -1736,6 +1738,9 @@ export class DataSubjectReportService {
           recipientName: order.recipientName,
           writtenAt: order.createdAt.toISOString(),
           deliveryStatus: order.deliveryStatus,
+          notSent:
+            order.deliveryStatus === "FAILED" &&
+            workOrderKnownNotSent(order.deliveryFailure),
         })),
       })),
       issueAssignments: [

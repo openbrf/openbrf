@@ -66,7 +66,7 @@ const ISSUE = {
 function orders(
   overrides: Partial<IssueWorkOrdersData> = {},
 ): IssueWorkOrdersData {
-  return { ringFenced: false, workOrders: [], ...overrides };
+  return { ringFenced: false, closed: false, workOrders: [], ...overrides };
 }
 
 function preview(body: string): WorkOrderPreview {
@@ -204,6 +204,21 @@ describe("IssueWorkOrders", () => {
     expect(
       screen.getByText("Inte skickad: e-postservern tog inte emot den."),
     ).toBeTruthy();
+  });
+
+  it("offers no work order on a closed issue, and still lists what was sent", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ closed: true, workOrders: [SENT] }),
+    });
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    expect(
+      await screen.findByText(
+        "Ärendet är avslutat, så ingen arbetsorder erbjuds. Öppna det igen för att skriva en.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("Vatten: arbetsorder")).toBeNull();
   });
 
   it("warns that a protected reporter's name and home stay out of the work order", async () => {

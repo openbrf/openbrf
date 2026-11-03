@@ -1808,11 +1808,19 @@ describe("what the document prints", () => {
               recipientName: "Rörmokare Ab",
               writtenAt: "2026-01-06T09:00:00.000Z",
               deliveryStatus: "SENT",
+              notSent: false,
             },
             {
               recipientName: null,
               writtenAt: "2026-01-07T09:00:00.000Z",
               deliveryStatus: "FAILED",
+              notSent: false,
+            },
+            {
+              recipientName: "Elektriker Ab",
+              writtenAt: "2026-01-08T09:00:00.000Z",
+              deliveryStatus: "FAILED",
+              notSent: true,
             },
           ],
         },
@@ -1831,6 +1839,8 @@ describe("what the document prints", () => {
       ),
     ).toBeTruthy();
     expect(cell.getByText(/2026-01-07/)).toBeTruthy();
+    // A failure known not to have gone out is said to be that.
+    expect(cell.getByText(/Elektriker Ab · Inte skickad/)).toBeTruthy();
   });
 
   it("names the capacity somebody was present at a general meeting in", async () => {

@@ -1008,6 +1008,22 @@ describe("what is sent is what was previewed", () => {
     ).toEqual(["work-order-duplicate"]);
     expect(await prisma.workOrder.count({ where: { issueId } })).toBe(1);
 
+    // A send whose answer was lost and is pressed again a quarter of an hour
+    // later, still on the same preview, finds the first order and is refused.
+    await prisma.workOrder.updateMany({
+      where: { issueId },
+      data: { createdAt: new Date(Date.now() - 15 * 60 * 1000) },
+    });
+    const retried = await workOrder(as(board), issueId, {
+      ...payload,
+      previewToken,
+    });
+    expect(retried.statusCode).toBe(409);
+    expect(retried.json<{ reason: string }>().reason).toBe(
+      "work-order-duplicate",
+    );
+    expect(await prisma.workOrder.count({ where: { issueId } })).toBe(1);
+
     // The manager has sent their budget's worth in the last hour.
     const budgetIssue = await filed(plain, "budget");
     await prisma.workOrder.createMany({
@@ -1028,6 +1044,45 @@ describe("what is sent is what was previewed", () => {
     expect(spent.json<{ reason: string }>().reason).toBe(
       "work-order-budget-spent",
     );
+  });
+});
+
+describe("a closed issue", () => {
+  it("is offered no work order, in the preview, the sending or the list, until it is reopened", async () => {
+    const issueId = await filed(plain, "closed");
+    const payload = { contractorId: plumber.id, body: "Kom och titta." };
+    const preview = await workOrder(as(board), issueId, payload, "preview");
+    const { previewToken } = preview.json<{ previewToken: string }>();
+
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: { statusId: plain.statusIds.DONE, closedAt: new Date() },
+    });
+
+    for (const refused of [
+      await workOrder(as(board), issueId, payload, "preview"),
+      await workOrder(as(board), issueId, { ...payload, previewToken }),
+    ]) {
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json<{ reason: string }>().reason).toBe("issue-closed");
+    }
+    expect(await prisma.workOrder.count({ where: { issueId } })).toBe(0);
+    const listed = await inject({
+      method: "GET",
+      url: `/api/issue-queue/${issueId}/work-orders`,
+      cookie: as(board),
+    });
+    expect(listed.json<{ closed: boolean }>().closed).toBe(true);
+
+    // Reopened, the same preview is still good for the same sending.
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: { statusId: plain.statusIds.NEW, closedAt: null },
+    });
+    expect(
+      (await workOrder(as(board), issueId, { ...payload, previewToken }))
+        .statusCode,
+    ).toBe(201);
   });
 });
 

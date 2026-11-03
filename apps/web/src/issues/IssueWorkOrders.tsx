@@ -39,6 +39,7 @@ const WORK_ORDER_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "work-order-empty": "issues.workOrders.errors.empty",
   "work-order-preview-stale": "issues.workOrders.errors.previewStale",
   "work-order-duplicate": "issues.workOrders.errors.duplicate",
+  "issue-closed": "issues.workOrders.errors.issueClosed",
   "work-order-budget-spent": "issues.workOrders.errors.budgetSpent",
   "invalid-body": "issues.workOrders.errors.unknown",
 };
@@ -51,6 +52,7 @@ const STALE_REASONS: ReadonlySet<string> = new Set([
   "work-order-ring-fenced",
   "work-order-preview-stale",
   "work-order-duplicate",
+  "issue-closed",
 ]);
 
 /**
@@ -277,6 +279,8 @@ export function IssueWorkOrders({
 
       {data === null ? null : data.ringFenced ? (
         <p className={HINT}>{t("issues.workOrders.ringFenced")}</p>
+      ) : data.closed ? (
+        <p className={HINT}>{t("issues.workOrders.closed")}</p>
       ) : contractors === null ? null : contractors.length === 0 ? (
         <p className={HINT}>{t("issues.workOrders.noContractors")}</p>
       ) : (

@@ -591,6 +591,11 @@ export interface ReportIssueWorkOrder {
    */
   writtenAt: string;
   deliveryStatus: "PENDING" | "SENT" | "FAILED";
+  /**
+   * A failed sending that is known not to have gone out (no mail server, a
+   * contractor removed, a text erased), as against one nobody can vouch for.
+   */
+  notSent: boolean;
 }
 
 /**

@@ -644,7 +644,8 @@
           "delivery": {
             "PENDING": "Being sent",
             "SENT": "Sent",
-            "FAILED": "Not confirmed as sent"
+            "FAILED": "Not confirmed as sent",
+            "NOT_SENT": "Not sent"
           }
         },
         "direction": {
@@ -3826,6 +3827,7 @@
         "ringFenced": "Not sent: the board ring-fenced the issue type from contractors before it went out."
       },
       "ringFenced": "Nothing about an issue of this type may reach a contractor, so no work order is offered.",
+      "closed": "The issue is closed, so no work order is offered. Reopen it to write one.",
       "noContractors": "There are no contractors on the list. The board adds them in the settings, under Issues and bookings.",
       "write": "New work order",
       "writeHint": "Write what the contractor is to do, and where. The work order is mailed as you write it, and nothing else from the issue goes with it: not the report, not who made it, not the photographs.",
@@ -3858,7 +3860,8 @@
         "empty": "The work order is empty.",
         "unknown": "The work order could not be prepared or sent just now. Please try again.",
         "previewStale": "The contractor's details or the text changed since the preview. Preview it again before sending.",
-        "duplicate": "This work order was sent to this contractor a moment ago. Check the record above before sending it again.",
+        "issueClosed": "This issue is closed. Reopen it before writing a work order.",
+        "duplicate": "This work order was sent to this contractor a short while ago. Check the record above before sending it again.",
         "budgetSpent": "You have sent as many work orders as one person may in an hour. Try again later."
       },
       "recipientRemoved": "A contractor since removed from the list",

@@ -733,6 +733,16 @@ beforeAll(async () => {
         deliveryFailure: "send-failed",
         createdAt: new Date("2026-02-22T09:00:00.000Z"),
       },
+      {
+        issueId: waitingIssue.id,
+        recipientName: `Elektriker ${suffix}`,
+        recipientEmailCipher: "not-a-cipher",
+        body: "Byt proppen",
+        sentByPersonId: board.personId,
+        deliveryStatus: "FAILED",
+        deliveryFailure: "mail-not-configured",
+        createdAt: new Date("2026-02-24T09:00:00.000Z"),
+      },
     ],
   });
 
@@ -1791,11 +1801,21 @@ describe("what the report contains", () => {
         recipientName: `Rormokare ${suffix}`,
         writtenAt: "2026-02-20T09:00:00.000Z",
         deliveryStatus: "SENT",
+        notSent: false,
       },
       {
         recipientName: null,
         writtenAt: "2026-02-22T09:00:00.000Z",
         deliveryStatus: "FAILED",
+        // A server's refusal may have come after it took the message.
+        notSent: false,
+      },
+      {
+        recipientName: `Elektriker ${suffix}`,
+        writtenAt: "2026-02-24T09:00:00.000Z",
+        deliveryStatus: "FAILED",
+        // No mail server: nothing left this instance.
+        notSent: true,
       },
     ]);
     expect(JSON.stringify(report.issues)).not.toContain("Laga laeckan");

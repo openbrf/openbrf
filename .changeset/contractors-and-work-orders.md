@@ -24,8 +24,9 @@ a preview, and the issue keeps the record of it (ADR 0055).
   preview, and the server sends only what was previewed: if the contractor's
   name or address changed after the preview, or the preview is over half an
   hour old, the handler is asked to preview again. The same work order sent
-  twice within ten minutes is refused, and one person may send twenty work
-  orders an hour. The preview says when this instance has no mail server set
+  twice within half an hour is refused, and one person may send twenty work
+  orders an hour. An issue that is closed is offered no work order until it
+  is reopened. The preview says when this instance has no mail server set
   up.
 - **What the mail carries.** The handler's text and nothing else from the
   issue: never the report, the place the reporter wrote, the reporter, the
@@ -48,7 +49,8 @@ a preview, and the issue keeps the record of it (ADR 0055).
   the mail going out without being reopened. The audit log records that it was queued,
   with the length of the text and none of its words. A reporter's data
   subject access report lists the work orders sent about their issues: to
-  whom, when, and whether the mail went out. The text of a work order is erased
+  whom, when, and whether the mail went out, saying "not sent" only for a
+  failure known not to have left the instance. The text of a work order is erased
   ten years after its issue was closed, when a claim about the work it ordered
   becomes time-barred; when it was sent stays, and whom it went to stays while
   the contractor is on the list. A report from the public form still loses

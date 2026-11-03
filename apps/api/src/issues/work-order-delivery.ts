@@ -54,3 +54,27 @@ export const WORK_ORDER_DELIVERY_FAILURES = {
 
 export type WorkOrderDeliveryFailure =
   (typeof WORK_ORDER_DELIVERY_FAILURES)[keyof typeof WORK_ORDER_DELIVERY_FAILURES];
+
+/**
+ * The failures after which nothing left this instance: no mail server, a
+ * sending given up before any attempt, a recipient or text erased, a type
+ * ring-fenced. `send-failed` is not among them: the mail driver says nothing
+ * of whether the error came before or after the server took the message, so
+ * it stays open like `delivery-unconfirmed`.
+ */
+const NEVER_LEFT: ReadonlySet<string> = new Set([
+  WORK_ORDER_DELIVERY_FAILURES.mailNotConfigured,
+  WORK_ORDER_DELIVERY_FAILURES.interrupted,
+  WORK_ORDER_DELIVERY_FAILURES.recipientRemoved,
+  WORK_ORDER_DELIVERY_FAILURES.textErased,
+  WORK_ORDER_DELIVERY_FAILURES.ringFenced,
+]);
+
+/**
+ * Whether a failed work order is known not to have gone out, as against one
+ * nobody can vouch for. A data subject is told "not sent" only when it is
+ * certain.
+ */
+export function workOrderKnownNotSent(failure: string | null): boolean {
+  return failure !== null && NEVER_LEFT.has(failure);
+}

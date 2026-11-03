@@ -58,6 +58,8 @@ export interface WorkOrder {
 export interface IssueWorkOrders {
   /** Nothing about the issue may reach a contractor; no work order is offered. */
   ringFenced: boolean;
+  /** The issue is done; no work order is offered until it is reopened. */
+  closed: boolean;
   workOrders: WorkOrder[];
 }
 

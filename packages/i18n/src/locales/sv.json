@@ -644,7 +644,8 @@
           "delivery": {
             "PENDING": "Skickas",
             "SENT": "Skickad",
-            "FAILED": "Inte bekräftad som skickad"
+            "FAILED": "Inte bekräftad som skickad",
+            "NOT_SENT": "Inte skickad"
           }
         },
         "direction": {
@@ -3826,6 +3827,7 @@
         "ringFenced": "Inte skickad: styrelsen avskärmade ärendetypen från entreprenörer innan den gick iväg."
       },
       "ringFenced": "Inget om ett ärende av den här typen får nå en entreprenör, så ingen arbetsorder kan skickas.",
+      "closed": "Ärendet är avslutat, så ingen arbetsorder erbjuds. Öppna det igen för att skriva en.",
       "noContractors": "Det finns inga entreprenörer på listan. Styrelsen lägger till dem i inställningarna, under Ärenden och bokningar.",
       "write": "Ny arbetsorder",
       "writeHint": "Skriv vad entreprenören ska göra, och var. Arbetsordern skickas som du skriver den, och inget annat från ärendet följer med: inte felanmälan, inte vem som gjorde den, inte bilderna.",
@@ -3858,7 +3860,8 @@
         "empty": "Arbetsordern är tom.",
         "unknown": "Arbetsordern gick inte att förbereda eller skicka just nu. Försök igen.",
         "previewStale": "Entreprenörens uppgifter eller texten har ändrats sedan förhandsvisningen. Förhandsvisa den igen innan du skickar.",
-        "duplicate": "Den här arbetsordern skickades till entreprenören alldeles nyss. Titta i listan ovan innan du skickar den igen.",
+        "issueClosed": "Ärendet är avslutat. Öppna det igen innan du skriver en arbetsorder.",
+        "duplicate": "Den här arbetsordern skickades till entreprenören för en stund sedan. Titta i listan ovan innan du skickar den igen.",
         "budgetSpent": "Du har skickat så många arbetsorder som en person får skicka på en timme. Försök igen senare."
       },
       "recipientRemoved": "En entreprenör som sedan tagits bort från listan",

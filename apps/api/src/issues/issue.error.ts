@@ -60,6 +60,9 @@ import { DomainError } from "../http/domain-error";
  * `work-order-budget-spent` a handler who has sent as many work orders as one
  * person may in an hour.
  *
+ * `issue-closed` is also a handler writing a work order on an issue that is
+ * done, which is reopened first.
+ *
  * The conversation's reasons. `issue-closed` is a reporter writing on an issue
  * that is done; what a reply to a closed issue does is the reopening rule's to
  * decide (ADR 0054). `no-reporter` is a handler writing to the reporter of an
