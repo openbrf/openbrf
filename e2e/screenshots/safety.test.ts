@@ -27,6 +27,11 @@ describe("findPhoneNumbers", () => {
     ["a full stop after a label", "Mobil0701234567.", "0701234567"],
     ["a separator inside letters", "abc070-123 45 67def", "070-123 45 67"],
     ["upper-case letters around it", "ABC0701234567DEF", "0701234567"],
+    [
+      "a capitalised label after an id-shaped run",
+      "cabcdefghijklmn0701234567PRIVAT",
+      "0701234567",
+    ],
     ["a label on each side", "Mobil0701234567privat", "0701234567"],
     [
       "a token one character short of an id",

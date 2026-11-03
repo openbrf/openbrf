@@ -74,13 +74,23 @@ const PHONE_NUMBER =
  * a number and another label that the picture shows apart read as
  * "Mobil0701234567privat", and letters on both sides of a number are no
  * evidence of an id. A label and a number would have to add up to exactly
- * twenty-five characters starting with `c` to pass as one.
+ * twenty-five lower-case characters starting with `c` to pass as one.
+ *
+ * That is a limit of reading text: once the elements are joined, a `c`, ten
+ * digits and fourteen lower-case letters from separate elements cannot be told
+ * from an id. The screens put a label or a number beside the digits, in capitals
+ * or with a separator or a space, and none lays out lower-case runs of that
+ * length flush against a number, which is why the exemption is left this wide.
  */
 const GENERATED_ID = /^c[a-z0-9]{24}$/;
 
-const IDENTIFIER_CHARACTER = /[a-z0-9]/;
+/**
+ * Letters of either case, so that a label in capitals touching an id-shaped
+ * run makes the token longer and not an id: "c...0701234567PRIVAT".
+ */
+const IDENTIFIER_CHARACTER = /[A-Za-z0-9]/;
 
-/** The run of lower-case letters and digits that holds `[start, end)`. */
+/** The run of letters and digits that holds `[start, end)`. */
 function tokenAround(text: string, start: number, end: number): string {
   let from = start;
   while (from > 0 && IDENTIFIER_CHARACTER.test(text.charAt(from - 1))) {
