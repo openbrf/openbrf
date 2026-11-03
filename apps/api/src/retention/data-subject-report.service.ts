@@ -681,7 +681,13 @@ export class DataSubjectReportService {
       orderBy: [{ createdAt: "desc" }],
       select: {
         id: true,
-        status: true,
+        // The meaning, in the reader's language, and never the board's label
+        // for the status: what the issue module shows its reporter (ADR 0054).
+        status: { select: { meaning: true } },
+        // What the board decided or awaits, which describes the person: art.
+        // 15(1)(c) and the outcome ADR 0057 keeps after the purge.
+        outcome: true,
+        waitingReason: true,
         location: true,
         description: true,
         createdAt: true,
@@ -1668,7 +1674,9 @@ export class DataSubjectReportService {
       issues: issues.map((issue) => ({
         issueId: issue.id,
         typeName: issue.type.name,
-        status: issue.status,
+        meaning: issue.status.meaning,
+        outcome: issue.outcome,
+        waitingReason: issue.waitingReason,
         location: issue.location,
         description: issue.description,
         reportedAt: issue.createdAt.toISOString(),

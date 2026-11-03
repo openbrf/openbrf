@@ -8,7 +8,12 @@ import {
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
-import { fetchIssueQueue, type QueuedIssue } from "../api/issues";
+import {
+  fetchHandlerIssueTypes,
+  fetchIssueQueue,
+  type IssueTypeView,
+  type QueuedIssue,
+} from "../api/issues";
 import { BoardPage } from "../ui/BoardPage";
 import { LoadFailure } from "../ui/LoadFailure";
 import { IssueQueuePanel } from "./IssueQueuePanel";
@@ -21,10 +26,21 @@ export interface IssueQueueScreenProps {
 interface Loaded {
   ready: boolean;
   queue: readonly QueuedIssue[];
+  /**
+   * The types with their statuses, which an issue is moved between, or null
+   * when they could not be read. A failure here leaves the queue readable and
+   * the panel says that nothing can be moved.
+   */
+  types: readonly IssueTypeView[] | null;
   loadFailed: boolean;
 }
 
-const EMPTY: Loaded = { ready: false, queue: [], loadFailed: false };
+const EMPTY: Loaded = {
+  ready: false,
+  queue: [],
+  types: null,
+  loadFailed: false,
+};
 
 /**
  * "Handle issues": the queue the residents' reports arrive in, as a page of
@@ -57,15 +73,21 @@ export function IssueQueueScreen({
       return;
     }
     const version = ++currentRead.current;
-    void fetchIssueQueue().then((queue) => {
-      if (version === currentRead.current) {
-        setLoaded({
-          ready: true,
-          queue: queue.ok ? queue.value : [],
-          loadFailed: !queue.ok,
-        });
-      }
-    });
+    // Read together and applied together, so a row is never drawn against
+    // the statuses of an earlier read: a status the board added since would
+    // be missing from its form.
+    void Promise.all([fetchIssueQueue(), fetchHandlerIssueTypes()]).then(
+      ([queue, types]) => {
+        if (version === currentRead.current) {
+          setLoaded({
+            ready: true,
+            queue: queue.ok ? queue.value : [],
+            types: types.ok ? types.value : null,
+            loadFailed: !queue.ok,
+          });
+        }
+      },
+    );
   }, [canHandle]);
 
   useEffect(() => {
@@ -77,7 +99,7 @@ export function IssueQueueScreen({
     };
   }, [reload]);
 
-  const { ready, queue, loadFailed } = loaded;
+  const { ready, queue, types, loadFailed } = loaded;
 
   return (
     <BoardPage
@@ -100,7 +122,7 @@ export function IssueQueueScreen({
        * which is a claim the notice above would not undo.
        */}
       {ready && !loadFailed ? (
-        <IssueQueuePanel issues={queue} onChanged={reload} />
+        <IssueQueuePanel issues={queue} types={types} onChanged={reload} />
       ) : null}
     </BoardPage>
   );

@@ -3,12 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
-import type {
-  IssueAudience,
-  IssueReporter,
-  OwnIssue,
-  QueuedIssue,
-} from "../api/issues";
+import type { IssueReporter, QueuedIssue } from "../api/issues";
 import { IssueQueueScreen } from "./IssueQueueScreen";
 
 /**
@@ -27,12 +22,14 @@ import { IssueQueueScreen } from "./IssueQueueScreen";
  */
 
 const fetchIssueQueue = vi.fn();
+const fetchHandlerIssueTypes = vi.fn();
 const fetchOwnIssues = vi.fn();
 const setIssueStatus = vi.fn();
 
 vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
   fetchIssueQueue: (input?: unknown) => fetchIssueQueue(input),
+  fetchHandlerIssueTypes: () => fetchHandlerIssueTypes(),
   fetchOwnIssues: () => fetchOwnIssues(),
   setIssueStatus: (input: unknown) => setIssueStatus(input),
 }));
@@ -51,15 +48,18 @@ function viewer(capabilities: readonly string[]): Viewer {
 // The overrides are loose so a test can pair any reporter with any apartment;
 // the server only ever sends the pairings `QueuedIssue` allows.
 function issue(
-  overrides: Partial<OwnIssue> & {
-    audience?: IssueAudience;
+  overrides: Partial<Omit<QueuedIssue, "reporter">> & {
     reporter?: IssueReporter;
   } = {},
 ): QueuedIssue {
   return {
     id: "issue-1",
-    status: "NEW",
-    audience: "MEMBER",
+    meaning: "NEW",
+    status: { id: "s-new", label: "Ny" },
+    waitingReason: null,
+    outcome: null,
+    typeReporters: ["RESIDENTS"],
+    closedAt: null,
     typeId: "type-water",
     typeName: "Vatten",
     location: null,
@@ -78,6 +78,30 @@ const PROPERTY_MANAGER = ["issues:handle", "self:manage"];
 
 beforeEach(() => {
   fetchIssueQueue.mockReset().mockResolvedValue({ ok: true, value: [issue()] });
+  fetchHandlerIssueTypes.mockReset().mockResolvedValue({
+    ok: true,
+    value: [
+      {
+        id: "type-water",
+        name: "Vatten",
+        reporters: ["RESIDENTS"],
+        active: true,
+        sortOrder: 0,
+        reportCount: 1,
+        statuses: [
+          {
+            id: "s-new",
+            meaning: "NEW",
+            label: "Ny",
+            isDefault: true,
+            active: true,
+            sortOrder: 0,
+            issueCount: 1,
+          },
+        ],
+      },
+    ],
+  });
   fetchOwnIssues.mockReset().mockResolvedValue({ ok: true, value: [] });
   setIssueStatus.mockReset().mockResolvedValue({ ok: true, value: issue() });
 });
@@ -108,6 +132,12 @@ describe("the property manager", () => {
     expect(screen.getByText("Det droppar i taket.")).toBeTruthy();
     expect(screen.getByText("Rune Boende")).toBeTruthy();
     expect(fetchIssueQueue).toHaveBeenCalledTimes(1);
+    // The statuses an issue is moved between, under the queue's own
+    // capability: the property manager does not configure types.
+    expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByLabelText("Vatten anmält 2026-08-20: status"),
+    ).toBeTruthy();
     // A property manager reports nothing here and has no issues of their own
     // to follow; that is the house's page, and not asked for on this one.
     expect(fetchOwnIssues).not.toHaveBeenCalled();
@@ -129,6 +159,7 @@ describe("a resident", () => {
     expect(screen.queryByText("Styrelse och förvaltare")).toBeNull();
     expect(screen.queryByText("Ärendekön")).toBeNull();
     expect(fetchIssueQueue).not.toHaveBeenCalled();
+    expect(fetchHandlerIssueTypes).not.toHaveBeenCalled();
   });
 });
 

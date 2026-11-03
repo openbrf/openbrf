@@ -25,6 +25,7 @@ import {
   BUSY_RETRY_AFTER_SECONDS,
   MAX_CONCURRENT_EXPORTS,
 } from "./export-slots";
+import { createIssueTypeFixture } from "../testing/issue-fixtures";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15) over HTTP.
@@ -663,21 +664,46 @@ beforeAll(async () => {
     },
   });
 
-  await prisma.issueType.create({
-    data: {
-      id: issueTypeId,
-      name: `Vattenskada ${suffix}`,
-      audience: "MEMBER",
-    },
+  const issueType = await createIssueTypeFixture(prisma, {
+    id: issueTypeId,
+    name: `Vattenskada ${suffix}`,
+    reporters: ["RESIDENTS"],
   });
   await prisma.issue.create({
     data: {
       typeId: issueTypeId,
+      statusId: issueType.statusIds.NEW,
       reporterPersonId: subject.personId,
       apartmentId,
       location: "Badrummet",
       description: "Vatten pa golvet under handfatet",
     },
+  });
+  // One waiting and one closed, so the report's reason and outcome are read
+  // from rows that hold them rather than passing on a field that is always
+  // empty.
+  await prisma.issue.createMany({
+    data: [
+      {
+        typeId: issueTypeId,
+        statusId: issueType.statusIds.WAITING,
+        waitingReason: "CONTRACTOR",
+        reporterPersonId: subject.personId,
+        apartmentId,
+        location: "Badrummet",
+        description: "Droppar fran taket i koket",
+      },
+      {
+        typeId: issueTypeId,
+        statusId: issueType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date("2026-03-01"),
+        reporterPersonId: subject.personId,
+        apartmentId,
+        location: "Badrummet",
+        description: "Lampan i hallen blinkar",
+      },
+    ],
   });
 
   await prisma.mediaFile.create({
@@ -1712,10 +1738,29 @@ describe("what the report contains", () => {
     // Listed although this train does not purge either: a report that omitted
     // rows because their retention story was unfinished would be an incomplete
     // answer to an access request.
-    expect(report.issues).toHaveLength(1);
-    expect(report.issues[0]?.description).toBe(
-      "Vatten pa golvet under handfatet",
-    );
+    expect(report.issues).toHaveLength(3);
+    const byDescription = (description: string) =>
+      report.issues.find((issue) => issue.description === description);
+
+    const open = byDescription("Vatten pa golvet under handfatet");
+    // Where it stands, as the meaning: the board's label for the status is
+    // its own text for its handlers, and never leaves the issue module.
+    expect(open?.meaning).toBe("NEW");
+    // Open and not waiting, so neither the outcome nor a reason is set.
+    expect(open?.outcome).toBeNull();
+    expect(open?.waitingReason).toBeNull();
+
+    const waiting = byDescription("Droppar fran taket i koket");
+    expect(waiting?.meaning).toBe("WAITING");
+    expect(waiting?.waitingReason).toBe("CONTRACTOR");
+    expect(waiting?.outcome).toBeNull();
+
+    const closed = byDescription("Lampan i hallen blinkar");
+    expect(closed?.meaning).toBe("DONE");
+    expect(closed?.outcome).toBe("FIXED");
+    expect(closed?.waitingReason).toBeNull();
+
+    expect(JSON.stringify(report.issues)).not.toContain("Ny");
     expect(report.documents).toHaveLength(1);
     expect(report.documents[0]?.title).toBe(`Stadgar ${suffix}`);
   });

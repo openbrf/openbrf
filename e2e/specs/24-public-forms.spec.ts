@@ -96,7 +96,7 @@ async function ensureFormPages(
   if (!types.some((type) => type.name === REPORT_TYPE)) {
     await api.createIssueType(request, stack.baseUrl, {
       name: REPORT_TYPE,
-      audience: "NON_MEMBER",
+      reporters: ["PUBLIC"],
       sortOrder: 900,
     });
   }
@@ -236,7 +236,7 @@ test("a passer-by reports a fault and it reaches the triage queue", async ({
     (issue) => issue.description === REPORTER.description,
   );
   expect(reported?.typeName).toBe(REPORT_TYPE);
-  expect(reported?.status).toBe("NEW");
+  expect(reported?.meaning).toBe("NEW");
   // Nobody signed in filed it, and the association still knows who to answer.
   expect(reported?.reporter.kind).toBe("external");
   expect(reported?.reporter.name).toBe(REPORTER.name);

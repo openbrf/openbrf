@@ -5,7 +5,9 @@
  * service, and a refine is erased from the published document (docs/actions.md,
  * "Structural constraints first"). This pattern is the structural half: one of
  * the states, an instant as `Date.prototype.toISOString` writes it, and an id
- * without the separator. It is a superset of what the parsers take - they also
+ * without the separator. A state is a pattern fragment rather than a literal,
+ * so a state with a position in it, as the issue queue's is, can say so; one
+ * that is a plain word, as every other is, reads as itself. It is a superset of what the parsers take - they also
  * insist the instant reads back to itself - so the document never refuses a
  * cursor the service would have read.
  *

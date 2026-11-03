@@ -10,7 +10,15 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
-import { ISSUE_REPORT_LIMITS, ISSUE_TYPE_LIMITS } from "@openbrf/shared";
+import {
+  ISSUE_CLOSING_OUTCOMES,
+  ISSUE_REPORT_LIMITS,
+  ISSUE_REPORTER_GROUPS,
+  ISSUE_STATUS_LIMITS,
+  ISSUE_STATUS_MEANINGS,
+  ISSUE_TYPE_LIMITS,
+  ISSUE_WAITING_REASONS,
+} from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -32,9 +40,6 @@ import {
   type QueuedIssueView,
 } from "./issue.service";
 
-const AUDIENCES = ["NON_MEMBER", "MEMBER", "BOARD"] as const;
-const STATUSES = ["NEW", "IN_PROGRESS", "DONE"] as const;
-
 const reportSchema = z.object({
   typeId: z.string().min(1),
   apartmentId: z.string().min(1).nullish(),
@@ -45,13 +50,45 @@ const reportSchema = z.object({
   postId: z.string().min(1).max(64).nullish(),
 });
 
-const statusSchema = z.object({ status: z.enum(STATUSES) });
+/**
+ * A move to another status. The reason and the outcome are checked against
+ * the target's meaning in the service, which is the only place that reads it.
+ */
+const statusMoveSchema = z.object({
+  statusId: z.string().min(1).max(64),
+  waitingReason: z.enum(ISSUE_WAITING_REASONS).optional(),
+  outcome: z.enum(ISSUE_CLOSING_OUTCOMES).optional(),
+});
 
 const typeSchema = z.object({
-  name: z.string().min(1).max(ISSUE_TYPE_LIMITS.name),
-  audience: z.enum(AUDIENCES),
+  name: z.string().trim().min(1).max(ISSUE_TYPE_LIMITS.name),
+  reporters: z.array(z.enum(ISSUE_REPORTER_GROUPS)).max(3),
   active: z.boolean().optional(),
   sortOrder: z.coerce.number().int().min(0).max(999).optional(),
+});
+
+/** A status's label: the board's own text, and never only whitespace. */
+const statusLabelSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(ISSUE_STATUS_LIMITS.label);
+
+const addStatusSchema = z.object({
+  meaning: z.enum(ISSUE_STATUS_MEANINGS),
+  label: statusLabelSchema,
+});
+
+const changeStatusSchema = z.object({
+  label: statusLabelSchema,
+  active: z.boolean().optional(),
+  isDefault: z.literal(true).optional(),
+  sortOrder: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(ISSUE_STATUS_LIMITS.sortOrder)
+    .optional(),
 });
 
 /**
@@ -171,12 +208,31 @@ export class IssueReportController {
 @Controller("api/issue-queue")
 @RequireCapability("issues:handle")
 export class IssueQueueController {
-  constructor(private readonly issues: IssueService) {}
+  constructor(
+    private readonly issues: IssueService,
+    private readonly types: IssueTypeService,
+  ) {}
 
+  /**
+   * Every type with its statuses, which is what a handler moves an issue
+   * between.
+   *
+   * Under issues:handle rather than the catalogue's issues:configure, because
+   * moving an issue needs its type's statuses and the property manager, who
+   * handles issues, does not configure them. It reads what `issue_type_list`
+   * already gives the same holder (ADR 0040): the board's names for its
+   * categories and their statuses, and counts.
+   */
+  @Get("types")
+  async listTypes(): Promise<IssueTypeView[]> {
+    return this.types.listAll();
+  }
+
+  /** The queue, or the part of it whose status has one meaning. */
   @Get()
-  async list(@Query("status") status?: string): Promise<QueuedIssueView[]> {
-    const filter = z.enum(STATUSES).optional().parse(status);
-    return this.issues.listQueue({ status: filter });
+  async list(@Query("meaning") meaning?: string): Promise<QueuedIssueView[]> {
+    const filter = z.enum(ISSUE_STATUS_MEANINGS).optional().parse(meaning);
+    return this.issues.listQueue({ meaning: filter });
   }
 
   @Post(":id/status")
@@ -185,8 +241,11 @@ export class IssueQueueController {
     @Body() body: unknown,
     @Req() request: RequestWithPrincipal,
   ): Promise<QueuedIssueView> {
-    const input = statusSchema.parse(body);
-    return this.issues.setStatus(id, input.status, actingPersonId(request));
+    return this.issues.setStatus(
+      id,
+      statusMoveSchema.parse(body),
+      actingPersonId(request),
+    );
   }
 }
 
@@ -225,5 +284,33 @@ export class IssueTypeAdminController {
   @HttpCode(204)
   async remove(@Param("id") id: string): Promise<void> {
     await this.types.remove(id);
+  }
+
+  /** Adds a status to a type, under one of the four meanings. */
+  @Post(":id/statuses")
+  @HttpCode(201)
+  async addStatus(
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ): Promise<IssueTypeView> {
+    return this.types.addStatus(id, addStatusSchema.parse(body));
+  }
+
+  /**
+   * Renames a status, switches it on or off, moves it, or makes it the default
+   * of its meaning. There is no route that removes one: a status is switched
+   * off, so the issues that stood in it keep saying where they stood.
+   */
+  @Put(":id/statuses/:statusId")
+  async changeStatus(
+    @Param("id") id: string,
+    @Param("statusId") statusId: string,
+    @Body() body: unknown,
+  ): Promise<IssueTypeView> {
+    return this.types.updateStatus(
+      id,
+      statusId,
+      changeStatusSchema.parse(body),
+    );
   }
 }

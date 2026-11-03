@@ -89,7 +89,7 @@ export const CAPABILITIES = [
    */
   "issues:report",
   /**
-   * Configure the issue types and the audience each one is offered to.
+   * Configure the issue types: who may report each one, and its statuses.
    *
    * A board decision rather than an administrator's, like the retention policy
    * and the self-signup toggle: which problems residents are asked to sort

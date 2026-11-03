@@ -232,7 +232,9 @@ export class IssuePurgeService implements OnModuleInit {
     const issues = await this.prisma.issue.findMany({
       where: {
         reporterPersonId: null,
-        status: "DONE",
+        // The DONE meaning, whatever the board named the status: a status it
+        // added under DONE closes an issue as the default one does (ADR 0057).
+        status: { meaning: "DONE" },
         closedAt: { not: null, lte: cutoff },
         AND: [
           {
@@ -318,7 +320,7 @@ export class IssuePurgeService implements OnModuleInit {
         where: {
           id: issueId,
           reporterPersonId: null,
-          status: "DONE",
+          status: { meaning: "DONE" },
           closedAt: { not: null, lte: cutoff },
         },
         data: {

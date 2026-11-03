@@ -23,6 +23,7 @@ import {
 } from "../testing/integration-env";
 import type { DataSubjectRequestView } from "./data-subject-request";
 import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
+import { createIssueTypeFixture } from "../testing/issue-fixtures";
 
 /**
  * What a person asked about their own data, over HTTP and against a real
@@ -324,13 +325,16 @@ beforeAll(async () => {
     data: { processingRestrictedAt: new Date("2026-02-01T00:00:00.000Z") },
   });
 
-  await prisma.issueType.create({
-    data: { id: issueTypeId, name: `Trapphus ${suffix}`, audience: "MEMBER" },
+  const issueType = await createIssueTypeFixture(prisma, {
+    id: issueTypeId,
+    name: `Trapphus ${suffix}`,
+    reporters: ["RESIDENTS"],
   });
   await prisma.issue.create({
     data: {
       id: issueId,
       typeId: issueTypeId,
+      statusId: issueType.statusIds.NEW,
       description: "Grannen i 1202 stallde cyklar i trapphuset",
     },
   });

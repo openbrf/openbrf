@@ -31,7 +31,6 @@ export type {
   PostCommentUpdate,
   PostCommentView,
   PostImageView,
-  PostIssueStatus,
   PostIssueView,
   PostNewsView,
   PostReadView,
@@ -84,6 +83,22 @@ export { MAX_REPLY_CHARACTERS } from "./board-mailbox-limits.ts";
 export { MAX_ADDRESS_BOOK_SEARCH_LENGTH } from "./address-book-limits.ts";
 export { MAX_WITHHELD_IDS } from "./withheld-from-devices-limits.ts";
 export { ISSUE_REPORT_LIMITS } from "./issue-report-limits.ts";
+export {
+  ISSUE_CLOSING_OUTCOMES,
+  ISSUE_OUTCOMES,
+  ISSUE_REPORTER_GROUPS,
+  ISSUE_STATUS_LIMITS,
+  ISSUE_STATUS_MEANINGS,
+  ISSUE_WAITING_REASONS,
+  isIssueStatusMeaning,
+} from "./issue-status.ts";
+export type {
+  IssueClosingOutcome,
+  IssueOutcome,
+  IssueReporterGroup,
+  IssueStatusMeaning,
+  IssueWaitingReason,
+} from "./issue-status.ts";
 export { DATA_PROTECTION_LIMITS } from "./data-protection-limits.ts";
 export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";
 export {

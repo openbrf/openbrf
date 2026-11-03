@@ -1,3 +1,11 @@
+import type {
+  IssueClosingOutcome,
+  IssueOutcome,
+  IssueReporterGroup,
+  IssueStatusMeaning,
+  IssueWaitingReason,
+} from "@openbrf/shared";
+
 import { apiRequest, apiUpload, type ApiResult } from "./client";
 import { previewedIssueTypes, previewing } from "./viewer-preview";
 
@@ -14,35 +22,45 @@ import { previewedIssueTypes, previewing } from "./viewer-preview";
  * type identifier that did not come back from this call is refused by the API
  * as if it did not exist, which is what keeps the board's internal categories
  * out of a resident's reach. The resident preview only narrows it further,
- * taking out the board's internal types the server offers whoever handles
- * issues (see viewer-preview.ts).
+ * keeping the types residents may report (see viewer-preview.ts).
+ *
+ * The vocabulary of statuses - the four meanings, the waiting reasons, the
+ * outcomes and the groups who may report a type - comes from `@openbrf/shared`
+ * rather than being spelled here, so the two applications cannot drift
+ * (ADR 0054).
  */
 
-export type IssueAudience = "NON_MEMBER" | "MEMBER" | "BOARD";
+/** A status of one type, as the board configures it. */
+export interface IssueStatusView {
+  id: string;
+  meaning: IssueStatusMeaning;
+  /** The board's own text, stored as written. */
+  label: string;
+  /** The status of its meaning an issue enters when none is named. */
+  isDefault: boolean;
+  active: boolean;
+  sortOrder: number;
+  /** How many issues stand in it now. */
+  issueCount: number;
+}
 
-export type IssueStatus = "NEW" | "IN_PROGRESS" | "DONE";
-
-export const ISSUE_AUDIENCES: readonly IssueAudience[] = [
-  "NON_MEMBER",
-  "MEMBER",
-  "BOARD",
-];
-
-/** A type as the board configures it. */
+/** A type as the board configures it, and as a handler moves issues by it. */
 export interface IssueTypeView {
   id: string;
   name: string;
-  audience: IssueAudience;
+  reporters: IssueReporterGroup[];
   active: boolean;
   sortOrder: number;
   reportCount: number;
+  /** By meaning, then in the board's order within it. */
+  statuses: IssueStatusView[];
 }
 
 /** A type as this account is offered it. */
 export interface ReportableIssueType {
   id: string;
   name: string;
-  audience: IssueAudience;
+  reporters: IssueReporterGroup[];
 }
 
 export interface IssueApartment {
@@ -59,9 +77,13 @@ export interface IssuePhoto {
   height: number | null;
 }
 
+/**
+ * An issue as its reporter reads it: where it stands as the meaning of its
+ * status, never the board's label for it.
+ */
 export interface OwnIssue {
   id: string;
-  status: IssueStatus;
+  meaning: IssueStatusMeaning;
   typeId: string;
   typeName: string;
   location: string | null;
@@ -89,7 +111,13 @@ export type IssueReporter =
   | { kind: "unknown" };
 
 export type QueuedIssue = OwnIssue & {
-  audience: IssueAudience;
+  /** The status it stands in, as the board named it for its type. */
+  status: { id: string; label: string };
+  waitingReason: IssueWaitingReason | null;
+  /** Null while open, and on an issue closed before outcomes existed. */
+  outcome: IssueOutcome | null;
+  typeReporters: IssueReporterGroup[];
+  closedAt: string | null;
 } & (
     | { reporter: Exclude<IssueReporter, { kind: "protected" }> }
     | {
@@ -114,8 +142,27 @@ export interface ReportIssueInput {
 
 export interface IssueTypeInput {
   name: string;
-  audience: IssueAudience;
+  reporters: readonly IssueReporterGroup[];
   active?: boolean;
+  sortOrder?: number;
+}
+
+/** A move to another status, with what its meaning requires. */
+export interface IssueStatusMoveInput {
+  issueId: string;
+  statusId: string;
+  /** Required into a status that means WAITING. */
+  waitingReason?: IssueWaitingReason;
+  /** Required into a status that means DONE from one that does not. */
+  outcome?: IssueClosingOutcome;
+}
+
+/** A change to one status of a type. */
+export interface IssueStatusChangeInput {
+  label: string;
+  active?: boolean;
+  /** Only true: a default stops being one when another takes its place. */
+  isDefault?: true;
   sortOrder?: number;
 }
 
@@ -154,32 +201,45 @@ export function attachIssuePhoto(
 }
 
 /**
- * The queue, or the part of it in one state.
+ * The queue, or the part of it whose status has one meaning.
  *
- * `status` absent reads the whole queue, which is what the queue screen works
- * from. The overview asks for one state only, to count what is waiting without
- * carrying every report the association ever had.
+ * `meaning` absent reads the whole queue, which is what the queue screen works
+ * from. The overview asks for one meaning only, to count what is waiting
+ * without carrying every report the association ever had.
  */
 export function fetchIssueQueue(input?: {
-  status?: IssueStatus;
+  meaning?: IssueStatusMeaning;
 }): Promise<ApiResult<QueuedIssue[]>> {
-  const status = input?.status;
+  const meaning = input?.meaning;
   return apiRequest(
     "GET",
-    status === undefined
+    meaning === undefined
       ? "/api/issue-queue"
-      : `/api/issue-queue?status=${encodeURIComponent(status)}`,
+      : `/api/issue-queue?meaning=${encodeURIComponent(meaning)}`,
   );
 }
 
-export function setIssueStatus(input: {
-  issueId: string;
-  status: IssueStatus;
-}): Promise<ApiResult<QueuedIssue>> {
+/**
+ * Every type with its statuses, as whoever handles issues moves issues by
+ * them. Under issues:handle, so the property manager reads it too.
+ */
+export function fetchHandlerIssueTypes(): Promise<ApiResult<IssueTypeView[]>> {
+  return apiRequest("GET", "/api/issue-queue/types");
+}
+
+export function setIssueStatus(
+  input: IssueStatusMoveInput,
+): Promise<ApiResult<QueuedIssue>> {
   return apiRequest(
     "POST",
     `/api/issue-queue/${encodeURIComponent(input.issueId)}/status`,
-    { status: input.status },
+    {
+      statusId: input.statusId,
+      ...(input.waitingReason === undefined
+        ? {}
+        : { waitingReason: input.waitingReason }),
+      ...(input.outcome === undefined ? {} : { outcome: input.outcome }),
+    },
   );
 }
 
@@ -206,6 +266,35 @@ export function updateIssueType(input: {
 
 export function removeIssueType(id: string): Promise<ApiResult<undefined>> {
   return apiRequest("DELETE", `/api/issue-types/${encodeURIComponent(id)}`);
+}
+
+/** Adds a status to a type, under one of the four meanings. */
+export function addIssueStatus(input: {
+  typeId: string;
+  meaning: IssueStatusMeaning;
+  label: string;
+}): Promise<ApiResult<IssueTypeView>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-types/${encodeURIComponent(input.typeId)}/statuses`,
+    { meaning: input.meaning, label: input.label },
+  );
+}
+
+/**
+ * Renames a status, switches it on or off, or makes it the default of its
+ * meaning. There is no removal: a status is switched off.
+ */
+export function changeIssueStatus(input: {
+  typeId: string;
+  statusId: string;
+  values: IssueStatusChangeInput;
+}): Promise<ApiResult<IssueTypeView>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-types/${encodeURIComponent(input.typeId)}/statuses/${encodeURIComponent(input.statusId)}`,
+    input.values,
+  );
 }
 
 export function saveIssueReporting(input: {

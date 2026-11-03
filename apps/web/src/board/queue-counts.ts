@@ -48,7 +48,7 @@ export const QUEUE_COUNTS: Readonly<
   Record<QueueId, () => Promise<ApiResult<QueueCount | null>>>
 > = {
   issues: async () =>
-    counted(await fetchIssueQueue({ status: "NEW" }), (issues) => ({
+    counted(await fetchIssueQueue({ meaning: "NEW" }), (issues) => ({
       count: issues.length,
       more: false,
     })),

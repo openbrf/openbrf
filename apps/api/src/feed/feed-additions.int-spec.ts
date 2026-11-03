@@ -20,6 +20,7 @@ import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import { createIssueTypeFixture } from "../testing/issue-fixtures";
 
 /**
  * What the feed adds to a post once it is written, against a real database:
@@ -244,8 +245,10 @@ beforeAll(async () => {
     });
   }
 
-  const type = await prisma.issueType.create({
-    data: { name: `Hissen ${suffix}`, audience: "MEMBER" },
+  const type = await createIssueTypeFixture(prisma, {
+    id: `fa-type-${suffix}`,
+    name: `Hissen ${suffix}`,
+    reporters: ["RESIDENTS"],
   });
   issueTypeId = type.id;
 
@@ -587,7 +590,9 @@ describe("an issue report made from a post", () => {
         as: karin,
       })
     ).json<PostView>();
-    expect(read.issue).toEqual({ id, status: "NEW", reportedByReader: true });
+    // The meaning, and never the board's label: a post is read outside the
+    // issue module.
+    expect(read.issue).toEqual({ id, meaning: "NEW", reportedByReader: true });
     expect(read.mayReportIssue).toBe(false);
 
     // The board handles issues, and is shown where the report stands.
@@ -600,7 +605,7 @@ describe("an issue report made from a post", () => {
     ).json<PostView>();
     expect(board.issue).toEqual({
       id,
-      status: "NEW",
+      meaning: "NEW",
       reportedByReader: false,
     });
 

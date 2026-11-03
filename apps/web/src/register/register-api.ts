@@ -16,7 +16,12 @@
  */
 
 /** A sign on a row (skylt-chip). The label is an i18n key, never the API's. */
-import type { AuditChannelName } from "@openbrf/shared";
+import type {
+  AuditChannelName,
+  IssueOutcome,
+  IssueStatusMeaning,
+  IssueWaitingReason,
+} from "@openbrf/shared";
 
 import type { DataSubjectRequestView } from "../api/data-protection";
 
@@ -784,7 +789,12 @@ export interface DataSubjectReport {
   issues: {
     issueId: string;
     typeName: string;
-    status: "NEW" | "IN_PROGRESS" | "DONE";
+    /** Where it stands, as the meaning of its status (ADR 0054). */
+    meaning: IssueStatusMeaning;
+    /** How the issue ended, once it is DONE (ADR 0054). Null while open. */
+    outcome: IssueOutcome | null;
+    /** Whom the issue awaits, while WAITING (ADR 0054). Null otherwise. */
+    waitingReason: IssueWaitingReason | null;
     location: string | null;
     description: string;
     reportedAt: string;

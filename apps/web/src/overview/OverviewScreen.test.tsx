@@ -72,7 +72,7 @@ function answers(): Answers {
     "/api/issues/mine": ok([
       {
         id: "issue-open",
-        status: "IN_PROGRESS",
+        meaning: "IN_PROGRESS",
         typeId: "t",
         typeName: "Tvättstugan",
         location: null,
@@ -84,7 +84,7 @@ function answers(): Answers {
       },
       {
         id: "issue-done",
-        status: "DONE",
+        meaning: "DONE",
         typeId: "t",
         typeName: "Hissen",
         location: null,
@@ -458,7 +458,7 @@ describe("the overview for a property manager", () => {
     expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
 
     expect(requested.toSorted()).toEqual([
-      "/api/issue-queue?status=NEW",
+      "/api/issue-queue?meaning=NEW",
       "/api/me",
     ]);
     expect(refused).toEqual([]);

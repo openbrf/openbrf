@@ -312,7 +312,7 @@ test("a board member gets one line, and a row per queue on the board's front pag
     expect(response.ok(), `GET ${path}`).toBe(true);
     return response.json();
   };
-  const issues = (await read("/api/issue-queue?status=NEW")) as unknown[];
+  const issues = (await read("/api/issue-queue?meaning=NEW")) as unknown[];
   const keyOrders = (
     (await read("/api/key-order-queue?status=SUBMITTED")) as {
       orders: unknown[];

@@ -32,3 +32,24 @@ export async function lockIssue(
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`issue:${issueId}`}))`;
 }
+
+/**
+ * The lock a transaction takes before it changes an issue type's statuses.
+ *
+ * Two rules span the rows of one type rather than one row: a type carries at
+ * most so many statuses, which is a count followed by an insert, and each
+ * meaning has exactly one default, which moves from one row to another in two
+ * writes. Two boards acting on one type at once would otherwise both pass the
+ * count, or both demote the old default and leave the partial unique index to
+ * refuse one of them with a 500. An advisory lock for the reason `lockIssue`
+ * gives.
+ *
+ * The seed of a new instance's types takes it under a key of its own, `seed`,
+ * which no type's identifier can be.
+ */
+export async function lockIssueType(
+  tx: Prisma.TransactionClient,
+  typeId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`issue-type:${typeId}`}))`;
+}

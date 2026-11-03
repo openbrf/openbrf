@@ -11,6 +11,7 @@ import { ENV } from "../config/config.module";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import { createIssueTypeFixture } from "../testing/issue-fixtures";
 import { IssuePurgeService } from "./issue-purge.service";
 import { ISSUE_RETENTION_DAYS } from "./issue-retention";
 import { IssueService } from "./issue.service";
@@ -122,13 +123,35 @@ async function signIn(email: string): Promise<string> {
   return cookies.map((value) => value.split(";")[0]).join("; ");
 }
 
-/** Closes an issue the way the queue screen does: over HTTP, as the board. */
-async function close(issueId: string): Promise<void> {
+/** The default status of a meaning on the issue's own type. */
+async function defaultStatusOf(
+  issueId: string,
+  meaning: "IN_PROGRESS" | "DONE",
+): Promise<string> {
+  const issue = await prisma.issue.findUniqueOrThrow({
+    where: { id: issueId },
+    select: { typeId: true },
+  });
+  const status = await prisma.issueStatus.findFirstOrThrow({
+    where: { typeId: issue.typeId, meaning, isDefault: true },
+    select: { id: true },
+  });
+  return status.id;
+}
+
+/**
+ * Closes an issue the way the queue screen does: over HTTP, as the board,
+ * into its type's default DONE status unless another is named.
+ */
+async function close(issueId: string, statusId?: string): Promise<void> {
   const response = await inject({
     method: "POST",
     url: `/api/issue-queue/${issueId}/status`,
     headers: { cookie: boardCookie },
-    payload: { status: "DONE" },
+    payload: {
+      statusId: statusId ?? (await defaultStatusOf(issueId, "DONE")),
+      outcome: "FIXED",
+    },
   });
   expect(response.statusCode).toBe(201);
 }
@@ -139,7 +162,7 @@ async function reopen(issueId: string): Promise<void> {
     method: "POST",
     url: `/api/issue-queue/${issueId}/status`,
     headers: { cookie: boardCookie },
-    payload: { status: "IN_PROGRESS" },
+    payload: { statusId: await defaultStatusOf(issueId, "IN_PROGRESS") },
   });
   expect(response.statusCode).toBe(201);
 }
@@ -277,21 +300,17 @@ beforeAll(async () => {
     ],
   });
 
-  await prisma.issueType.createMany({
-    data: [
-      {
-        id: publicTypeId,
-        name: `Skadegorelse ${suffix}`,
-        audience: "NON_MEMBER",
-        sortOrder: 1,
-      },
-      {
-        id: memberTypeId,
-        name: `Fel i lagenheten ${suffix}`,
-        audience: "MEMBER",
-        sortOrder: 2,
-      },
-    ],
+  await createIssueTypeFixture(prisma, {
+    id: publicTypeId,
+    name: `Skadegorelse ${suffix}`,
+    reporters: ["PUBLIC"],
+    sortOrder: 1,
+  });
+  await createIssueTypeFixture(prisma, {
+    id: memberTypeId,
+    name: `Fel i lagenheten ${suffix}`,
+    reporters: ["RESIDENTS"],
+    sortOrder: 2,
   });
 
   // No account: the register knows this person, and they wrote in anyway.
@@ -362,6 +381,48 @@ describe("closing an issue from the queue", () => {
 
     await reopen(issueId);
     expect((await read(issueId)).closedAt).toBeNull();
+  });
+});
+
+describe("a status the board added under done", () => {
+  it("closes a report for the purge as the default one does", async () => {
+    // The purge reads the meaning, never a status by its label or a literal
+    // DONE (ADR 0057): a report closed into the board's own done status would
+    // otherwise keep its reporter's contact details for ever.
+    const archived = await prisma.issueStatus.create({
+      data: {
+        typeId: publicTypeId,
+        meaning: "DONE",
+        label: `Arkiverat ${suffix}`,
+        sortOrder: 1,
+      },
+    });
+    const issueId = await reportPublicly("Trasigt staket mot gatan.");
+    try {
+      await close(issueId, archived.id);
+      await closedDaysAgo(issueId, ISSUE_RETENTION_DAYS + 1);
+
+      expect(await purge.eligible(new Date(), ISSUE_RETENTION_DAYS)).toContain(
+        issueId,
+      );
+
+      // The control: an open report of the same age is not.
+      await reopen(issueId);
+      expect(
+        await purge.eligible(new Date(), ISSUE_RETENTION_DAYS),
+      ).not.toContain(issueId);
+    } finally {
+      await prisma.issue.update({
+        where: { id: issueId },
+        // Off the status about to be removed, whichever step failed.
+        data: {
+          statusId: await defaultStatusOf(issueId, "IN_PROGRESS"),
+          closedAt: null,
+          outcome: null,
+        },
+      });
+      await prisma.issueStatus.delete({ where: { id: archived.id } });
+    }
   });
 });
 

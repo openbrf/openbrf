@@ -337,7 +337,7 @@ export function PostCard({
             // shown only to whoever may read the report, as the server decided.
             <div className="flex flex-wrap items-center gap-2 text-small text-ink-muted">
               <span>{t("feed.issue.label")}</span>
-              <IssueStatusChip status={post.issue.status} />
+              <IssueStatusChip meaning={post.issue.meaning} />
             </div>
           )}
         </div>

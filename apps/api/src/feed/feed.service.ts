@@ -149,7 +149,15 @@ function postColumns(readerId: string) {
     struckAt: true,
     erasedAt: true,
     issueId: true,
-    issue: { select: { id: true, status: true, reporterPersonId: true } },
+    issue: {
+      select: {
+        id: true,
+        // The meaning and never the label: a post is read outside the issue
+        // module, and the label is the board's text for its handlers.
+        status: { select: { meaning: true } },
+        reporterPersonId: true,
+      },
+    },
     audience: { select: { id: true, kind: true, name: true } },
     news: { select: { id: true, slug: true, title: true, content: true } },
     _count: { select: { likes: true, comments: true, reads: true } },
@@ -1199,7 +1207,7 @@ export class FeedService {
           (handlesIssues || row.issue.reporterPersonId === reader.personId)
             ? {
                 id: row.issue.id,
-                status: row.issue.status,
+                meaning: row.issue.status.meaning,
                 reportedByReader:
                   row.issue.reporterPersonId === reader.personId,
               }

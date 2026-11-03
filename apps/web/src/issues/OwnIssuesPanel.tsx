@@ -39,7 +39,7 @@ export function OwnIssuesPanel({ issues }: OwnIssuesPanelProps): ReactElement {
                 <span className="text-body font-semibold">
                   {issue.typeName}
                 </span>
-                <IssueStatusChip status={issue.status} />
+                <IssueStatusChip meaning={issue.meaning} />
                 <span className="ml-auto font-data text-data text-ink-muted">
                   {localDayOfInstant(issue.createdAt)}
                 </span>

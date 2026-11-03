@@ -102,6 +102,7 @@ const DESCRIPTION = `Det droppar fran taket i badrummet, ${uniqueSurname("rappor
  *   board triages to done              1         1        1              5
  *   property manager works the queue   1         1        7              -
  *   board decides on the public form   1         1        1              7
+ *   board renames and adds a status    1         1        1              7
  *
  * The harness column is the administrator sign-in inside the register fixture,
  * on the address the shared fixtures gave this test. Activation adds one to a
@@ -196,8 +197,8 @@ async function ensureIssueFixture(
 
   const existing = await api.listIssueTypes(request, stack.baseUrl);
   for (const wanted of [
-    { name: MEMBER_TYPE, audience: "MEMBER" as const, sortOrder: 1 },
-    { name: BOARD_TYPE, audience: "BOARD" as const, sortOrder: 2 },
+    { name: MEMBER_TYPE, reporters: ["RESIDENTS" as const], sortOrder: 1 },
+    { name: BOARD_TYPE, reporters: ["HANDLERS" as const], sortOrder: 2 },
   ]) {
     if (!existing.some((type) => type.name === wanted.name)) {
       await api.createIssueType(request, stack.baseUrl, wanted);
@@ -358,29 +359,116 @@ test("the board takes the report on and marks it done", async ({
   // The queue says who reported it, by name: this reporter is not protected.
   await expect(row.getByText(REPORTER.fullName)).toBeVisible();
 
-  await row.getByRole("button", { name: "Ta hand om det" }).click();
+  /*
+   * Moved between the type's statuses as the board named them (ADR 0054). The
+   * default set is Ny, Pågår, Väntar and Klar; closing asks how it ended.
+   */
+  const reported = (): Locator =>
+    queue.getByRole("listitem").filter({ hasText: DESCRIPTION }).first();
+  const moveTo = async (status: string): Promise<void> => {
+    await reported()
+      .getByRole("combobox", { name: /: status$/ })
+      .selectOption({ label: status });
+  };
+
+  await moveTo("Pågår");
+  await reported().getByRole("button", { name: "Spara status" }).click();
+  // The chip, not the option of the same name in the status select.
   await expect(
-    queue
-      .getByRole("listitem")
-      .filter({ hasText: DESCRIPTION })
-      .first()
-      .getByText("Pågår", { exact: true }),
+    reported().getByText("Pågår", { exact: true }).filter({ visible: true }),
   ).toBeVisible();
 
-  await queue
-    .getByRole("listitem")
-    .filter({ hasText: DESCRIPTION })
-    .first()
-    .getByRole("button", { name: "Markera som klar" })
+  await moveTo("Klar");
+  // Not saved without an outcome: the button waits for one.
+  await expect(
+    reported().getByRole("button", { name: "Spara status" }),
+  ).toBeDisabled();
+  await reported()
+    .getByRole("combobox", { name: /: utfall$/ })
+    .selectOption({ label: "Åtgärdat" });
+  await reported().getByRole("button", { name: "Spara status" }).click();
+
+  await expect(
+    reported().getByText("Klar", { exact: true }).filter({ visible: true }),
+  ).toBeVisible();
+  await expect(reported().getByText("Utfall: Åtgärdat")).toBeVisible();
+});
+
+test("the board renames a status and adds one of its own", async ({
+  page,
+  api: request,
+  clientAddress,
+}) => {
+  await ensureIssueFixture(request, clientAddress);
+  // A type of this test's own, so the rename leaves the others' as they were.
+  const typeName = uniqueSurname("Statusar");
+  await api.createIssueType(request, stack.baseUrl, {
+    name: typeName,
+    reporters: ["RESIDENTS"],
+  });
+  await browseAs(page, clientAddress, "administrator");
+
+  await signInThroughTheScreen(
+    page,
+    ADMINISTRATOR.email,
+    ADMINISTRATOR.password,
+  );
+  await page.goto(appPath("/board/settings/issues-bookings"));
+
+  const statuses = page.getByRole("region", {
+    name: `Statusar för ${typeName}`,
+  });
+  await expect(statuses).toBeVisible();
+
+  const renamed = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PUT" &&
+      /\/api\/issue-types\/[^/]+\/statuses\/[^/]+$/.test(
+        new URL(response.url()).pathname,
+      ),
+  );
+  const waiting = statuses.getByLabel("Väntar (Väntar): namn");
+  await waiting.fill("Väntar på svar");
+  await statuses.getByRole("button", { name: "Byt namn på Väntar" }).click();
+  expect((await renamed).ok()).toBe(true);
+  await expect(
+    statuses.getByLabel("Väntar på svar (Väntar): namn"),
+  ).toHaveValue("Väntar på svar");
+
+  const added = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      /\/api\/issue-types\/[^/]+\/statuses$/.test(
+        new URL(response.url()).pathname,
+      ),
+  );
+  await statuses
+    .getByLabel(`${typeName}: den nya statusen betyder`)
+    .selectOption({ label: "Väntar" });
+  await statuses
+    .getByLabel(`${typeName}: namn på den nya statusen`)
+    .fill("Väntar på styrelsebeslut");
+  await statuses
+    .getByRole("button", { name: `Lägg till en status för ${typeName}` })
     .click();
-
+  expect((await added).status()).toBe(201);
   await expect(
-    queue
-      .getByRole("listitem")
-      .filter({ hasText: DESCRIPTION })
-      .first()
-      .getByText("Klar", { exact: true }),
+    statuses.getByLabel("Väntar på styrelsebeslut (Väntar): namn"),
   ).toBeVisible();
+
+  // Read back: the default renamed and still the default, the added one beside
+  // it under the same meaning.
+  const type = (await api.listIssueTypes(request, stack.baseUrl)).find(
+    (candidate) => candidate.name === typeName,
+  );
+  expect(
+    type?.statuses
+      .filter((status) => status.meaning === "WAITING")
+      .map((status) => [status.label, status.isDefault]),
+  ).toEqual([
+    ["Väntar på svar", true],
+    ["Väntar på styrelsebeslut", false],
+  ]);
 });
 
 test("the property manager works the queue and is never shown the address book", async ({
