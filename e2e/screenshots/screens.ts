@@ -2238,16 +2238,29 @@ export const SCREENS: readonly Screen[] = [
       // before it.
       { see: { button: "Spara ansvarsfördelningen" } },
       // Skipped where a walk against a stack that is already up saved the
-      // guide. A saved draft that is not yet adopted has lines, and the
-      // example is offered only while the table has none, so it is loaded
-      // only where there is no first line to remove.
+      // guide with lines. The example is offered only while the table has no
+      // line, so it is loaded only where there is no first line to remove, and
+      // the guide is saved then, also where it was adopted with no lines: the
+      // public form shows a guide only when it has a line. The adoption box is
+      // ticked only while the guide is not adopted, so an adopted guide is
+      // never withdrawn here.
+      {
+        unlessSeen: { button: "Ta bort rad 1" },
+        steps: [
+          { click: { button: "Fyll i exemplet" } },
+          {
+            unlessSeen: { text: /^Antagen / },
+            steps: [
+              { click: { label: "Tabellen följer föreningens stadgar" } },
+            ],
+          },
+          { click: { button: "Spara ansvarsfördelningen" } },
+        ],
+      },
+      // A saved draft that has lines and is not yet adopted.
       {
         unlessSeen: { text: /^Antagen / },
         steps: [
-          {
-            unlessSeen: { button: "Ta bort rad 1" },
-            steps: [{ click: { button: "Fyll i exemplet" } }],
-          },
           { click: { label: "Tabellen följer föreningens stadgar" } },
           { click: { button: "Spara ansvarsfördelningen" } },
         ],
@@ -2318,9 +2331,10 @@ export const SCREENS: readonly Screen[] = [
     as: "nobody",
     goto: "/kontakt",
     prepare: [{ click: { text: "Vem ansvarar för vad?", first: true } }],
-    // The sentence that says the board has adopted the guide, which is on the
-    // page only for an adopted guide and visible only once it is open, and does
-    // not depend on what the lines say.
+    // The sentence that says the board has adopted the guide. It is on the
+    // page only for an adopted guide with at least one line, and only inside
+    // the folded details element, which the prepare click opens. The setup two
+    // entries up leaves the guide with a line.
     waitFor: {
       text: "Enligt föreningens stadgar, som styrelsen läser dem. Stadgarna gäller före tabellen.",
     },

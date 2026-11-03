@@ -218,7 +218,15 @@ describe("a report made from a post", () => {
     expect(screen.getByText("Hissen står still.")).toBeTruthy();
   });
 
-  it("keeps the guide on show when it cannot be read again", async () => {
+  /*
+   * Opens a report with the adopted guide on show, then has the answer to a
+   * reply say the report is closed, which makes the screen read everything
+   * again. Comes back once that re-read has been applied: the composer is gone
+   * only after the lists have been set, and the guide is set with them.
+   */
+  async function reopenWithAdoptedGuide(
+    guideAfter: ReturnType<typeof ok> | ReturnType<typeof refused>,
+  ): Promise<void> {
     const guide = {
       adoptedAt: "2026-08-01T08:00:00.000Z",
       version: "2026-08-01T08:00:00.000Z",
@@ -255,9 +263,9 @@ describe("a report made from a post", () => {
     ).toBeTruthy();
     expect(screen.getByText("Golvbrunn")).toBeTruthy();
 
-    // The re-read that a closed answer asks for fails on the guide only.
-    fetchGuide.mockResolvedValue(refused(500, "unknown"));
-    fetchOwnIssues.mockResolvedValue(ok([report]));
+    // The re-read that a closed answer asks for.
+    fetchGuide.mockResolvedValue(guideAfter);
+    fetchOwnIssues.mockResolvedValue(ok([{ ...report, meaning: "DONE" }]));
     await session.click(screen.getByText("Meddelanden om Hiss"));
     await session.type(
       await screen.findByLabelText("Hiss: ditt meddelande"),
@@ -265,12 +273,27 @@ describe("a report made from a post", () => {
     );
     await session.click(screen.getByRole("button", { name: "Skicka" }));
     await waitFor(() => {
-      expect(fetchGuide).toHaveBeenCalledTimes(2);
+      expect(screen.queryByLabelText("Hiss: ditt meddelande")).toBeNull();
     });
+    expect(fetchGuide).toHaveBeenCalledTimes(2);
+  }
+
+  it("keeps the guide on show when it cannot be read again", async () => {
+    await reopenWithAdoptedGuide(refused(500, "unknown"));
+
     expect(
       screen.getByText("Vem ansvarar för vad?", { selector: "summary" }),
     ).toBeTruthy();
     expect(screen.getByText("Golvbrunn")).toBeTruthy();
+  });
+
+  it("removes the guide when it is read again and has been withdrawn", async () => {
+    await reopenWithAdoptedGuide(ok({ guide: null }));
+
+    expect(
+      screen.queryByText("Vem ansvarar för vad?", { selector: "summary" }),
+    ).toBeNull();
+    expect(screen.queryByText("Golvbrunn")).toBeNull();
   });
 
   it("hides the composer once the list is read again and shows the report closed", async () => {

@@ -469,11 +469,13 @@ export function fetchReporterResponsibilityGuide(): Promise<
   ApiResult<{ guide: ResponsibilityGuide | null }>
 > {
   /*
-   * Bounded: the screen waits for this read with the others before it shows
-   * the report form, and a form is filed without the guide when it fails.
+   * Bounded, body included: the screen waits for this read with the others
+   * before it shows the report form, and a form is filed without the guide
+   * when it fails. A timeout on the answer alone would leave a stalled body
+   * unbounded.
    */
   return apiRequest("GET", "/api/issues/responsibility-guide", undefined, {
-    answerTimeoutMs: 10_000,
+    signal: AbortSignal.timeout(10_000),
   });
 }
 
