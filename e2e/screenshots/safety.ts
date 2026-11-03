@@ -88,21 +88,18 @@ const GENERATED_ID = /^c[a-z0-9]{24}$/;
  * Letters of any case and script, with their combining marks, so that a label
  * touching an id-shaped run makes the token longer and not an id:
  * "c...0701234567PRIVAT", or one ending in a Swedish letter, "c...0701234567å",
- * precomposed or decomposed.
+ * precomposed or decomposed, or in a letter outside the Basic Multilingual
+ * Plane. The `u` flag makes the pattern read code points, so that such a letter
+ * is not taken for two lone surrogates that end the run.
  */
-const IDENTIFIER_CHARACTER = /[\p{L}\p{M}\p{Nd}]/u;
+const IDENTIFIER_RUN_BEFORE = /[\p{L}\p{M}\p{Nd}]*$/u;
+const IDENTIFIER_RUN_AFTER = /^[\p{L}\p{M}\p{Nd}]*/u;
 
 /** The run of letters and digits that holds `[start, end)`. */
 function tokenAround(text: string, start: number, end: number): string {
-  let from = start;
-  while (from > 0 && IDENTIFIER_CHARACTER.test(text.charAt(from - 1))) {
-    from -= 1;
-  }
-  let to = end;
-  while (to < text.length && IDENTIFIER_CHARACTER.test(text.charAt(to))) {
-    to += 1;
-  }
-  return text.slice(from, to);
+  const before = IDENTIFIER_RUN_BEFORE.exec(text.slice(0, start))?.[0] ?? "";
+  const after = IDENTIFIER_RUN_AFTER.exec(text.slice(end))?.[0] ?? "";
+  return before + text.slice(start, end) + after;
 }
 
 /**

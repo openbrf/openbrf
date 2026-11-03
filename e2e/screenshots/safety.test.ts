@@ -47,6 +47,11 @@ describe("findPhoneNumbers", () => {
       "a\u0308cabcdefghijklmn0701234567",
       "0701234567",
     ],
+    [
+      "a letter outside the Basic Multilingual Plane before an id-shaped run",
+      "\u{10400}cabcdefghijklmn0701234567",
+      "0701234567",
+    ],
     ["a label on each side", "Mobil0701234567privat", "0701234567"],
     [
       "a token one character short of an id",
