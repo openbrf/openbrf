@@ -3779,7 +3779,8 @@
         "sendFailed": "Not sent: the mail server refused it.",
         "sendingInterrupted": "Not sent: the sending stopped before it began. Write it again to send it.",
         "deliveryUnconfirmed": "Unconfirmed: the sending stopped, and nobody knows whether it went out. Ask the contractor before sending it again.",
-        "recipientRemoved": "Not sent: the contractor was removed from the list before it went out."
+        "recipientRemoved": "Not sent: the contractor was removed from the list before it went out.",
+        "textErased": "Not sent: the text of the work order was erased before it went out."
       },
       "ringFenced": "Nothing about an issue of this type may reach a contractor, so no work order is offered.",
       "noContractors": "There are no contractors on the list. The board adds them in the settings, under Issues and bookings.",

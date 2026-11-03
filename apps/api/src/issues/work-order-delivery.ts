@@ -4,7 +4,7 @@
  * Codes, never prose, on the board mailbox reply's rule: a mail server's
  * rejection quotes the envelope back, and the envelope is a contractor's
  * address. The four a reply has, for the same four ways a sending ends
- * without a mail server's acceptance, and one of its own for a recipient
+ * without a mail server's acceptance, and two of its own, for a recipient or a text
  * erased before the sending; a list of its own rather than theirs, so neither
  * module offers a screen a code the other produces.
  */
@@ -35,6 +35,13 @@ export const WORK_ORDER_DELIVERY_FAILURES = {
    * to.
    */
   recipientRemoved: "recipient-removed",
+
+  /**
+   * The work order's text was erased at the end of its retention period
+   * before its mail went out: what the handler wrote is gone, and there is
+   * nothing left to send.
+   */
+  textErased: "text-erased",
 } as const;
 
 export type WorkOrderDeliveryFailure =

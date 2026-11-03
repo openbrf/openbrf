@@ -15,6 +15,7 @@ import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
+import { IssuePurgeService } from "./issue-purge.service";
 import { WorkOrderMailerService } from "./work-order-mailer.service";
 
 /**
@@ -37,6 +38,7 @@ let app: NestFastifyApplication;
 let prisma: PrismaService;
 let mail: MailService;
 let mailer: WorkOrderMailerService;
+let purge: IssuePurgeService;
 let encryption: FieldEncryptionService;
 
 const suffix = process.hrtime.bigint().toString(36);
@@ -197,6 +199,45 @@ async function previewAndSend(
   return workOrder(cookie, issueId, { ...payload, previewToken });
 }
 
+/**
+ * Holds the worker's claim at its door: the first statement the worker sends
+ * that claims a work order waits until `release` is called, while `reached`
+ * settles once the worker is standing there. Whatever the test commits in
+ * between is therefore committed before the claim, which is the schedule an
+ * erasure can fall into between the worker's start and its claim.
+ */
+function holdTheClaim(): {
+  reached: Promise<void>;
+  release: () => void;
+  restore: () => void;
+} {
+  let reach: () => void = () => undefined;
+  let open: () => void = () => undefined;
+  const reached = new Promise<void>((resolve) => {
+    reach = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  const original = prisma.$queryRaw.bind(prisma) as (
+    ...args: unknown[]
+  ) => Promise<unknown>;
+  let held = false;
+  const spy = vi.spyOn(prisma, "$queryRaw").mockImplementation(((
+    ...args: unknown[]
+  ) => {
+    const [strings] = args;
+    const sql = Array.isArray(strings) ? strings.join("?") : "";
+    if (!held && sql.includes('UPDATE "work_order"')) {
+      held = true;
+      reach();
+      return gate.then(() => original(...args));
+    }
+    return original(...args);
+  }) as unknown as typeof prisma.$queryRaw);
+  return { reached, release: open, restore: () => spy.mockRestore() };
+}
+
 /** A token no preview signed, for a sending refused before it is read. */
 const UNSIGNED = "1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
@@ -214,6 +255,7 @@ beforeAll(async () => {
   prisma = app.get(PrismaService);
   mail = app.get(MailService);
   mailer = app.get(WorkOrderMailerService);
+  purge = app.get(IssuePurgeService);
   encryption = app.get(FieldEncryptionService);
 
   await prisma.association.upsert({
@@ -996,6 +1038,142 @@ describe("the sending", () => {
       deliveryStatus: "FAILED",
       deliveryFailure: "mail-not-configured",
     });
+  });
+
+  it("sends nothing to a contractor removed after the worker started and before it claimed the work order", async () => {
+    const issueId = await filed(plain, "erased-before-claim");
+    const firm = await addContractor({
+      name: `Borttagen firma ${suffix}`,
+      trade: "Låssmed",
+      email: `last-${suffix}@firma.test`,
+    });
+    const sent = (
+      await previewAndSend(as(board), issueId, {
+        contractorId: firm.id,
+        body: "Byt cylinder i källardörren.",
+      })
+    ).json<WorkOrderRow>();
+
+    const send = vi.spyOn(mail, "send");
+    const hold = holdTheClaim();
+    try {
+      const running = mailer.send(sent.id);
+      await hold.reached;
+
+      // The removal commits while the worker waits at the claim.
+      const removed = await inject({
+        method: "DELETE",
+        url: `/api/contractors/${firm.id}`,
+        cookie: as(board),
+      });
+      expect(removed.statusCode).toBe(204);
+
+      hold.release();
+      expect(await running).toBe("failed");
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      hold.release();
+      hold.restore();
+      send.mockRestore();
+    }
+    expect(
+      await prisma.workOrder.findUniqueOrThrow({
+        where: { id: sent.id },
+        select: {
+          deliveryStatus: true,
+          deliveryFailure: true,
+          claimedAt: true,
+          recipientName: true,
+          recipientEmailCipher: true,
+        },
+      }),
+    ).toEqual({
+      deliveryStatus: "FAILED",
+      deliveryFailure: "recipient-removed",
+      claimedAt: null,
+      recipientName: null,
+      recipientEmailCipher: null,
+    });
+  });
+
+  it("sends nothing of a text erased after the worker started and before it claimed the work order", async () => {
+    const issueId = await filed(plain, "text-erased-before-claim");
+    const sent = (
+      await previewAndSend(as(board), issueId, {
+        contractorId: plumber.id,
+        body: "Spola om värmesystemet.",
+      })
+    ).json<WorkOrderRow>();
+    // Closed long enough ago for the nightly purge to take its texts.
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        statusId: plain.statusIds.DONE,
+        closedAt: new Date("2020-01-01"),
+      },
+    });
+
+    const send = vi.spyOn(mail, "send");
+    const hold = holdTheClaim();
+    try {
+      const running = mailer.send(sent.id);
+      await hold.reached;
+
+      expect(await purge.purgeWorkOrderTexts(issueId)).toBe(true);
+
+      hold.release();
+      expect(await running).toBe("failed");
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      hold.release();
+      hold.restore();
+      send.mockRestore();
+    }
+    expect(
+      await prisma.workOrder.findUniqueOrThrow({
+        where: { id: sent.id },
+        select: {
+          deliveryStatus: true,
+          deliveryFailure: true,
+          claimedAt: true,
+          body: true,
+        },
+      }),
+    ).toEqual({
+      deliveryStatus: "FAILED",
+      deliveryFailure: "text-erased",
+      claimedAt: null,
+      body: null,
+    });
+  });
+
+  it("claims a work order once, and mails it once, when two workers run it together", async () => {
+    const issueId = await filed(plain, "claimed-once");
+    const sent = (
+      await previewAndSend(as(board), issueId, {
+        contractorId: plumber.id,
+        body: "Rensa stuprännorna.",
+      })
+    ).json<WorkOrderRow>();
+
+    const send = vi
+      .spyOn(mail, "send")
+      .mockResolvedValue({ messageId: "claimed-once" });
+    try {
+      const outcomes = await Promise.allSettled([
+        mailer.send(sent.id),
+        mailer.send(sent.id),
+      ]);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(
+        outcomes.filter(
+          (outcome) =>
+            outcome.status === "fulfilled" && outcome.value === "sent",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      send.mockRestore();
+    }
   });
 
   it("binds a contractor's address and a work order's recipient to their own rows", async () => {

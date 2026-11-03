@@ -59,6 +59,13 @@ const WORK_ORDER_JOB_OPTIONS = {
   deadLetter: WORK_ORDER_ABANDONED_QUEUE,
 } satisfies JobSendOptions;
 
+/** What the claim returns: the fields the mail is made of, all present. */
+interface ClaimedWorkOrder {
+  recipientName: string;
+  recipientEmailCipher: string;
+  body: string;
+}
+
 /** Payload of the sending job. One id, and deliberately nothing else. */
 interface WorkOrderJob {
   workOrderId: string;
@@ -135,46 +142,30 @@ export class WorkOrderMailerService implements OnModuleInit {
 
   /** Sends one work order, and says what it did. */
   async send(workOrderId: string): Promise<"sent" | "failed" | "skipped"> {
-    const order = await this.prisma.workOrder.findUnique({
-      where: { id: workOrderId },
-      select: { recipientName: true, recipientEmailCipher: true, body: true },
-    });
-    if (order === null) {
-      // Its issue was removed between the handler pressing send and this run,
-      // and took the work order with it.
-      this.logger.warn(
-        `Work order ${workOrderId} was gone before it was sent.`,
-      );
-      return "skipped";
-    }
-
-    // The claim, before anything reaches a mail server. It writes the time and
-    // not the outcome: SENT would say a mail server accepted it, which nothing
-    // knows yet (see the board mailbox's reply for the whole argument).
-    const claimed = await this.prisma.workOrder.updateMany({
-      where: { id: workOrderId, deliveryStatus: "PENDING", claimedAt: null },
-      data: { claimedAt: new Date() },
-    });
-    if (claimed.count === 0) {
-      await this.refuseUnsettledClaim(workOrderId);
-      return "skipped";
-    }
-
-    if (
-      order.recipientName === null ||
-      order.recipientEmailCipher === null ||
-      order.body === null
-    ) {
-      // The contractor was removed from the list, and erased from this work
-      // order, between the handler pressing send and this run.
-      await this.fail(
-        workOrderId,
-        WORK_ORDER_DELIVERY_FAILURES.recipientRemoved,
-      );
-      this.logger.warn(
-        `Work order ${workOrderId} had no recipient left to send to.`,
-      );
-      return "failed";
+    // The claim and the read of what it sends are one statement, so what is
+    // mailed is what the row held at the moment it was claimed. Reading first
+    // and claiming after would let an erasure commit in between: the claim
+    // would still succeed, and the worker would mail a contractor, or a text,
+    // the database no longer holds. Under READ COMMITTED a concurrent erasure
+    // that holds the row makes this statement wait and re-test its conditions
+    // against the erased row, which then no longer qualifies.
+    //
+    // It writes the time and not the outcome: SENT would say a mail server
+    // accepted it, which nothing knows yet (see the board mailbox's reply for
+    // the whole argument).
+    const [order] = await this.prisma.$queryRaw<ClaimedWorkOrder[]>`
+      UPDATE "work_order"
+      SET "claimedAt" = now() AT TIME ZONE 'UTC'
+      WHERE "id" = ${workOrderId}
+        AND "deliveryStatus" = 'PENDING'
+        AND "claimedAt" IS NULL
+        AND "recipientName" IS NOT NULL
+        AND "recipientEmailCipher" IS NOT NULL
+        AND "body" IS NOT NULL
+      RETURNING "recipientName", "recipientEmailCipher", "body"
+    `;
+    if (order === undefined) {
+      return this.settleUnclaimed(workOrderId);
     }
 
     let sent: { suppressed?: true };
@@ -275,22 +266,62 @@ export class WorkOrderMailerService implements OnModuleInit {
   }
 
   /**
-   * Fails the job when the work order it could not claim is claimed and
-   * unsettled: the attempt that claimed it stopped before recording an
-   * outcome, or is still running. A completed job is never looked at again,
-   * so failing it is what brings the work order to the dead letter, which
-   * settles it.
+   * Settles a work order the claim did not take, and says what it did.
+   *
+   * Gone: its issue was removed between the handler pressing send and this
+   * run, and took the work order with it. Still pending and unclaimed, with
+   * the contractor or the text erased: erased before the claim, so nothing is
+   * sent, and the failure says which was erased. Claimed and unsettled: the
+   * attempt that claimed it stopped before recording an outcome, or is still
+   * running, and the job fails, because a completed job is never looked at
+   * again and failing it is what brings the work order to the dead letter,
+   * which settles it. Anything else was settled already.
    */
-  private async refuseUnsettledClaim(workOrderId: string): Promise<void> {
+  private async settleUnclaimed(
+    workOrderId: string,
+  ): Promise<"failed" | "skipped"> {
     const row = await this.prisma.workOrder.findUnique({
       where: { id: workOrderId },
-      select: { deliveryStatus: true, claimedAt: true },
+      select: {
+        deliveryStatus: true,
+        claimedAt: true,
+        recipientName: true,
+        recipientEmailCipher: true,
+      },
     });
-    if (row?.deliveryStatus === "PENDING" && row.claimedAt !== null) {
+    if (row === null) {
+      this.logger.warn(
+        `Work order ${workOrderId} was gone before it was sent.`,
+      );
+      return "skipped";
+    }
+    if (row.deliveryStatus !== "PENDING") {
+      return "skipped";
+    }
+    if (row.claimedAt !== null) {
       throw new Error(
         `Work order ${workOrderId} is claimed by an attempt that has not recorded its outcome.`,
       );
     }
+
+    // Unclaimed and pending, yet the claim found a field missing: erased
+    // before the claim, however long before. Recorded only while it is still
+    // unclaimed and pending, so a claim another attempt made since is left.
+    const failure =
+      row.recipientName === null || row.recipientEmailCipher === null
+        ? WORK_ORDER_DELIVERY_FAILURES.recipientRemoved
+        : WORK_ORDER_DELIVERY_FAILURES.textErased;
+    const { count } = await this.prisma.workOrder.updateMany({
+      where: { id: workOrderId, deliveryStatus: "PENDING", claimedAt: null },
+      data: { deliveryStatus: "FAILED", deliveryFailure: failure },
+    });
+    if (count === 0) {
+      return "skipped";
+    }
+    this.logger.warn(
+      `Work order ${workOrderId} had nothing left to send: ${failure}.`,
+    );
+    return "failed";
   }
 
   private async fail(workOrderId: string, failure: string): Promise<void> {

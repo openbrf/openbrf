@@ -67,6 +67,7 @@ const DELIVERY_FAILURE_LABEL: Readonly<
   "sending-interrupted": "issues.workOrders.failure.sendingInterrupted",
   "delivery-unconfirmed": "issues.workOrders.failure.deliveryUnconfirmed",
   "recipient-removed": "issues.workOrders.failure.recipientRemoved",
+  "text-erased": "issues.workOrders.failure.textErased",
 };
 
 /** A draft a preview was asked for, so its answer is matched to it. */

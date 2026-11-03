@@ -40,6 +40,8 @@ a preview, and the issue keeps the record of it (ADR 0055).
   sending that may have gone out is shown as unconfirmed, not as not sent.
   Outside production, a work order sent with no mail server set up is recorded
   as not sent.
+  A work order whose contractor was removed, or whose text was erased, before
+  its mail went out is not mailed and is recorded as not sent.
   The timeline shows that a work order was sent, and the audit log records the
   sending with the length of the text and none of its words. A reporter's data
   subject access report lists the work orders sent about their issues: to

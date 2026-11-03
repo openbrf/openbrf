@@ -299,6 +299,14 @@ reporter's data subject access report lists, under each of their cases, the
 work orders sent about it: to whom, when, and whether the mail went out, not
 the text, which may be about other people.
 
+The worker claims a work order and reads what it mails in one statement, a
+conditional update that returns the recipient and the text, and it claims only
+a row that still holds both. An erasure that commits before the claim - a
+contractor removed, or the text purged - therefore leaves nothing to mail, and
+the work order is recorded as not sent, with the code for the contractor
+removed or for the text erased. An erasure that commits after the claim cannot
+recall a mail already being sent, which is the one case the claim leaves open.
+
 A ring-fenced type is a column on the type, `ringFenced`, read by the refusal
 and set by the board under issues:configure through a request of its own,
 audited with who set or lifted it. Which types are ring-fenced by default is
