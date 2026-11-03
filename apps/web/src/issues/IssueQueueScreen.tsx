@@ -152,6 +152,15 @@ export function IssueQueueScreen({
   const reload = useCallback((): void => {
     setReadCount((count) => count + 1);
   }, []);
+  /*
+   * Bumped to read the types alone. The retry beside the types' notice asks
+   * for this, so a queue already on screen is not read again, and not replaced
+   * by a failure notice if that read would fail.
+   */
+  const [typesReadCount, setTypesReadCount] = useState(0);
+  const retryTypes = useCallback((): void => {
+    setTypesReadCount((count) => count + 1);
+  }, []);
 
   /*
    * The search is asked once the handler stops typing, rather than once per
@@ -220,7 +229,8 @@ export function IssueQueueScreen({
 
   /*
    * The types, read again whenever the queue is read again for a save, an
-   * issue opened or a retry, but not for each change of view or filter. A
+   * issue opened or a retry, and on their own retry, but not for each change
+   * of view or filter. A
    * status switched off since they were read is refused by the server, and
    * the panel reads the queue again on that refusal.
    */
@@ -237,7 +247,7 @@ export function IssueQueueScreen({
     return () => {
       current = false;
     };
-  }, [canHandle, readCount]);
+  }, [canHandle, readCount, typesReadCount]);
 
   const ready = loaded.key !== null;
   // The list on screen answers an earlier filter, or an earlier read under
@@ -388,7 +398,7 @@ export function IssueQueueScreen({
             // notice that they failed either.
             types={types === undefined ? [] : types}
             onChanged={reload}
-            onRetryTypes={reload}
+            onRetryTypes={retryTypes}
           />
         </div>
       ) : null}

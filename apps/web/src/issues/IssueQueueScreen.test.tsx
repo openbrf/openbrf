@@ -271,6 +271,38 @@ describe("a read that fails", () => {
     ).toBeNull();
     expect(screen.queryByText("Lägg upp ett ärende")).toBeNull();
   });
+
+  it("reads the types alone on their retry, and keeps the list on screen", async () => {
+    fetchHandlerIssueTypes.mockReset().mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    expect(
+      await screen.findByText(
+        "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.",
+      ),
+    ).toBeTruthy();
+    expect(fetchIssueQueueSnapshot).toHaveBeenCalledTimes(1);
+
+    // The queue would fail now, were it read again.
+    fetchIssueQueueSnapshot.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    fetchHandlerIssueTypes.mockResolvedValue({ ok: true, value: [] });
+
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    await waitFor(() => {
+      expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(2);
+    });
+    expect(fetchIssueQueueSnapshot).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Det droppar i taket.")).toBeTruthy();
+    expect(screen.queryByText("Ärendena kunde inte läsas just nu.")).toBeNull();
+  });
 });
 
 /** The views' navigation. */
