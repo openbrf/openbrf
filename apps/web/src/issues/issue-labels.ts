@@ -3,6 +3,7 @@ import type {
   IssueOutcome,
   IssuePriority,
   IssueReporterGroup,
+  IssueSignature,
   IssueStatusMeaning,
   IssueWaitingReason,
 } from "@openbrf/shared";
@@ -57,3 +58,12 @@ export const ISSUE_HANDLED_BY_LABEL = {
   EVERY_HANDLER: "issues.handledBy.EVERY_HANDLER",
   BOARD: "issues.handledBy.BOARD",
 } as const satisfies Readonly<Record<IssueHandledBy, TranslationKey>>;
+
+/**
+ * The role a handler's message is signed with (decision 19): what the reporter
+ * reads in place of a name, and what the handlers read beside one.
+ */
+export const ISSUE_SIGNATURE_LABEL = {
+  BOARD: "issues.conversation.signature.BOARD",
+  PROPERTY_MANAGER: "issues.conversation.signature.PROPERTY_MANAGER",
+} as const satisfies Readonly<Record<IssueSignature, TranslationKey>>;

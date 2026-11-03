@@ -7,6 +7,7 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { lockIssue } from "../issues/issue-lock";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import {
@@ -646,6 +647,7 @@ export class PurgeService implements OnModuleInit {
    *
    * Distinct scans rather than a join: reporterPersonId, assigneePersonId and
    * enteredByPersonId on an issue, defaultAssigneePersonId on an issue type,
+   * authorPersonId on an issue message and on an internal note,
    * uploadedByPersonId on a document and the same column on a media file, and
    * filedByPersonId on an apartment binder entry, are plain columns with an
    * index each, and asking each of them for its distinct values is one index
@@ -657,6 +659,8 @@ export class PurgeService implements OnModuleInit {
       assignees,
       enteredBy,
       typeDefaults,
+      messageAuthors,
+      noteAuthors,
       documents,
       media,
       binderEntries,
@@ -676,6 +680,14 @@ export class PurgeService implements OnModuleInit {
       this.prisma.issueType.groupBy({
         by: ["defaultAssigneePersonId"],
         where: { defaultAssigneePersonId: { not: null } },
+      }),
+      this.prisma.issueMessage.groupBy({
+        by: ["authorPersonId"],
+        where: { authorPersonId: { not: null } },
+      }),
+      this.prisma.issueNote.groupBy({
+        by: ["authorPersonId"],
+        where: { authorPersonId: { not: null } },
       }),
       this.prisma.document.groupBy({
         by: ["uploadedByPersonId"],
@@ -710,6 +722,11 @@ export class PurgeService implements OnModuleInit {
     for (const row of typeDefaults) {
       if (row.defaultAssigneePersonId !== null) {
         ids.add(row.defaultAssigneePersonId);
+      }
+    }
+    for (const row of [...messageAuthors, ...noteAuthors]) {
+      if (row.authorPersonId !== null) {
+        ids.add(row.authorPersonId);
       }
     }
     for (const row of [...documents, ...media]) {
@@ -919,6 +936,23 @@ export class PurgeService implements OnModuleInit {
        * the board decides; a job rewriting prose on a schedule would be the
        * association quietly editing its own history.
        */
+      /*
+       * The locks a reporter's reply takes, taken first. A reply reads the
+       * issue's reporter, then inserts a message that names them; without the
+       * lock, one that read the reporter before this purge committed could
+       * insert after the detachments below have run, and the link the erasure
+       * is recorded as having cleared would survive. In identifier order, so
+       * two purges never wait on each other the other way round.
+       */
+      const reportedIssues = await tx.issue.findMany({
+        where: { reporterPersonId: personId },
+        select: { id: true },
+        orderBy: { id: "asc" },
+      });
+      for (const reported of reportedIssues) {
+        await lockIssue(tx, reported.id);
+      }
+
       const { count: issuesDetachedFromPerson } = await tx.issue.updateMany({
         where: { reporterPersonId: personId },
         data: {
@@ -949,6 +983,24 @@ export class PurgeService implements OnModuleInit {
       const { count: typesNoLongerDefaulting } = await tx.issueType.updateMany({
         where: { defaultAssigneePersonId: personId },
         data: { defaultAssigneePersonId: null },
+      });
+
+      /*
+       * Who wrote an issue message or an internal note. The words stay with
+       * the issue, which purges them with its free text on its own clock (ADR
+       * 0057), and the audit entry for each still names its writer; what goes
+       * is the reference. A handler's message keeps the role it was signed
+       * with, which names nobody, and is shown to the handlers as written by
+       * somebody no longer known.
+       */
+      const { count: messagesDetachedFromPerson } =
+        await tx.issueMessage.updateMany({
+          where: { authorPersonId: personId },
+          data: { authorPersonId: null },
+        });
+      const { count: notesDetachedFromPerson } = await tx.issueNote.updateMany({
+        where: { authorPersonId: personId },
+        data: { authorPersonId: null },
       });
 
       const { count: documentsDetachedFromPerson } =
@@ -985,6 +1037,9 @@ export class PurgeService implements OnModuleInit {
 
       if (issuesDetachedFromPerson > 0) {
         cleared.push("issues");
+      }
+      if (messagesDetachedFromPerson + notesDetachedFromPerson > 0) {
+        cleared.push("issueConversation");
       }
       if (
         issuesUnassignedFromPerson +

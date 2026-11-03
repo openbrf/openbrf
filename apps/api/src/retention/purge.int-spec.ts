@@ -16,6 +16,9 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import type { Prisma } from "../generated/prisma/client";
+import { lockIssue } from "../issues/issue-lock";
+import { waitFor } from "../testing/advisory-locks";
+import { backendPid, waitersBehind } from "../testing/lock-waiters";
 import { lockLegalHold } from "./legal-hold-lock";
 import { LegalHoldService } from "./legal-hold.service";
 import { computePurgeDate } from "./purge-date";
@@ -71,6 +74,9 @@ const MOVED_IN = new Date("2010-01-01T00:00:00.000Z");
 
 const issueTypeId = `purge-type-${suffix}`;
 const issueId = `purge-issue-${suffix}`;
+/** A note on the same issue by somebody else, which the purge leaves alone. */
+const otherNoteId = `purge-note-other-${suffix}`;
+const OTHER_NOTE = "Besiktning bokad nästa vecka";
 const photoFileId = `purge-photo-${suffix}`;
 const documentFileId = `purge-docfile-${suffix}`;
 const documentId = `purge-doc-${suffix}`;
@@ -85,6 +91,8 @@ const binderFileId = `purge-binder-file-${suffix}`;
  * named in here has an art. 17 request, decided by the board on its merits.
  */
 const ISSUE_DESCRIPTION = "Grannen i 1202 stallde cyklar i trapphuset";
+/** What the person wrote in the conversation on that issue. */
+const ISSUE_MESSAGE = "Cyklarna står kvar i trapphuset";
 
 /** The moment the retention policy has run out on that move-out, and before. */
 let dueAt: Date;
@@ -462,6 +470,27 @@ beforeAll(async () => {
       statusId: issueType.statusIds.DONE,
       closedAt: new Date(),
       outcome: "FIXED",
+    },
+  });
+  // The conversation on it, as its reporter and as a handler writing a note:
+  // each names its writer, and the words are the issue's.
+  await prisma.issueMessage.create({
+    data: {
+      issueId,
+      side: "REPORTER",
+      authorPersonId: people.referenced,
+      body: ISSUE_MESSAGE,
+    },
+  });
+  await prisma.issueNote.create({
+    data: { issueId, authorPersonId: people.referenced, body: ISSUE_MESSAGE },
+  });
+  await prisma.issueNote.create({
+    data: {
+      id: otherNoteId,
+      issueId,
+      authorPersonId: people.board,
+      body: OTHER_NOTE,
     },
   });
   await prisma.mediaFile.createMany({
@@ -1160,7 +1189,46 @@ describe("who the purge leaves alone", () => {
 
 describe("issues, documents, binder entries and files the person left behind", () => {
   it("detaches them from the person and keeps every one of them", async () => {
-    const outcome = await purge.purgePerson(people.referenced, dueAt);
+    /*
+     * Run while somebody else holds the lock on the person's issue, as a
+     * reply their reporter is writing does: the purge waits for it. One that
+     * did not could detach the message authors, finish, and leave the reply
+     * that commits afterwards still naming a person the erasure is recorded as
+     * having cleared.
+     */
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reached: (pid: number) => void = () => undefined;
+    const holding = new Promise<number>((resolve) => {
+      reached = resolve;
+    });
+    const reply = prisma.$transaction(
+      async (tx) => {
+        await lockIssue(tx, issueId);
+        reached(await backendPid(tx));
+        await gate;
+      },
+      { timeout: 30_000 },
+    );
+    const holder = await holding;
+    let finished = false;
+    const erasure = purge.purgePerson(people.referenced, dueAt).finally(() => {
+      finished = true;
+    });
+    let waited = false;
+    try {
+      await waitFor(
+        async () => finished || (await waitersBehind(prisma, holder)) > 0,
+      );
+      waited = !finished;
+    } finally {
+      release();
+      await reply;
+    }
+    expect(waited, "the purge waits for the issue's lock").toBe(true);
+    const outcome = await erasure;
 
     expect(outcome?.issuesDetachedFromPerson).toBe(1);
     expect(outcome?.documentsDetachedFromPerson).toBe(1);
@@ -1207,6 +1275,27 @@ describe("issues, documents, binder entries and files the person left behind", (
     // including the neighbour it names. That is why this is a detachment and
     // why nothing calls the result anonymous.
     expect(issue.description).toBe(ISSUE_DESCRIPTION);
+
+    // The conversation is detached from its writer as the issue is, and its
+    // words stay with the issue, on the issue's own clock (ADR 0057).
+    const message = await prisma.issueMessage.findFirstOrThrow({
+      where: { issueId },
+      select: { authorPersonId: true, body: true },
+    });
+    const note = await prisma.issueNote.findFirstOrThrow({
+      where: { issueId, body: ISSUE_MESSAGE },
+      select: { authorPersonId: true, body: true },
+    });
+    expect(message).toEqual({ authorPersonId: null, body: ISSUE_MESSAGE });
+    expect(note).toEqual({ authorPersonId: null, body: ISSUE_MESSAGE });
+    // Somebody else's note on the same issue keeps its writer.
+    await expect(
+      prisma.issueNote.findUniqueOrThrow({
+        where: { id: otherNoteId },
+        select: { authorPersonId: true, body: true },
+      }),
+    ).resolves.toEqual({ authorPersonId: people.board, body: OTHER_NOTE });
+    expect(outcome?.cleared).toContain("issueConversation");
 
     const document = await prisma.document.findUniqueOrThrow({
       where: { id: documentId },
