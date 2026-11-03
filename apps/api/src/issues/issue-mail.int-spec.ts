@@ -40,6 +40,7 @@ import {
   type IssueNoticeJob,
   type IssueOverdueJob,
   NOTIFIED_PUBLIC_REPORTS_PER_HOUR,
+  NOTIFIED_REPORTS_PER_REPORTER_PER_HOUR,
 } from "./issue-mailer.service";
 import { IssueService } from "./issue.service";
 
@@ -83,7 +84,17 @@ const restricted = person("restricted", "Rita", "Begransad");
 /** A board member with no address on record. */
 const unreachable = person("unreachable", "Ulf", "Utanadress");
 const resident = person("resident", "Rune", "Boende");
-const people = [board, admin, manager, restricted, unreachable, resident];
+/** A second resident, whose mail budget is their own. */
+const neighbour = person("neighbour", "Nora", "Granne");
+const people = [
+  board,
+  admin,
+  manager,
+  restricted,
+  unreachable,
+  resident,
+  neighbour,
+];
 const personIds = people.map((entry) => entry.personId);
 
 const apartmentId = `im-apartment-${suffix}`;
@@ -120,8 +131,41 @@ const residentPrincipal: Principal = {
   personId: resident.personId,
   capabilities: capabilitiesFor(RESIDENT_ROLES),
 };
+const neighbourPrincipal: Principal = {
+  ...residentPrincipal,
+  personId: neighbour.personId,
+};
+/** The board member as a resident of the house, reporting as one. */
+const BOARD_RESIDENT_ROLES: PrincipalRoles = {
+  ...RESIDENT_ROLES,
+  isBoardMember: true,
+};
+const boardResidentPrincipal: Principal = {
+  ...BOARD_RESIDENT_ROLES,
+  personId: board.personId,
+  capabilities: capabilitiesFor(BOARD_RESIDENT_ROLES),
+};
 
-/** A report the resident files, through the service the route calls. */
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Moves issues out of the past hour, so they no longer spend their sender's
+ * mail budget.
+ */
+async function outOfTheHour(issueIds: string[]): Promise<void> {
+  await prisma.issue.updateMany({
+    where: { id: { in: issueIds } },
+    data: { createdAt: new Date(Date.now() - 2 * HOUR_MS) },
+  });
+}
+
+/**
+ * A report the resident files, through the service the route calls.
+ *
+ * The suite files more reports as this one resident than an hour's mail budget
+ * allows, so each is moved out of the hour once its mail is queued, and the
+ * next is mailed about as the first was. The budget has a test of its own.
+ */
 async function report(type: IssueTypeFixture): Promise<string> {
   const { id } = await issues.report(residentPrincipal, {
     typeId: type.id,
@@ -129,6 +173,7 @@ async function report(type: IssueTypeFixture): Promise<string> {
     location: REPORTER_LOCATION,
     description: REPORTER_DESCRIPTION,
   });
+  await outOfTheHour([id]);
   return id;
 }
 
@@ -380,12 +425,90 @@ describe("a report is filed", () => {
     expect(told.get(admin.personId)).toBe("filed");
   });
 
-  it("mails nobody about a report from the website's form once the hour's bound is reached", async () => {
-    const since = new Date(Date.now() - 60 * 60 * 1000);
+  it("does not mail a handler about a report they filed as a resident", async () => {
+    const filed: string[] = [];
+    try {
+      const unassigned = await issues.report(boardResidentPrincipal, {
+        typeId: unassignedType.id,
+        description: REPORTER_DESCRIPTION,
+      });
+      filed.push(unassigned.id);
+      // Akut, and the type gives it to the board member who reported it.
+      const urgent = await issues.report(boardResidentPrincipal, {
+        typeId: urgentType.id,
+        description: REPORTER_DESCRIPTION,
+      });
+      filed.push(urgent.id);
+
+      const toldOfUnassigned = recipientsOf(await notices(unassigned.id));
+      expect(toldOfUnassigned.has(board.personId)).toBe(false);
+      expect(toldOfUnassigned.get(admin.personId)).toBe("filed");
+      const toldOfUrgent = recipientsOf(await notices(urgent.id));
+      expect(toldOfUrgent.has(board.personId)).toBe(false);
+      expect(toldOfUrgent.get(admin.personId)).toBe("urgent");
+    } finally {
+      await outOfTheHour(filed);
+    }
+  });
+
+  it("files a signed-in reporter's reports past their hour's budget without mail, and mails another reporter's and an Akut one", async () => {
+    const filed: string[] = [];
+    const file = async (
+      principal: Principal,
+      type: IssueTypeFixture,
+    ): Promise<string> => {
+      const { id } = await issues.report(principal, {
+        typeId: type.id,
+        description: REPORTER_DESCRIPTION,
+      });
+      filed.push(id);
+      return id;
+    };
+    try {
+      for (
+        let index = 0;
+        index < NOTIFIED_REPORTS_PER_REPORTER_PER_HOUR;
+        index += 1
+      ) {
+        const id = await file(residentPrincipal, unassignedType);
+        expect(recipientsOf(await notices(id)).get(admin.personId)).toBe(
+          "filed",
+        );
+      }
+
+      const past = await file(residentPrincipal, unassignedType);
+      expect(await notices(past)).toEqual([]);
+      // Filed and in the queue all the same.
+      expect(
+        await prisma.issue.findUnique({
+          where: { id: past },
+          select: { id: true },
+        }),
+      ).toEqual({ id: past });
+
+      // Akut is counted apart, so the ordinary reports have not spent it.
+      const urgent = await file(residentPrincipal, urgentType);
+      const toldOfUrgent = recipientsOf(await notices(urgent));
+      expect(toldOfUrgent.get(admin.personId)).toBe("urgent");
+      expect(toldOfUrgent.get(board.personId)).toBe("assigned");
+
+      // Another resident's budget is their own.
+      const theirs = await file(neighbourPrincipal, unassignedType);
+      expect(recipientsOf(await notices(theirs)).get(admin.personId)).toBe(
+        "filed",
+      );
+    } finally {
+      await outOfTheHour(filed);
+    }
+  });
+
+  it("mails nobody about an ordinary report from the website's form once the hour's bound is reached, and still mails an Akut one", async () => {
+    const since = new Date(Date.now() - HOUR_MS);
     const already = await prisma.issue.count({
       where: {
         reporterPersonId: null,
         enteredByHandler: false,
+        priority: { not: "URGENT" },
         createdAt: { gte: since },
       },
     });
@@ -416,6 +539,23 @@ describe("a report is filed", () => {
 
     expect(queued).toBe(0);
     expect(await notices(publicIssue.id)).toEqual([]);
+
+    // Ordinary reports do not spend Akut's budget (decision 12).
+    const urgentIssue = await prisma.issue.create({
+      data: {
+        typeId: urgentType.id,
+        statusId: urgentType.statusIds.NEW,
+        priority: "URGENT",
+        description: REPORTER_DESCRIPTION,
+      },
+      select: { id: true },
+    });
+    await prisma.$transaction((tx) =>
+      mailer.filedInTransaction(tx, urgentIssue.id),
+    );
+    const told = recipientsOf(await notices(urgentIssue.id));
+    expect(told.get(admin.personId)).toBe("urgent");
+    expect(told.get(manager.personId)).toBe("urgent");
   });
 });
 

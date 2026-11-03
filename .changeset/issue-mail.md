@@ -30,9 +30,13 @@ number.
   reporter's own list and in every mail, and returned by the `issue_list` and
   `issue_get` actions. Existing issues are numbered in the order they were
   filed.
-- **Reports from the website's form.** Handlers get mail about at most ten of
-  these an hour. Past that, a report is still filed and shown in the queue, but
-  nobody is mailed about it.
+- **A bound on the mail reports send.** Handlers get mail about at most ten
+  ordinary reports from the website's form an hour, and at most ten urgent ones
+  as well, so ordinary reports never hold back the mail about an urgent one.
+  Each signed-in reporter has a budget of their own: five ordinary reports and
+  five urgent ones an hour, which one reporter's reports cannot spend for
+  anybody else. Past a budget, a report is still filed and shown in the queue,
+  but nobody is mailed about it. An issue a handler opens has no budget.
 
 The issues row of the record of processing activities now names the mail
 server among its recipients, counts board members and former residents among its

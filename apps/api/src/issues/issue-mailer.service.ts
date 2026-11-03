@@ -28,7 +28,7 @@ import {
   issueReporterNoticeMail,
 } from "../mail/templates";
 import { issueHandledBy, issueRecipientsWhere } from "./issue-handlers";
-import { lockIssue } from "./issue-lock";
+import { lockFilingBudget, lockIssue } from "./issue-lock";
 
 /**
  * The mail about issues (decisions 10, 12 and 21 of the issue module plan):
@@ -124,16 +124,34 @@ const OVERDUE_JOB_OPTIONS = {
 const OVERDUE_REMINDER_MINUTE = 7 * 60;
 
 /**
- * How many issues from the website's form in an hour the handlers are mailed
- * about, whoever filed them.
+ * How many reports from the website's form in an hour the handlers are mailed
+ * about, whoever filed them: this many ordinary ones, and this many Akut ones
+ * besides.
  *
  * The form's own limit is per client address, and an unassigned report mails
  * every handler of its type, so many senders together could otherwise spend
  * the association's mail account - the one its sign-in links go out through.
  * Past this, a report is filed and shown in the queue as always, and only the
  * mail about it is left out. The contact form's bound, for the same reason.
+ *
+ * Akut is counted apart (decision 12), so a run of ordinary reports never
+ * keeps the handlers from hearing of an urgent one. Only Akut reports spend
+ * the Akut budget, and by the time they have, the handlers have had that many
+ * Akut mails in the hour.
  */
 export const NOTIFIED_PUBLIC_REPORTS_PER_HOUR = 10;
+
+/**
+ * How many of their own reports in an hour one signed-in reporter has the
+ * handlers mailed about: this many ordinary ones, and this many Akut ones
+ * besides, as for the website's form.
+ *
+ * Counted for each reporter, so one resident filing report after report
+ * spends their own budget and nobody else's. Past it the report is filed and
+ * shown in the queue as always. A handler opening an issue spends nothing:
+ * the budget is for what reporters send, not for the handlers' own work.
+ */
+export const NOTIFIED_REPORTS_PER_REPORTER_PER_HOUR = 5;
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -242,11 +260,14 @@ export class IssueMailer implements OnModuleInit {
    *
    * Akut goes to every handler of the issue. Otherwise the assignee, when the
    * type assigned one, or every handler of the issue when it landed
-   * unassigned. The assignee is told it is theirs either way. The handler who
-   * opened the issue is told nothing.
+   * unassigned. The assignee is told it is theirs either way. Whoever filed
+   * it is told nothing: the handler who opened it, or the reporter who
+   * reported it themselves, a handler among them.
    *
-   * A report from the website's form is mailed about only while fewer than
-   * {@link NOTIFIED_PUBLIC_REPORTS_PER_HOUR} came in the hour before it.
+   * A report is mailed about only while its sender's budget for the hour
+   * lasts: {@link NOTIFIED_PUBLIC_REPORTS_PER_HOUR} for the website's form,
+   * {@link NOTIFIED_REPORTS_PER_REPORTER_PER_HOUR} for each signed-in
+   * reporter, ordinary reports and Akut ones counted apart.
    *
    * Answers how many were queued.
    */
@@ -259,15 +280,14 @@ export class IssueMailer implements OnModuleInit {
     if (issue === null) {
       return 0;
     }
-    // The handler who opened it, if one did; nobody is told of their own act.
-    const except = issue.enteredByPersonId;
+    // Nobody is told of their own act: the handler who entered it when one
+    // did, and otherwise the reporter, who filed it themselves.
+    const except = issue.enteredByPersonId ?? issue.reporterPersonId;
 
-    if (
-      isFromPublicForm(issue) &&
-      (await this.publicFormFlooded(tx, issue, now))
-    ) {
+    const budget = filingBudget(issue);
+    if (budget !== null && (await this.budgetSpent(tx, issue, budget, now))) {
       this.logger.warn(
-        `Issue ${issueId} is in the queue but nobody was mailed: ${String(NOTIFIED_PUBLIC_REPORTS_PER_HOUR)} reports from the website's form in an hour have been.`,
+        `Issue ${issueId} is in the queue but nobody was mailed: its sender's ${issue.priority === "URGENT" ? "Akut" : "ordinary"} reports for the hour have been.`,
       );
       return 0;
     }
@@ -680,27 +700,33 @@ export class IssueMailer implements OnModuleInit {
   }
 
   /**
-   * Whether the website's form has filed so many reports in the hour before
-   * this one that it is mailed about no more.
+   * Whether this report's sender - the website's form, or one signed-in
+   * reporter - has filed so many reports of its kind, ordinary or Akut, in the
+   * hour before this one that it is mailed about no more.
    *
-   * Counted in the filing's own transaction, so two reports filed at the same
-   * moment may each miss the other and both be mailed about: a bound on how
-   * much the form spends, not an exact count.
+   * Counted under the sender's budget lock, which every report from that
+   * sender takes before it counts and holds until it commits, so two reports
+   * filed at the same moment each see the other and the bound is exact. The
+   * count reads the priority the earlier reports have now: one a handler has
+   * since raised to Akut counts as Akut.
    */
-  private async publicFormFlooded(
+  private async budgetSpent(
     tx: Prisma.TransactionClient,
     issue: NoticeIssue,
+    budget: FilingBudget,
     now: Date,
   ): Promise<boolean> {
+    await lockFilingBudget(tx, budget.reporterPersonId);
     const earlier = await tx.issue.count({
       where: {
         id: { not: issue.id },
-        reporterPersonId: null,
+        reporterPersonId: budget.reporterPersonId,
         enteredByHandler: false,
+        priority: issue.priority === "URGENT" ? "URGENT" : { not: "URGENT" },
         createdAt: { gte: new Date(now.getTime() - HOUR_MS) },
       },
     });
-    return earlier >= NOTIFIED_PUBLIC_REPORTS_PER_HOUR;
+    return earlier >= budget.perHour;
   }
 
   /** Queues one delivery per person, leaving out the person who acted. */
@@ -751,12 +777,28 @@ export class IssueMailer implements OnModuleInit {
   }
 }
 
+/** Whose hourly mail budget a report spends, and how much of it there is. */
+interface FilingBudget {
+  /** The signed-in reporter, or null for the website's form. */
+  reporterPersonId: string | null;
+  perHour: number;
+}
+
 /**
- * A report from the website's form: no account behind it, and no handler
- * entered it.
+ * The budget a newly filed issue spends: the website's form's when nobody
+ * signed in reported it, the reporter's own when somebody did, and none when a
+ * handler entered it.
  */
-function isFromPublicForm(issue: NoticeIssue): boolean {
-  return issue.reporterPersonId === null && !issue.enteredByHandler;
+function filingBudget(issue: NoticeIssue): FilingBudget | null {
+  if (issue.enteredByHandler) {
+    return null;
+  }
+  return issue.reporterPersonId === null
+    ? { reporterPersonId: null, perHour: NOTIFIED_PUBLIC_REPORTS_PER_HOUR }
+    : {
+        reporterPersonId: issue.reporterPersonId,
+        perHour: NOTIFIED_REPORTS_PER_REPORTER_PER_HOUR,
+      };
 }
 
 /**
