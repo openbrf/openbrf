@@ -250,5 +250,6 @@ describe("a report made from a post", () => {
     await waitFor(() => {
       expect(screen.queryByLabelText("Hiss: ditt meddelande")).toBeNull();
     });
+    expect(screen.getByText("Hissen står still.")).toBeTruthy();
   });
 });
