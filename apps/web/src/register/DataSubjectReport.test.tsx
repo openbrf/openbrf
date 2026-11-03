@@ -2437,13 +2437,14 @@ describe("what the document answers for", () => {
     expect(issueRow).not.toBe(typeRow);
     expect(within(issueRow!).getByText("Hiss")).toBeTruthy();
     expect(within(typeRow!).getByText("Hiss")).toBeTruthy();
-    // The status is the issue's alone: the type's row has none.
+    // The status is the issue's alone: the type's row shows the placeholder
+    // in that cell (type, assignment, status, date, closed).
     expect(
       within(issueRow!).getByText(inSwedish(ISSUE_MEANING_LABEL.IN_PROGRESS)),
     ).toBeTruthy();
-    expect(
-      within(typeRow!).queryByText(inSwedish(ISSUE_MEANING_LABEL.IN_PROGRESS)),
-    ).toBeNull();
+    expect(within(typeRow!).getAllByRole("cell")[2]!.textContent).toBe(
+      inSwedish("register.person.report.nothing"),
+    );
   });
 
   it("prints a session's address and browser as they were recorded", async () => {
