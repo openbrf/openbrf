@@ -29,6 +29,7 @@ import { ContactInboxPanel } from "./ContactInboxPanel";
 import { HousingCooperativePanel } from "./HousingCooperativePanel";
 import { IssueReportingPanel } from "./IssueReportingPanel";
 import { IssueTypesPanel } from "./IssueTypesPanel";
+import { ResponsibilityGuidePanel } from "./ResponsibilityGuidePanel";
 import { MeetingBylawsPanel } from "./MeetingBylawsPanel";
 import { MotionDeadlinePanel } from "./MotionDeadlinePanel";
 import { DataProtectionContactsPanel } from "./DataProtectionContactsPanel";
@@ -422,6 +423,11 @@ export function AssociationSettingsScreen({
            board configures the catalogue; an administrator decides whether
            the public one exists. */
         return <IssueTypesPanel />;
+      case "responsibilityGuide":
+        /* Beside the types it is read with: the board's reading of its own
+           bylaws on who maintains what, shown to the handlers deciding who
+           pays and, once adopted, to residents before they report. */
+        return <ResponsibilityGuidePanel />;
       case "bookableResources":
         /* What the house offers and how much of it one household may take.
            The board's own policy for its own building, which is why it shares

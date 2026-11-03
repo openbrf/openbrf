@@ -44,6 +44,7 @@ vi.mock("../api/issues", async (importOriginal) => ({
     ),
   fetchOwnApartments: () => Promise.resolve(ok([])),
   fetchOwnIssues: () => Promise.resolve(ok([])),
+  fetchReporterResponsibilityGuide: () => Promise.resolve(ok({ guide: null })),
   fetchIssueQueue: () => Promise.resolve(ok([])),
   reportIssue: (input: unknown) => reportIssue(input),
   attachIssuePhoto: (issueId: string, file: File) =>

@@ -236,6 +236,51 @@ question 6: a property manager learns the names of the residents of each
 apartment they choose, as a caretaker reading the doors would. If an association does not want that, it keeps the
 property manager off the instance, or the board opens such cases itself.
 
+### Who pays, and the charge made from a case
+
+A case records who pays for it (decision 26): `ASSOCIATION`, `TENANT_OWNER` or
+`UNCLEAR` (Föreningen, Bostadsrättshavaren, Oklart), or nothing while nobody has
+said. Any handler records it, the property manager included, with an audit
+entry, `ISSUE_COST_RESPONSIBILITY_CHANGED`, carrying the value either side, and
+a step on the timeline. It is internal, as the assignee is.
+
+A case carries no amount. The schema already refuses one on a key order as "a
+second answer to what the member owes", and the owner kept that rule here.
+"Skapa debitering" opens the charges screen with the form filled in from the
+case: its apartment as the charged party where the queue shows one, otherwise
+the resident who reported it, and a reason naming the case's type, never words
+the reporter wrote, because the reason goes into the file handed to the
+bookkeeper. The board enters the amount there. The charge records the case in
+`MemberCharge.issueId`, a plain column with no foreign key, so the link runs from
+the charge to the case: removing the charge leaves the case as it was, and a
+case purged or merged away leaves the charge, which is on a seven-year clock of
+its own. The case's charges, with their amounts, are read from the charges
+module under `memberCharges:manage` and `issues:handle` together, through the
+queue's own rule, so a case the reader does not handle is answered as one that
+does not exist. The property manager holds no `memberCharges:manage`, and
+nothing they read about a case carries an amount.
+
+### The responsibility guide
+
+BRL 7 kap. 12 § puts the upkeep of the apartment on the tenant-owner "om inte
+något annat bestämts i stadgarna", so where the line between the association and
+the tenant-owner runs is each association's own (decision 27). The association's
+responsibility guide (ansvarsfördelning) is a table the board edits: a part of
+the home or the building, who maintains it, and a note. The product ships an
+example the board loads into the form and changes, never a stored default, and
+the guide stays labelled as an example until the board adopts it by saying it
+follows its bylaws. Handlers see it when they decide who pays, labelled either
+way. A resident is shown it before filing only once it is adopted: an example
+shown to a resident as the association's answer is the legal fact this record
+refuses to state. The guide is association records, not personal data, and
+every line is scanned for a personal identity number, because every resident
+may read it.
+
+Where a handler records that the cost is the tenant-owner's, and where a case is
+closed as the tenant-owner's responsibility, the screen says that a message on
+the case is not a notice to remedy (rättelseanmaning) under BRL 7 kap. 12 a §,
+which the association sends outside Open BRF in a way that shows it arrived.
+
 ### The migration
 
 `NEW`, `IN_PROGRESS` and `DONE` move onto the three default statuses of those
@@ -277,6 +322,11 @@ status (status), statusbetydelse (status meaning, with `NEW`, `IN_PROGRESS`,
 status a reopened case enters and whether a reply ends a wait (questions 2 and
 3). The _handler_ row states the owner's answer to question 4: an administrator
 without a seat handles a type the board handles alone.
+
+Who pays and the responsibility guide add kostnadsansvar (cost responsibility),
+ansvarsfördelning (responsibility guide), underhållsansvar (maintenance
+responsibility) and rättelseanmaning (notice to remedy), and the _charge_ row
+says a charge may name the case it was made from.
 
 ## Open questions
 

@@ -487,3 +487,41 @@ describe("a report made from a post", () => {
     ).toBeTruthy();
   });
 });
+
+describe("the responsibility guide", () => {
+  it("shows the guide the board adopted before the fields, folded", async () => {
+    const session = userEvent.setup();
+    render(
+      <ReportIssuePanel
+        types={TYPES}
+        apartments={APARTMENTS}
+        guide={{
+          adoptedAt: "2026-10-01T08:00:00.000Z",
+          items: [
+            {
+              part: "Golvbrunn, rensning",
+              responsibility: "TENANT_OWNER",
+              note: "Rensas minst en gång om året.",
+            },
+          ],
+        }}
+        onReported={() => undefined}
+      />,
+    );
+
+    const summary = screen.getByText("Vem ansvarar för vad?", {
+      selector: "summary",
+    });
+    await session.click(summary);
+    expect(screen.getByText("Golvbrunn, rensning")).toBeTruthy();
+    expect(screen.getByText("Bostadsrättshavaren")).toBeTruthy();
+    expect(screen.getByText(/Stadgarna gäller före tabellen/)).toBeTruthy();
+    expect(screen.queryByText(/^Exempel/)).toBeNull();
+  });
+
+  it("shows nothing where the board has adopted no guide", () => {
+    renderPanel();
+
+    expect(screen.queryByText("Vem ansvarar för vad?")).toBeNull();
+  });
+});

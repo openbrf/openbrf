@@ -14,6 +14,7 @@ import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
+import { type IssueChargeBasis, IssueService } from "../issues/issue.service";
 import { actingPersonId } from "../registers/acting-person";
 import type { DebitingList, DebitingListRow } from "./debiting-list";
 import {
@@ -70,6 +71,12 @@ const chargeSchema = z.object({
   vatTreatment: z.enum(VAT_TREATMENTS),
   vatRatePercent: vatRatePercent.nullish(),
   handedToManagerOn: calendarDateSchema.nullish(),
+  /**
+   * The issue the charge is made from ("Skapa debitering"), when it is. Set
+   * here and never by a correction: which issue a charge came from is not
+   * something it later stops having come from.
+   */
+  issueId: z.string().min(1).max(64).nullish(),
 });
 
 /**
@@ -118,7 +125,10 @@ const periodSchema = z.object({
 @Controller("api/member-charges")
 @RequireCapability("memberCharges:manage")
 export class MemberChargesController {
-  constructor(private readonly charges: MemberChargeService) {}
+  constructor(
+    private readonly charges: MemberChargeService,
+    private readonly issues: IssueService,
+  ) {}
 
   /** The debiting list for a period. */
   @Get()
@@ -151,7 +161,31 @@ export class MemberChargesController {
       vatTreatment: input.vatTreatment,
       vatRatePercent: input.vatRatePercent ?? null,
       handedToManagerOn: input.handedToManagerOn ?? null,
+      issueId: input.issueId ?? null,
     });
+  }
+
+  /**
+   * One issue as a charge is made from it, and the charges already made from
+   * it (decision 26 of the issue module plan).
+   *
+   * Under `issues:handle` as well as the class's `memberCharges:manage`, and
+   * read through the issue queue's own rule, so an issue the reader does not
+   * handle is answered as one that does not exist. This is the only way an
+   * amount reaches an issue: its own view carries none, and the property
+   * manager, who handles issues, holds no `memberCharges:manage`.
+   */
+  @Get("issues/:issueId")
+  @RequireCapability("issues:handle")
+  async forIssue(
+    @Param("issueId") issueId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<{ issue: IssueChargeBasis; charges: DebitingListRow[] }> {
+    const issue = await this.issues.chargeBasis(
+      actingPersonId(request),
+      issueId,
+    );
+    return { issue, charges: await this.charges.listForIssue(issue.issueId) };
   }
 
   /**

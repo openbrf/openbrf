@@ -688,6 +688,8 @@ export class DataSubjectReportService {
         // 15(1)(c) and the outcome ADR 0057 keeps after the purge.
         outcome: true,
         waitingReason: true,
+        // Who pays, which a handler decided about the reporter's own matter.
+        costResponsibility: true,
         location: true,
         description: true,
         createdAt: true,
@@ -1718,6 +1720,7 @@ export class DataSubjectReportService {
         meaning: issue.status.meaning,
         outcome: issue.outcome,
         waitingReason: issue.waitingReason,
+        costResponsibility: issue.costResponsibility,
         location: issue.location,
         description: issue.description,
         reportedAt: issue.createdAt.toISOString(),

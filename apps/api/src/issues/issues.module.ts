@@ -11,12 +11,15 @@ import {
   IssueQueueController,
   IssueReportController,
   IssueTypeAdminController,
+  ResponsibilityGuideAdminController,
 } from "./issues.controller";
+import { ResponsibilityGuideService } from "./responsibility-guide.service";
 
 /**
  * Reported issues: the board's type catalogue, the resident's report, the
- * queue whoever handles issues works from, and the resident picker a handler
- * names a resident from on an issue they open.
+ * queue whoever handles issues works from, the resident picker a handler
+ * names a resident from on an issue they open, and the association's
+ * responsibility guide, read before filing and when deciding who pays.
  *
  * MediaModule is imported for the photographs, and ActionsModule for the
  * queue's read actions (ADR 0040), which is not global because the registry is
@@ -37,6 +40,7 @@ import {
     IssueReportController,
     IssueQueueController,
     IssueTypeAdminController,
+    ResponsibilityGuideAdminController,
   ],
   providers: [
     IssueService,
@@ -44,6 +48,7 @@ import {
     IssuePurgeService,
     IssueResidentsService,
     IssueActionsRegistrar,
+    ResponsibilityGuideService,
   ],
   exports: [IssueService, IssueTypeService],
 })

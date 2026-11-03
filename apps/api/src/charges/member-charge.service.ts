@@ -20,6 +20,11 @@ import {
 } from "../delivery-receipts/delivery-receipt";
 import { FinanceEventsService } from "../finance-events/finance-events.service";
 import type { Prisma } from "../generated/prisma/client";
+import {
+  handlesIssues,
+  issueReaderScope,
+  issuesHandledWhere,
+} from "../issues/issue-handlers";
 import { isResidencyHeldOn } from "../registers/held-on";
 import { financialYearStartMonthInForce } from "../retention/financial-year";
 import {
@@ -59,6 +64,11 @@ export interface RecordMemberChargeInput {
   vatRatePercent?: number | null;
   /** "YYYY-MM-DD", where the basis has already gone to the manager. */
   handedToManagerOn?: string | null;
+  /**
+   * The issue the charge is made from ("Skapa debitering"), when it is. One
+   * the actor handles, or the charge is refused as `issue-not-found`.
+   */
+  issueId?: string | null;
 }
 
 /**
@@ -124,6 +134,7 @@ interface ChargeRecord {
   vatTreatment: VatTreatment;
   vatRatePercent: number | null;
   handedToManagerOn: Date | null;
+  issueId: string | null;
   deliveries: {
     id: string;
     pluginId: string;
@@ -144,6 +155,7 @@ const CHARGE_FIELDS = {
   vatTreatment: true,
   vatRatePercent: true,
   handedToManagerOn: true,
+  issueId: true,
   deliveries: {
     orderBy: deliveryReceiptOrder(),
     select: DELIVERY_RECEIPT_FIELDS,
@@ -246,8 +258,13 @@ export class MemberChargeService {
     );
     refusePersonalIdentityNumbers({ reason });
 
+    const issueId = input.issueId ?? null;
+
     const charge = await this.prisma.$transaction(async (tx) => {
       await this.requireParty(tx, personId, apartmentId);
+      if (issueId !== null) {
+        await this.requireHandledIssue(tx, issueId, input.actorPersonId, now);
+      }
 
       const financialYearStartMonth = await financialYearStartMonthInForce(tx);
       this.refuseDateBeyondRetention(chargedOn, financialYearStartMonth, now);
@@ -271,6 +288,7 @@ export class MemberChargeService {
           handedToManagerOn:
             handedToManagerOn === null ? null : dateColumnOf(handedToManagerOn),
           recordedByPersonId: input.actorPersonId,
+          issueId,
         },
         select: CHARGE_FIELDS,
       });
@@ -302,6 +320,9 @@ export class MemberChargeService {
             party: personId === null ? "apartment" : "person",
             apartmentId,
             vatTreatment: input.vatTreatment,
+            // An identifier, so the entry says the charge came from an issue
+            // without saying anything the issue holds.
+            ...(issueId === null ? {} : { issueId }),
           },
         },
         tx,
@@ -540,6 +561,25 @@ export class MemberChargeService {
   }
 
   /**
+   * The charges made from one issue, oldest first, as the debiting list states
+   * them - which is how the amount reaches the issue for those who may read
+   * charges (decision 26), and for nobody else: the route is under
+   * `memberCharges:manage`, and the issue's own view carries no amount.
+   *
+   * Not audited, as the list on screen is not. The caller has checked that the
+   * reader handles the issue.
+   */
+  async listForIssue(issueId: string): Promise<DebitingListRow[]> {
+    const charges = await this.prisma.memberCharge.findMany({
+      where: { issueId },
+      orderBy: [{ chargedOn: "asc" }, { createdAt: "asc" }],
+      select: CHARGE_FIELDS,
+    });
+    const parties = await this.partiesFor(this.prisma, charges);
+    return charges.map((charge) => toRow(charge, parties));
+  }
+
+  /**
    * The debiting list for a period, as the board reads it on screen.
    *
    * Not audited, unlike {@link exportList} below. Reading the charges is the
@@ -750,6 +790,41 @@ export class MemberChargeService {
     }
   }
 
+  /**
+   * Refuses an issue the actor does not handle, by the issue queue's own rule
+   * (`issuesHandledWhere`), and one that does not exist alike: the charge
+   * screen must not tell a board member about an issue the queue would not.
+   */
+  private async requireHandledIssue(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+    actorPersonId: string,
+    now: Date,
+  ): Promise<void> {
+    /*
+     * Whether they handle issues at all first: the scope below answers the
+     * narrower of its two for a person who handles none, which is still a
+     * scope. Everybody who records charges today handles issues too, and this
+     * keeps it a rule rather than a coincidence of the role lists.
+     */
+    const handles = await handlesIssues(
+      tx,
+      actorPersonId,
+      "EVERY_HANDLER",
+      now,
+    );
+    const scope = await issueReaderScope(tx, actorPersonId, now);
+    const issue = handles
+      ? await tx.issue.findFirst({
+          where: { id: issueId, ...issuesHandledWhere(scope) },
+          select: { id: true },
+        })
+      : null;
+    if (issue === null) {
+      throw new MemberChargeError("There is no such issue.", "issue-not-found");
+    }
+  }
+
   /** One charge read back on its own, for the answer to a write. */
   private async rowFor(charge: ChargeRecord): Promise<DebitingListRow> {
     const parties = await this.partiesFor(this.prisma, [charge]);
@@ -917,6 +992,7 @@ function toRow(charge: ChargeRecord, parties: PartyLookup): DebitingListRow {
         ? null
         : formatLocalDay(localDayOfColumn(charge.handedToManagerOn)),
     deliveries: charge.deliveries.map(deliveryReceiptOf),
+    issueId: charge.issueId,
   };
 }
 

@@ -1,12 +1,14 @@
 import type {
   AuthorView,
   IssueClosingOutcome,
+  IssueCostResponsibility,
   IssueHandledBy,
   IssueOutcome,
   IssuePriority,
   IssueReporterGroup,
   IssueStatusMeaning,
   IssueWaitingReason,
+  MaintenanceResponsibility,
 } from "@openbrf/shared";
 
 import { apiRequest, apiUpload, type ApiResult } from "./client";
@@ -157,6 +159,11 @@ export type QueuedIssue = OwnIssue & {
   enteredBy: IssueHandler | null;
   /** Closed to every handler but the board on its own. */
   boardOnly: boolean;
+  /**
+   * Who pays, or null while nobody has said. Never an amount: a charge made
+   * from the issue is read from the charges, by those who may read them.
+   */
+  costResponsibility: IssueCostResponsibility | null;
 } & (
     | { reporter: Exclude<IssueReporter, { kind: "protected" }> }
     | {
@@ -231,7 +238,30 @@ export type IssueTimelineStep = {
   | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
+  | {
+      kind: "costResponsibility";
+      from: IssueCostResponsibility | null;
+      to: IssueCostResponsibility | null;
+    }
 );
+
+/** One line of the association's responsibility guide (ansvarsfördelning). */
+export interface ResponsibilityGuideItem {
+  /** "Golvbrunn, rensning": the board's own text, stored as written. */
+  part: string;
+  responsibility: MaintenanceResponsibility;
+  note: string | null;
+}
+
+/**
+ * The association's responsibility guide. `adoptedAt` is null while it is an
+ * example the board has not said follows its bylaws, and every screen that
+ * shows it then says so.
+ */
+export interface ResponsibilityGuide {
+  adoptedAt: string | null;
+  items: ResponsibilityGuideItem[];
+}
 
 /** A move to another status, with what its meaning requires. */
 export interface IssueStatusMoveInput {
@@ -404,6 +434,53 @@ export function setIssueTargetDate(input: {
     `/api/issue-queue/${encodeURIComponent(input.issueId)}/target-date`,
     { targetDate: input.targetDate },
   );
+}
+
+/** Who pays for the issue, or null to say nothing again. Never an amount. */
+export function setIssueCostResponsibility(input: {
+  issueId: string;
+  costResponsibility: IssueCostResponsibility | null;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/cost-responsibility`,
+    { costResponsibility: input.costResponsibility },
+  );
+}
+
+/**
+ * The responsibility guide as a handler reads it when deciding who pays:
+ * adopted or not. Under issues:handle, so the property manager reads it too.
+ */
+export function fetchHandlerResponsibilityGuide(): Promise<
+  ApiResult<ResponsibilityGuide>
+> {
+  return apiRequest("GET", "/api/issue-queue/responsibility-guide");
+}
+
+/**
+ * The guide a reporter is shown before filing: the adopted one, or null while
+ * it is an example. The server decides which, not this form.
+ */
+export function fetchReporterResponsibilityGuide(): Promise<
+  ApiResult<{ guide: ResponsibilityGuide | null }>
+> {
+  return apiRequest("GET", "/api/issues/responsibility-guide");
+}
+
+/** The guide as the board configures it. Under issues:configure. */
+export function fetchResponsibilityGuide(): Promise<
+  ApiResult<ResponsibilityGuide>
+> {
+  return apiRequest("GET", "/api/responsibility-guide");
+}
+
+/** Replaces the whole guide, and adopts it or withdraws the adoption. */
+export function saveResponsibilityGuide(input: {
+  items: readonly ResponsibilityGuideItem[];
+  adopted: boolean;
+}): Promise<ApiResult<ResponsibilityGuide>> {
+  return apiRequest("PUT", "/api/responsibility-guide", input);
 }
 
 /** Closes the issue to all but the board, or opens it again. */

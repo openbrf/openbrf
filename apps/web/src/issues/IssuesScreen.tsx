@@ -13,9 +13,11 @@ import {
   fetchOwnApartments,
   fetchOwnIssues,
   fetchReportableTypes,
+  fetchReporterResponsibilityGuide,
   type IssueApartment,
   type OwnIssue,
   type ReportableIssueType,
+  type ResponsibilityGuide,
 } from "../api/issues";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
@@ -45,6 +47,12 @@ interface Loaded {
   types: readonly ReportableIssueType[];
   apartments: readonly IssueApartment[];
   own: readonly OwnIssue[];
+  /**
+   * The responsibility guide the board has adopted, shown before filing, or
+   * null: none adopted, or one that could not be read. Not a failed load
+   * either way - a report is filed without it.
+   */
+  guide: ResponsibilityGuide | null;
   loadFailed: boolean;
 }
 
@@ -53,6 +61,7 @@ const EMPTY: Loaded = {
   types: [],
   apartments: [],
   own: [],
+  guide: null,
   loadFailed: false,
 };
 
@@ -124,10 +133,11 @@ export function IssuesScreen({
   }, [fromPostId, canReport, t]);
 
   const read = useCallback(async (): Promise<Loaded> => {
-    const [types, apartments, own] = await Promise.all([
+    const [types, apartments, own, guide] = await Promise.all([
       canReport ? fetchReportableTypes() : null,
       canReport ? fetchOwnApartments() : null,
       canReport ? fetchOwnIssues() : null,
+      canReport ? fetchReporterResponsibilityGuide() : null,
     ]);
 
     return {
@@ -135,6 +145,7 @@ export function IssuesScreen({
       types: types?.ok === true ? types.value : [],
       apartments: apartments?.ok === true ? apartments.value : [],
       own: own?.ok === true ? own.value : [],
+      guide: guide?.ok === true ? guide.value.guide : null,
       loadFailed:
         types?.ok === false || apartments?.ok === false || own?.ok === false,
     };
@@ -222,6 +233,7 @@ export function IssuesScreen({
             key={fromPost.kind === "read" ? fromPost.prefill.postId : "blank"}
             types={types}
             apartments={apartments}
+            guide={loaded.guide}
             {...(fromPost.kind === "read" ? { prefill: fromPost.prefill } : {})}
             onReported={(postId) => {
               setReportedFrom(postId);

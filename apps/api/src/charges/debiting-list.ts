@@ -91,6 +91,13 @@ export interface DebitingListRow {
    * about that handing over rather than part of what is handed.
    */
   deliveries: DeliveryReceiptRow[];
+  /**
+   * The issue the charge was made from, or null. On the screen and never in
+   * the file, for the reason a receipt is not: it says where the charge came
+   * from inside the association, and the bookkeeper has no issue to look up.
+   * It may name an issue that has since been purged or merged away.
+   */
+  issueId: string | null;
 }
 
 export interface DebitingList {
