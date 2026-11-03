@@ -996,6 +996,36 @@ export async function postContactForm(
   }
 }
 
+/**
+ * Reports an issue through the issue report form on a published page, as a
+ * visitor would: a plain form post, answered with a redirect back to the page.
+ * `type` is the issue type's id, which is what the form's select posts.
+ *
+ * A report the form could not read is redirected too, to the page with `fel`
+ * rather than `skickat`, so the address is what tells the two apart.
+ */
+export async function postIssueReportForm(
+  request: APIRequestContext,
+  baseUrl: string,
+  slug: string,
+  input: { type: string; description: string; email?: string },
+): Promise<void> {
+  const response = await request.post(`${baseUrl}/${slug}/felanmalan`, {
+    form: {
+      type: input.type,
+      description: input.description,
+      ...(input.email === undefined ? {} : { email: input.email }),
+    },
+    maxRedirects: 0,
+  });
+  const location = response.headers()["location"] ?? "";
+  if (response.status() !== 303 || !location.includes("skickat=")) {
+    throw new Error(
+      `POST /${slug}/felanmalan answered ${String(response.status())} to ${location || "nowhere"}, not the redirect a stored report gets`,
+    );
+  }
+}
+
 /** Ticks a message in the board's inbox off as dealt with. */
 export async function markContactSubmissionHandled(
   request: APIRequestContext,

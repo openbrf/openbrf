@@ -14,7 +14,7 @@ import type {
 import { proposeAgenda } from "../src/agenda-proposal";
 import * as api from "../src/api";
 import { expect, test } from "../src/fixtures";
-import { deliverToMailbox } from "../src/mailpit";
+import { deliverToMailbox, linkFrom, waitForMessage } from "../src/mailpit";
 import {
   holdPendingChange,
   releasePendingChanges,
@@ -34,6 +34,7 @@ import {
   type Actor,
   type ContactMessage,
   type MovedInResident,
+  type PubliclyReportedIssue,
   type Screen,
   type Target,
 } from "./screens";
@@ -385,6 +386,15 @@ async function perform(
     await page.reload();
     return;
   }
+  if ("reportIssuePublicly" in action) {
+    await reportIssuePublicly(board, action.reportIssuePublicly);
+    await page.reload();
+    return;
+  }
+  if ("openMailedLink" in action) {
+    await page.goto(await mailedLink(action.openMailedLink));
+    return;
+  }
   if ("visit" in action) {
     await page.goto(action.visit);
     return;
@@ -673,6 +683,77 @@ async function postContactMessages(
   } finally {
     await api.deleteSitePage(request, stack.baseUrl, form.id);
   }
+}
+
+/**
+ * What this walk adds to the address a public report leaves.
+ *
+ * An address may be mailed a private link only so many times a day, and a walk
+ * against a stack that is already up would spend those on the walks before it.
+ * The suffix is in the local part, so it stays on the reserved `.test` domain.
+ */
+const WALK_SUFFIX = randomBytes(4).toString("hex");
+
+function walkAddress(email: string): string {
+  const at = email.lastIndexOf("@");
+  return `${email.slice(0, at)}-${WALK_SUFFIX}${email.slice(at)}`;
+}
+
+/**
+ * Reports an issue through the public form, from a page written for it.
+ *
+ * The type is added open to the public if the instance has none of that name,
+ * and the board's switch for public reports is put back as it was found, so
+ * the screens after this one photograph the settings and the website as the
+ * board left them.
+ */
+async function reportIssuePublicly(
+  board: APIRequestContext,
+  report: PubliclyReportedIssue,
+): Promise<void> {
+  const types = await api.listIssueTypes(board, stack.baseUrl);
+  const type =
+    types.find((candidate) => candidate.name === report.type) ??
+    (await api.createIssueType(board, stack.baseUrl, {
+      name: report.type,
+      reporters: ["PUBLIC"],
+      sortOrder: 900,
+    }));
+  const wasOpen = (await api.settings(board, stack.baseUrl)).issueReporting
+    .publicFormEnabled;
+  const slug = "felanmalan-skarmbilder";
+  const form = await api.createSitePage(board, stack.baseUrl, {
+    slug,
+    title: "Felanmälan",
+    blocks: [{ type: "issueReportForm" }],
+  });
+  try {
+    if (!wasOpen) {
+      await api.setPublicIssueReporting(board, stack.baseUrl, true);
+    }
+    await api.publishSitePage(board, stack.baseUrl, form.id);
+    await api.postIssueReportForm(board, stack.baseUrl, slug, {
+      type: type.id,
+      description: report.description,
+      email: walkAddress(report.email),
+    });
+  } finally {
+    await api.deleteSitePage(board, stack.baseUrl, form.id);
+    if (!wasOpen) {
+      await api.setPublicIssueReporting(board, stack.baseUrl, false);
+    }
+  }
+}
+
+/**
+ * The private link in the newest mail to this address, as the path to go to.
+ *
+ * The path rather than the whole address, so the page is opened on the origin
+ * the walk is reading, whatever the instance wrote into the mail.
+ */
+async function mailedLink(email: string): Promise<string> {
+  const { text } = await waitForMessage(walkAddress(email));
+  return new URL(linkFrom(text, "/arende/")).pathname;
 }
 
 // --- reaching a screen --------------------------------------------------------
