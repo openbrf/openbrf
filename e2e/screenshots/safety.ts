@@ -56,9 +56,40 @@ export async function freezeScripts(
  * an account - is not cut into a number from its middle. A letter may touch
  * it: a label in an element of its own reads as "Mobil0701234567" in the text,
  * and the picture still shows the number.
+ *
+ * Except inside an identifier. A generated id such as a cuid is lower-case
+ * letters and digits from the clock and a counter, so ten digits starting 07
+ * turn up in one now and then, and the access report prints the ids an audit
+ * entry carries. A run of plain digits with a lower-case letter on both sides
+ * is such a token and not a number: see `findPhoneNumbers`.
  */
 const PHONE_NUMBER =
   /(?<!\d)(?:(?:\+|00)46[\s-]?(?:\(0\)[\s-]?)?|0)7\d(?:[\s-]?\d){7}(?!\d)/g;
+
+const LOWER_CASE_LETTER = /[a-z]/;
+
+/**
+ * What in `text` is shaped like a phone number.
+ *
+ * A match of digits only (no separator, no country code) that has a lower-case
+ * letter right before it and another right after it is part of an identifier
+ * and is left out. A label touching the number from one side
+ * ("Mobil0701234567") or a number written with a separator still counts.
+ */
+export function findPhoneNumbers(text: string): string[] {
+  return [...text.matchAll(PHONE_NUMBER)]
+    .filter((match) => {
+      const before = text.charAt(match.index - 1);
+      const after = text.charAt(match.index + match[0].length);
+      const insideAnId =
+        /^\d+$/.test(match[0]) &&
+        match[0].startsWith("07") &&
+        LOWER_CASE_LETTER.test(before) &&
+        LOWER_CASE_LETTER.test(after);
+      return !insideAnId;
+    })
+    .map((match) => match[0]);
+}
 
 const EMAIL_ADDRESS = /\b[\w.%+-]+@[\w-]+(?:\.[\w-]+)+\b/g;
 
@@ -114,9 +145,7 @@ export async function assertSafeToPublish(
     `${name} shows something shaped like a personal identity number. Screenshots are published; seed data that cannot appear in one.`,
   ).toEqual([]);
 
-  const phoneNumbers = [...text.matchAll(PHONE_NUMBER)].map(
-    (match) => match[0],
-  );
+  const phoneNumbers = findPhoneNumbers(text);
   expect(
     phoneNumbers,
     `${name} shows something shaped like a phone number. Screenshots are published; seed data that cannot appear in one.`,

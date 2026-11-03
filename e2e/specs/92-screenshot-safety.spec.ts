@@ -238,6 +238,35 @@ test("refuses a mobile number right after a label of its own", async ({
   );
 });
 
+test("lets a generated id through that holds ten digits shaped like a number", async ({
+  page,
+}) => {
+  // The apartment id the access report printed in an audit entry's detail on
+  // one run of the walk: a cuid, whose digits come from the clock.
+  await page.setContent(
+    pageShowing("apartmentId: cmw0a0761000506r118hutuv1; kind: apartment"),
+  );
+
+  await assertSafeToPublish(page, "generated-id");
+});
+
+test("refuses a number with letters on one side only, or a separator", async ({
+  page,
+}) => {
+  for (const shown of [
+    "cmw0a0761000506",
+    "0761000506r118hutuv1",
+    "Mobil0701234567.",
+    "abc070-123 45 67def",
+  ]) {
+    await page.setContent(pageShowing(shown));
+
+    await expect(
+      assertSafeToPublish(page, "phone-near-letters"),
+    ).rejects.toThrow(/phone number/);
+  }
+});
+
 test("lets a date, a time and an amount through", async ({ page }) => {
   await page.setContent(
     pageShowing("2026-07-01 – 2026-07-31, kl. 07:30, 1 070 123,45 kr"),
