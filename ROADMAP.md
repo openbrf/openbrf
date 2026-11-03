@@ -355,6 +355,18 @@ locally the application runs from source beside the PostgreSQL that
       when a claim about the work becomes time-barred, and the record of whom
       it went to and when stays. This is how a work order travels while the
       contractor's own link waits for its legal review (ADR 0055)
+- [x] The conversation on an issue: the reporter and the handlers write to each
+      other on the issue itself, and a handler's message reaches the reporter
+      signed by the board or the property manager, never by a person, while the
+      handlers see who wrote it, a protected handler's name withheld. Beside it
+      the handlers keep internal notes and files of their own that the reporter
+      never sees, read by every handler the issue lets in, so an issue the
+      board keeps to itself keeps them with it. The board keeps saved replies,
+      one of them saying that what was reported is the tenant-owner's under the
+      bylaws, which a handler starts a message from. Text the board writes back
+      is refused while it carries a personal identity number. No row stores a
+      name, nothing of it is mailed, and no action offers it to a connected app
+      or the AI package (ADR 0056)
 - [x] One page, one audience: the board's work on its own pages under the
       Styrelsen section, each signed on its own heading, the overview as the
       house's notice board with one line for whoever works a queue, and a phone

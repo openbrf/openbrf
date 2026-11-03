@@ -59,6 +59,18 @@ import { DomainError } from "../http/domain-error";
  * contractor on the same issue a moment after the first, and
  * `work-order-budget-spent` a handler who has sent as many work orders as one
  * person may in an hour.
+ *
+ * The conversation's reasons. `issue-closed` is a reporter writing on an issue
+ * that is done; what a reply to a closed issue does is the reopening rule's to
+ * decide (ADR 0054). `no-reporter` is a handler writing to the reporter of an
+ * issue nobody can read the answer on: an internal issue, a report from the
+ * website's form, whose reporter has no account to read a conversation in, and one
+ * whose reporter was purged.
+ * `personal-identity-number` is text the board writes back, a message, a note
+ * or a saved reply, carrying a personal identity number, refused with where it
+ * sits and never the value. `too-many-attachments` and `too-many-saved-replies`
+ * are the bounds in `ISSUE_CONVERSATION_LIMITS`, and `saved-reply-not-found` a
+ * saved reply that is not there.
  */
 export type IssueReason =
   | "type-not-found"
@@ -87,7 +99,22 @@ export type IssueReason =
   | "work-order-identity-number"
   | "work-order-preview-stale"
   | "work-order-duplicate"
-  | "work-order-budget-spent";
+  | "work-order-budget-spent"
+  | "issue-closed"
+  | "no-reporter"
+  | "personal-identity-number"
+  | "too-many-attachments"
+  | "saved-reply-not-found"
+  | "too-many-saved-replies";
+
+/**
+ * Where in a message, a note or a saved reply a refused value sits: a part and
+ * an offset, never the value.
+ */
+export interface IssueTextLocation {
+  part: "body" | "title";
+  offset: number;
+}
 
 export class IssueError extends DomainError {
   readonly status: number;
@@ -95,11 +122,16 @@ export class IssueError extends DomainError {
   constructor(
     message: string,
     readonly reason: IssueReason,
+    private readonly locations: readonly IssueTextLocation[] = [],
   ) {
     super(message);
     this.status =
       reason === "type-in-use" ||
       reason === "too-many-photos" ||
+      reason === "too-many-attachments" ||
+      reason === "too-many-saved-replies" ||
+      reason === "issue-closed" ||
+      reason === "no-reporter" ||
       reason === "post-already-reported" ||
       reason === "default-status-required" ||
       reason === "too-many-statuses" ||
@@ -116,6 +148,7 @@ export class IssueError extends DomainError {
                 reason === "status-detail-not-applicable" ||
                 reason === "assignee-not-a-handler" ||
                 reason === "target-date-invalid" ||
+                reason === "personal-identity-number" ||
                 reason === "contractor-without-email" ||
                 reason === "contractor-incomplete" ||
                 reason === "work-order-empty" ||
@@ -123,5 +156,14 @@ export class IssueError extends DomainError {
                 reason === "work-order-identity-number"
               ? HttpStatus.UNPROCESSABLE_ENTITY
               : HttpStatus.NOT_FOUND;
+  }
+
+  /**
+   * Where a refused personal identity number sits, and nothing more: a part
+   * and an offset, which are positions rather than content. The number itself
+   * would put it in a response body, and from there into whatever logs it.
+   */
+  override details(): Record<string, readonly unknown[]> {
+    return { locations: this.locations };
   }
 }

@@ -116,6 +116,11 @@ interface Fakes {
     reporterPersonId: string;
     boardOnly?: boolean;
   }[];
+  /**
+   * Files the handlers attached to an issue for each other, as the file each
+   * is and who reported its issue.
+   */
+  issueAttachments: { fileId: string; reporterPersonId: string }[];
   /** The people the board-only rule lets into an issue the board keeps. */
   boardHandlers: Set<string>;
   /** Images on posts in the feed, as the file each is and the post it is on. */
@@ -151,6 +156,7 @@ function build(
   const rows = new Map<string, Row>();
   const residencies = options.residencies ?? [];
   const issuePhotos: Fakes["issuePhotos"] = [];
+  const issueAttachments: Fakes["issueAttachments"] = [];
   const boardHandlers = new Set<string>();
   const postImages: Fakes["postImages"] = [];
   const objects = new Map<string, Buffer>();
@@ -332,6 +338,23 @@ function build(
     ),
   };
 
+  const issueAttachment = {
+    findUnique: vi.fn(async ({ where }: { where: { fileId: string } }) => {
+      const attachment = issueAttachments.find(
+        (row) => row.fileId === where.fileId,
+      );
+      return attachment === undefined
+        ? null
+        : {
+            issue: {
+              reporterPersonId: attachment.reporterPersonId,
+              boardOnly: false,
+              type: { handledBy: "EVERY_HANDLER" as const },
+            },
+          };
+    }),
+  };
+
   // Whether a person handles issues the board keeps to itself
   // (`issueReaderScope`), the one person read the media route makes.
   const person = {
@@ -351,6 +374,7 @@ function build(
     mediaFile,
     residency,
     issuePhoto,
+    issueAttachment,
     person,
     postImage,
     /*
@@ -417,6 +441,7 @@ function build(
     rows,
     residencies,
     issuePhotos,
+    issueAttachments,
     boardHandlers,
     postImages,
     objects,
@@ -1102,6 +1127,28 @@ describe("serving", () => {
     // The reporter, who holds no capability, still reads their own.
     await expect(fakes.service.open(id, principal())).resolves.toMatchObject({
       contentType: "image/png",
+    });
+  });
+
+  it("serves a handler's file on an issue to its handlers and never to its reporter", async () => {
+    // The reason it is a join of its own (decision 18): an `IssuePhoto` is
+    // the reporter's to read, and a file the handlers attached for each other
+    // is not.
+    const id = await upload({
+      visibility: "INTERNAL",
+      requiredCapability: "issues:handle",
+    });
+    fakes.issueAttachments.push({ fileId: id, reporterPersonId: "person-1" });
+    const handler = principal({
+      personId: "person-handler",
+      capabilities: new Set(["issues:handle"] as const),
+    });
+
+    await expect(fakes.service.open(id, handler)).resolves.toMatchObject({
+      contentType: "image/png",
+    });
+    await expect(fakes.service.open(id, principal())).rejects.toMatchObject({
+      reason: "not-found",
     });
   });
 

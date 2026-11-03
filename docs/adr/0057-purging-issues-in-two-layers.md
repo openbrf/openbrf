@@ -223,10 +223,10 @@ person's data out of this one's copy. It maps to the `issues` row in the record
 of processing activities.
 
 A former assignee is answered by the audit log. The entry of an assignment that
-takes a case from somebody, or of a type's setting that shuts them out, names
+takes an issue from somebody, or of a type's setting that shuts them out, names
 them only as the previous assignee in its context, so the report lists it among
 their entries as one about them, and withholds the previous assignee from the
-entry of the person it was given to, who is told only that the case had one.
+entry of the person it was given to, who is told only that the issue had one.
 The report finds those entries through a partial index on that context key, so
 that it does not scan a log which only grows.
 

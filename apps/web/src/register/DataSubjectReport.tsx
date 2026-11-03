@@ -579,6 +579,8 @@ const AUDIT_ACTION_LABEL = {
   ISSUE_TARGET_DATE_CHANGED:
     "register.person.report.action.ISSUE_TARGET_DATE_CHANGED",
   ISSUE_ACCESS_CHANGED: "register.person.report.action.ISSUE_ACCESS_CHANGED",
+  ISSUE_MESSAGE_SENT: "register.person.report.action.ISSUE_MESSAGE_SENT",
+  ISSUE_NOTE_ADDED: "register.person.report.action.ISSUE_NOTE_ADDED",
   ISSUE_RESIDENTS_LISTED:
     "register.person.report.action.ISSUE_RESIDENTS_LISTED",
   ISSUE_WORK_ORDER_SENT: "register.person.report.action.ISSUE_WORK_ORDER_SENT",
