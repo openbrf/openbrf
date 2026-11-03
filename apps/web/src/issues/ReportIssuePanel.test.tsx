@@ -504,6 +504,7 @@ describe("the responsibility guide", () => {
               note: "Rensas minst en gång om året.",
             },
           ],
+          version: "2026-10-01T08:00:00.000Z",
         }}
         onReported={() => undefined}
       />,

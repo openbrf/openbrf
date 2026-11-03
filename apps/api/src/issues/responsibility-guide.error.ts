@@ -19,16 +19,19 @@ export interface ResponsibilityGuideTextLocation {
  * field and the offset, never the value. `too-many-items`, `part-required`
  * and `text-too-long` are the limits in `RESPONSIBILITY_GUIDE_LIMITS`, held
  * here as well as by the controller's schema, because the service is what the
- * integration tests and every later caller go through.
+ * integration tests and every later caller go through. `changed-since-read`
+ * is a save whose editor read an older guide than the one stored: another
+ * board member saved in between, and the older draft would replace theirs.
  */
 export type ResponsibilityGuideReason =
   | "personal-identity-number"
   | "too-many-items"
   | "part-required"
-  | "text-too-long";
+  | "text-too-long"
+  | "changed-since-read";
 
 export class ResponsibilityGuideError extends DomainError {
-  readonly status = HttpStatus.UNPROCESSABLE_ENTITY;
+  readonly status: number;
 
   constructor(
     message: string,
@@ -36,6 +39,10 @@ export class ResponsibilityGuideError extends DomainError {
     private readonly locations: readonly ResponsibilityGuideTextLocation[] = [],
   ) {
     super(message);
+    this.status =
+      reason === "changed-since-read"
+        ? HttpStatus.CONFLICT
+        : HttpStatus.UNPROCESSABLE_ENTITY;
   }
 
   override details(): Record<string, readonly unknown[]> {

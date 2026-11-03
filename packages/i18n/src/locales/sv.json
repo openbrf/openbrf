@@ -1935,11 +1935,13 @@
       "save": "Spara ansvarsfördelningen",
       "saving": "Sparar...",
       "saved": "Ansvarsfördelningen är sparad.",
+      "reload": "Läs den aktuella tabellen",
       "errors": {
         "personalIdentityNumber": "En rad innehåller ett personnummer. Ta bort det - tabellen visas för alla som gör en felanmälan, även på den öppna webbplatsen.",
         "partRequired": "Varje rad behöver säga vad den gäller.",
         "tooManyItems": "Tabellen har fler rader än den rymmer.",
         "textTooLong": "En rad är längre än tabellen rymmer.",
+        "changedSinceRead": "Ansvarsfördelningen sparades av någon annan efter att du öppnade den, så det här utkastet skulle ersätta deras ändringar. Ditt utkast finns kvar. Läs den aktuella tabellen och gör dina ändringar igen.",
         "unknown": "Ansvarsfördelningen gick inte att spara just nu. Försök igen."
       },
       "template": {

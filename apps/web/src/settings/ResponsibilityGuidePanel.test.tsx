@@ -24,7 +24,11 @@ vi.mock("../api/issues", async (importOriginal) => ({
   saveResponsibilityGuide: (input: unknown) => saveResponsibilityGuide(input),
 }));
 
-const EMPTY: ResponsibilityGuide = { adoptedAt: null, items: [] };
+const EMPTY: ResponsibilityGuide = {
+  adoptedAt: null,
+  items: [],
+  version: null,
+};
 
 beforeEach(() => {
   fetchResponsibilityGuide.mockReset().mockResolvedValue({
@@ -40,6 +44,7 @@ beforeEach(() => {
           value: {
             adoptedAt: input.adopted ? "2026-11-03T09:00:00.000Z" : null,
             items: input.items,
+            version: "2026-11-03T09:00:00.000Z",
           },
         }),
     );
@@ -86,8 +91,10 @@ describe("the responsibility guide", () => {
     const sent = saveResponsibilityGuide.mock.calls[0]?.[0] as {
       items: { part: string; responsibility: string; note: string | null }[];
       adopted: boolean;
+      version: string | null;
     };
     expect(sent.adopted).toBe(false);
+    expect(sent.version).toBeNull();
     expect(sent.items).toHaveLength(12);
     expect(sent.items[2]).toEqual({
       part: "Golvbrunn, rensning",
@@ -107,6 +114,7 @@ describe("the responsibility guide", () => {
         items: [
           { part: "Golvbrunn", responsibility: "TENANT_OWNER", note: null },
         ],
+        version: "2026-11-01T09:00:00.000Z",
       },
     });
     const session = userEvent.setup();
@@ -127,6 +135,7 @@ describe("the responsibility guide", () => {
           { part: "Golvbrunn", responsibility: "TENANT_OWNER", note: null },
         ],
         adopted: true,
+        version: "2026-11-01T09:00:00.000Z",
       });
     });
     expect(await screen.findByText("2026-11-03")).toBeTruthy();
@@ -135,19 +144,25 @@ describe("the responsibility guide", () => {
     ).toBeNull();
   });
 
-  it("says where a refusal is, and clears it when the draft changes", async () => {
+  it("names the line and the field of a refused personal identity number, and clears it when the draft changes", async () => {
     fetchResponsibilityGuide.mockResolvedValue({
       ok: true,
       value: {
         adoptedAt: null,
         items: [
           { part: "Golvbrunn", responsibility: "TENANT_OWNER", note: null },
+          { part: "Stammar", responsibility: "ASSOCIATION", note: "x" },
         ],
+        version: null,
       },
     });
     saveResponsibilityGuide.mockResolvedValue({
       ok: false,
-      failure: { status: 422, reason: "personal-identity-number" },
+      failure: {
+        status: 422,
+        reason: "personal-identity-number",
+        detail: [{ item: 1, field: "note", offset: 6 }],
+      },
     });
     const session = userEvent.setup();
     render(<ResponsibilityGuidePanel />);
@@ -156,8 +171,63 @@ describe("the responsibility guide", () => {
       await screen.findByRole("button", { name: "Spara ansvarsfördelningen" }),
     );
     expect(await screen.findByText(/innehåller ett personnummer/)).toBeTruthy();
+    expect(
+      screen.getByText("Rad 2: anmärkning", { selector: "li" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByLabelText("Rad 2: anmärkning").getAttribute("aria-invalid"),
+    ).toBe("true");
+    expect(
+      screen.getByLabelText("Rad 1: anmärkning").getAttribute("aria-invalid"),
+    ).toBeNull();
 
     await session.type(screen.getByLabelText("Rad 1: anmärkning"), "x");
     expect(screen.queryByText(/innehåller ett personnummer/)).toBeNull();
+  });
+
+  it("keeps the draft when the guide was saved by somebody else, and reads the current one on request", async () => {
+    fetchResponsibilityGuide.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        adoptedAt: null,
+        items: [
+          { part: "Golvbrunn", responsibility: "TENANT_OWNER", note: null },
+        ],
+        version: "2026-11-01T09:00:00.000Z",
+      },
+    });
+    saveResponsibilityGuide.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "changed-since-read" },
+    });
+    const session = userEvent.setup();
+    render(<ResponsibilityGuidePanel />);
+
+    await session.type(await screen.findByLabelText("Rad 1: anmärkning"), "ny");
+    await session.click(
+      screen.getByRole("button", { name: "Spara ansvarsfördelningen" }),
+    );
+    expect(await screen.findByText(/sparades av någon annan/)).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Rad 1: anmärkning") as HTMLInputElement).value,
+    ).toBe("ny");
+
+    fetchResponsibilityGuide.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        adoptedAt: null,
+        items: [{ part: "Stammar", responsibility: "ASSOCIATION", note: null }],
+        version: "2026-11-02T09:00:00.000Z",
+      },
+    });
+    await session.click(
+      screen.getByRole("button", { name: "Läs den aktuella tabellen" }),
+    );
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText("Rad 1: vad") as HTMLInputElement).value,
+      ).toBe("Stammar");
+    });
+    expect(screen.queryByText(/sparades av någon annan/)).toBeNull();
   });
 });

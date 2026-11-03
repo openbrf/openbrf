@@ -134,6 +134,8 @@ const responsibilityGuideSchema = z.strictObject({
     )
     .max(RESPONSIBILITY_GUIDE_LIMITS.items),
   adopted: z.boolean(),
+  // The version the editor read, or null where it read a guide never saved.
+  version: z.iso.datetime().nullable(),
 });
 
 const typeSchema = z.object({

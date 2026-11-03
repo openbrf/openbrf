@@ -848,6 +848,53 @@ describe("handling an issue", () => {
     ).toBeNull();
   });
 
+  it("reads the charges and the guide again when the queue brings the issue again, so an open panel does not keep an earlier answer", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    const charges = fetchIssueCharges.mock.calls.length;
+    const guides = fetchHandlerResponsibilityGuide.mock.calls.length;
+
+    // The reporter has become protected since: the same read now withholds.
+    fetchIssueCharges.mockResolvedValue({
+      ok: true,
+      value: {
+        issue: {
+          issueId: "issue-1",
+          typeName: "Vatten",
+          costResponsibility: "TENANT_OWNER",
+          party: null,
+        },
+        charges: null,
+      },
+    });
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    expect(
+      await screen.findByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeTruthy();
+    expect(screen.queryByText("1250.00")).toBeNull();
+    expect(fetchIssueCharges.mock.calls.length).toBeGreaterThan(charges);
+    expect(fetchHandlerResponsibilityGuide.mock.calls.length).toBeGreaterThan(
+      guides,
+    );
+  });
+
   it("offers no access switch on a type the board handles alone", async () => {
     const session = userEvent.setup();
     show(issue({ typeHandledBy: "BOARD" }));

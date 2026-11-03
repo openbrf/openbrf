@@ -339,6 +339,7 @@ describe("the forms on a public page", () => {
       await guides.save({
         items: [{ part, responsibility: "TENANT_OWNER", note: null }],
         adopted: false,
+        version: (await guides.read()).version,
       });
       const example = await page();
       expect(example.includes(part)).toBe(false);
@@ -347,6 +348,7 @@ describe("the forms on a public page", () => {
       await guides.save({
         items: [{ part, responsibility: "TENANT_OWNER", note: null }],
         adopted: true,
+        version: (await guides.read()).version,
       });
       const adopted = await page();
       const guide = adopted.indexOf('<details class="site-form-guide">');

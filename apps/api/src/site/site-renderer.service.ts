@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 
 import { PrincipalService } from "../authorization/principal.service";
 import { BoardRosterService } from "../board/board-roster.service";
@@ -140,6 +140,8 @@ export interface SiteVisit extends SiteSubmissionState {
 
 @Injectable()
 export class SiteRenderer {
+  private readonly logger = new Logger(SiteRenderer.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly themes: ThemeService,
@@ -233,11 +235,26 @@ export class SiteRenderer {
     };
   }
 
-  /** The adopted responsibility guide's lines, or null while there is none. */
+  /**
+   * The adopted responsibility guide's lines, or null while there is none.
+   *
+   * Also null where the guide cannot be read: it is advice shown above the
+   * form, and the page and the form are not to fail with it.
+   */
   private async publicResponsibilityGuide(): Promise<
     readonly SiteResponsibilityGuideLine[] | null
   > {
-    const guide = await this.responsibilityGuide.readForReporter();
+    let guide;
+    try {
+      guide = await this.responsibilityGuide.readForReporter();
+    } catch (error) {
+      this.logger.warn(
+        `The responsibility guide could not be read for the public report form: ${
+          error instanceof Error ? error.message : "unknown error"
+        }`,
+      );
+      return null;
+    }
     return guide === null
       ? null
       : guide.items.map((item) => ({

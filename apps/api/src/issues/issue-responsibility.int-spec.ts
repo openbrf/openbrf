@@ -687,6 +687,25 @@ describe("a charge made from an issue", () => {
       select: { issueId: true },
     });
     expect(stored.map((row) => row.issueId)).toEqual([issueId, issueId]);
+
+    // The access report of the board member who recorded them states the
+    // charges' entries, and masks the issue they came from as the list does.
+    const report = await app
+      .get(DataSubjectReportService)
+      .portable(board.personId);
+    const recorded = report.auditEntries.filter(
+      (entry) =>
+        entry.action === "MEMBER_CHARGE_RECORDED" &&
+        chargeIds.includes(entry.targetId ?? ""),
+    );
+    expect(recorded).toHaveLength(2);
+    for (const entry of recorded) {
+      expect(entry.context).toMatchObject({
+        issueId: null,
+        issueWithheld: true,
+      });
+    }
+    expect(JSON.stringify(recorded)).not.toContain(issueId);
   });
 
   it("withholds the charges when the protection lands between the issue's check and the charge read", async () => {
@@ -805,12 +824,31 @@ describe("the responsibility guide", () => {
     },
   ];
 
-  async function save(adopted: boolean, items: object[] = LINES) {
+  /** The version of the guide as stored now, which an editor sends back. */
+  async function currentVersion(): Promise<string | null> {
+    const read = await inject({
+      method: "GET",
+      url: "/api/responsibility-guide",
+      cookie: cookies[board.personId],
+    });
+    return read.json<{ version: string | null }>().version;
+  }
+
+  /** Saves as an editor that has just read the guide, unless it is given the version it read. */
+  async function save(
+    adopted: boolean,
+    items: object[] = LINES,
+    version?: string | null,
+  ) {
     return inject({
       method: "PUT",
       url: "/api/responsibility-guide",
       cookie: cookies[board.personId],
-      payload: { items, adopted },
+      payload: {
+        items,
+        adopted,
+        version: version === undefined ? await currentVersion() : version,
+      },
     });
   }
 
@@ -888,7 +926,7 @@ describe("the responsibility guide", () => {
 
       const example = await save(false);
       expect(example.statusCode).toBe(200);
-      expect(example.json()).toEqual({
+      expect(example.json()).toMatchObject({
         adoptedAt: null,
         items: [
           {
@@ -1025,7 +1063,11 @@ describe("the responsibility guide", () => {
       let saved = false;
       const reader = new ResponsibilityGuideService(
         betweenTheFirstReadAndTheNext(prisma, async () => {
-          await guides.save({ items: replacement, adopted: false });
+          await guides.save({
+            items: replacement,
+            adopted: false,
+            version: before.version,
+          });
           saved = true;
         }),
       );
@@ -1035,10 +1077,35 @@ describe("the responsibility guide", () => {
       expect(saved, "the save committed while the guide was read").toBe(true);
       expect(shown).toEqual(before);
       expect(await guides.readForReporter()).toBeNull();
-      expect(await guides.read()).toEqual({
+      expect(await guides.read()).toMatchObject({
         adoptedAt: null,
         items: replacement,
       });
+    } finally {
+      await restore();
+    }
+  });
+
+  it("refuses a save made from a guide that has been saved since it was read", async () => {
+    /*
+     * Two board members open the guide, and the second to save has not seen
+     * the first's correction. Their draft would replace it without a word, so
+     * the save names the version it read and is refused when the stored one
+     * has moved on. Compared under the lock: removing the comparison fails
+     * this test.
+     */
+    try {
+      const first = await save(true);
+      expect(first.statusCode).toBe(200);
+      const read = first.json<{ version: string }>().version;
+
+      // The other member's correction, saved from the same read.
+      expect((await save(true, LINES.slice(0, 1), read)).statusCode).toBe(200);
+
+      const stale = await save(true, LINES, read);
+      expect(stale.statusCode).toBe(409);
+      expect(stale.json()).toMatchObject({ reason: "changed-since-read" });
+      expect(await lines()).toEqual(["Golvbrunn, rensning"]);
     } finally {
       await restore();
     }
@@ -1075,6 +1142,7 @@ describe("the responsibility guide", () => {
         payload: {
           items: [{ ...LINES[0], part: `Inte ${suffix}` }],
           adopted: true,
+          version: null,
         },
       });
       expect(response.statusCode).toBe(403);

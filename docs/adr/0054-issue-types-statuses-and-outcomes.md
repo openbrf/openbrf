@@ -286,7 +286,10 @@ report form: an example shown to a reporter as the association's answer is the
 legal fact this record refuses to state. The guide is association records, not
 personal data, and every line is scanned for a personal identity number,
 because once adopted it is published wherever the association takes issue
-reports, the public website included.
+reports, the public website included. A save replaces the whole table and
+names the version the editor read, which is when the guide was last saved; a
+save made from an older version is refused, so a board member's draft never
+replaces a colleague's correction unseen.
 
 Where a handler records that the cost is the tenant-owner's, and where a case is
 closed as the tenant-owner's responsibility, the screen says that a message on

@@ -30,12 +30,22 @@ export interface ResponsibilityGuideItemView {
 export interface ResponsibilityGuideView {
   adoptedAt: string | null;
   items: ResponsibilityGuideItemView[];
+  /**
+   * When the guide was last saved, or null while it never has been. What an
+   * editor sends back with its save, so that a save made from an older read
+   * is refused rather than replacing a newer one.
+   */
+  version: string | null;
 }
 
-/** What the board saves: the whole guide, and whether it adopts it. */
+/**
+ * What the board saves: the whole guide, and whether it adopts it. `version`
+ * is the one the editor read the guide at.
+ */
 export interface SaveResponsibilityGuideInput {
   items: readonly ResponsibilityGuideItemView[];
   adopted: boolean;
+  version: string | null;
 }
 
 /**
@@ -64,6 +74,10 @@ export interface SaveResponsibilityGuideInput {
  * The board edits the table and saves it, so a save replaces every line in
  * one transaction under a lock of its own: two saves at once would otherwise
  * each delete what the other had not yet written and leave both sets behind.
+ *
+ * A save names the version the editor read, and is refused with
+ * `changed-since-read` when the stored guide has been saved since. Compared
+ * under the lock, so two editors that read the same guide cannot both win.
  *
  * ## Read as of one moment
  *
@@ -119,8 +133,14 @@ export class ResponsibilityGuideService {
 
       const existing = await tx.responsibilityGuide.findUnique({
         where: { id: 1 },
-        select: { adoptedAt: true },
+        select: { adoptedAt: true, updatedAt: true },
       });
+      if ((existing?.updatedAt.toISOString() ?? null) !== input.version) {
+        throw new ResponsibilityGuideError(
+          "The guide was saved by somebody else after it was read.",
+          "changed-since-read",
+        );
+      }
       const adoptedAt = input.adopted ? (existing?.adoptedAt ?? now) : null;
 
       await tx.responsibilityGuide.upsert({
@@ -154,7 +174,7 @@ async function readGuide(
 ): Promise<ResponsibilityGuideView> {
   const guide = await tx.responsibilityGuide.findUnique({
     where: { id: 1 },
-    select: { adoptedAt: true },
+    select: { adoptedAt: true, updatedAt: true },
   });
   const items = await tx.responsibilityGuideItem.findMany({
     orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
@@ -163,6 +183,7 @@ async function readGuide(
   return {
     adoptedAt: guide?.adoptedAt?.toISOString() ?? null,
     items,
+    version: guide?.updatedAt.toISOString() ?? null,
   };
 }
 

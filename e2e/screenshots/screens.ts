@@ -2213,16 +2213,26 @@ export const SCREENS: readonly Screen[] = [
      * picture shows nothing anybody typed. Adopted, because that is the state
      * a reporter is shown it in, and the card then carries the date it was
      * adopted on. The date proves the save was read back, which is what makes
-     * it the marker for the data rather than for the card.
+     * it the marker for the data rather than for the card. It is also what
+     * tells a rerun the guide is already saved.
      */
     name: "settings-responsibility-guide",
     as: "administrator",
     goto: appPath("/board/settings/issues-bookings"),
     prepare: [
-      { see: { panel: "Ansvarsfördelning" } },
-      { click: { button: "Fyll i exemplet" } },
-      { click: { label: "Tabellen följer föreningens stadgar" } },
-      { click: { button: "Spara ansvarsfördelningen" } },
+      // The form, which arrives with the read of the guide: the card is there
+      // before it.
+      { see: { button: "Spara ansvarsfördelningen" } },
+      // Skipped where a walk against a stack that is already up saved the
+      // guide: the example is offered only while the table has no lines.
+      {
+        unlessSeen: { text: /^Antagen / },
+        steps: [
+          { click: { button: "Fyll i exemplet" } },
+          { click: { label: "Tabellen följer föreningens stadgar" } },
+          { click: { button: "Spara ansvarsfördelningen" } },
+        ],
+      },
     ],
     waitFor: { text: /^Antagen / },
     capture: { panel: "Ansvarsfördelning" },

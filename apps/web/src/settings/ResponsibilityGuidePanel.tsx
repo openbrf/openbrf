@@ -6,6 +6,7 @@ import {
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Trans, useTranslation } from "react-i18next";
 
+import type { ApiFailure } from "../api/client";
 import {
   fetchResponsibilityGuide,
   type ResponsibilityGuide,
@@ -33,6 +34,7 @@ const GUIDE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "part-required": "settings.responsibilityGuide.errors.partRequired",
   "too-many-items": "settings.responsibilityGuide.errors.tooManyItems",
   "text-too-long": "settings.responsibilityGuide.errors.textTooLong",
+  "changed-since-read": "settings.responsibilityGuide.errors.changedSinceRead",
   "invalid-body": "settings.responsibilityGuide.errors.unknown",
 };
 
@@ -101,6 +103,38 @@ const EXAMPLE: readonly {
   },
 ];
 
+/**
+ * The lines and fields a refusal for a personal identity number names, from 0.
+ * The refusal names the line and the field, never the offset, which counts the
+ * characters of the trimmed value the server read and so does not point into
+ * what is on screen.
+ */
+function refusedPlaces(
+  failure: ApiFailure,
+): readonly { item: number; field: "part" | "note" }[] {
+  if (
+    failure.reason !== "personal-identity-number" ||
+    !Array.isArray(failure.detail)
+  ) {
+    return [];
+  }
+  const places: { item: number; field: "part" | "note" }[] = [];
+  for (const location of failure.detail as unknown[]) {
+    if (typeof location !== "object" || location === null) {
+      continue;
+    }
+    const { item, field } = location as { item?: unknown; field?: unknown };
+    if (
+      typeof item === "number" &&
+      (field === "part" || field === "note") &&
+      !places.some((place) => place.item === item && place.field === field)
+    ) {
+      places.push({ item, field });
+    }
+  }
+  return places;
+}
+
 /** A line being edited, with a key of its own for the list. */
 interface DraftLine {
   key: number;
@@ -131,18 +165,21 @@ export function ResponsibilityGuidePanel(): ReactElement {
   /** Bumped by every save, so the form opens again on what was saved. */
   const [revision, setRevision] = useState(0);
   const [saved, setSaved] = useState(false);
+  /** Bumped to read the guide again, which replaces the draft. */
+  const [reads, setReads] = useState(0);
 
   useEffect(() => {
     let active = true;
     void fetchResponsibilityGuide().then((read) => {
       if (active) {
         setGuide(read.ok ? read.value : "failed");
+        setRevision((count) => count + 1);
       }
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [reads]);
 
   return (
     <Panel
@@ -181,6 +218,10 @@ export function ResponsibilityGuidePanel(): ReactElement {
             setRevision((count) => count + 1);
             setSaved(true);
           }}
+          onReload={() => {
+            setSaved(false);
+            setReads((count) => count + 1);
+          }}
         />
       )}
     </Panel>
@@ -191,11 +232,14 @@ function GuideForm({
   guide,
   onEdited,
   onSaved,
+  onReload,
 }: {
   guide: ResponsibilityGuide;
   /** Called on every change to the draft, which clears the last notice. */
   onEdited: () => void;
   onSaved: (guide: ResponsibilityGuide) => void;
+  /** Reads the guide again, replacing the draft with what is stored. */
+  onReload: () => void;
 }): ReactElement {
   const { t } = useTranslation();
   const nextKey = useRef(guide.items.length);
@@ -228,6 +272,11 @@ function GuideForm({
     edited();
   };
 
+  const refused =
+    save.state.kind === "failed" ? refusedPlaces(save.state.failure) : [];
+  const isRefused = (index: number, field: "part" | "note"): boolean =>
+    refused.some((place) => place.item === index && place.field === field);
+
   const newKey = (): number => {
     nextKey.current += 1;
     return nextKey.current;
@@ -246,6 +295,7 @@ function GuideForm({
             note: line.note.trim() === "" ? null : line.note,
           })),
           adopted,
+          version: guide.version,
         });
       }}
     >
@@ -300,6 +350,7 @@ function GuideForm({
                   )}
                   value={line.part}
                   maxLength={RESPONSIBILITY_GUIDE_LIMITS.part}
+                  aria-invalid={isRefused(index, "part") ? true : undefined}
                   required
                   onChange={(event) => {
                     change(line.key, { part: event.target.value });
@@ -334,6 +385,7 @@ function GuideForm({
                   )}
                   value={line.note}
                   maxLength={RESPONSIBILITY_GUIDE_LIMITS.note}
+                  aria-invalid={isRefused(index, "note") ? true : undefined}
                   onChange={(event) => {
                     change(line.key, { note: event.target.value });
                   }}
@@ -417,7 +469,29 @@ function GuideForm({
               "settings.responsibilityGuide.errors.unknown",
             ),
           )}
+          {refused.length === 0 ? null : (
+            <ul className="mt-1 list-disc pl-5">
+              {refused.map((place) => (
+                <li key={`${String(place.item)}:${place.field}`}>
+                  {t(
+                    place.field === "part"
+                      ? "settings.responsibilityGuide.partNamed"
+                      : "settings.responsibilityGuide.noteNamed",
+                    { number: place.item + 1 },
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </Notice>
+      ) : null}
+      {save.state.kind === "failed" &&
+      save.state.failure.reason === "changed-since-read" ? (
+        <div>
+          <button type="button" className={SECONDARY_BUTTON} onClick={onReload}>
+            {t("settings.responsibilityGuide.reload")}
+          </button>
+        </div>
       ) : null}
 
       <div>

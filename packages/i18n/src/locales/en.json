@@ -1935,11 +1935,13 @@
       "save": "Save the responsibility guide",
       "saving": "Saving...",
       "saved": "The responsibility guide is saved.",
+      "reload": "Read the current table",
       "errors": {
         "personalIdentityNumber": "A line holds a personal identity number. Remove it - the table is shown to everyone who reports a fault, on the public website too.",
         "partRequired": "Every line has to say what it is about.",
         "tooManyItems": "The table has more lines than it holds.",
         "textTooLong": "A line is longer than the table holds.",
+        "changedSinceRead": "The responsibility guide was saved by somebody else after you opened it, so this draft would replace their changes. Your draft is still here. Read the current table, and make your changes again.",
         "unknown": "The responsibility guide could not be saved just now. Try again."
       },
       "template": {

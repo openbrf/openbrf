@@ -168,7 +168,7 @@ export function IssueHandling({
     };
   }, [issue.id, revision, reads]);
 
-  const guide = useHandlerGuide();
+  const guide = useHandlerGuide(issue);
 
   const save = useSaveAction(
     (act: HandlingAct) => perform(issue.id, act),
@@ -341,9 +341,7 @@ export function IssueHandling({
         </details>
       </section>
 
-      {canManageCharges ? (
-        <IssueCharges issue={issue} revision={revision} />
-      ) : null}
+      {canManageCharges ? <IssueCharges issue={issue} /> : null}
 
       <section className="flex flex-col gap-2">
         <h3 className="text-label text-ink-muted uppercase">
@@ -386,24 +384,34 @@ export function IssueHandling({
 }
 
 /**
- * The responsibility guide as a handler reads it, adopted or not. Read once
- * per mount: the board changes it in its settings, not while an issue is open.
+ * The responsibility guide as a handler reads it, adopted or not.
+ *
+ * Read again whenever the queue brings the issue again - `issue` is a new
+ * object with every read of the queue and the same one between them - so a
+ * guide the board has changed since the panel opened reaches a handler who
+ * keeps it open, and a handler does not choose who pays from superseded
+ * guidance. The last guide stays on screen while the next is read; a read
+ * that fails replaces it with the failure, because the guide on screen can no
+ * longer be said to be the board's current one.
  */
-function useHandlerGuide(): ResponsibilityGuide | "failed" | null {
+function useHandlerGuide(
+  issue: QueuedIssue,
+): ResponsibilityGuide | "failed" | null {
   const [guide, setGuide] = useState<ResponsibilityGuide | "failed" | null>(
     null,
   );
   useEffect(() => {
     let active = true;
     void fetchHandlerResponsibilityGuide().then((read) => {
-      if (active) {
-        setGuide(read.ok ? read.value : "failed");
+      if (!active) {
+        return;
       }
+      setGuide(read.ok ? read.value : "failed");
     });
     return () => {
       active = false;
     };
-  }, []);
+  }, [issue]);
   return guide;
 }
 
@@ -411,19 +419,15 @@ function useHandlerGuide(): ResponsibilityGuide | "failed" | null {
  * The charges made from the issue, with their amounts, and the way to make
  * another ("Skapa debitering", decision 26).
  *
- * Mounted only for a reader who may read charges. Read again with the issue's
- * revision, so a charge made in another tab shows once the queue is read
- * again; an answer for an earlier issue or revision is dropped. Making one
+ * Mounted only for a reader who may read charges. Read again whenever the
+ * queue is read - `issue` is a new object with every read of the queue and the
+ * same one between them - so a charge made in another tab shows, and charges
+ * withheld because the reporter has become protected stop being shown, without
+ * closing the panel; an answer for an earlier read is dropped. Making one
  * opens the charges screen with the form filled in from the issue, where the
  * amount is entered and where it lives.
  */
-function IssueCharges({
-  issue,
-  revision,
-}: {
-  issue: QueuedIssue;
-  revision: string;
-}): ReactElement {
+function IssueCharges({ issue }: { issue: QueuedIssue }): ReactElement {
   const { t } = useTranslation();
   /** The last answer, with the issue it answered for. */
   const [read, setRead] = useState<{
@@ -445,7 +449,7 @@ function IssueCharges({
     return () => {
       active = false;
     };
-  }, [issue.id, revision]);
+  }, [issue]);
 
   /*
    * Another issue's answer is never shown under this one. The same issue's

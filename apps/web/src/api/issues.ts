@@ -261,6 +261,8 @@ export interface ResponsibilityGuideItem {
 export interface ResponsibilityGuide {
   adoptedAt: string | null;
   items: ResponsibilityGuideItem[];
+  /** When it was last saved, or null if never: sent back with the next save. */
+  version: string | null;
 }
 
 /** A move to another status, with what its meaning requires. */
@@ -475,10 +477,14 @@ export function fetchResponsibilityGuide(): Promise<
   return apiRequest("GET", "/api/responsibility-guide");
 }
 
-/** Replaces the whole guide, and adopts it or withdraws the adoption. */
+/**
+ * Replaces the whole guide, and adopts it or withdraws the adoption. `version`
+ * is the one the editor read: a save made from an older one is refused.
+ */
 export function saveResponsibilityGuide(input: {
   items: readonly ResponsibilityGuideItem[];
   adopted: boolean;
+  version: string | null;
 }): Promise<ApiResult<ResponsibilityGuide>> {
   return apiRequest("PUT", "/api/responsibility-guide", input);
 }

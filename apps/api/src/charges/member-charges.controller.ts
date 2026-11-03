@@ -188,7 +188,17 @@ export class MemberChargesController {
       actingPersonId(request),
       issueId,
     );
-    return { issue, charges: await this.charges.listForIssue(issue.issueId) };
+    const charges = await this.charges.listForIssue(issue.issueId);
+    /*
+     * The party and the charges are two reads. Where the second observed the
+     * reporter's protection and the first did not, the person party is the
+     * reporter: withhold it with the charges. An apartment party does not depend
+     * on the reporter's protection.
+     */
+    if (charges === null && issue.party?.kind === "person") {
+      return { issue: { ...issue, party: null }, charges };
+    }
+    return { issue, charges };
   }
 
   /**

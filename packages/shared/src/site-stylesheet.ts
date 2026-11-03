@@ -704,6 +704,7 @@ export const SITE_LAYOUT_STYLESHEET = `.site {
 .site-plugin-block th,
 .site-plugin-block td {
   border-top: 1px solid var(--obrf-border-subtle);
+  overflow-wrap: anywhere;
   padding: 0.5rem 0.75rem 0.5rem 0;
   text-align: start;
   vertical-align: top;
