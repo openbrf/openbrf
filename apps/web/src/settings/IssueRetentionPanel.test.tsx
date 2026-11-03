@@ -59,7 +59,11 @@ describe("the number of years", () => {
   it("says that the building record stays and a shorter clock acts the next night", async () => {
     render(<IssueRetentionPanel />);
 
-    expect(await screen.findByText(/Vad, var, när och utfallet/)).toBeTruthy();
+    expect(
+      await screen.findByText(
+        /Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten/,
+      ),
+    ).toBeTruthy();
     expect(screen.getByText(/redan nästa natt/)).toBeTruthy();
   });
 });
