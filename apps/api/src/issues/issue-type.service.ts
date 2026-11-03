@@ -1,17 +1,29 @@
 import { Injectable, Logger } from "@nestjs/common";
 import {
+  type AuthorView,
   ISSUE_REPORTER_GROUPS,
   ISSUE_STATUS_LIMITS,
   ISSUE_STATUS_MEANINGS,
+  type IssueHandledBy,
+  type IssuePriority,
   type IssueReporterGroup,
   type IssueStatusMeaning,
 } from "@openbrf/shared";
 import type { TFunction } from "i18next";
 
+import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
+import { readAuthors } from "../feed/feed-author";
 import { Prisma } from "../generated/prisma/client";
 import { I18nService } from "../i18n/i18n.service";
+import {
+  handlesIssues,
+  issueHandlersWhere,
+  issueReaderScope,
+  readIssueHandlers,
+  typesHandledWhere,
+} from "./issue-handlers";
 import { reporterGroupsOf } from "./issue-reporter-groups";
 import { lockIssueType } from "./issue-lock";
 import { IssueError } from "./issue.error";
@@ -40,6 +52,10 @@ export interface IssueTypeView {
   reporters: IssueReporterGroup[];
   active: boolean;
   sortOrder: number;
+  /** Who handles its issues: every handler, or the board only. */
+  handledBy: IssueHandledBy;
+  /** The priority its issues are filed with. */
+  defaultPriority: IssuePriority;
   /**
    * How many issues have been reported under it. The board needs it to see why
    * a type cannot be deleted, and it is a count rather than a list: nothing
@@ -48,6 +64,27 @@ export interface IssueTypeView {
   reportCount: number;
   /** In the queue's order: by meaning, then the board's order within it. */
   statuses: IssueStatusView[];
+}
+
+/**
+ * A type as the board configures it, with its default assignee.
+ *
+ * Only on the configuration screen: a type's setting naming a person is
+ * configuration, and neither the handlers' list of types nor the catalogue's
+ * `issue_type_list` reads a person (ADR 0056).
+ */
+export type ConfiguredIssueTypeView = IssueTypeView & {
+  defaultAssignee: AuthorView | null;
+};
+
+/**
+ * Somebody a type's issues may be given to by default, and whether the board
+ * keeps them when the type is handled by the board only.
+ */
+export interface IssueHandlerChoice {
+  handler: AuthorView;
+  /** A board member with a seat or an administrator, not only a handler. */
+  board: boolean;
 }
 
 /** A type as a reporter is offered it. */
@@ -68,6 +105,10 @@ export interface IssueTypeInput {
   reporters: readonly IssueReporterGroup[];
   active?: boolean;
   sortOrder?: number;
+  handledBy?: IssueHandledBy;
+  defaultPriority?: IssuePriority;
+  /** Null for none; absent leaves the setting as it is. */
+  defaultAssigneePersonId?: string | null;
 }
 
 export interface IssueStatusInput {
@@ -88,13 +129,21 @@ export interface IssueStatusChange {
  * form takes reports on the first day. Named in the association's language as
  * the wizard set it, and then the board's own text like any other type.
  *
- * Only types every handler handles. The board-only types the plan names - an
- * insurance type and Störningar - come with the change that holds a type to
- * the board, because seeding them before that would hand them to the property
- * manager.
+ * A water leak files at Akut, the plan's own example of a default priority
+ * (decision 11). The insurance type is the board's own, handled by the board
+ * only and offered on no form but the board's own (decisions 2 and 13): the
+ * handlers' group, which `listReportable` narrows to the handlers of the type,
+ * so the property manager is not offered it. Störningar, the other
+ * board-only type the plan names, comes with its ring-fence (decision 32):
+ * seeding it before that would offer it on forms that do not yet carry its
+ * warning and hold it to a clock that is not yet its own.
  */
 const SEEDED_TYPES = [
-  { key: "waterLeak", reporters: ["PUBLIC", "RESIDENTS"] },
+  {
+    key: "waterLeak",
+    reporters: ["PUBLIC", "RESIDENTS"],
+    defaultPriority: "URGENT",
+  },
   { key: "heatingAndVentilation", reporters: ["RESIDENTS"] },
   { key: "electricityAndLighting", reporters: ["PUBLIC", "RESIDENTS"] },
   { key: "lift", reporters: ["PUBLIC", "RESIDENTS"] },
@@ -103,9 +152,12 @@ const SEEDED_TYPES = [
   { key: "outdoorAreas", reporters: ["PUBLIC", "RESIDENTS"] },
   { key: "pests", reporters: ["PUBLIC", "RESIDENTS"] },
   { key: "other", reporters: ["PUBLIC", "RESIDENTS"] },
+  { key: "insurance", reporters: ["HANDLERS"], handledBy: "BOARD" },
 ] as const satisfies readonly {
   key: string;
   reporters: readonly IssueReporterGroup[];
+  defaultPriority?: IssuePriority;
+  handledBy?: IssueHandledBy;
 }[];
 
 /**
@@ -129,20 +181,65 @@ export class IssueTypeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
+    private readonly audit: AuditLogService,
   ) {}
 
   /**
-   * Every type, active or not, with its statuses. Reached with
-   * issues:configure on the board's screen, and with issues:handle through
-   * `issue_type_list` (ADR 0040).
+   * The types, active or not, with their statuses, narrowed by the caller.
+   * Reached with issues:handle on the queue and through `issue_type_list` (ADR
+   * 0040), each narrowed to the types the reader handles by `IssueService`,
+   * which is where that rule is read (ADR 0054).
+   *
+   * The counts are of `issues` alone, the issues the reader handles: a type
+   * open to every handler can hold issues kept to the board one by one, and
+   * how many there are, and in which status, is something about them the
+   * board-only rule keeps from whoever it shuts out.
    */
-  async listAll(): Promise<IssueTypeView[]> {
+  async list(
+    types: Prisma.IssueTypeWhereInput,
+    issues: Prisma.IssueWhereInput,
+  ): Promise<IssueTypeView[]> {
+    const rows = await this.prisma.issueType.findMany({
+      where: types,
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      include: countedTypeInclude(issues),
+    });
+
+    return rows.map(toView);
+  }
+
+  /**
+   * Every type with its settings, the default assignee included. Reached with
+   * issues:configure on the board's screen.
+   */
+  async listConfigured(): Promise<ConfiguredIssueTypeView[]> {
     const types = await this.prisma.issueType.findMany({
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       include: TYPE_INCLUDE,
     });
+    return this.configuredViews(types);
+  }
 
-    return types.map(toView);
+  /**
+   * Who a type's issues may be given to by default: every handler, each
+   * marked with whether the board keeps them on a type handled by the board
+   * only. Names and nothing else, read by the rule an assignment is held to.
+   */
+  async handlerChoices(): Promise<IssueHandlerChoice[]> {
+    const now = new Date();
+    const [everyHandler, board] = await Promise.all([
+      readIssueHandlers(this.prisma, "EVERY_HANDLER", now),
+      readIssueHandlers(this.prisma, "BOARD", now),
+    ]);
+    const boardIds = new Set(
+      board.map((handler) =>
+        handler.kind === "unknown" ? "" : handler.personId,
+      ),
+    );
+    return everyHandler.map((handler) => ({
+      handler,
+      board: handler.kind !== "unknown" && boardIds.has(handler.personId),
+    }));
   }
 
   /**
@@ -164,13 +261,48 @@ export class IssueTypeService {
     }
 
     return this.prisma.issueType.findMany({
-      where: {
-        active: true,
-        reporters: { hasSome: [...reporterGroupsOf(principal)] },
-      },
+      where: { active: true, ...(await this.reportableWhere(principal)) },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: { id: true, name: true, reporters: true },
     });
+  }
+
+  /**
+   * The reporter groups' filter, with the handlers' group narrowed to the
+   * types the principal handles.
+   *
+   * A handler is offered the types written for handlers because they handle
+   * them. A type the board keeps to itself is not one the property manager
+   * handles, so it is not offered to them as a handler either: its name is
+   * the board's, and an issue they filed under it would be one they could
+   * never see in the queue (ADR 0054). A type the board also offers residents
+   * or the public is still offered to them on that ground: the board chose to.
+   */
+  private async reportableWhere(
+    principal: Principal | null,
+  ): Promise<Prisma.IssueTypeWhereInput> {
+    const groups = reporterGroupsOf(principal);
+    if (
+      principal === null ||
+      !groups.includes("HANDLERS") ||
+      (await issueReaderScope(this.prisma, principal.personId, new Date())) ===
+        "BOARD"
+    ) {
+      return { reporters: { hasSome: [...groups] } };
+    }
+    return {
+      OR: [
+        {
+          reporters: {
+            hasSome: groups.filter((group) => group !== "HANDLERS"),
+          },
+        },
+        {
+          reporters: { has: "HANDLERS" },
+          ...typesHandledWhere("EVERY_HANDLER"),
+        },
+      ],
+    };
   }
 
   /**
@@ -219,47 +351,213 @@ export class IssueTypeService {
   /**
    * Adds a type, with the default set of statuses: one of each meaning, named
    * in the association's language. A type works with no further setup.
+   *
+   * A default assignee is somebody who handles the type as configured; anybody
+   * else is refused rather than kept, because an issue filed under the type
+   * would otherwise land with nobody while the board believes it lands with
+   * somebody.
    */
-  async create(input: IssueTypeInput): Promise<IssueTypeView> {
+  async create(input: IssueTypeInput): Promise<ConfiguredIssueTypeView> {
     const t = await this.associationTranslator();
+    const handledBy = input.handledBy ?? "EVERY_HANDLER";
+    const defaultAssigneePersonId = input.defaultAssigneePersonId ?? null;
+    await this.requireDefaultAssignee(
+      this.prisma,
+      defaultAssigneePersonId,
+      handledBy,
+    );
     const type = await this.prisma.issueType.create({
       data: {
         name: input.name,
         reporters: uniqueGroups(input.reporters),
         active: input.active ?? true,
         sortOrder: input.sortOrder ?? 0,
+        handledBy,
+        defaultPriority: input.defaultPriority ?? "NORMAL",
+        defaultAssigneePersonId,
         statuses: { create: defaultStatuses(t) },
       },
       include: TYPE_INCLUDE,
     });
 
     this.logger.log(`Added issue type ${type.id}`);
-    return toView(type);
+    return this.configuredView(type);
   }
 
-  async update(id: string, input: IssueTypeInput): Promise<IssueTypeView> {
-    const updating = this.prisma.issueType.update({
+  /**
+   * Changes a type's settings.
+   *
+   * Handing a type to the board only shuts out the property manager, from the
+   * type's issues and from being given them. Whoever the new setting shuts out
+   * is unassigned from every issue of the type in the same transaction, each
+   * with an entry naming the board member who changed the type, and a default
+   * assignee it shuts out is cleared, so no issue is left with an assignee who
+   * can no longer open it. A default the same request names is held to the
+   * new setting and refused if it does not handle the type. Under the type's
+   * lock, which an assignment takes too (`IssueService.assign`), so an
+   * assignment cannot slip in between the check and the change.
+   */
+  async update(
+    id: string,
+    input: IssueTypeInput,
+    actorPersonId: string,
+  ): Promise<ConfiguredIssueTypeView> {
+    await this.prisma
+      .$transaction(
+        async (tx) => {
+          await lockIssueType(tx, id);
+          const existing = await tx.issueType.findUnique({
+            where: { id },
+            select: { handledBy: true, defaultAssigneePersonId: true },
+          });
+          if (existing === null) {
+            throw notFound();
+          }
+          const now = new Date();
+          const handledBy = input.handledBy ?? existing.handledBy;
+          let defaultAssigneePersonId =
+            input.defaultAssigneePersonId === undefined
+              ? existing.defaultAssigneePersonId
+              : input.defaultAssigneePersonId;
+          if (input.defaultAssigneePersonId === undefined) {
+            // Kept from before: cleared, not refused, when the new setting shuts
+            // its person out, because the board did not name them in this request.
+            if (
+              defaultAssigneePersonId !== null &&
+              !(await handlesIssues(
+                tx,
+                defaultAssigneePersonId,
+                handledBy,
+                now,
+              ))
+            ) {
+              defaultAssigneePersonId = null;
+            }
+          } else {
+            await this.requireDefaultAssignee(
+              tx,
+              defaultAssigneePersonId,
+              handledBy,
+            );
+          }
+
+          if (handledBy === "BOARD" && existing.handledBy !== "BOARD") {
+            await this.unassignOutsideBoard(tx, id, actorPersonId, now);
+          }
+
+          await tx.issueType.update({
+            where: { id },
+            data: {
+              name: input.name,
+              reporters: uniqueGroups(input.reporters),
+              // Only the fields the caller actually sent. The defaults above
+              // belong to create alone: an update that leaves out `active` must
+              // not reopen a category the board deliberately closed, and one that
+              // leaves out `sortOrder` must not move the type to the top of every
+              // picker.
+              ...(input.active === undefined ? {} : { active: input.active }),
+              ...(input.sortOrder === undefined
+                ? {}
+                : { sortOrder: input.sortOrder }),
+              handledBy,
+              ...(input.defaultPriority === undefined
+                ? {}
+                : { defaultPriority: input.defaultPriority }),
+              defaultAssigneePersonId,
+            },
+          });
+        },
+        /*
+         * Handing a type to the board writes one audit entry per shut-out
+         * issue, each its own round trip, and nothing caps how many issues a
+         * type has. The default five-second budget would abort the whole change
+         * with P2028 after the type lock was held for the duration, which tells
+         * the board nothing it can act on. The budget is stated rather than the
+         * loop removed, because the entries must commit with the unassignment.
+         */
+        { timeout: 30_000 },
+      )
+      .catch((cause: unknown) => {
+        // Removed by somebody else after it was read: the update finds no row.
+        throw failedWith(cause, "P2025") ? notFound() : cause;
+      });
+
+    this.logger.log(`Changed issue type ${id}`);
+    const type = await this.prisma.issueType.findUnique({
       where: { id },
-      data: {
-        name: input.name,
-        reporters: uniqueGroups(input.reporters),
-        // Only the fields the caller actually sent. The defaults above belong
-        // to create alone: an update that leaves out `active` must not reopen a
-        // category the board deliberately closed, and one that leaves out
-        // `sortOrder` must not move the type to the top of every picker.
-        ...(input.active === undefined ? {} : { active: input.active }),
-        ...(input.sortOrder === undefined
-          ? {}
-          : { sortOrder: input.sortOrder }),
-      },
       include: TYPE_INCLUDE,
     });
-    // Removed by somebody else, or never there.
-    const type = await updating.catch((cause: unknown) => {
-      throw failedWith(cause, "P2025") ? notFound() : cause;
-    });
+    if (type === null) {
+      throw notFound();
+    }
+    return this.configuredView(type);
+  }
 
-    return toView(type);
+  /**
+   * Unassigns, from every issue of a type now handled by the board only, an
+   * assignee the board does not include: the property manager. An issue the
+   * board had already closed to itself has no such assignee to unassign.
+   */
+  private async unassignOutsideBoard(
+    tx: Prisma.TransactionClient,
+    typeId: string,
+    actorPersonId: string,
+    now: Date,
+  ): Promise<void> {
+    const shutOut = await tx.issue.findMany({
+      where: {
+        typeId,
+        assigneePersonId: { not: null },
+        NOT: {
+          assigneePersonId: {
+            in: (
+              await tx.person.findMany({
+                where: issueHandlersWhere("BOARD", now),
+                select: { id: true },
+              })
+            ).map((person) => person.id),
+          },
+        },
+      },
+      select: { id: true, assigneePersonId: true },
+    });
+    for (const issue of shutOut) {
+      await this.audit.record(
+        {
+          action: "ISSUE_ASSIGNED",
+          channel: "WEB",
+          actorPersonId,
+          targetPersonId: null,
+          targetKind: "issue",
+          targetId: issue.id,
+          context: { previousAssigneePersonId: issue.assigneePersonId },
+        },
+        tx,
+      );
+    }
+    if (shutOut.length > 0) {
+      await tx.issue.updateMany({
+        where: { id: { in: shutOut.map((issue) => issue.id) } },
+        data: { assigneePersonId: null },
+      });
+    }
+  }
+
+  /** Refuses a default assignee who does not handle a type of this setting. */
+  private async requireDefaultAssignee(
+    db: PrismaService | Prisma.TransactionClient,
+    personId: string | null,
+    handledBy: IssueHandledBy,
+  ): Promise<void> {
+    if (
+      personId !== null &&
+      !(await handlesIssues(db, personId, handledBy, new Date()))
+    ) {
+      throw new IssueError(
+        "That person does not handle issues of this type.",
+        "assignee-not-a-handler",
+      );
+    }
   }
 
   /**
@@ -309,7 +607,7 @@ export class IssueTypeService {
   async addStatus(
     typeId: string,
     input: IssueStatusInput,
-  ): Promise<IssueTypeView> {
+  ): Promise<ConfiguredIssueTypeView> {
     await this.prisma.$transaction(async (tx) => {
       await this.requireLockedType(tx, typeId);
 
@@ -397,7 +695,7 @@ export class IssueTypeService {
     typeId: string,
     statusId: string,
     change: IssueStatusChange,
-  ): Promise<IssueTypeView> {
+  ): Promise<ConfiguredIssueTypeView> {
     await this.prisma.$transaction(async (tx) => {
       await this.requireLockedType(tx, typeId);
 
@@ -465,6 +763,10 @@ export class IssueTypeService {
             name: t(`issues.seededTypes.${seeded.key}`),
             reporters: [...seeded.reporters],
             sortOrder,
+            ...("handledBy" in seeded ? { handledBy: seeded.handledBy } : {}),
+            ...("defaultPriority" in seeded
+              ? { defaultPriority: seeded.defaultPriority }
+              : {}),
             statuses: { create: defaultStatuses(t) },
           },
         });
@@ -474,8 +776,35 @@ export class IssueTypeService {
     });
   }
 
+  /** Types with their default assignees, read in one query. */
+  private async configuredViews(
+    types: readonly TypeRecord[],
+  ): Promise<ConfiguredIssueTypeView[]> {
+    const viewOf = await readAuthors(
+      this.prisma,
+      types.map((type) => type.defaultAssigneePersonId),
+    );
+    return types.map((type) => ({
+      ...toView(type),
+      defaultAssignee:
+        type.defaultAssigneePersonId === null
+          ? null
+          : viewOf(type.defaultAssigneePersonId),
+    }));
+  }
+
+  private async configuredView(
+    type: TypeRecord,
+  ): Promise<ConfiguredIssueTypeView> {
+    const [view] = await this.configuredViews([type]);
+    if (view === undefined) {
+      throw notFound();
+    }
+    return view;
+  }
+
   /** One type as the board's screen shows it, after a write to it. */
-  private async view(typeId: string): Promise<IssueTypeView> {
+  private async view(typeId: string): Promise<ConfiguredIssueTypeView> {
     const type = await this.prisma.issueType.findUnique({
       where: { id: typeId },
       include: TYPE_INCLUDE,
@@ -483,7 +812,7 @@ export class IssueTypeService {
     if (type === null) {
       throw notFound();
     }
-    return toView(type);
+    return this.configuredView(type);
   }
 
   private async requireLockedType(
@@ -536,6 +865,17 @@ const TYPE_INCLUDE = {
   },
 } as const satisfies Prisma.IssueTypeInclude;
 
+/** {@link TYPE_INCLUDE}, its counts narrowed to these issues. */
+function countedTypeInclude(issues: Prisma.IssueWhereInput) {
+  return {
+    _count: { select: { issues: { where: issues } } },
+    statuses: {
+      ...TYPE_INCLUDE.statuses,
+      include: { _count: { select: { issues: { where: issues } } } },
+    },
+  } satisfies Prisma.IssueTypeInclude;
+}
+
 type TypeRecord = Prisma.IssueTypeGetPayload<{ include: typeof TYPE_INCLUDE }>;
 
 function toView(type: TypeRecord): IssueTypeView {
@@ -545,6 +885,8 @@ function toView(type: TypeRecord): IssueTypeView {
     reporters: uniqueGroups(type.reporters),
     active: type.active,
     sortOrder: type.sortOrder,
+    handledBy: type.handledBy,
+    defaultPriority: type.defaultPriority,
     reportCount: type._count.issues,
     statuses: [...type.statuses]
       .sort(

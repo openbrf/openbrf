@@ -18,6 +18,7 @@ import {
 import type { DataSubjectReportSection } from "@openbrf/shared";
 
 import i18n from "../i18n";
+import { ISSUE_MEANING_LABEL } from "../issues/issue-labels";
 import { DataSubjectReport, SECTION_TITLE } from "./DataSubjectReport";
 import {
   RegisterRequestError,
@@ -122,6 +123,7 @@ const EMPTY_REPORT: Report = {
   publicationConsents: [],
   legalHolds: [],
   issues: [],
+  issueAssignments: [],
   documents: [],
   apartmentDocuments: [],
   bookings: [],
@@ -375,6 +377,17 @@ const FULL_REPORT: Report = {
       reportedAt: "2026-01-05T08:00:00.000Z",
       photographs: 2,
     },
+  ],
+  issueAssignments: [
+    {
+      kind: "issue",
+      issueId: "issue-7",
+      typeName: "Hiss",
+      meaning: "IN_PROGRESS",
+      reportedAt: "2026-01-06T08:00:00.000Z",
+      closedAt: null,
+    },
+    { kind: "typeDefault", typeId: "type-1", typeName: "Hiss" },
   ],
   bookings: [
     {
@@ -2398,6 +2411,40 @@ describe("what the document answers for", () => {
     for (const titleKey of Object.values(SECTION_TITLE)) {
       expect(printed, titleKey).toContain(inSwedish(titleKey));
     }
+  });
+
+  it("prints a row for each issue an assignee holds and each type naming them", async () => {
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const inSwedish = i18n.getFixedT("sv");
+    const assignments = within(
+      sectionOf(inSwedish(SECTION_TITLE.issueAssignments)),
+    );
+    // One row for the issue and one for the type, both of the type Hiss. Each
+    // is found by its label, so swapping the two rows fails here.
+    const rows = assignments.getAllByRole("row");
+    const rowWith = (label: string) =>
+      rows.find((row) => within(row).queryByText(label) !== null);
+    const issueRow = rowWith(
+      inSwedish("register.person.report.issueAssignment.issue"),
+    );
+    const typeRow = rowWith(
+      inSwedish("register.person.report.issueAssignment.typeDefault"),
+    );
+    expect(issueRow).toBeDefined();
+    expect(typeRow).toBeDefined();
+    expect(issueRow).not.toBe(typeRow);
+    expect(within(issueRow!).getByText("Hiss")).toBeTruthy();
+    expect(within(typeRow!).getByText("Hiss")).toBeTruthy();
+    // The status is the issue's alone: the type's row shows the placeholder
+    // in that cell (type, assignment, status, date, closed).
+    expect(
+      within(issueRow!).getByText(inSwedish(ISSUE_MEANING_LABEL.IN_PROGRESS)),
+    ).toBeTruthy();
+    expect(within(typeRow!).getAllByRole("cell")[2]!.textContent).toBe(
+      inSwedish("register.person.report.nothing"),
+    );
   });
 
   it("prints a session's address and browser as they were recorded", async () => {

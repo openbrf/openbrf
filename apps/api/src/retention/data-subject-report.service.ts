@@ -696,6 +696,25 @@ export class DataSubjectReportService {
       },
     });
 
+    // The issues and types that name this person as their assignee, which
+    // somebody else chose (ADR 0057): never the issue's text or its reporter.
+    const assignedIssues = await tx.issue.findMany({
+      where: { assigneePersonId: personId },
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      select: {
+        id: true,
+        status: { select: { meaning: true } },
+        createdAt: true,
+        closedAt: true,
+        type: { select: { name: true } },
+      },
+    });
+    const defaultForTypes = await tx.issueType.findMany({
+      where: { defaultAssigneePersonId: personId },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: { id: true, name: true },
+    });
+
     const documents = await tx.document.findMany({
       where: { uploadedByPersonId: personId },
       orderBy: [{ createdAt: "desc" }],
@@ -1388,6 +1407,24 @@ export class DataSubjectReportService {
     });
 
     /*
+     * A former assignee: the entry of the assignment that took an issue from
+     * them, or of a type's setting that shut them out, names them only as the
+     * previous assignee in its context (ADR 0057). Without it their report
+     * would omit the one record of having held the issue.
+     *
+     * Read apart from the query below, with the expression the partial index
+     * `audit_log_entry_previousAssignee_idx` is built on. Inside that query's
+     * OR the context arm has no index, and the planner scans the whole log,
+     * which only grows. The key is a literal in the SQL, as in the index: a
+     * bound parameter would not match the index's expression. It is
+     * PREVIOUS_ASSIGNEE_KEY.
+     */
+    const previousAssigneeEntries = await tx.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "audit_log_entry"
+      WHERE ("context" ->> 'previousAssigneePersonId') = ${personId}
+    `;
+
+    /*
      * Every entry naming this person, either way round. The log's two person
      * columns are plain columns rather than relations - the audit log has to
      * outlive the people it names - so this is one query with an OR rather
@@ -1395,7 +1432,11 @@ export class DataSubjectReportService {
      */
     const auditEntries = await tx.auditLogEntry.findMany({
       where: {
-        OR: [{ targetPersonId: personId }, { actorPersonId: personId }],
+        OR: [
+          { targetPersonId: personId },
+          { actorPersonId: personId },
+          { id: { in: previousAssigneeEntries.map((entry) => entry.id) } },
+        ],
       },
       orderBy: [{ createdAt: "desc" }],
       select: {
@@ -1682,6 +1723,21 @@ export class DataSubjectReportService {
         reportedAt: issue.createdAt.toISOString(),
         photographs: issue._count.photos,
       })),
+      issueAssignments: [
+        ...assignedIssues.map((issue) => ({
+          kind: "issue" as const,
+          issueId: issue.id,
+          typeName: issue.type.name,
+          meaning: issue.status.meaning,
+          reportedAt: issue.createdAt.toISOString(),
+          closedAt: issue.closedAt?.toISOString() ?? null,
+        })),
+        ...defaultForTypes.map((type) => ({
+          kind: "typeDefault" as const,
+          typeId: type.id,
+          typeName: type.name,
+        })),
+      ],
       documents: documents.map((document) => ({
         documentId: document.id,
         title: document.title,
@@ -2147,7 +2203,12 @@ export class DataSubjectReportService {
       ),
       auditEntries: auditEntries.map((entry): ReportAuditEntry => ({
         entryId: entry.id,
-        role: entry.targetPersonId === personId ? "subject" : "actor",
+        // The target, or the previous assignee: the act is about them. Only an
+        // entry that names them as nothing but its actor reads as theirs.
+        role:
+          entry.targetPersonId !== personId && entry.actorPersonId === personId
+            ? "actor"
+            : "subject",
         action: entry.action,
         at: entry.createdAt.toISOString(),
         channel: entry.channel,
@@ -2627,6 +2688,12 @@ function asContext(
  */
 const CONTEXT_PERSON_LISTS = ["personIds", "protectedPersonIds"] as const;
 
+/**
+ * The context key of an assignment entry that names the assignee an issue was
+ * taken from, one person's identifier rather than a list.
+ */
+const PREVIOUS_ASSIGNEE_KEY = "previousAssigneePersonId";
+
 /** An audience as the feed section joins it: by kind, and a group by name. */
 interface JoinedAudience {
   kind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
@@ -2839,6 +2906,18 @@ function subjectScopedContext(
     }
     scoped[key] = value.includes(personId) ? [personId] : [];
     scoped[`${key}Count`] = value.length;
+  }
+
+  /*
+   * The previous assignee is somebody else's identifier on the entry that
+   * assigned this person, and this person's own on the entry that took the
+   * issue from them. Somebody else's is withheld, and the fact that the issue
+   * had an assignee stays.
+   */
+  const previous = context[PREVIOUS_ASSIGNEE_KEY];
+  if (typeof previous === "string" && previous !== personId) {
+    scoped[PREVIOUS_ASSIGNEE_KEY] = null;
+    scoped.hadPreviousAssignee = true;
   }
   return scoped;
 }

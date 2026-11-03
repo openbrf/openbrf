@@ -16,6 +16,11 @@ import type {
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import {
+  issueHandledBy,
+  issueReaderScope,
+  scopeHandlesIssue,
+} from "../issues/issue-handlers";
 import { holdsBoardSeat } from "../mail/board-recipients";
 import { MediaService, mediaUrl } from "../media/media.service";
 import {
@@ -156,6 +161,9 @@ function postColumns(readerId: string) {
         // module, and the label is the board's text for its handlers.
         status: { select: { meaning: true } },
         reporterPersonId: true,
+        // Who handles it, for the board-only rule (ADR 0054).
+        boardOnly: true,
+        type: { select: { handledBy: true } },
       },
     },
     audience: { select: { id: true, kind: true, name: true } },
@@ -1144,10 +1152,25 @@ export class FeedService {
 
     /*
      * A report's status is shown to whoever may read the report - the person who
-     * made it, and whoever handles issues - and to nobody else. A post does not
+     * made it, and whoever handles it - and to nobody else. A post does not
      * widen who reads an issue: the neighbours see the post, not the queue.
+     * Whoever handles it is the issue module's rule (ADR 0054): a handler the
+     * board-only rule shuts out of the issue, or of its type, does not learn
+     * from a post that it exists. The reader's scope is asked once per page,
+     * and only when a page links an issue that turns on it; otherwise the
+     * narrower scope gives every row the same answer.
      */
-    const handlesIssues = reader.capabilities.has("issues:handle");
+    const readsAsHandler = reader.capabilities.has("issues:handle");
+    const scope =
+      readsAsHandler &&
+      rows.some(
+        (row) =>
+          row.issue !== null &&
+          issueHandledBy(row.issue) === "BOARD" &&
+          row.issue.reporterPersonId !== reader.personId,
+      )
+        ? await issueReaderScope(this.prisma, reader.personId, now)
+        : "EVERY_HANDLER";
 
     return rows.map((row) => {
       const withheld =
@@ -1204,7 +1227,8 @@ export class FeedService {
         readBy: row._count.reads,
         issue:
           row.issue !== null &&
-          (handlesIssues || row.issue.reporterPersonId === reader.personId)
+          ((readsAsHandler && scopeHandlesIssue(scope, row.issue)) ||
+            row.issue.reporterPersonId === reader.personId)
             ? {
                 id: row.issue.id,
                 meaning: row.issue.status.meaning,

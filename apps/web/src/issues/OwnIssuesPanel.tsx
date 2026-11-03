@@ -68,6 +68,11 @@ export function OwnIssuesPanel({ issues }: OwnIssuesPanelProps): ReactElement {
                     issue.location
                   )}
                 </span>
+                {/* Told that a handler entered it, never which one: who
+                    works an issue is internal (ADR 0054). */}
+                {issue.enteredByHandler ? (
+                  <span>{t("issues.mine.enteredByHandler")}</span>
+                ) : null}
               </p>
 
               {issue.photos.length === 0 ? null : (

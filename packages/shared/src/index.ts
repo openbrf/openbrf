@@ -85,7 +85,9 @@ export { MAX_WITHHELD_IDS } from "./withheld-from-devices-limits.ts";
 export { ISSUE_REPORT_LIMITS } from "./issue-report-limits.ts";
 export {
   ISSUE_CLOSING_OUTCOMES,
+  ISSUE_HANDLED_BY,
   ISSUE_OUTCOMES,
+  ISSUE_PRIORITIES,
   ISSUE_REPORTER_GROUPS,
   ISSUE_STATUS_LIMITS,
   ISSUE_STATUS_MEANINGS,
@@ -94,7 +96,9 @@ export {
 } from "./issue-status.ts";
 export type {
   IssueClosingOutcome,
+  IssueHandledBy,
   IssueOutcome,
+  IssuePriority,
   IssueReporterGroup,
   IssueStatusMeaning,
   IssueWaitingReason,

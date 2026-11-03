@@ -438,6 +438,7 @@
           "consents": "Publication consent",
           "legalHolds": "Legal holds",
           "issues": "Issue reports",
+          "issueAssignments": "Issues assigned",
           "documents": "Documents filed",
           "apartmentDocuments": "Apartment binder entries filed",
           "bookings": "Bookings",
@@ -504,6 +505,7 @@
           "placed": "Placed",
           "released": "Released",
           "type": "Type",
+          "assignment": "Assigned",
           "status": "Status",
           "location": "Location",
           "description": "Description",
@@ -807,6 +809,12 @@
           "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN": "A class of caller a plugin serves besides residents was withdrawn",
           "PLUGIN_NON_RESIDENT_CALLER_CONSENTED": "A withdrawn class of caller a plugin serves besides residents was consented to again",
           "ISSUE_STATUS_CHANGED": "An issue was moved to another status",
+          "ISSUE_OPENED": "A handler opened an issue",
+          "ISSUE_ASSIGNED": "An issue was assigned",
+          "ISSUE_PRIORITY_CHANGED": "The priority of an issue was changed",
+          "ISSUE_TARGET_DATE_CHANGED": "The target date of an issue was changed",
+          "ISSUE_ACCESS_CHANGED": "Who handles an issue was changed",
+          "ISSUE_RESIDENTS_LISTED": "A handler was shown who lives in an apartment, to open an issue",
           "MOVE_IN_RECORDED": "A move-in was recorded",
           "MOVE_OUT_RECORDED": "A move-out was recorded",
           "PLUGIN_ENABLED": "A plugin was switched on",
@@ -905,6 +913,10 @@
           "mailing-interrupted": "The sending was stopped before it reached you",
           "notice-sending-interrupted": "The sending was stopped before it reached you",
           "recipient-objected": "You had objected to the mailings or asked for a restriction"
+        },
+        "issueAssignment": {
+          "issue": "This issue",
+          "typeDefault": "Every new issue of this type"
         }
       },
       "requests": {
@@ -1672,8 +1684,18 @@
         "unknown": "The type could not be saved just now. Please try again.",
         "statusNotFound": "That status is gone. The list has been read again.",
         "defaultStatusRequired": "The default status of a meaning stays offered. Make another status the default first.",
-        "tooManyStatuses": "This type already has as many statuses as it may."
-      }
+        "tooManyStatuses": "This type already has as many statuses as it may.",
+        "assigneeNotAHandler": "That person does not handle issues of this type. Choose someone who does."
+      },
+      "handledBy": "Who handles it",
+      "handledByNamed": "{{name}}: who handles it",
+      "defaultPriority": "Priority on filing",
+      "defaultPriorityNamed": "{{name}}: priority on filing",
+      "defaultAssignee": "Assignee on filing",
+      "defaultAssigneeNamed": "{{name}}: assignee on filing",
+      "noDefaultAssignee": "Nobody: tell every handler",
+      "handledByBoardHint": "The board and an administrator handle these issues, an administrator without a seat on the board included. The property manager does not see them. Making a type the board's unassigns the property manager from its issues.",
+      "handledByEveryHandlerHint": "Every handler sees these issues, the property manager included. An issue with no assignee is told to all of them."
     },
     "issueReporting": {
       "title": "Issue reports from the website",
@@ -3533,7 +3555,8 @@
       "doorsAndLocks": "Doors and locks",
       "outdoorAreas": "Outdoor areas",
       "pests": "Pests",
-      "other": "Other"
+      "other": "Other",
+      "insurance": "Insurance"
     },
     "report": {
       "title": "Report an issue",
@@ -3578,7 +3601,8 @@
       "apartment": "Apartment",
       "place": "Where",
       "noApartment": "This report is not about an apartment.",
-      "noPlace": "No place in the building was given."
+      "noPlace": "No place in the building was given.",
+      "enteredByHandler": "Entered by whoever handles issues."
     },
     "queue": {
       "title": "The issue queue",
@@ -3609,7 +3633,12 @@
         "waitingReasonRequired": "Choose what the issue is waiting for.",
         "outcomeRequired": "Choose how the issue ended.",
         "statusDetailNotApplicable": "That detail does not belong to the chosen status. Choose again."
-      }
+      },
+      "boardOnly": "Board only",
+      "assignee": "Assignee",
+      "targetDate": "Target date",
+      "overdue": "Overdue",
+      "enteredBy": "Entered by"
     },
     "errors": {
       "forbidden": "Your account is not allowed to do that.",
@@ -3623,6 +3652,91 @@
       "photosMissing_other": "{{count}} images from the post could not be added. Add them yourself if they are needed.",
       "reported": "The report is linked to the post, which shows where it stands.",
       "back": "Back to the post"
+    },
+    "priority": {
+      "__after__": "outcome",
+      "URGENT": "Urgent",
+      "NORMAL": "Normal",
+      "LOW": "Low"
+    },
+    "handledBy": {
+      "__after__": "priority",
+      "EVERY_HANDLER": "Every handler",
+      "BOARD": "The board only"
+    },
+    "handler": {
+      "__after__": "handledBy",
+      "protected": "Name withheld (protected personal data)",
+      "unknown": "No longer in the register"
+    },
+    "handling": {
+      "__after__": "queue",
+      "open": "Handle {{type}}: assignee, priority, target date and timeline",
+      "assignee": "Assignee",
+      "assigneeNamed": "{{type}}: assignee",
+      "unassigned": "Unassigned",
+      "priority": "Priority",
+      "priorityNamed": "{{type}}: priority",
+      "targetDate": "Target date",
+      "targetDateNamed": "{{type}}: target date",
+      "save": "Save",
+      "saving": "Saving...",
+      "boardOnly": "Only the board handles this issue",
+      "boardOnlyNamed": "{{type}}: only the board handles this issue",
+      "boardOnlyHint": "Closes the issue to the property manager. The board and an administrator, with or without a seat, still handle it. A property manager can close an issue this way but not open it again, and loses sight of it once it is closed. The board and an administrator can open it again.",
+      "typeBoardOnly": "Only the board handles issues of this type.",
+      "readFailed": "The assignees or the timeline could not be read just now. Close and open the issue again.",
+      "errors": {
+        "issueNotFound": "That issue is gone, or no longer yours to handle. The queue has been read again.",
+        "assigneeNotAHandler": "That person does not handle this issue any more. The list has been read again.",
+        "targetDateInvalid": "That is not a date. Choose one from the calendar.",
+        "unknown": "The issue could not be changed just now. Please try again."
+      }
+    },
+    "timeline": {
+      "__after__": "handling",
+      "title": "Timeline",
+      "loading": "Reading the timeline...",
+      "by": "by",
+      "reported": "Reported",
+      "openedInternal": "Opened as an internal issue",
+      "openedForResident": "Opened for a resident",
+      "movedTo": "Moved to {{status}}",
+      "statusChanged": "The status was changed",
+      "assigned": "Assigned to",
+      "assignedByDefault": "Assigned by the type's default to",
+      "unassigned": "Left unassigned",
+      "priority": "Priority set to {{priority}}",
+      "priorityChanged": "The priority was changed",
+      "targetDate": "Target date set to <data>{{date}}</data>",
+      "targetDateRemoved": "Target date removed",
+      "boardOnly": "Closed to all but the board",
+      "everyHandler": "Opened again to every handler of its type"
+    },
+    "open": {
+      "__after__": "timeline",
+      "title": "Open an issue",
+      "description": "For a matter a resident raised by telephone or at the door, or one the handlers raise themselves. The issue shows that a handler entered it.",
+      "resident": "For a resident",
+      "apartment": "Apartment",
+      "apartmentNone": "Choose an apartment",
+      "residentNone": "No resident: an internal issue",
+      "residentProtected": "Name withheld (protected personal data)",
+      "residentProtectedNumbered": "Name withheld {{number}} (protected personal data)",
+      "residentsLoading": "Reading who lives there...",
+      "residentsEmpty": "Nobody lives in this apartment today. The issue is opened as an internal issue.",
+      "residentsFailed": "Who lives in the apartment could not be read.",
+      "residentsRetry": "Try again",
+      "apartmentsFailed": "The apartments could not be read. The issue can still be opened as an internal issue.",
+      "residentHint": "Choose the apartment, then who lives there today, to open the issue in a resident's name. Leave the resident out to open an internal issue with no reporter. A resident it is opened for is its reporter, and reads it among their own reports.",
+      "submit": "Open the issue",
+      "opening": "Opening...",
+      "opened": "The issue is open and in the queue.",
+      "errors": {
+        "typeNotFound": "That type is not one you can open an issue under. Reload the page.",
+        "residentNotFound": "That resident no longer lives in the apartment. Choose the apartment again, or leave the resident out.",
+        "unknown": "The issue could not be opened just now. Please try again."
+      }
     }
   },
   "boardMailbox": {

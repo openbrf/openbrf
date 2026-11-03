@@ -107,6 +107,7 @@ export const SECTION_TITLE = {
   publicationConsents: "register.person.report.section.consents",
   legalHolds: "register.person.report.section.legalHolds",
   issues: "register.person.report.section.issues",
+  issueAssignments: "register.person.report.section.issueAssignments",
   documents: "register.person.report.section.documents",
   apartmentDocuments: "register.person.report.section.apartmentDocuments",
   bookings: "register.person.report.section.bookings",
@@ -564,6 +565,15 @@ const AUDIT_ACTION_LABEL = {
   PLUGIN_NON_RESIDENT_CALLER_CONSENTED:
     "register.person.report.action.PLUGIN_NON_RESIDENT_CALLER_CONSENTED",
   ISSUE_STATUS_CHANGED: "register.person.report.action.ISSUE_STATUS_CHANGED",
+  ISSUE_OPENED: "register.person.report.action.ISSUE_OPENED",
+  ISSUE_ASSIGNED: "register.person.report.action.ISSUE_ASSIGNED",
+  ISSUE_PRIORITY_CHANGED:
+    "register.person.report.action.ISSUE_PRIORITY_CHANGED",
+  ISSUE_TARGET_DATE_CHANGED:
+    "register.person.report.action.ISSUE_TARGET_DATE_CHANGED",
+  ISSUE_ACCESS_CHANGED: "register.person.report.action.ISSUE_ACCESS_CHANGED",
+  ISSUE_RESIDENTS_LISTED:
+    "register.person.report.action.ISSUE_RESIDENTS_LISTED",
   MOVE_IN_RECORDED: "register.person.report.action.MOVE_IN_RECORDED",
   MOVE_OUT_RECORDED: "register.person.report.action.MOVE_OUT_RECORDED",
   PLUGIN_ENABLED: "register.person.report.action.PLUGIN_ENABLED",
@@ -1633,6 +1643,53 @@ export function DataSubjectReport({
                     <td className={DATA_CELL}>{String(issue.photographs)}</td>
                   </tr>
                 ))}
+              </Rows>
+            </Section>
+
+            <Section section="issueAssignments">
+              <Rows
+                empty={report.issueAssignments.length === 0}
+                headings={[
+                  "register.person.report.field.type",
+                  "register.person.report.field.assignment",
+                  "register.person.report.field.status",
+                  "register.person.report.field.date",
+                  "register.person.report.field.closedAt",
+                ]}
+              >
+                {report.issueAssignments.map((assignment) =>
+                  assignment.kind === "issue" ? (
+                    <tr key={`issue:${assignment.issueId}`} className={ROW}>
+                      <td className={TEXT_CELL}>{assignment.typeName}</td>
+                      <td className={TEXT_CELL}>
+                        {t("register.person.report.issueAssignment.issue")}
+                      </td>
+                      <td className={TEXT_CELL}>
+                        {t(ISSUE_MEANING_LABEL[assignment.meaning])}
+                      </td>
+                      <td className={DATA_CELL}>
+                        {day(assignment.reportedAt)}
+                      </td>
+                      <td className={DATA_CELL}>
+                        {assignment.closedAt === null
+                          ? nothing
+                          : day(assignment.closedAt)}
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={`type:${assignment.typeId}`} className={ROW}>
+                      <td className={TEXT_CELL}>{assignment.typeName}</td>
+                      <td className={TEXT_CELL}>
+                        {t(
+                          "register.person.report.issueAssignment.typeDefault",
+                        )}
+                      </td>
+                      <td className={TEXT_CELL}>{nothing}</td>
+                      <td className={DATA_CELL}>{nothing}</td>
+                      <td className={DATA_CELL}>{nothing}</td>
+                    </tr>
+                  ),
+                )}
               </Rows>
             </Section>
 

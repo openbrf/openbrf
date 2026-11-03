@@ -69,6 +69,14 @@ function issue(
     reporter: { kind: "resident", personId: "p-1", name: "Rune Boende" },
     createdAt: "2026-08-20T08:00:00.000Z",
     updatedAt: "2026-08-20T08:00:00.000Z",
+    enteredByHandler: false,
+    typeHandledBy: "EVERY_HANDLER",
+    priority: "NORMAL",
+    targetDate: null,
+    overdue: false,
+    assignee: null,
+    enteredBy: null,
+    boardOnly: false,
     ...overrides,
   } as QueuedIssue;
 }

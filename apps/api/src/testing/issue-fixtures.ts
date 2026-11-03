@@ -1,5 +1,7 @@
 import {
   ISSUE_STATUS_MEANINGS,
+  type IssueHandledBy,
+  type IssuePriority,
   type IssueReporterGroup,
   type IssueStatusMeaning,
 } from "@openbrf/shared";
@@ -29,6 +31,9 @@ export async function createIssueTypeFixture(
     reporters: readonly IssueReporterGroup[];
     active?: boolean;
     sortOrder?: number;
+    handledBy?: IssueHandledBy;
+    defaultPriority?: IssuePriority;
+    defaultAssigneePersonId?: string | null;
   },
 ): Promise<IssueTypeFixture> {
   const statusIds = Object.fromEntries(
@@ -45,6 +50,9 @@ export async function createIssueTypeFixture(
       reporters: [...input.reporters],
       active: input.active ?? true,
       sortOrder: input.sortOrder ?? 0,
+      handledBy: input.handledBy ?? "EVERY_HANDLER",
+      defaultPriority: input.defaultPriority ?? "NORMAL",
+      defaultAssigneePersonId: input.defaultAssigneePersonId ?? null,
       statuses: {
         create: ISSUE_STATUS_MEANINGS.map((meaning) => ({
           id: statusIds[meaning],

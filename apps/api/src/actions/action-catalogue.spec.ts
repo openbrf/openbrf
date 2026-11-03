@@ -254,11 +254,7 @@ function registerEveryCoreAction(registrar: CoreActionRegistrar): void {
     registrar,
     new ActionInputNames(),
   ).onModuleInit();
-  new IssueActionsRegistrar(
-    service as never,
-    service as never,
-    registrar,
-  ).onModuleInit();
+  new IssueActionsRegistrar(service as never, registrar).onModuleInit();
   new ContactActionsRegistrar(service as never, registrar).onModuleInit();
   new DocumentActionsRegistrar(
     service as never,

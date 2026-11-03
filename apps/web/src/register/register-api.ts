@@ -503,6 +503,12 @@ export type ReportAuditAction =
   | "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN"
   | "PLUGIN_NON_RESIDENT_CALLER_CONSENTED"
   | "ISSUE_STATUS_CHANGED"
+  | "ISSUE_OPENED"
+  | "ISSUE_ASSIGNED"
+  | "ISSUE_PRIORITY_CHANGED"
+  | "ISSUE_TARGET_DATE_CHANGED"
+  | "ISSUE_ACCESS_CHANGED"
+  | "ISSUE_RESIDENTS_LISTED"
   | "MOVE_IN_RECORDED"
   | "MOVE_OUT_RECORDED"
   | "PLUGIN_ENABLED"
@@ -786,6 +792,22 @@ export interface DataSubjectReport {
     releasedAt: string | null;
     releaseReason: string | null;
   }[];
+  /**
+   * The issues this person is assigned and the types naming them as default
+   * assignee, which somebody else chose (ADR 0057): never an issue's text or
+   * its reporter.
+   */
+  issueAssignments: (
+    | {
+        kind: "issue";
+        issueId: string;
+        typeName: string;
+        meaning: IssueStatusMeaning;
+        reportedAt: string;
+        closedAt: string | null;
+      }
+    | { kind: "typeDefault"; typeId: string; typeName: string }
+  )[];
   issues: {
     issueId: string;
     typeName: string;

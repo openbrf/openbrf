@@ -438,6 +438,7 @@
           "consents": "Publiceringssamtycke",
           "legalHolds": "Rättsliga bevarandekrav",
           "issues": "Felanmälningar",
+          "issueAssignments": "Ärenden där personen är ansvarig",
           "documents": "Inlagda dokument",
           "apartmentDocuments": "Inlagt i lägenhetspärm",
           "bookings": "Bokningar",
@@ -504,6 +505,7 @@
           "placed": "Infört",
           "released": "Hävt",
           "type": "Ärendetyp",
+          "assignment": "Ansvarig för",
           "status": "Status",
           "location": "Plats",
           "description": "Beskrivning",
@@ -807,6 +809,12 @@
           "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN": "En grupp som ett tillägg betjänar utöver de boende drogs tillbaka",
           "PLUGIN_NON_RESIDENT_CALLER_CONSENTED": "En tillbakadragen grupp som ett tillägg betjänar utöver de boende godkändes igen",
           "ISSUE_STATUS_CHANGED": "Ett ärende flyttades till en annan status",
+          "ISSUE_OPENED": "Ett ärende lades upp av den som hanterar ärenden",
+          "ISSUE_ASSIGNED": "Ett ärende fick en ansvarig",
+          "ISSUE_PRIORITY_CHANGED": "Prioriteten för ett ärende ändrades",
+          "ISSUE_TARGET_DATE_CHANGED": "Senast klart för ett ärende ändrades",
+          "ISSUE_ACCESS_CHANGED": "Vilka som hanterar ett ärende ändrades",
+          "ISSUE_RESIDENTS_LISTED": "Någon som hanterar ärenden visades vilka som bor i en lägenhet, för att lägga upp ett ärende",
           "MOVE_IN_RECORDED": "En inflyttning registrerades",
           "MOVE_OUT_RECORDED": "En utflyttning registrerades",
           "PLUGIN_ENABLED": "Ett tillägg slogs på",
@@ -905,6 +913,10 @@
           "mailing-interrupted": "Utskicket avbröts innan det nådde dig",
           "notice-sending-interrupted": "Utskicket avbröts innan det nådde dig",
           "recipient-objected": "Du hade invänt mot utskicken eller begärt begränsning"
+        },
+        "issueAssignment": {
+          "issue": "Det här ärendet",
+          "typeDefault": "Varje nytt ärende av typen"
         }
       },
       "requests": {
@@ -1672,8 +1684,18 @@
         "unknown": "Typen kunde inte sparas just nu. Försök igen.",
         "statusNotFound": "Den statusen finns inte längre. Listan har lästs om.",
         "defaultStatusRequired": "Standardstatusen för en betydelse erbjuds alltid. Gör en annan status till standard först.",
-        "tooManyStatuses": "Den här typen har redan så många statusar som den får ha."
-      }
+        "tooManyStatuses": "Den här typen har redan så många statusar som den får ha.",
+        "assigneeNotAHandler": "Den personen hanterar inte ärenden av den här typen. Välj någon som gör det."
+      },
+      "handledBy": "Vem hanterar",
+      "handledByNamed": "{{name}}: vem hanterar",
+      "defaultPriority": "Prioritet när det anmäls",
+      "defaultPriorityNamed": "{{name}}: prioritet när det anmäls",
+      "defaultAssignee": "Ansvarig när det anmäls",
+      "defaultAssigneeNamed": "{{name}}: ansvarig när det anmäls",
+      "noDefaultAssignee": "Ingen: meddela alla som hanterar",
+      "handledByBoardHint": "Styrelsen och en administratör hanterar de här ärendena, också en administratör utan plats i styrelsen. Förvaltaren ser dem inte. När en typ blir styrelsens tas förvaltaren bort som ansvarig på dess ärenden.",
+      "handledByEveryHandlerHint": "Alla som hanterar ärenden ser de här ärendena, förvaltaren också. Ett ärende utan ansvarig meddelas till alla."
     },
     "issueReporting": {
       "title": "Felanmälan från webbplatsen",
@@ -3533,7 +3555,8 @@
       "doorsAndLocks": "Dörrar och lås",
       "outdoorAreas": "Utemiljö",
       "pests": "Skadedjur",
-      "other": "Övrigt"
+      "other": "Övrigt",
+      "insurance": "Försäkringsärende"
     },
     "report": {
       "title": "Gör en felanmälan",
@@ -3578,7 +3601,8 @@
       "apartment": "Lägenhet",
       "place": "Var",
       "noApartment": "Anmälan gäller ingen lägenhet.",
-      "noPlace": "Ingen plats i huset angavs."
+      "noPlace": "Ingen plats i huset angavs.",
+      "enteredByHandler": "Upplagt av den som hanterar ärenden."
     },
     "queue": {
       "title": "Ärendekön",
@@ -3609,7 +3633,12 @@
         "waitingReasonRequired": "Välj vad ärendet väntar på.",
         "outcomeRequired": "Välj hur ärendet slutade.",
         "statusDetailNotApplicable": "Den uppgiften hör inte till den valda statusen. Välj igen."
-      }
+      },
+      "boardOnly": "Bara styrelsen",
+      "assignee": "Ansvarig",
+      "targetDate": "Senast klart",
+      "overdue": "Försenat",
+      "enteredBy": "Upplagt av"
     },
     "errors": {
       "forbidden": "Ditt konto får inte göra det.",
@@ -3623,6 +3652,91 @@
       "photosMissing_other": "{{count}} bilder från inlägget kunde inte läggas till. Lägg till dem själv om de behövs.",
       "reported": "Anmälan är kopplad till inlägget, och där syns hur det går med den.",
       "back": "Tillbaka till inlägget"
+    },
+    "priority": {
+      "__after__": "outcome",
+      "URGENT": "Akut",
+      "NORMAL": "Normal",
+      "LOW": "Låg"
+    },
+    "handledBy": {
+      "__after__": "priority",
+      "EVERY_HANDLER": "Alla som hanterar ärenden",
+      "BOARD": "Bara styrelsen"
+    },
+    "handler": {
+      "__after__": "handledBy",
+      "protected": "Namnet visas inte (skyddade personuppgifter)",
+      "unknown": "Finns inte längre i registret"
+    },
+    "handling": {
+      "__after__": "queue",
+      "open": "Hantera {{type}}: ansvarig, prioritet, senast klart och tidslinje",
+      "assignee": "Ansvarig",
+      "assigneeNamed": "{{type}}: ansvarig",
+      "unassigned": "Ej tilldelat",
+      "priority": "Prioritet",
+      "priorityNamed": "{{type}}: prioritet",
+      "targetDate": "Senast klart",
+      "targetDateNamed": "{{type}}: senast klart",
+      "save": "Spara",
+      "saving": "Sparar...",
+      "boardOnly": "Bara styrelsen hanterar ärendet",
+      "boardOnlyNamed": "{{type}}: bara styrelsen hanterar ärendet",
+      "boardOnlyHint": "Stänger ärendet för förvaltaren. Styrelsen och en administratör, med eller utan plats i styrelsen, hanterar det fortfarande. En förvaltare kan stänga ett ärende så men inte öppna det igen, och ser det inte längre när det är stängt. Styrelsen och en administratör kan öppna det igen.",
+      "typeBoardOnly": "Bara styrelsen hanterar ärenden av den här typen.",
+      "readFailed": "Ansvariga eller tidslinjen gick inte att läsa just nu. Stäng och öppna ärendet igen.",
+      "errors": {
+        "issueNotFound": "Ärendet finns inte längre, eller är inte längre ditt att hantera. Kön har lästs om.",
+        "assigneeNotAHandler": "Den personen hanterar inte längre ärendet. Listan har lästs om.",
+        "targetDateInvalid": "Det är inget datum. Välj ett i kalendern.",
+        "unknown": "Ärendet gick inte att ändra just nu. Försök igen."
+      }
+    },
+    "timeline": {
+      "__after__": "handling",
+      "title": "Tidslinje",
+      "loading": "Läser tidslinjen...",
+      "by": "av",
+      "reported": "Anmält",
+      "openedInternal": "Upplagt som internt ärende",
+      "openedForResident": "Upplagt åt en boende",
+      "movedTo": "Flyttat till {{status}}",
+      "statusChanged": "Statusen ändrades",
+      "assigned": "Tilldelat",
+      "assignedByDefault": "Tilldelat enligt typens standard",
+      "unassigned": "Lämnat utan ansvarig",
+      "priority": "Prioritet satt till {{priority}}",
+      "priorityChanged": "Prioriteten ändrades",
+      "targetDate": "Senast klart satt till <data>{{date}}</data>",
+      "targetDateRemoved": "Senast klart borttaget",
+      "boardOnly": "Stängt för alla utom styrelsen",
+      "everyHandler": "Öppnat igen för alla som hanterar typen"
+    },
+    "open": {
+      "__after__": "timeline",
+      "title": "Lägg upp ett ärende",
+      "description": "För något en boende tog upp per telefon eller i dörren, eller något de som hanterar ärenden själva tar upp. Ärendet visar att det lades upp av den som hanterar ärenden.",
+      "resident": "Åt en boende",
+      "apartment": "Lägenhet",
+      "apartmentNone": "Välj en lägenhet",
+      "residentNone": "Ingen boende: ett internt ärende",
+      "residentProtected": "Namnet visas inte (skyddade personuppgifter)",
+      "residentProtectedNumbered": "Namn som inte visas {{number}} (skyddade personuppgifter)",
+      "residentsLoading": "Läser vilka som bor där...",
+      "residentsEmpty": "Ingen bor i lägenheten i dag. Ärendet läggs upp som ett internt ärende.",
+      "residentsFailed": "Det gick inte att läsa vilka som bor i lägenheten.",
+      "residentsRetry": "Försök igen",
+      "apartmentsFailed": "Det gick inte att läsa lägenheterna. Ärendet kan ändå läggas upp som ett internt ärende.",
+      "residentHint": "Välj lägenheten och sedan vem som bor där i dag för att lägga upp ärendet i en boendes namn. Utan boende blir det ett internt ärende utan anmälare. En boende som ärendet läggs upp åt är dess anmälare och ser det bland sina egna anmälningar.",
+      "submit": "Lägg upp ärendet",
+      "opening": "Lägger upp...",
+      "opened": "Ärendet är upplagt och ligger i kön.",
+      "errors": {
+        "typeNotFound": "Du kan inte lägga upp ärenden av den typen. Ladda om sidan.",
+        "residentNotFound": "Den boende bor inte längre i lägenheten. Välj lägenheten igen, eller lämna den boende tom.",
+        "unknown": "Ärendet gick inte att lägga upp just nu. Försök igen."
+      }
     }
   },
   "boardMailbox": {

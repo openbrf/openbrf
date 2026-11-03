@@ -1,8 +1,12 @@
 import {
+  ISSUE_HANDLED_BY,
+  ISSUE_PRIORITIES,
   ISSUE_REPORTER_GROUPS,
   ISSUE_STATUS_LIMITS,
   ISSUE_STATUS_MEANINGS,
   ISSUE_TYPE_LIMITS,
+  type IssueHandledBy,
+  type IssuePriority,
   type IssueReporterGroup,
   type IssueStatusMeaning,
 } from "@openbrf/shared";
@@ -12,18 +16,25 @@ import { useTranslation } from "react-i18next";
 import {
   addIssueStatus,
   changeIssueStatus,
+  type ConfiguredIssueType,
   createIssueType,
+  fetchIssueTypeHandlers,
   fetchIssueTypes,
+  type IssueHandlerChoice,
   type IssueStatusView,
+  type IssueTypeInput,
   type IssueTypeView,
   removeIssueType,
   updateIssueType,
 } from "../api/issues";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
+  ISSUE_HANDLED_BY_LABEL,
   ISSUE_MEANING_LABEL,
+  ISSUE_PRIORITY_LABEL,
   ISSUE_REPORTER_GROUP_LABEL,
 } from "../issues/issue-labels";
+import { issueHandlerName } from "../issues/IssueHandlerName";
 import {
   FIELD,
   HINT,
@@ -43,6 +54,7 @@ const TYPE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "status-not-found": "settings.issueTypes.errors.statusNotFound",
   "default-status-required": "settings.issueTypes.errors.defaultStatusRequired",
   "too-many-statuses": "settings.issueTypes.errors.tooManyStatuses",
+  "assignee-not-a-handler": "settings.issueTypes.errors.assigneeNotAHandler",
 };
 
 const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
@@ -92,8 +104,18 @@ interface Loaded {
    * screen. There is one catalogue, so the last answer about it is the best
    * there is, whichever read produced it.
    */
-  readonly types: readonly IssueTypeView[] | null;
+  readonly types: readonly ConfiguredIssueType[] | null;
   readonly failed: boolean;
+}
+
+/** A type's settings as they stand, for a write that changes one of them. */
+function settingsOf(type: ConfiguredIssueType): IssueTypeInput {
+  return {
+    name: type.name,
+    reporters: type.reporters,
+    active: type.active,
+    sortOrder: type.sortOrder,
+  };
 }
 
 /**
@@ -125,6 +147,27 @@ export function IssueTypesPanel(): ReactElement {
   const [reads, setReads] = useState(0);
   const [draft, setDraft] = useState(EMPTY);
   const nameRef = useRef<HTMLInputElement>(null);
+  /**
+   * Who a type's issues may be given to by default, or null until a read has
+   * landed: the default-assignee select then offers only the setting as it
+   * stands. Read again with the catalogue, so one that failed is retried on the
+   * next write, and a failed re-read keeps the choices already on screen.
+   */
+  const [choices, setChoices] = useState<readonly IssueHandlerChoice[] | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let active = true;
+    void fetchIssueTypeHandlers().then((result) => {
+      if (active && result.ok) {
+        setChoices(result.value);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [reads]);
 
   const reread = (): void => {
     setReads((count) => count + 1);
@@ -336,6 +379,18 @@ export function IssueTypesPanel(): ReactElement {
                 </button>
               ) : null}
 
+              <TypeHandlingSettings
+                type={type}
+                choices={choices}
+                busy={busy}
+                onChange={(values) => {
+                  void change.submit({
+                    id: type.id,
+                    values: { ...settingsOf(type), ...values },
+                  });
+                }}
+              />
+
               <TypeStatuses
                 type={type}
                 busy={busy}
@@ -435,6 +490,137 @@ export function IssueTypesPanel(): ReactElement {
         </div>
       </LockedForm>
     </Panel>
+  );
+}
+
+/**
+ * Who handles a type's issues, the priority they are filed with, and who they
+ * are given to by default (ADR 0054, decisions 11 to 13). Each saves on change,
+ * as the reporter switches beside them do.
+ *
+ * The default assignee is chosen from the people who handle the type as it is
+ * set: the board's own when the board alone handles it. Handing a type to the
+ * board clears a default the board does not include, and unassigns that person
+ * from the type's issues, which the hint says before the board does it.
+ */
+function TypeHandlingSettings({
+  type,
+  choices,
+  busy,
+  onChange,
+}: {
+  type: ConfiguredIssueType;
+  choices: readonly IssueHandlerChoice[] | null;
+  busy: boolean;
+  onChange: (values: Partial<IssueTypeInput>) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const named = { name: type.name };
+  const current =
+    type.defaultAssignee === null || type.defaultAssignee.kind === "unknown"
+      ? ""
+      : type.defaultAssignee.personId;
+  /*
+   * The people who handle the type as it is set, with a purged one left out:
+   * nobody can be chosen by a name the register no longer holds. The default
+   * as it stands is offered even when the list no longer holds them, so the
+   * select never shows another person than the one the type names.
+   */
+  const offered: { personId: string; name: string }[] = [];
+  for (const choice of choices ?? []) {
+    if (
+      choice.handler.kind !== "unknown" &&
+      (type.handledBy !== "BOARD" || choice.board)
+    ) {
+      offered.push({
+        personId: choice.handler.personId,
+        name: issueHandlerName(choice.handler, t),
+      });
+    }
+  }
+  const standing = type.defaultAssignee;
+  if (
+    standing !== null &&
+    standing.kind !== "unknown" &&
+    !offered.some((option) => option.personId === standing.personId)
+  ) {
+    offered.unshift({
+      personId: standing.personId,
+      name: issueHandlerName(standing, t),
+    });
+  }
+
+  return (
+    <div className="flex w-full flex-wrap items-end gap-4">
+      <label className={`${LABEL} min-w-48`}>
+        {t("settings.issueTypes.handledBy")}
+        <select
+          aria-label={t("settings.issueTypes.handledByNamed", named)}
+          value={type.handledBy}
+          disabled={busy}
+          onChange={(event) => {
+            onChange({ handledBy: event.target.value as IssueHandledBy });
+          }}
+          className={FIELD}
+        >
+          {ISSUE_HANDLED_BY.map((handledBy) => (
+            <option key={handledBy} value={handledBy}>
+              {t(ISSUE_HANDLED_BY_LABEL[handledBy])}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className={`${LABEL} min-w-40`}>
+        {t("settings.issueTypes.defaultPriority")}
+        <select
+          aria-label={t("settings.issueTypes.defaultPriorityNamed", named)}
+          value={type.defaultPriority}
+          disabled={busy}
+          onChange={(event) => {
+            onChange({
+              defaultPriority: event.target.value as IssuePriority,
+            });
+          }}
+          className={FIELD}
+        >
+          {ISSUE_PRIORITIES.map((priority) => (
+            <option key={priority} value={priority}>
+              {t(ISSUE_PRIORITY_LABEL[priority])}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className={`${LABEL} min-w-56`}>
+        {t("settings.issueTypes.defaultAssignee")}
+        <select
+          aria-label={t("settings.issueTypes.defaultAssigneeNamed", named)}
+          value={current}
+          disabled={busy || choices === null}
+          onChange={(event) => {
+            onChange({
+              defaultAssigneePersonId:
+                event.target.value === "" ? null : event.target.value,
+            });
+          }}
+          className={FIELD}
+        >
+          <option value="">{t("settings.issueTypes.noDefaultAssignee")}</option>
+          {offered.map((option) => (
+            <option key={option.personId} value={option.personId}>
+              {option.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <p className={`${HINT} w-full`}>
+        {type.handledBy === "BOARD"
+          ? t("settings.issueTypes.handledByBoardHint")
+          : t("settings.issueTypes.handledByEveryHandlerHint")}
+      </p>
+    </div>
   );
 }
 

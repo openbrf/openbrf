@@ -17,6 +17,7 @@ import {
 import { BoardPage } from "../ui/BoardPage";
 import { LoadFailure } from "../ui/LoadFailure";
 import { IssueQueuePanel } from "./IssueQueuePanel";
+import { OpenIssuePanel } from "./OpenIssuePanel";
 
 export interface IssueQueueScreenProps {
   viewer: Viewer;
@@ -121,6 +122,10 @@ export function IssueQueueScreen({
        * Not drawn over a failed read: an empty queue says nothing is waiting,
        * which is a claim the notice above would not undo.
        */}
+      {ready && !loadFailed && types !== null ? (
+        <OpenIssuePanel types={types} onOpened={reload} />
+      ) : null}
+
       {ready && !loadFailed ? (
         <IssueQueuePanel issues={queue} types={types} onChanged={reload} />
       ) : null}

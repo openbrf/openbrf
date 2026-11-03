@@ -144,6 +144,9 @@ export const SECTION_PROCESSING = {
   legalHolds: { row: "legalHolds", portability: "otherBasis" },
   // Legitimate interest: managing the property.
   issues: { row: "issues", portability: "otherBasis" },
+  // Somebody else chose the assignee: the issue handling the board does under
+  // the same processing, and never the person's own act to carry (ADR 0057).
+  issueAssignments: { row: "issues", portability: "otherBasis" },
   // Legitimate interest: preserving the association's records.
   documents: { row: "documents", portability: "otherBasis" },
   apartmentDocuments: { row: "apartmentBinder", portability: "otherBasis" },

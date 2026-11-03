@@ -490,6 +490,13 @@ protected personal data and the service has nothing to mask or omit. It covers
 action does not rely on it by analogy but needs a decision of its own. An action
 that reads a person the register holds is bound by the rule as stated.
 
+The issue reads give a caller only what the caller handles. An issue its type,
+or the issue itself, keeps to the board is left out for a caller the board-only
+rule does not let in - the property manager - and so is a type the board
+handles alone, and `issue_type_list` counts a type's issues without the ones
+left out, by the same omission inside `IssueService` that leaves out a
+protected reporter's issue ([ADR 0054](adr/0054-issue-types-statuses-and-outcomes.md)).
+
 **A withheld value is a different shape in a published output document, never an
 empty one.** Publish it as a `z.discriminatedUnion` over `z.strictObject`
 branches, each branch described, and never as a nullable string. A model reading

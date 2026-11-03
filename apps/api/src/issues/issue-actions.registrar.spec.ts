@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { CoreActionRegistrar } from "../actions/action-registrar";
 import { IssueActionsRegistrar } from "./issue-actions.registrar";
-import type { IssueTypeService, IssueTypeView } from "./issue-type.service";
+import type { IssueTypeView } from "./issue-type.service";
 import {
   issueQueueCursor,
   parseIssueQueueCursor,
@@ -48,9 +48,17 @@ const QUEUED: QueuedIssueView = {
     },
   ],
   reporter: { kind: "resident", personId: "person-rut", name: "Rut Ek" },
+  enteredByHandler: false,
   createdAt: "2027-01-20T09:00:00.000Z",
   updatedAt: "2027-01-20T09:00:00.000Z",
   closedAt: null,
+  typeHandledBy: "EVERY_HANDLER",
+  priority: "NORMAL",
+  targetDate: null,
+  overdue: false,
+  assignee: null,
+  enteredBy: null,
+  boardOnly: false,
 };
 
 const EXTERNAL: QueuedIssueView = {
@@ -70,6 +78,8 @@ const TYPES: IssueTypeView[] = [
     id: "type-water",
     name: "Vatten",
     reporters: ["PUBLIC", "RESIDENTS"],
+    handledBy: "EVERY_HANDLER",
+    defaultPriority: "URGENT",
     active: true,
     sortOrder: 0,
     reportCount: 4,
@@ -101,18 +111,23 @@ const TYPES: IssueTypeView[] = [
     active: false,
     sortOrder: 1,
     reportCount: 1,
+    handledBy: "EVERY_HANDLER",
+    defaultPriority: "NORMAL",
     statuses: [],
   },
 ];
 
 function build(issues: QueuedIssueView[] = [QUEUED, EXTERNAL]) {
-  const listAll = vi.fn(async () => TYPES);
-  const pageOfQueue = vi.fn(async (_filter: unknown, _which: string) => ({
-    issues,
-    nextCursor: null,
-  }));
+  const handledTypes = vi.fn(async (_reader: string) => TYPES);
+  const pageOfQueue = vi.fn(
+    async (_reader: string, _filter: unknown, _which: string) => ({
+      issues,
+      nextCursor: null,
+    }),
+  );
   const queuedIssue = vi.fn(
-    async (_id: string, _which: string) => issues[0] as QueuedIssueView,
+    async (_reader: string, _id: string, _which: string) =>
+      issues[0] as QueuedIssueView,
   );
   const registered: ActionDefinition[] = [];
   const registrar = {
@@ -122,8 +137,7 @@ function build(issues: QueuedIssueView[] = [QUEUED, EXTERNAL]) {
   } as unknown as CoreActionRegistrar;
 
   new IssueActionsRegistrar(
-    { pageOfQueue, queuedIssue } as unknown as IssueService,
-    { listAll } as unknown as IssueTypeService,
+    { pageOfQueue, queuedIssue, handledTypes } as unknown as IssueService,
     registrar,
   ).onModuleInit();
 
@@ -135,7 +149,7 @@ function build(issues: QueuedIssueView[] = [QUEUED, EXTERNAL]) {
     return action;
   };
 
-  return { pageOfQueue, queuedIssue, listAll, registered, held };
+  return { pageOfQueue, queuedIssue, handledTypes, registered, held };
 }
 
 const HANDLER = {
@@ -217,6 +231,7 @@ describe("issue_list", () => {
     });
 
     expect(pageOfQueue).toHaveBeenCalledWith(
+      "person-manager",
       {
         meaning: "WAITING",
         typeId: "type-water",
@@ -243,6 +258,7 @@ describe("issue_list", () => {
     });
 
     expect(pageOfQueue).toHaveBeenCalledWith(
+      "person-manager",
       expect.objectContaining({ after, limit: 5 }),
       "omit",
     );
@@ -354,7 +370,11 @@ describe("issue_get", () => {
 
     const issue = await call(held("issue_get"), { id: "issue-1" });
 
-    expect(queuedIssue).toHaveBeenCalledWith("issue-1", "omit");
+    expect(queuedIssue).toHaveBeenCalledWith(
+      "person-manager",
+      "issue-1",
+      "omit",
+    );
     expect(issue).toEqual({
       id: "issue-1",
       status: { id: "status-water-new", meaning: "NEW", label: "Ny" },
@@ -402,12 +422,12 @@ describe("issue_get", () => {
 });
 
 describe("issue_type_list", () => {
-  it("gives every type, active or not, and declares the free text of the names", async () => {
-    const { held, listAll } = build();
+  it("gives every type the caller handles, active or not, and declares the free text of the names", async () => {
+    const { held, handledTypes } = build();
 
     const answer = await call(held("issue_type_list"), {});
 
-    expect(listAll).toHaveBeenCalledOnce();
+    expect(handledTypes).toHaveBeenCalledWith("person-manager");
     expect(answer).toEqual({
       types: [
         {

@@ -175,6 +175,7 @@ const issue = (overrides: Partial<OwnIssue>): OwnIssue => ({
   description: "",
   apartment: null,
   photos: [],
+  enteredByHandler: false,
   createdAt: "2026-10-01T08:00:00.000Z",
   updatedAt: "2026-10-01T08:00:00.000Z",
   ...overrides,

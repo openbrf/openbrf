@@ -174,6 +174,13 @@ const COLUMN_COVERAGE = {
      * hands.
      */
     reporterEmailIndex: { notReported: "addressOnly" },
+    // Chosen by somebody else, so the person named did not act (ADR 0057).
+    assigneePersonId: { sections: ["issueAssignments"] },
+    // The handler who opened the issue is its opening's actor.
+    enteredByPersonId: { actedAs: ["ISSUE_OPENED"] },
+  },
+  IssueType: {
+    defaultAssigneePersonId: { sections: ["issueAssignments"] },
   },
   Document: { uploadedByPersonId: { sections: ["documents"] } },
   ApartmentDocument: { filedByPersonId: { sections: ["apartmentDocuments"] } },

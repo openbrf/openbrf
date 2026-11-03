@@ -21,6 +21,7 @@ import type { Prisma } from "../generated/prisma/client";
 import { residencyHeldOn } from "../registers/held-on";
 import type { AuditChannel, MediaEncryption } from "../generated/prisma/enums";
 import { postImageAccess } from "../feed/feed-image";
+import { issuePhotoAccess } from "../issues/issue-photo-access";
 import { DomainError } from "../http/domain-error";
 import { failureName } from "../logging/failure";
 import { generateStorageKey, type StoragePrefix } from "../storage/storage-key";
@@ -571,27 +572,26 @@ export class MediaService {
         throw new MediaError("No such file.", "not-found");
       }
       /*
-       * The capability, or the one owner path there is: the person who
-       * reported an issue reads the photos on it, which they took. Asked of
-       * the issue rather than of the uploader column, so it reaches issue
-       * photos and nothing else. Not written to the log, since it is the
-       * reporter's own report.
+       * A photograph on an issue is read by the rule its issue is read by,
+       * asked of the issue module on every request (`issuePhotoAccess`): by
+       * whoever handles that issue - the board-only rule narrows the
+       * capability (ADR 0054) - and by the person who reported it, who took
+       * it. Asked of the issue rather than of the uploader column, so the
+       * owner path reaches issue photos and nothing else, and not written to
+       * the log when it is the reporter's own report.
+       *
+       * Any other INTERNAL file is the capability's.
        */
-      if (!named) {
-        // The reporter's own path, and a support session reported nothing.
-        if (viewer.supportSessionId !== undefined) {
-          throw new MediaError("No such file.", "not-found");
-        }
-        const reported = await this.prisma.issuePhoto.count({
-          where: {
-            fileId: file.id,
-            issue: { reporterPersonId: viewer.personId },
-          },
-        });
-        if (reported === 0) {
-          throw new MediaError("No such file.", "not-found");
-        }
-      } else {
+      const photo = await issuePhotoAccess(
+        this.prisma,
+        file.id,
+        viewer,
+        new Date(),
+      );
+      if (photo === null || (photo === undefined && !named)) {
+        throw new MediaError("No such file.", "not-found");
+      }
+      if (photo !== "reporter") {
         /*
          * Written before the bytes leave. Every INTERNAL file is one whose
          * reading by capability has to be accountable: the board's papers, its

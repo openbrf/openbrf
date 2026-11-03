@@ -1829,6 +1829,18 @@ enum AuditAction {
   PLUGIN_NON_RESIDENT_CALLER_CONSENTED
   /// The status of an issue was changed. The entry names the issue and the status either side, and the person who changed it.
   ISSUE_STATUS_CHANGED
+  /// A handler opened an issue on a named resident's behalf, or as an internal issue with no reporter. The entry names the issue, its type, the handler as its actor and the resident as its target.
+  ISSUE_OPENED
+  /// An issue was given to an assignee, given to another, or left unassigned. The entry names the issue, who did it (nobody when the type's default assigned it on filing), the new assignee as its target and the previous one in its context.
+  ISSUE_ASSIGNED
+  /// The priority of an issue was changed. The entry names the issue and the priority either side.
+  ISSUE_PRIORITY_CHANGED
+  /// The target date of an issue was set, moved or removed. The entry names the issue and the date either side.
+  ISSUE_TARGET_DATE_CHANGED
+  /// An issue was closed to all but the board, or opened again to every handler its type lets in.
+  ISSUE_ACCESS_CHANGED
+  /// A handler was told who lives in one apartment today, to name a resident on an issue they open. The entry names the apartment and how many residents were listed, never who.
+  ISSUE_RESIDENTS_LISTED
   /// A person was moved into an apartment.
   MOVE_IN_RECORDED
   /// A residency was given its move-out date.
@@ -2461,6 +2473,9 @@ model AuditLogEntry {
   @@index([targetPersonId, createdAt])
   @@index([action, createdAt])
   @@index([channel, createdAt])
+  /// One record's history, oldest first: an issue's timeline reads its
+  /// entries by the issue they target (ADR 0054).
+  @@index([targetKind, targetId, createdAt])
   @@map("audit_log_entry")
 }
 
@@ -4273,6 +4288,24 @@ enum IssueOutcome {
   DUPLICATE
 }
 
+/// How urgent a handler judges an issue (prioritet, ADR 0054). Set by handlers,
+/// from the type's default, never by a reporter. Spelled once for both
+/// applications in `@openbrf/shared` (issue-status.ts).
+enum IssuePriority {
+  URGENT
+  NORMAL
+  LOW
+}
+
+/// Who handles the issues of a type (ADR 0054, decision 13): everybody holding
+/// `issues:handle`, or the board only - a board member with a seat and an
+/// administrator, never the property manager. Read inside `IssueService` on
+/// every read and every write, never by a filter above it.
+enum IssueHandledBy {
+  EVERY_HANDLER
+  BOARD
+}
+
 /// A category of issue, configured by the board, with its settings (ADR 0054).
 ///
 /// Monolingual by decision 59: the name is the association's own writing about
@@ -4297,6 +4330,22 @@ model IssueType {
   /// Presentation order in the picker.
   sortOrder Int @default(0)
 
+  /// Who handles its issues: every handler, or the board only.
+  handledBy IssueHandledBy @default(EVERY_HANDLER)
+
+  /// The priority an issue of this type is filed with, such as Akut for a water
+  /// leak. A handler changes it on the issue; a reporter never sets it.
+  defaultPriority IssuePriority @default(NORMAL)
+
+  /// Who an issue of this type is assigned to when it is filed, or null for a
+  /// type whose issues land unassigned and are mailed to its handlers.
+  ///
+  /// A plain column rather than a relation, for the reason `reporterPersonId`
+  /// gives. A person who no longer handles the type when an issue is filed is
+  /// not assigned it: the issue lands unassigned instead. The data subject
+  /// access report answers for it in `issueAssignments` (ADR 0057).
+  defaultAssigneePersonId String?
+
   /// Its statuses: at least one of each meaning, one of which is the default
   /// of that meaning. Written with the type and never left without them.
   statuses IssueStatus[]
@@ -4307,6 +4356,7 @@ model IssueType {
   updatedAt DateTime @updatedAt
 
   @@index([active, sortOrder])
+  @@index([defaultAssigneePersonId])
   @@map("issue_type")
 }
 
@@ -4419,6 +4469,43 @@ model Issue {
   reporterEmailCipher String?
   reporterEmailIndex  String?
 
+  /// The handler who opened the issue on somebody's behalf, or as an internal
+  /// issue with no reporter (decision 14); null for an issue its reporter
+  /// filed. The issue shows that a handler entered it, and which.
+  ///
+  /// A plain column, for the reason `reporterPersonId` gives. The person named
+  /// acted: the audit entry for the opening names them as its actor.
+  enteredByPersonId String?
+
+  /// Whether a handler opened the issue, which outlives the handler: erasing
+  /// them clears `enteredByPersonId` and leaves this, so the issue still says
+  /// that a handler entered it (ADR 0054, ADR 0057). Not personal data.
+  enteredByHandler Boolean @default(false)
+
+  /// The one handler the issue is given to work (ansvarig), or null while it is
+  /// unassigned. Somebody holding `issues:handle` whom the issue's type, and the
+  /// issue, let in when it was assigned. Internal: a reporter never sees it.
+  ///
+  /// A plain column, for the reason `reporterPersonId` gives. Chosen by
+  /// somebody else rather than taken, so the person named did not act, and the
+  /// data subject access report answers for it in `issueAssignments` rather
+  /// than through the audit log (ADR 0057).
+  assigneePersonId String?
+
+  /// How urgent a handler judges it, from the type's default when it was filed.
+  priority IssuePriority @default(NORMAL)
+
+  /// The day a handler means it to be done by (senast klart), or none. An issue
+  /// is overdue once the day has passed in the association's own calendar and
+  /// it is not closed. A plan rather than a promise: nothing counts time from
+  /// it.
+  targetDate DateTime? @db.Date
+
+  /// Closed to every handler but the board, whatever its type allows (decision
+  /// 13). A handler tightens an issue; only the board loosens it again, and
+  /// never past its type.
+  boardOnly Boolean @default(false)
+
   /// The apartment the issue concerns, when it concerns one.
   ///
   /// SetNull rather than Restrict: an apartment removed from the register must
@@ -4455,6 +4542,8 @@ model Issue {
   @@index([statusId, createdAt])
   @@index([reporterPersonId])
   @@index([reporterEmailIndex])
+  @@index([assigneePersonId])
+  @@index([enteredByPersonId])
   @@map("issue")
 }
 
