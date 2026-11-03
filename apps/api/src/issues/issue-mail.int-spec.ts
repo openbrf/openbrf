@@ -68,6 +68,8 @@ loadEnvForIntegrationTests();
 
 let app: NestFastifyApplication;
 let prisma: PrismaService;
+/** Whether another suite had already made the association row. */
+let associationExisted = true;
 let issues: IssueService;
 let mailer: IssueMailer;
 let mail: MailService;
@@ -301,6 +303,11 @@ beforeAll(async () => {
   mail = app.get(MailService);
   const encryption = app.get(FieldEncryptionService);
 
+  associationExisted =
+    (await prisma.association.findUnique({
+      where: { id: 1 },
+      select: { id: true },
+    })) !== null;
   await prisma.association.upsert({
     where: { id: 1 },
     create: { id: 1, name: "Brf Eksemplet" },
@@ -434,6 +441,12 @@ afterAll(async () => {
     where: { personId: { in: personIds } },
   });
   await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+  // The row is the worker database's singleton, which later suites read. One
+  // made here has no organisation number, and the register export refuses an
+  // association without one, so it does not outlive this suite.
+  if (!associationExisted) {
+    await prisma.association.deleteMany({ where: { id: 1 } });
+  }
   await app.close();
 });
 
