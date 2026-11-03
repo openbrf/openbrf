@@ -40,6 +40,7 @@ import {
   type SiteControllerContact,
   type SiteDocument,
 } from "./site-html";
+import { failureName } from "../logging/failure";
 import { SiteBlocksService } from "./site-blocks.service";
 import { renderNewsArticle, renderNewsIndex } from "./site-news";
 import {
@@ -249,9 +250,7 @@ export class SiteRenderer {
       guide = await this.responsibilityGuide.readForReporter();
     } catch (error) {
       this.logger.warn(
-        `The responsibility guide could not be read for the public report form: ${
-          error instanceof Error ? error.message : "unknown error"
-        }`,
+        `The responsibility guide could not be read for the public report form (${failureName(error)})`,
       );
       return null;
     }

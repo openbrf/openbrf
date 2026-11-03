@@ -1936,6 +1936,7 @@
       "saving": "Sparar...",
       "saved": "Ansvarsfördelningen är sparad.",
       "reload": "Läs den aktuella tabellen",
+      "reloadFailed": "Den aktuella tabellen gick inte att läsa just nu. Ditt utkast finns kvar.",
       "errors": {
         "personalIdentityNumber": "En rad innehåller ett personnummer. Ta bort det - tabellen visas för alla som gör en felanmälan, även på den öppna webbplatsen.",
         "partRequired": "Varje rad behöver säga vad den gäller.",

@@ -230,4 +230,78 @@ describe("the responsibility guide", () => {
     });
     expect(screen.queryByText(/sparades av någon annan/)).toBeNull();
   });
+
+  it("keeps the draft when the read of the current table fails, and reads again on request", async () => {
+    fetchResponsibilityGuide.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        adoptedAt: null,
+        items: [
+          { part: "Golvbrunn", responsibility: "TENANT_OWNER", note: null },
+        ],
+        version: "2026-11-01T09:00:00.000Z",
+      },
+    });
+    saveResponsibilityGuide.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "changed-since-read" },
+    });
+    const session = userEvent.setup();
+    render(<ResponsibilityGuidePanel />);
+
+    await session.type(await screen.findByLabelText("Rad 1: anmärkning"), "ny");
+    await session.click(
+      screen.getByRole("button", { name: "Spara ansvarsfördelningen" }),
+    );
+    await screen.findByText(/sparades av någon annan/);
+
+    fetchResponsibilityGuide.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500 },
+    });
+    await session.click(
+      screen.getByRole("button", { name: "Läs den aktuella tabellen" }),
+    );
+    expect(
+      await screen.findByText(/Den aktuella tabellen gick inte att läsa/),
+    ).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Rad 1: anmärkning") as HTMLInputElement).value,
+    ).toBe("ny");
+
+    fetchResponsibilityGuide.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        adoptedAt: null,
+        items: [{ part: "Stammar", responsibility: "ASSOCIATION", note: null }],
+        version: "2026-11-02T09:00:00.000Z",
+      },
+    });
+    await session.click(
+      screen.getByRole("button", { name: "Läs den aktuella tabellen" }),
+    );
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText("Rad 1: vad") as HTMLInputElement).value,
+      ).toBe("Stammar");
+    });
+    expect(
+      screen.queryByText(/Den aktuella tabellen gick inte att läsa/),
+    ).toBeNull();
+  });
+
+  it("offers to read the guide again when the first read fails", async () => {
+    fetchResponsibilityGuide.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500 },
+    });
+    const session = userEvent.setup();
+    render(<ResponsibilityGuidePanel />);
+
+    expect(await screen.findByText(/gick inte att läsa just nu/)).toBeTruthy();
+    await session.click(screen.getByRole("button", { name: "Försök igen" }));
+    expect(
+      await screen.findByRole("button", { name: "Spara ansvarsfördelningen" }),
+    ).toBeTruthy();
+  });
 });

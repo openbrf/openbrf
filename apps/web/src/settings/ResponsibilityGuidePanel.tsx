@@ -168,13 +168,30 @@ export function ResponsibilityGuidePanel(): ReactElement {
   /** Bumped to read the guide again, which replaces the draft. */
   const [reads, setReads] = useState(0);
 
+  /**
+   * The last read of a guide already on screen failed. The draft stays: the
+   * form is not replaced by a notice, since that would throw away what the
+   * board member has typed.
+   */
+  const [reloadFailed, setReloadFailed] = useState(false);
+
   useEffect(() => {
     let active = true;
     void fetchResponsibilityGuide().then((read) => {
-      if (active) {
-        setGuide(read.ok ? read.value : "failed");
-        setRevision((count) => count + 1);
+      if (!active) {
+        return;
       }
+      if (read.ok) {
+        setGuide(read.value);
+        setRevision((count) => count + 1);
+        setReloadFailed(false);
+        return;
+      }
+      // Keep the guide and the draft the form holds, if there is one.
+      setGuide((current) =>
+        current === null || current === "failed" ? "failed" : current,
+      );
+      setReloadFailed(true);
     });
     return () => {
       active = false;
@@ -203,12 +220,28 @@ export function ResponsibilityGuidePanel(): ReactElement {
           {t("settings.responsibilityGuide.loading")}
         </p>
       ) : guide === "failed" ? (
-        <Notice tone="danger" live>
-          {t("settings.responsibilityGuide.loadFailed")}
-        </Notice>
+        <div className="flex flex-col gap-2">
+          <Notice tone="danger" live>
+            {t("settings.responsibilityGuide.loadFailed")}
+          </Notice>
+          <div>
+            <button
+              type="button"
+              className={SECONDARY_BUTTON}
+              onClick={() => {
+                setGuide(null);
+                setReloadFailed(false);
+                setReads((count) => count + 1);
+              }}
+            >
+              {t("app.retry")}
+            </button>
+          </div>
+        </div>
       ) : (
         <GuideForm
           key={revision}
+          reloadFailed={reloadFailed}
           guide={guide}
           onEdited={() => {
             setSaved(false);
@@ -220,6 +253,7 @@ export function ResponsibilityGuidePanel(): ReactElement {
           }}
           onReload={() => {
             setSaved(false);
+            setReloadFailed(false);
             setReads((count) => count + 1);
           }}
         />
@@ -230,11 +264,14 @@ export function ResponsibilityGuidePanel(): ReactElement {
 
 function GuideForm({
   guide,
+  reloadFailed,
   onEdited,
   onSaved,
   onReload,
 }: {
   guide: ResponsibilityGuide;
+  /** The last read of the current table failed; the draft is kept. */
+  reloadFailed: boolean;
   /** Called on every change to the draft, which clears the last notice. */
   onEdited: () => void;
   onSaved: (guide: ResponsibilityGuide) => void;
@@ -483,6 +520,11 @@ function GuideForm({
               ))}
             </ul>
           )}
+        </Notice>
+      ) : null}
+      {reloadFailed ? (
+        <Notice tone="danger" live>
+          {t("settings.responsibilityGuide.reloadFailed")}
         </Notice>
       ) : null}
       {save.state.kind === "failed" &&

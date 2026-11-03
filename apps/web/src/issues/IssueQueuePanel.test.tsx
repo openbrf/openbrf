@@ -864,18 +864,26 @@ describe("handling an issue", () => {
     const guides = fetchHandlerResponsibilityGuide.mock.calls.length;
 
     // The reporter has become protected since: the same read now withholds.
-    fetchIssueCharges.mockResolvedValue({
-      ok: true,
-      value: {
-        issue: {
-          issueId: "issue-1",
-          typeName: "Vatten",
-          costResponsibility: "TENANT_OWNER",
-          party: null,
-        },
-        charges: null,
-      },
-    });
+    // Held, so that the window while the newer read is pending is seen.
+    let releaseRefresh: () => void = () => undefined;
+    fetchIssueCharges.mockReturnValueOnce(
+      new Promise((resolve) => {
+        releaseRefresh = () => {
+          resolve({
+            ok: true,
+            value: {
+              issue: {
+                issueId: "issue-1",
+                typeName: "Vatten",
+                costResponsibility: "TENANT_OWNER",
+                party: null,
+              },
+              charges: null,
+            },
+          });
+        };
+      }),
+    );
     view.rerender(
       <IssueQueuePanel
         issues={[issue()]}
@@ -885,6 +893,12 @@ describe("handling an issue", () => {
       />,
     );
 
+    // The last answer for this issue stays while the newer read is pending.
+    await waitFor(() => {
+      expect(fetchIssueCharges.mock.calls.length).toBeGreaterThan(charges);
+    });
+    expect(screen.getByText("1250.00")).toBeTruthy();
+    releaseRefresh();
     expect(
       await screen.findByText(/Visas inte: den som anmälde ärendet/),
     ).toBeTruthy();

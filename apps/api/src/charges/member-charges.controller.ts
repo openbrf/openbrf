@@ -184,19 +184,27 @@ export class MemberChargesController {
     @Param("issueId") issueId: string,
     @Req() request: RequestWithPrincipal,
   ): Promise<{ issue: IssueChargeBasis; charges: DebitingListRow[] | null }> {
-    const issue = await this.issues.chargeBasis(
-      actingPersonId(request),
-      issueId,
-    );
+    const reader = actingPersonId(request);
+    let issue = await this.issues.chargeBasis(reader, issueId);
     const charges = await this.charges.listForIssue(issue.issueId);
     /*
-     * The party and the charges are two reads. Where the second observed the
+     * The party and the charges are two reads, and protection can change
+     * between them in either direction. Where the second observed the
      * reporter's protection and the first did not, the person party is the
      * reporter: withhold it with the charges. An apartment party does not depend
      * on the reporter's protection.
      */
     if (charges === null && issue.party?.kind === "person") {
       return { issue: { ...issue, party: null }, charges };
+    }
+    /*
+     * Where the first read withheld the person party and the second did not, the
+     * protection was cleared in between: read the party again, so the charge
+     * form is prefilled from the answer the charges were read under. The retry
+     * costs one read only for an issue with no party at all.
+     */
+    if (charges !== null && issue.party === null) {
+      issue = await this.issues.chargeBasis(reader, issueId);
     }
     return { issue, charges };
   }

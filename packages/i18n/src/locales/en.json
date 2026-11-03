@@ -1936,6 +1936,7 @@
       "saving": "Saving...",
       "saved": "The responsibility guide is saved.",
       "reload": "Read the current table",
+      "reloadFailed": "The current table could not be read just now. Your draft is still here.",
       "errors": {
         "personalIdentityNumber": "A line holds a personal identity number. Remove it - the table is shown to everyone who reports a fault, on the public website too.",
         "partRequired": "Every line has to say what it is about.",

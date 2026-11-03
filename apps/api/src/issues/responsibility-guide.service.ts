@@ -142,11 +142,21 @@ export class ResponsibilityGuideService {
         );
       }
       const adoptedAt = input.adopted ? (existing?.adoptedAt ?? now) : null;
+      /*
+       * The version is the stored `updatedAt`, which the column keeps to the
+       * millisecond: two saves inside one millisecond would hand out the same
+       * token and let a stale editor through. Each save therefore moves it to
+       * at least a millisecond past the one it replaces, whatever the clock
+       * says, so a version names exactly one state of the guide.
+       */
+      const updatedAt = new Date(
+        Math.max(now.getTime(), (existing?.updatedAt.getTime() ?? 0) + 1),
+      );
 
       await tx.responsibilityGuide.upsert({
         where: { id: 1 },
-        create: { id: 1, adoptedAt },
-        update: { adoptedAt },
+        create: { id: 1, adoptedAt, updatedAt },
+        update: { adoptedAt, updatedAt },
       });
       await tx.responsibilityGuideItem.deleteMany({});
       await tx.responsibilityGuideItem.createMany({

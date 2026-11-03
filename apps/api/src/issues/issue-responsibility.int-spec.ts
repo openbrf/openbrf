@@ -26,7 +26,10 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { lockResponsibilityGuide } from "./issue-lock";
-import { ResponsibilityGuideService } from "./responsibility-guide.service";
+import {
+  type ResponsibilityGuideItemView,
+  ResponsibilityGuideService,
+} from "./responsibility-guide.service";
 import { AuditLogService } from "../audit/audit-log.service";
 import { MemberChargeService } from "../charges/member-charge.service";
 import { FinanceEventsService } from "../finance-events/finance-events.service";
@@ -1106,6 +1109,34 @@ describe("the responsibility guide", () => {
       expect(stale.statusCode).toBe(409);
       expect(stale.json()).toMatchObject({ reason: "changed-since-read" });
       expect(await lines()).toEqual(["Golvbrunn, rensning"]);
+    } finally {
+      await restore();
+    }
+  });
+
+  it("hands out a new version for every save, also two inside one millisecond", async () => {
+    /*
+     * The version is the stored time of the save, kept to the millisecond. A
+     * save that reused the one it replaces would let an editor holding the
+     * older read through, so the service moves it on by at least a
+     * millisecond. Fails when that is removed.
+     */
+    try {
+      const guides = app.get(ResponsibilityGuideService);
+      const items = LINES as ResponsibilityGuideItemView[];
+      const now = new Date("2026-11-03T09:00:00.000Z");
+      const first = await guides.save(
+        { items, adopted: false, version: await currentVersion() },
+        now,
+      );
+      const second = await guides.save(
+        { items, adopted: false, version: first.version },
+        now,
+      );
+      expect(second.version).not.toBe(first.version);
+      await expect(
+        guides.save({ items, adopted: false, version: first.version }, now),
+      ).rejects.toMatchObject({ reason: "changed-since-read" });
     } finally {
       await restore();
     }

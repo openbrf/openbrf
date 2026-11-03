@@ -2224,11 +2224,16 @@ export const SCREENS: readonly Screen[] = [
       // before it.
       { see: { button: "Spara ansvarsfördelningen" } },
       // Skipped where a walk against a stack that is already up saved the
-      // guide: the example is offered only while the table has no lines.
+      // guide. A saved draft that is not yet adopted has lines, and the
+      // example is offered only while the table has none, so it is loaded
+      // only where there is no first line to remove.
       {
         unlessSeen: { text: /^Antagen / },
         steps: [
-          { click: { button: "Fyll i exemplet" } },
+          {
+            unlessSeen: { button: "Ta bort rad 1" },
+            steps: [{ click: { button: "Fyll i exemplet" } }],
+          },
           { click: { label: "Tabellen följer föreningens stadgar" } },
           { click: { button: "Spara ansvarsfördelningen" } },
         ],
