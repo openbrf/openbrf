@@ -68,18 +68,26 @@ export class IssueRedactionService {
     private readonly audit: AuditLogService,
   ) {}
 
-  /** Redacts one text or removes one file, as the handler asks. */
+  /**
+   * Redacts one text or removes one file, as the handler asks. A text already
+   * redacted is answered as done, and nothing is written or logged.
+   */
   async redact(
     handlerPersonId: string,
     issueId: string,
     redaction: IssueRedaction,
   ): Promise<void> {
+    let changed = true;
     if (redaction.target === "photo" || redaction.target === "attachment") {
       await this.removeFile(handlerPersonId, issueId, redaction);
     } else {
-      await this.redactText(handlerPersonId, issueId, redaction);
+      changed = await this.redactText(handlerPersonId, issueId, redaction);
     }
-    this.logger.log(`Issue ${issueId} had its ${redaction.target} redacted`);
+    // Only an act that changed something, as only that one is in the audit
+    // log: a text already redacted is answered as done and says nothing.
+    if (changed) {
+      this.logger.log(`Issue ${issueId} had its ${redaction.target} redacted`);
+    }
   }
 
   /**
@@ -91,12 +99,15 @@ export class IssueRedactionService {
     issueId: string,
     held: boolean,
   ): Promise<IssueLegalHoldView> {
+    let changed = false;
     const legalHoldAt = await this.prisma.$transaction(async (tx) => {
+      changed = false;
       await lockIssueForHandling(tx, issueId);
       const issue = await requireHandled(tx, issueId, handlerPersonId);
       if ((issue.legalHoldAt !== null) === held) {
         return issue.legalHoldAt;
       }
+      changed = true;
       const now = new Date();
       await tx.issue.update({
         where: { id: issueId },
@@ -123,9 +134,11 @@ export class IssueRedactionService {
       return held ? now : null;
     });
 
-    this.logger.log(
-      `Issue ${issueId} legal hold ${legalHoldAt === null ? "released" : "placed"}`,
-    );
+    if (changed) {
+      this.logger.log(
+        `Issue ${issueId} legal hold ${legalHoldAt === null ? "released" : "placed"}`,
+      );
+    }
     return { legalHoldAt: legalHoldAt?.toISOString() ?? null };
   }
 
@@ -133,8 +146,8 @@ export class IssueRedactionService {
     handlerPersonId: string,
     issueId: string,
     redaction: IssueRedaction,
-  ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
       refuseHeld(await requireHandled(tx, issueId, handlerPersonId));
       const now = new Date();
@@ -147,7 +160,7 @@ export class IssueRedactionService {
             data: { description: "", descriptionRedactedAt: now },
           });
           if (count === 0) {
-            return;
+            return false;
           }
           break;
         }
@@ -163,7 +176,7 @@ export class IssueRedactionService {
             data: { location: null, locationRedactedAt: now },
           });
           if (count === 0) {
-            return;
+            return false;
           }
           break;
         }
@@ -185,7 +198,7 @@ export class IssueRedactionService {
             throw targetNotFound();
           }
           if (row.redactedAt !== null) {
-            return;
+            return false;
           }
           const data = { body: "", redactedAt: now };
           if (redaction.target === "message") {
@@ -200,6 +213,7 @@ export class IssueRedactionService {
       }
 
       await this.record(tx, handlerPersonId, issueId, redaction.target, rowId);
+      return true;
     });
   }
 

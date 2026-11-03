@@ -1024,7 +1024,7 @@
           "kept_other": "{{count}} sparas",
           "keptBecause": {
             "boardMailboxThreads": "Trådens adress tillhör någon som har ett rättsligt bevarandekrav eller en begränsning.",
-            "issues": "Ett ärende personen har anmält är fortfarande öppet, eller så har ärendet ett rättsligt bevarandekrav. Stäng ärendet eller häv bevarandekravet så kan raderingen fortsätta.",
+            "issues": "Ett ärende personen har anmält är fortfarande öppet, eller har ett rättsligt bevarandekrav, eller båda. Raderingen kan fortsätta när varje sådant ärende är stängt och saknar rättsligt bevarandekrav.",
             "keyOrders": "En öppen nyckelbeställning ligger kvar hos styrelsen. Besvara den så kan raderingen fortsätta.",
             "motions": "En öppen motion, eller en som står på dagordningen till en stämma som inte har hållits, behandlas fortfarande.",
             "subletApplications": "En ansökan om andrahandsupplåtelse ligger kvar hos styrelsen, eller så löper en andrahandsupplåtelse som styrelsen har samtyckt till."
@@ -1945,7 +1945,7 @@
     },
     "issueRetention": {
       "title": "Gallring av ärenden",
-      "description": "Hur många år efter att ett ärende stängts dess fritext sparas. Vad, var, när och utfallet finns kvar i ärendet; beskrivningen, platsen, svaren, de interna anteckningarna och bilderna och filerna gallras så många år efter att det stängts, om inte ett rättsligt bevarandekrav gäller.",
+      "description": "Hur många år efter att ett ärende stängts dess fritext sparas. Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, finns kvar i ärendet; beskrivningen, platsen, svaren, de interna anteckningarna och bilderna och filerna gallras så många år efter att det stängts, om inte ett rättsligt bevarandekrav gäller.",
       "years": "År efter att ett ärende stängts",
       "yearsHint": "Ett heltal mellan 1 och 10. En ny instans börjar på 2.",
       "purgeJob": "Gallringen körs varje natt och läser talet när den körs, så en ändring flyttar alla kommande datum på en gång. Efter en kortare inställning gallras redan nästa natt fritexten i alla ärenden som redan passerat den.",
@@ -3867,7 +3867,8 @@
     },
     "redaction": {
       "removedOn": "Borttaget av en handläggare <data>{{date}}</data>",
-      "freeTextRemoved": "Fritexten, svaren och bilderna gallrades <data>{{date}}</data> enligt föreningens regel för gallring. Vad, var, när och utfallet finns kvar.",
+      "purgedOn": "Gallrat enligt regeln för gallring <data>{{date}}</data>",
+      "freeTextRemoved": "Fritexten, svaren och bilderna gallrades <data>{{date}}</data> enligt föreningens regel för gallring. Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, finns kvar.",
       "title": "Fritext och rättsligt bevarandekrav",
       "intro": "En handläggare kan när som helst ta bort beskrivningen, platsen, ett svar, en intern anteckning, en bild eller en fil, till exempel när en person som nämns där har fått radering beviljad. Det som tas bort är borta: ingenting sparar texten, och ingenting skrivs i dess ställe.",
       "remove": "Ta bort",
@@ -6282,7 +6283,7 @@
           "name": "Felanmälningar",
           "purpose": "Ta emot och åtgärda fel i huset.",
           "legalBasisNote": "Berättigat intresse: att förvalta fastigheten. Den som anmäler kan självmant skriva uppgifter om hälsa (art. 9).",
-          "retention": "Vad, var, när och utfallet behålls. Beskrivningen, platsen, svaren, de interna anteckningarna och bilderna gallras det antal år efter avslut som styrelsen bestämmer (1 till 10, 2 som standard) om inte ett rättsligt bevarandekrav gäller, eller tidigare när anmälarens begäran om radering beviljas, och kopplingen till anmälaren tas bort när den texten är borta. Kontaktuppgifterna i en anmälan från det öppna formuläret gallras 365 dagar efter avslut."
+          "retention": "Vad ärendet gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, behålls. Beskrivningen, platsen, svaren, de interna anteckningarna och bilderna gallras det antal år efter avslut som styrelsen bestämmer (1 till 10, 2 som standard) om inte ett rättsligt bevarandekrav gäller, eller tidigare när anmälarens begäran om radering beviljas, och kopplingen till anmälaren tas bort, när den texten är borta, när anmälarens egna personuppgifter gallras. Kontaktuppgifterna i en anmälan från det öppna formuläret gallras 365 dagar efter avslut."
         },
         "documents": {
           "name": "Dokumentarkiv",

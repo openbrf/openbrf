@@ -36,14 +36,26 @@ export const ISSUE_TEXT_PURGE_QUEUE = "issue-text-purge";
 const PURGE_CRON = "21 3 * * *";
 
 /**
- * The most issues one run reaches.
+ * The most issues one run removes, and how many it reads at a time.
  *
  * Never reached in ordinary running. It exists for the first night on an
  * instance with years of closed issues behind it, or the day the board
  * shortens the clock. Nothing is lost by stopping: what stands is selected by
  * the data, so the next run finds the rest.
+ *
+ * The bound counts removals and not issues read. An issue whose removal fails
+ * keeps its text and is selected again the next night, so a bound on what is
+ * read would let five hundred failing old issues keep every newer one past its
+ * clock for as long as they failed. The run reads on past them, a page after
+ * the last one it saw, until a page comes back empty.
  */
 const MAX_ISSUES_PER_RUN = 500;
+
+/** Where a page of the scan left off: the last issue's closing and id. */
+interface IssueCursor {
+  closedAt: Date;
+  id: string;
+}
 
 export interface IssueTextPurgeRunSummary {
   /** Issues the scan found past their clock with free text standing. */
@@ -125,33 +137,46 @@ export class IssueTextPurgeService implements OnModuleInit {
     years?: number,
   ): Promise<IssueTextPurgeRunSummary> {
     const clock = years ?? (await issueTextRetentionYears(this.prisma));
-    const issueIds = await this.eligible(now, clock);
 
+    let considered = 0;
     let purged = 0;
     let failed = 0;
-    for (const issueId of issueIds) {
-      try {
-        if ((await this.purgeIssue(issueId, now, clock)) === "removed") {
-          purged += 1;
-        }
-      } catch (error) {
-        // The class of the failure and the issue id, and nothing the failure
-        // was holding: a message here can be quoting the text being removed.
-        failed += 1;
-        this.logger.error(
-          `Issue text purge failed for issue ${issueId}: ${failureName(error)}`,
-        );
+    let after: IssueCursor | undefined;
+    while (purged < MAX_ISSUES_PER_RUN) {
+      const page = await this.eligiblePage(now, clock, after);
+      if (page.length === 0) {
+        break;
       }
+      considered += page.length;
+      for (const { id } of page) {
+        try {
+          if ((await this.purgeIssue(id, now, clock)) === "removed") {
+            purged += 1;
+          }
+        } catch (error) {
+          // The class of the failure and the issue id, and nothing the failure
+          // was holding: a message here can be quoting the text being removed.
+          failed += 1;
+          this.logger.error(
+            `Issue text purge failed for issue ${id}: ${failureName(error)}`,
+          );
+        }
+      }
+      const last = page.at(-1);
+      if (last === undefined) {
+        break;
+      }
+      after = { closedAt: last.closedAt, id: last.id };
     }
 
     if (purged > 0 || failed > 0) {
       this.logger.log(
         `Removed the free text of ${String(purged)} of ${String(
-          issueIds.length,
+          considered,
         )} issues past their clock`,
       );
     }
-    if (issueIds.length === MAX_ISSUES_PER_RUN) {
+    if (purged >= MAX_ISSUES_PER_RUN) {
       this.logger.log(
         `Issue text purge stopped at its per-run bound of ${String(
           MAX_ISSUES_PER_RUN,
@@ -159,18 +184,23 @@ export class IssueTextPurgeService implements OnModuleInit {
       );
     }
 
-    return { considered: issueIds.length, purged, failed };
+    return { considered, purged, failed };
   }
 
   /**
-   * The issues past the clock with free text standing and nothing holding it.
+   * One page of the issues past the clock with free text standing and nothing
+   * holding it, oldest closing first, after the one the cursor names.
    *
    * A withheld reporter is excluded by the query rather than dropped from its
    * answer, for the reason the website form's purge gives: the bound is
    * applied by the database, and held issues sorting first would otherwise
    * fill every run for as long as the hold stood.
    */
-  async eligible(now: Date, years: number): Promise<string[]> {
+  async eligiblePage(
+    now: Date,
+    years: number,
+    after?: IssueCursor,
+  ): Promise<{ id: string; closedAt: Date }[]> {
     const withheldPersons = await withheldPersonIds(this.prisma);
     const withheldAddresses = [
       ...(await this.withheldAddresses(this.prisma)).keys(),
@@ -181,6 +211,18 @@ export class IssueTextPurgeService implements OnModuleInit {
         ...pastClock(now, years),
         AND: [
           ISSUE_FREE_TEXT_STANDING,
+          // Keyset paging on the order below, so a page after one whose
+          // removals failed is not the same page again.
+          ...(after === undefined
+            ? []
+            : [
+                {
+                  OR: [
+                    { closedAt: { gt: after.closedAt } },
+                    { closedAt: after.closedAt, id: { gt: after.id } },
+                  ],
+                },
+              ]),
           // Spelled with the null branch beside each list, because `NOT IN`
           // answers null rather than true for a null column.
           ...(withheldPersons.length > 0
@@ -207,9 +249,18 @@ export class IssueTextPurgeService implements OnModuleInit {
       },
       orderBy: [{ closedAt: "asc" }, { id: "asc" }],
       take: MAX_ISSUES_PER_RUN,
-      select: { id: true },
+      select: { id: true, closedAt: true },
     });
-    return issues.map((issue) => issue.id);
+    return issues.flatMap((issue) =>
+      issue.closedAt === null
+        ? []
+        : [{ id: issue.id, closedAt: issue.closedAt }],
+    );
+  }
+
+  /** The first page of {@link eligiblePage}, as identifiers. */
+  async eligible(now: Date, years: number): Promise<string[]> {
+    return (await this.eligiblePage(now, years)).map((issue) => issue.id);
   }
 
   /** Removes one issue's free-text layer, if it is still due. */

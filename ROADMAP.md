@@ -873,8 +873,9 @@ Free, open source, and never moved behind a paywall.
       statutory registers and the audit log stay exempt as before. An issue or
       a document is detached from the person rather than deleted: the link to
       the person and the personal data on the row go, the record stays. An
-      issue has two layers (ADR 0057): the building record - what, where,
-      when and the outcome - stays, and its free text, conversation, notes and
+      issue has two layers (ADR 0057): the building record - what it
+      concerned, when, the outcome and the apartment, where one was named -
+      stays, and its free text, conversation, notes and
       photographs are removed a number of years after it closes, which the
       board sets from one to ten and two by default, unless a legal hold
       stands on the issue or on its reporter. A granted erasure request

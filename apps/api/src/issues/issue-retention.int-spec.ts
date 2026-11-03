@@ -2,6 +2,7 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
+import { Logger } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
@@ -21,8 +22,10 @@ import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
+import { DataSubjectReportService } from "../retention/data-subject-report.service";
 import { IssueErasureService } from "./issue-erasure.service";
 import { IssueTextPurgeService } from "./issue-text-purge.service";
+import { IssueService } from "./issue.service";
 
 /**
  * An issue's two layers (ADR 0057, decision 33), against a real database.
@@ -65,7 +68,9 @@ const resident = {
 /** A reporter under a legal hold of their own. */
 const heldReporterId = `ir-held-${suffix}`;
 /** Former residents, whose erasure a test grants. */
-const formerIds = [1, 2, 3, 4].map((n) => `ir-former-${String(n)}-${suffix}`);
+const formerIds = [1, 2, 3, 4, 5].map(
+  (n) => `ir-former-${String(n)}-${suffix}`,
+);
 const personIds = [
   board.personId,
   resident.personId,
@@ -512,6 +517,64 @@ describe("the clock", () => {
     expect(await clock.eligible(new Date(), 2)).not.toContain(issue.id);
   });
 
+  it("writes nothing a second time when another run already took the layer", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 2 * 365 + 1,
+    });
+    expect(await clock.purgeIssue(issue.id, new Date(), 2)).toBe("removed");
+    const first = (await read(issue.id)).freeTextRemovedAt;
+
+    // A run whose scan was taken before the first committed asks again.
+    expect(
+      await clock.purgeIssue(issue.id, new Date(Date.now() + DAY), 2),
+    ).toBe("kept");
+
+    expect((await read(issue.id)).freeTextRemovedAt).toEqual(first);
+    expect(await entriesFor(issue.id, "SERVICE_DATA_PURGED")).toHaveLength(1);
+  });
+
+  it("reads on past an issue whose removal failed, so newer ones are reached", async () => {
+    const oldest = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 5 * 365,
+    });
+    const newer = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 4 * 365,
+    });
+
+    // The page after the oldest starts at the next issue, not at the oldest.
+    const firstPage = await clock.eligiblePage(new Date(), 2);
+    const index = firstPage.findIndex((entry) => entry.id === oldest.id);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const at = firstPage[index];
+    if (at === undefined) throw new Error("the oldest issue is on the page");
+    const after = await clock.eligiblePage(new Date(), 2, {
+      closedAt: at.closedAt,
+      id: at.id,
+    });
+    expect(after.map((entry) => entry.id)).not.toContain(oldest.id);
+    expect(after.map((entry) => entry.id)).toContain(newer.id);
+
+    // And a run whose removal of the oldest keeps failing still takes the rest.
+    const refuse = vi
+      .spyOn(storage, "remove")
+      .mockImplementation((key: string) =>
+        key === oldest.photo.storageKey
+          ? Promise.reject(new Error("The storage is unreachable."))
+          : Promise.resolve(),
+      );
+    try {
+      const summary = await clock.run(new Date(), 2);
+      expect(summary.failed).toBeGreaterThanOrEqual(1);
+    } finally {
+      refuse.mockRestore();
+    }
+    expect((await read(oldest.id)).description).toBe(DESCRIPTION);
+    expect((await read(newer.id)).freeTextRemovedAt).not.toBeNull();
+  });
+
   it("does not reach an issue inside the clock, an open one, or one past a longer clock", async () => {
     const recent = await seed({
       reporterPersonId: resident.personId,
@@ -728,6 +791,69 @@ describe("redaction", () => {
     expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(6);
   });
 
+  it("logs a redaction only when it changed the issue", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: null,
+    });
+    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => {});
+    try {
+      for (const _ of [1, 2]) {
+        await inject({
+          method: "POST",
+          url: `/api/issue-queue/${issue.id}/redactions`,
+          headers: { cookie: boardCookie },
+          payload: { target: "description" },
+        });
+      }
+      const redacted = log.mock.calls.filter(([message]) =>
+        String(message).includes(`Issue ${issue.id} had its description`),
+      );
+      expect(redacted).toHaveLength(1);
+
+      log.mockClear();
+      for (const held of [true, true, false, false]) {
+        await inject({
+          method: "POST",
+          url: `/api/issue-queue/${issue.id}/legal-hold`,
+          headers: { cookie: boardCookie },
+          payload: { held },
+        });
+      }
+      const holds = log.mock.calls.filter(([message]) =>
+        String(message).includes(`Issue ${issue.id} legal hold`),
+      );
+      expect(holds).toHaveLength(2);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("keeps a reporter's photograph's file name out of the audit log", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: null,
+    });
+    const photo = await app.get(IssueService).attachPhoto({
+      issueId: issue.id,
+      reporterPersonId: resident.personId,
+      bytes: pngBytes(24, 24),
+      fileName: `badrummet-hos-grannen-${suffix}.png`,
+    });
+    const fileId = (
+      await prisma.issuePhoto.findFirstOrThrow({
+        where: { issueId: issue.id, id: photo.id },
+        select: { fileId: true },
+      })
+    ).fileId;
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: { targetKind: "media", targetId: fileId },
+    });
+    expect(entries.map((entry) => entry.action)).toContain("MEDIA_UPLOADED");
+    expect(JSON.stringify(entries)).not.toContain("badrummet-hos-grannen");
+  });
+
   it("keeps a file and writes no entry when its object cannot be removed, and removes it on a retry", async () => {
     const issue = await seed({
       reporterPersonId: resident.personId,
@@ -875,6 +1001,31 @@ describe("a granted erasure request", () => {
     expect(executed.executedAt).not.toBeNull();
   });
 
+  it("records the removal when the last thing it takes is a file", async () => {
+    const personId = formerIds[4] ?? "";
+    await createFormerResident(personId, new Date("2026-01-31"));
+    const issue = await seed({ reporterPersonId: personId, closedDaysAgo: 30 });
+    // Only the files stand: no words are left to take with them.
+    await prisma.issueMessage.deleteMany({ where: { issueId: issue.id } });
+    await prisma.issueNote.deleteMany({ where: { issueId: issue.id } });
+    await prisma.issue.update({
+      where: { id: issue.id },
+      data: { description: "", location: null },
+    });
+    await grantErasure(prisma, personId, board.personId);
+
+    expect(await erasure.eraseIssue(issue.id, personId, new Date())).toBe(
+      "removed",
+    );
+
+    const after = await read(issue.id);
+    expect(after.freeTextRemovedAt).not.toBeNull();
+    expect(after._count).toMatchObject({ photos: 0, attachments: 0 });
+    const [entry] = await entriesFor(issue.id, "SERVICE_DATA_PURGED");
+    expect(entry?.context).toMatchObject({ layer: "freeText", files: 2 });
+    expect(await entriesFor(issue.id, "SERVICE_DATA_PURGED")).toHaveLength(1);
+  });
+
   it("is held open by an issue under a legal hold of its own", async () => {
     const personId = formerIds[1] ?? "";
     await createFormerResident(personId, new Date("2026-01-31"));
@@ -1016,5 +1167,46 @@ describe("a granted erasure request", () => {
         })
       ).executedAt,
     ).not.toBeNull();
+  });
+});
+
+describe("the access report", () => {
+  it("says an issue's text was removed, by a handler or by the purge", async () => {
+    const redacted = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: null,
+    });
+    for (const target of ["description", "location"]) {
+      await inject({
+        method: "POST",
+        url: `/api/issue-queue/${redacted.id}/redactions`,
+        headers: { cookie: boardCookie },
+        payload: { target },
+      });
+    }
+    const purged = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 2 * 365 + 1,
+    });
+    await clock.purgeIssue(purged.id, new Date(), 2);
+
+    const report = await app.get(DataSubjectReportService).generate({
+      personId: resident.personId,
+      actorPersonId: board.personId,
+    });
+    const byId = new Map(report.issues.map((issue) => [issue.issueId, issue]));
+
+    expect(byId.get(redacted.id)).toMatchObject({
+      description: "",
+      location: null,
+      descriptionRedactedAt: expect.any(String),
+      locationRedactedAt: expect.any(String),
+      freeTextRemovedAt: null,
+    });
+    expect(byId.get(purged.id)).toMatchObject({
+      description: "",
+      location: null,
+      freeTextRemovedAt: expect.any(String),
+    });
   });
 });

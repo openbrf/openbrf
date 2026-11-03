@@ -5,7 +5,10 @@ import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
-import { issuesErasedOnRequest } from "../retention/erasure-domains";
+import {
+  issueErasureGrounds,
+  issuesErasedOnRequest,
+} from "../retention/erasure-domains";
 import { lockErasureEligibility } from "../retention/erasure-lock";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
@@ -54,7 +57,9 @@ export interface IssueErasureRunSummary {
  * closing job counts both before it writes `executedAt`.
  *
  * What a request erases is `issuesErasedOnRequest`, the one where-input the
- * scan, the removal's re-check and the closing job's count all read.
+ * scan and the closing job's count read; the removal's re-check reads its
+ * grounds without the test that some text stands, because the removal takes
+ * the files first and the last of them may be gone by the time it asks.
  */
 @Injectable()
 export class IssueErasureService implements OnModuleInit {
@@ -166,7 +171,7 @@ export class IssueErasureService implements OnModuleInit {
           return false;
         }
         const due = await tx.issue.findFirst({
-          where: { id: issueId, ...issuesErasedOnRequest(personId) },
+          where: { id: issueId, ...issueErasureGrounds(personId) },
           select: { id: true },
         });
         return due !== null;

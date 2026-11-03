@@ -152,6 +152,27 @@ describe("removing a text", () => {
     });
   });
 
+  it("drops the thread on screen when the read after a removal fails", async () => {
+    const session = userEvent.setup();
+    render(<Harness of={issue()} onChanged={vi.fn()} />);
+    await screen.findByText("Det luktar fukt.");
+
+    fetchIssueMessages.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    await session.click(
+      screen.getByRole("button", { name: /^Ta bort svaret från/ }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Ta bort för gott" }),
+    );
+
+    expect(await screen.findByText(/gick inte att läsa just nu/)).toBeTruthy();
+    // The body just removed on the server is not left beside the notice.
+    expect(screen.queryByText("Det luktar fukt.")).toBeNull();
+  });
+
   it("removes a message by its identifier", async () => {
     const session = userEvent.setup();
     render(<Harness of={issue()} onChanged={vi.fn()} />);

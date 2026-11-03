@@ -122,7 +122,26 @@ export function IssueConversation({
     staleRef.current = onStale;
   });
 
+  /*
+   * The redaction revision the lists on screen were read at. A removal changes
+   * what the server holds, so the copy on screen is dropped when the revision
+   * moves: were the read that follows to fail, a failed read keeps what the
+   * screen shows, and the bodies just removed would stand beside the failure
+   * notice. An ordinary read after a sent note or message keeps the thread.
+   */
+  const redactionRevision = redaction?.revision;
+  const shownAtRedaction = useRef(redactionRevision);
+
   useEffect(() => {
+    if (shownAtRedaction.current !== redactionRevision) {
+      shownAtRedaction.current = redactionRevision;
+      setRead((current) => ({
+        ...current,
+        messages: null,
+        notes: null,
+        attachments: null,
+      }));
+    }
     let active = true;
     void Promise.all([
       fetchIssueMessages(issue.id),
@@ -157,7 +176,7 @@ export function IssueConversation({
     return () => {
       active = false;
     };
-  }, [issue.id, revision, reads, redaction?.revision]);
+  }, [issue.id, revision, reads, redactionRevision]);
 
   const reread = (): void => {
     setReads((count) => count + 1);

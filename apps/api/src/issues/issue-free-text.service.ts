@@ -110,6 +110,13 @@ export class IssueFreeTextService {
         return "kept";
       }
 
+      const current = await tx.issue.findUnique({
+        where: { id: issueId },
+        select: { description: true, location: true },
+      });
+      if (current === null) {
+        return "kept";
+      }
       const { count: messages } = await tx.issueMessage.deleteMany({
         where: { issueId },
       });
@@ -119,6 +126,22 @@ export class IssueFreeTextService {
       // A file attached since the files were read stands, and the issue is
       // found again tomorrow: the text goes tonight whatever.
       const standing = (await this.filesOf(tx, issueId)).length;
+
+      // Nothing for this run to take: another run, the clock or the erasure
+      // job, took the layer between the scan and the lock. Written anyway it
+      // would move `freeTextRemovedAt` and add a second entry with every count
+      // at nought. The files this run removed count as taken, so a layer that
+      // was only files is still recorded.
+      const nothingTaken =
+        filesRemoved === 0 &&
+        messages === 0 &&
+        notes === 0 &&
+        current.description === "" &&
+        current.location === null;
+      if (nothingTaken) {
+        return standing === 0 ? "kept" : "unfinished";
+      }
+
       await tx.issue.update({
         where: { id: issueId },
         data: {

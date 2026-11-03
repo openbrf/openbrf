@@ -438,10 +438,28 @@ export function issuesErasedOnRequest(
   personId: ErasurePersonFilter,
 ): Prisma.IssueWhereInput {
   return {
+    ...issueErasureGrounds(personId),
+    AND: [ISSUE_FREE_TEXT_STANDING],
+  };
+}
+
+/**
+ * What entitles a granted request to an issue's free text, without asking
+ * whether any stands: the person reported it, it is closed, and no legal hold
+ * of its own stands on it.
+ *
+ * What the removal's own re-check asks. The removal takes the files before the
+ * text, so by the time it asks about the text the last file may be gone and
+ * `ISSUE_FREE_TEXT_STANDING` no longer holds, while the entry that records the
+ * layer's removal is still to be written.
+ */
+export function issueErasureGrounds(
+  personId: ErasurePersonFilter,
+): Prisma.IssueWhereInput {
+  return {
     reporterPersonId: personId,
     status: { meaning: "DONE" },
     legalHoldAt: null,
-    AND: [ISSUE_FREE_TEXT_STANDING],
   };
 }
 

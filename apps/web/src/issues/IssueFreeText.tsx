@@ -29,6 +29,19 @@ export function RedactedMark({ at }: { at: string }): ReactElement {
   );
 }
 
+/** "Removed under the retention rule on 2026-11-03", in place of a purged text. */
+export function PurgedMark({ at }: { at: string }): ReactElement {
+  return (
+    <span className="text-small text-ink-muted italic">
+      <Trans
+        i18nKey="issues.redaction.purgedOn"
+        values={{ date: localDayOfInstant(at) }}
+        components={DATA_TAGS}
+      />
+    </span>
+  );
+}
+
 /**
  * The description, or what became of it: the purge's notice once the free
  * text is gone, the mark once a handler removed it.
@@ -62,13 +75,24 @@ export function IssueDescription({
   return <p className="text-small whitespace-pre-line">{issue.description}</p>;
 }
 
-/** The free-text location, the mark once it was removed, or none recorded. */
+/**
+ * The free-text location, the mark once it was removed by a handler or by the
+ * purge, or none recorded. The purge empties the location with the rest of the
+ * free text, so a location that is null on a purged issue is not one nobody
+ * gave.
+ */
 export function IssueLocation({
   issue,
 }: {
-  issue: Pick<OwnIssue, "location" | "locationRedactedAt">;
+  issue: Pick<
+    OwnIssue,
+    "location" | "locationRedactedAt" | "freeTextRemovedAt"
+  >;
 }): ReactElement {
   const { t } = useTranslation();
+  if (issue.freeTextRemovedAt !== null && issue.location === null) {
+    return <PurgedMark at={issue.freeTextRemovedAt} />;
+  }
   if (issue.locationRedactedAt !== null) {
     return <RedactedMark at={issue.locationRedactedAt} />;
   }

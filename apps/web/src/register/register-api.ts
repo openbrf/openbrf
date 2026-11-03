@@ -825,6 +825,11 @@ export interface DataSubjectReport {
     waitingReason: IssueWaitingReason | null;
     location: string | null;
     description: string;
+    /** When a handler removed the description or the location (ADR 0057). */
+    descriptionRedactedAt: string | null;
+    locationRedactedAt: string | null;
+    /** When the purge removed the issue's free-text layer (ADR 0057). */
+    freeTextRemovedAt: string | null;
     reportedAt: string;
     photographs: number;
   }[];

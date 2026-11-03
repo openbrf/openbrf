@@ -374,6 +374,9 @@ const FULL_REPORT: Report = {
       waitingReason: null,
       location: "Storgatan 12, entren",
       description: ISSUE_DESCRIPTION,
+      descriptionRedactedAt: null,
+      locationRedactedAt: null,
+      freeTextRemovedAt: null,
       reportedAt: "2026-01-05T08:00:00.000Z",
       photographs: 2,
     },
@@ -1789,6 +1792,42 @@ describe("what the document prints", () => {
     expect(within(waiting as HTMLElement).queryByText("Åtgärdat")).toBeNull();
     expect(within(done as HTMLElement).getByText("Åtgärdat")).toBeTruthy();
     expect(within(done as HTMLElement).queryByText("Entreprenör")).toBeNull();
+  });
+
+  it("says an issue's text was removed instead of printing it blank", async () => {
+    // Removed text is empty on the issue. Printed as stored, the copy would
+    // read as an issue filed with no words and no place.
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          issueId: "issue-redacted",
+          location: null,
+          description: "",
+          descriptionRedactedAt: "2026-10-01T09:00:00.000Z",
+          locationRedactedAt: "2026-10-02T09:00:00.000Z",
+        },
+        {
+          ...issue,
+          issueId: "issue-purged",
+          location: null,
+          description: "",
+          freeTextRemovedAt: "2026-11-03T03:21:00.000Z",
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText("2026-10-01")).toBeTruthy();
+    expect(screen.getByText("2026-10-02")).toBeTruthy();
+    expect(screen.getAllByText(/Borttaget av en handläggare/)).toHaveLength(2);
+    expect(screen.getAllByText("2026-11-03")).toHaveLength(2);
+    expect(
+      screen.getAllByText(/Gallrat enligt regeln för gallring/),
+    ).toHaveLength(2);
   });
 
   it("names the capacity somebody was present at a general meeting in", async () => {

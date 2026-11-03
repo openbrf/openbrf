@@ -1332,6 +1332,10 @@ export class IssueService {
       showsIdentifiablePersons: true,
       uploadedByPersonId: input.reporterPersonId,
       channel: "WEB",
+      // A name somebody gave a photograph of their home is free text, and the
+      // log is append-only: the purge that removes the photograph cannot
+      // remove the name (ADR 0057).
+      recordFileName: false,
     });
 
     /*
@@ -1367,7 +1371,9 @@ export class IssueService {
       // with nothing in the logs to say so. The original failure is still the
       // one raised.
       await this.media
-        .remove(file.id, input.reporterPersonId, "WEB")
+        .remove(file.id, input.reporterPersonId, "WEB", {
+          recordFileName: false,
+        })
         .catch((removal: unknown) => {
           this.logger.error(
             `Could not remove file ${file.id} after its photograph was refused: ` +

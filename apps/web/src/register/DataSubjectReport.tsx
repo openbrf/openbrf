@@ -22,6 +22,7 @@ import {
   ISSUE_WAITING_REASON_LABEL,
 } from "../issues/issue-labels";
 import { AUDIT_CHANNEL_LABEL } from "./audit-channel-label";
+import { PurgedMark, RedactedMark } from "../issues/IssueFreeText";
 import { ExtensionNote } from "./ExtensionNote";
 import {
   DATA_CELL,
@@ -1637,7 +1638,16 @@ export function DataSubjectReport({
                       )}
                     </td>
                     <td className={DATA_CELL}>{day(issue.reportedAt)}</td>
-                    <td className={TEXT_CELL}>{issue.location ?? nothing}</td>
+                    <td className={TEXT_CELL}>
+                      {issue.locationRedactedAt !== null ? (
+                        <RedactedMark at={issue.locationRedactedAt} />
+                      ) : issue.location === null &&
+                        issue.freeTextRemovedAt !== null ? (
+                        <PurgedMark at={issue.freeTextRemovedAt} />
+                      ) : (
+                        (issue.location ?? nothing)
+                      )}
+                    </td>
                     {/* Line breaks kept, as the motion and comment bodies
                       below keep them and as both issue panels already do.
                       A report is the person's own words handed back to
@@ -1645,9 +1655,15 @@ export function DataSubjectReport({
                       observations reads as one sentence once the breaks
                       collapse. */}
                     <td className={TEXT_CELL}>
-                      <span className="block whitespace-pre-line">
-                        {issue.description}
-                      </span>
+                      {issue.freeTextRemovedAt !== null ? (
+                        <PurgedMark at={issue.freeTextRemovedAt} />
+                      ) : issue.descriptionRedactedAt !== null ? (
+                        <RedactedMark at={issue.descriptionRedactedAt} />
+                      ) : (
+                        <span className="block whitespace-pre-line">
+                          {issue.description}
+                        </span>
+                      )}
                     </td>
                     <td className={DATA_CELL}>{String(issue.photographs)}</td>
                   </tr>

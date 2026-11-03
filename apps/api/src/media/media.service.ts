@@ -40,6 +40,17 @@ export type MediaVisibility =
  * Listed once so the upload, the serving branch and the invariant that ties the
  * two to `apartmentId` all read the same set.
  */
+/**
+ * How long a `bytesFirst` removal may hold its transaction open.
+ *
+ * Prisma's default is five seconds, and the removal of the objects runs inside
+ * the transaction: a bucket that answers slowly would roll the row back and
+ * keep the issue's text and its erasure request open with nothing wrong. Each
+ * of the two objects gets the storage driver's own deadline (30 seconds), and
+ * the rest is left for the writes around them.
+ */
+const BYTES_FIRST_TRANSACTION_TIMEOUT_MS = 90_000;
+
 const APARTMENT_VISIBILITIES: readonly MediaVisibility[] = [
   "TENANT_OWNERS",
   "HOUSEHOLD",
@@ -809,7 +820,8 @@ export class MediaService {
    * deleting transaction, after the row and its entry are written and before
    * the commit. A storage failure throws and rolls the row back, so the row
    * stays the one record a later attempt finds the object by, and the locks
-   * `keep` took are held for as long as the removal takes. If the commit itself
+   * `keep` took are held for as long as the removal takes, which the
+   * transaction's timeout allows for. If the commit itself
    * then fails the row stands without its object, and a retry removes the row
    * (removing an absent object succeeds).
    *
@@ -853,41 +865,51 @@ export class MediaService {
 
     // Read and removed in the transaction, so a deletion running alongside
     // finds nothing left to remove rather than failing on a row already gone.
-    const file = await this.prisma.$transaction(async (tx) => {
-      const held = await tx.mediaFile.findUnique({ where: { id } });
-      if (held === null) {
-        return null;
-      }
-      if (options.keep !== undefined && (await options.keep(tx, held))) {
-        return null;
-      }
-      const { count } = await tx.mediaFile.deleteMany({ where: { id } });
-      if (count === 0) {
-        return null;
-      }
-      await options.onRemoved?.(tx);
-      await this.audit.record(
-        {
-          action: "MEDIA_DELETED",
-          channel,
-          actorPersonId: actorPersonId ?? null,
-          targetKind: "media",
-          targetId: id,
-          context:
-            (options.recordFileName ?? true) ? { fileName: held.fileName } : {},
-        },
-        tx,
-      );
-      if (options.bytesFirst === true) {
-        // A failure here rolls the row and its entry back: the row is still
-        // the record a retry finds the object by.
-        await this.storage.remove(held.storageKey);
-        if (held.unencryptedStorageKey !== null) {
-          await this.storage.remove(held.unencryptedStorageKey);
+    const file = await this.prisma.$transaction(
+      async (tx) => {
+        const held = await tx.mediaFile.findUnique({ where: { id } });
+        if (held === null) {
+          return null;
         }
-      }
-      return held;
-    });
+        if (options.keep !== undefined && (await options.keep(tx, held))) {
+          return null;
+        }
+        const { count } = await tx.mediaFile.deleteMany({ where: { id } });
+        if (count === 0) {
+          return null;
+        }
+        await options.onRemoved?.(tx);
+        await this.audit.record(
+          {
+            action: "MEDIA_DELETED",
+            channel,
+            actorPersonId: actorPersonId ?? null,
+            targetKind: "media",
+            targetId: id,
+            context:
+              (options.recordFileName ?? true)
+                ? { fileName: held.fileName }
+                : {},
+          },
+          tx,
+        );
+        if (options.bytesFirst === true) {
+          // A failure here rolls the row and its entry back: the row is still
+          // the record a retry finds the object by.
+          await this.storage.remove(held.storageKey);
+          if (held.unencryptedStorageKey !== null) {
+            await this.storage.remove(held.unencryptedStorageKey);
+          }
+        }
+        return held;
+      },
+      options.bytesFirst === true
+        ? {
+            timeout: BYTES_FIRST_TRANSACTION_TIMEOUT_MS,
+            maxWait: BYTES_FIRST_TRANSACTION_TIMEOUT_MS,
+          }
+        : undefined,
+    );
     if (file === null) {
       return false;
     }
