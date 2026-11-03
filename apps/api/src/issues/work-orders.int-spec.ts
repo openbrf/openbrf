@@ -270,6 +270,9 @@ const UNSIGNED = "1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 let plumber: ContractorRow;
 
+/** Whether this suite made the association row, and so removes it. */
+let createdAssociation = false;
+
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
@@ -285,11 +288,16 @@ beforeAll(async () => {
   purge = app.get(IssuePurgeService);
   encryption = app.get(FieldEncryptionService);
 
-  await prisma.association.upsert({
-    where: { id: 1 },
-    create: { id: 1, name: "Brf Eksemplet" },
-    update: {},
-  });
+  createdAssociation =
+    (await prisma.association.findUnique({
+      where: { id: 1 },
+      select: { id: true },
+    })) === null;
+  if (createdAssociation) {
+    await prisma.association.create({
+      data: { id: 1, name: "Brf Eksemplet" },
+    });
+  }
 
   for (const entry of people) {
     const email = await encryption.encrypt("person.email", entry.email);
@@ -379,6 +387,9 @@ afterAll(async () => {
     where: { personId: { in: personIds } },
   });
   await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+  if (createdAssociation) {
+    await prisma.association.deleteMany({ where: { id: 1 } });
+  }
   await app.close();
 });
 
@@ -591,8 +602,33 @@ describe("a work order", () => {
       cookie: as(board),
     });
     expect(
-      timeline.json<{ kind: string }[]>().map((step) => step.kind),
-    ).toContain("workOrder");
+      timeline.json<{ kind: string; delivery?: string }[]>(),
+    ).toContainEqual(
+      expect.objectContaining({ kind: "workOrder", delivery: "sent" }),
+    );
+  });
+
+  it("is mailed in the association's default language", async () => {
+    const before = await prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { defaultLocale: true },
+    });
+    await prisma.association.update({
+      where: { id: 1 },
+      data: { defaultLocale: "en" },
+    });
+    try {
+      const rendered = await mailer.render({
+        recipientName: "Rör AB",
+        body: "Fix the tap.",
+      });
+      expect(rendered.subject).toMatch(/^Work order from /);
+    } finally {
+      await prisma.association.update({
+        where: { id: 1 },
+        data: { defaultLocale: before.defaultLocale },
+      });
+    }
   });
 
   it("records a mail server's refusal as a code on the work order", async () => {
@@ -618,6 +654,18 @@ describe("a work order", () => {
         select: { deliveryStatus: true, deliveryFailure: true },
       }),
     ).toEqual({ deliveryStatus: "FAILED", deliveryFailure: "send-failed" });
+
+    // The timeline step says the mail did not go, not that it was sent.
+    const timeline = await inject({
+      method: "GET",
+      url: `/api/issue-queue/${issueId}/timeline`,
+      cookie: as(board),
+    });
+    expect(
+      timeline.json<{ kind: string; delivery?: string }[]>(),
+    ).toContainEqual(
+      expect.objectContaining({ kind: "workOrder", delivery: "failed" }),
+    );
   });
 
   it("is never offered, previewed or sent on a ring-fenced issue", async () => {

@@ -829,7 +829,7 @@
           "ISSUE_TARGET_DATE_CHANGED": "Senast klart för ett ärende ändrades",
           "ISSUE_ACCESS_CHANGED": "Vilka som hanterar ett ärende ändrades",
           "ISSUE_RESIDENTS_LISTED": "Någon som hanterar ärenden visades vilka som bor i en lägenhet, för att lägga upp ett ärende",
-          "ISSUE_WORK_ORDER_SENT": "En arbetsorder i ett ärende skickades till en entreprenör",
+          "ISSUE_WORK_ORDER_SENT": "En arbetsorder i ett ärende skrevs och lades i kö för utskick till en entreprenör",
           "CONTRACTOR_LIST_CHANGED": "En entreprenör lades till, ändrades eller togs bort i entreprenörslistan",
           "ISSUE_TYPE_RING_FENCE_CHANGED": "En ärendetyp stängdes för entreprenörer, eller öppnades igen",
           "MOVE_IN_RECORDED": "En inflyttning registrerades",
@@ -3761,7 +3761,13 @@
       "targetDateRemoved": "Senast klart borttaget",
       "boardOnly": "Stängt för alla utom styrelsen",
       "everyHandler": "Öppnat igen för alla som hanterar typen",
-      "workOrderSent": "En arbetsorder skickades till en entreprenör"
+      "workOrder": {
+        "written": "En arbetsorder skrevs till en entreprenör",
+        "pending": "En arbetsorder är på väg till en entreprenör",
+        "sent": "En arbetsorder skickades till en entreprenör",
+        "failed": "En arbetsorder till en entreprenör skickades inte",
+        "unconfirmed": "En arbetsorder till en entreprenör kan ha uteblivit; ingen vet om den kom fram"
+      }
     },
     "workOrders": {
       "open": "Arbetsorder för {{type}}",
@@ -6224,7 +6230,7 @@
           "name": "Felanmälningar",
           "purpose": "Ta emot och åtgärda fel i huset, med de arbetsorder som skickas till entreprenörer.",
           "legalBasisNote": "Berättigat intresse: att förvalta fastigheten. Den som anmäler kan självmant skriva uppgifter om hälsa (art. 9).",
-          "retention": "Kopplingen till personen tas bort vid gallringen; ärendet och bilderna behålls. Anmälningar från det öppna formuläret gallras 365 dagar efter avslut. Texten i en arbetsorder till en entreprenör raderas tio år efter att ärendet avslutats, när ett anspråk om arbetet preskriberas (preskriptionslagen 2 §); vem den gick till och när sparas."
+          "retention": "Kopplingen till personen tas bort vid gallringen; ärendet och bilderna behålls. Anmälningar från det öppna formuläret gallras 365 dagar efter avslut. Texten i en arbetsorder till en entreprenör raderas tio år efter att ärendet avslutats, när ett anspråk om arbetet preskriberas (preskriptionslagen 2 §); när den skickades sparas, och vem den gick till sparas så länge entreprenören finns kvar i registret. Att ta bort en entreprenör från registret raderar namn och e-postadress på dess arbetsorder."
         },
         "documents": {
           "name": "Dokumentarkiv",
@@ -6349,7 +6355,7 @@
           "replies": "Svar skickas via {{host}}.",
           "noMailbox": "Ingen brevlåda är konfigurerad.",
           "economicManager": "Föreningens ekonomiska förvaltare, eller den som annars sköter bokföringen, som får underlaget för den.",
-          "contractors": "Entreprenörer som föreningen anlitar för arbete i huset, som var och en får en arbetsorder om ett ärende: det som den som hanterar ärendet skrev, aldrig felanmälan eller vem som gjorde den. Varje arbetsorder sparar vem den gick till och när.",
+          "contractors": "Entreprenörer som föreningen anlitar för arbete i huset, som var och en får en arbetsorder om ett ärende: det som den som hanterar ärendet skrev, aldrig felanmälan eller vem som gjorde den. Varje arbetsorder sparar vem den gick till och när, tills entreprenören tas bort ur registret, vilket raderar namn och e-postadress på den.",
           "lantmateriet": "Lantmäteriet (bostadsrättsregistret), dit styrelsen gör det inledande uppgiftslämnandet av registrets uppgifter enligt Lag (2026:485) 3 § och dit föreningen anmäler registerhändelser enligt Lag (2026:484) 3 kap.",
           "lantmaterietReports": "Lantmäteriet (bostadsrättsregistret), dit föreningen anmäler registerhändelser enligt Lag (2026:484) 3 kap."
         },

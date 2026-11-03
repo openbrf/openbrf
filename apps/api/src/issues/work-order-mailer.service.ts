@@ -143,7 +143,9 @@ export class WorkOrderMailerService implements OnModuleInit {
    * preview cannot drift from the mail.
    */
   async render(props: WorkOrderMailProps): Promise<RenderedMail> {
-    return this.mail.renderMail(this.workOrderMail(props));
+    return this.mail.renderMail(
+      this.workOrderMail(props, await this.defaultLocale()),
+    );
   }
 
   /** Sends one work order, and says what it did. */
@@ -170,10 +172,10 @@ export class WorkOrderMailerService implements OnModuleInit {
       );
       sent = await this.mail.send({
         to,
-        ...this.workOrderMail({
-          recipientName: order.recipientName,
-          body: order.body,
-        }),
+        ...this.workOrderMail(
+          { recipientName: order.recipientName, body: order.body },
+          await this.defaultLocale(),
+        ),
       });
     } catch (error) {
       await this.fail(
@@ -327,13 +329,29 @@ export class WorkOrderMailerService implements OnModuleInit {
   }
 
   /** The template a work order is sent with, and what fills it in. */
-  private workOrderMail(props: WorkOrderMailProps): {
-    locale: null;
+  private workOrderMail(
+    props: WorkOrderMailProps,
+    locale: string,
+  ): {
+    locale: string;
     template: typeof workOrderMail;
     props: WorkOrderMailProps;
   } {
-    // The association's default: see the note at the top of this file.
-    return { locale: null, template: workOrderMail, props };
+    return { locale, template: workOrderMail, props };
+  }
+
+  /**
+   * The association's default language, which the mail is written in (see the
+   * note at the top of this file). Swedish where there is no association row,
+   * the mail service's own default; a null locale would be the same, but would
+   * ignore an association that chose English.
+   */
+  private async defaultLocale(): Promise<string> {
+    const association = await this.prisma.association.findUnique({
+      where: { id: 1 },
+      select: { defaultLocale: true },
+    });
+    return association?.defaultLocale ?? "sv";
   }
 
   /**

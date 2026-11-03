@@ -676,6 +676,12 @@ describe("handling an issue", () => {
           waitingReason: "CONTRACTOR",
           outcome: null,
         },
+        {
+          kind: "workOrder",
+          at: "2026-08-21T10:00:00.000Z",
+          actor: null,
+          delivery: "failed",
+        },
       ],
     });
     const session = userEvent.setup();
@@ -693,6 +699,8 @@ describe("handling an issue", () => {
     // The board's own name for the status, from the type.
     expect(steps[2]).toContain("Flyttat till Hos rörmokaren");
     expect(steps[2]).toContain("Namnet visas inte (skyddade personuppgifter)");
+    // A work order whose mail did not go is not said to have been sent.
+    expect(steps[3]).toContain("skickades inte");
   });
 
   it("adds a status just saved to the timeline while it stays open", async () => {

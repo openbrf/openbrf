@@ -455,6 +455,15 @@ function AccessForm({
   );
 }
 
+/** What a work order's step says, by how its mail stands. */
+const WORK_ORDER_STEP_LABELS = {
+  written: "issues.timeline.workOrder.written",
+  pending: "issues.timeline.workOrder.pending",
+  sent: "issues.timeline.workOrder.sent",
+  failed: "issues.timeline.workOrder.failed",
+  unconfirmed: "issues.timeline.workOrder.unconfirmed",
+} as const;
+
 /** What one step of the timeline says happened. */
 function TimelineSentence({
   step,
@@ -543,6 +552,6 @@ function TimelineSentence({
         </>
       );
     case "workOrder":
-      return <>{t("issues.timeline.workOrderSent")}</>;
+      return <>{t(WORK_ORDER_STEP_LABELS[step.delivery ?? "written"])}</>;
   }
 }

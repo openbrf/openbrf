@@ -233,7 +233,10 @@ export type IssueTimelineStep = {
   | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
-  | { kind: "workOrder" }
+  | {
+      kind: "workOrder";
+      delivery: "pending" | "sent" | "failed" | "unconfirmed" | null;
+    }
 );
 
 /** A move to another status, with what its meaning requires. */

@@ -44,6 +44,7 @@ import {
 import { type IssueTypeView, IssueTypeService } from "./issue-type.service";
 import { lockIssue, lockIssueType } from "./issue-lock";
 import { IssueError } from "./issue.error";
+import { WORK_ORDER_DELIVERY_FAILURES } from "./work-order-delivery";
 
 /**
  * How many photographs one report may carry.
@@ -292,9 +293,18 @@ export type IssueTimelineStep = {
   | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
-  /** A work order was sent; the work orders themselves say to whom. */
-  | { kind: "workOrder" }
+  /**
+   * A work order was written; the work orders themselves say to whom. How its
+   * mail ended is read from the work order as the timeline is read, because
+   * the entry is written when the mail is queued and is never rewritten:
+   * `null` when the work order is no longer there to ask.
+   */
+  | { kind: "workOrder"; delivery: IssueTimelineWorkOrderDelivery | null }
 );
+
+/** How a work order's mail stands, for its step in the timeline. */
+export type IssueTimelineWorkOrderDelivery =
+  "pending" | "sent" | "failed" | "unconfirmed";
 
 /**
  * How many issues one page of the queue answers with.
@@ -1231,6 +1241,27 @@ export class IssueService {
       },
     });
 
+    const workOrders = entries.some(
+      (entry) => entry.action === "ISSUE_WORK_ORDER_SENT",
+    )
+      ? await this.prisma.workOrder.findMany({
+          where: { issueId },
+          select: { id: true, deliveryStatus: true, deliveryFailure: true },
+        })
+      : [];
+    const deliveryOf = new Map(
+      workOrders.map((order) => [
+        order.id,
+        order.deliveryStatus === "SENT"
+          ? ("sent" as const)
+          : order.deliveryStatus === "PENDING"
+            ? ("pending" as const)
+            : order.deliveryFailure === WORK_ORDER_DELIVERY_FAILURES.unconfirmed
+              ? ("unconfirmed" as const)
+              : ("failed" as const),
+      ]),
+    );
+
     const viewOf = await readAuthors(this.prisma, [
       ...entries.map((entry) => entry.actorPersonId),
       ...entries
@@ -1249,7 +1280,7 @@ export class IssueService {
     return [
       ...filed,
       ...entries.map((entry) =>
-        timelineStep(entry, person(entry.actorPersonId), person),
+        timelineStep(entry, person(entry.actorPersonId), person, deliveryOf),
       ),
     ];
   }
@@ -2118,6 +2149,7 @@ function timelineStep(
   },
   actor: IssueHandlerView | null,
   person: (id: string | null) => IssueHandlerView | null,
+  deliveryOf: ReadonlyMap<string, IssueTimelineWorkOrderDelivery>,
 ): IssueTimelineStep {
   const context =
     entry.context !== null &&
@@ -2166,7 +2198,12 @@ function timelineStep(
         boardOnly: context.boardOnly === true,
       };
     case "ISSUE_WORK_ORDER_SENT":
-      return { kind: "workOrder", at, actor };
+      return {
+        kind: "workOrder",
+        at,
+        actor,
+        delivery: deliveryOf.get(text("workOrderId") ?? "") ?? null,
+      };
     default:
       return {
         kind: "status",

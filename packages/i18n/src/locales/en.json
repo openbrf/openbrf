@@ -829,7 +829,7 @@
           "ISSUE_TARGET_DATE_CHANGED": "The target date of an issue was changed",
           "ISSUE_ACCESS_CHANGED": "Who handles an issue was changed",
           "ISSUE_RESIDENTS_LISTED": "A handler was shown who lives in an apartment, to open an issue",
-          "ISSUE_WORK_ORDER_SENT": "A work order on an issue was sent to a contractor",
+          "ISSUE_WORK_ORDER_SENT": "A work order on an issue was written and queued for mailing to a contractor",
           "CONTRACTOR_LIST_CHANGED": "A contractor was added to, changed on or removed from the contractor list",
           "ISSUE_TYPE_RING_FENCE_CHANGED": "An issue type was ring-fenced from contractors, or its ring-fence was lifted",
           "MOVE_IN_RECORDED": "A move-in was recorded",
@@ -3761,7 +3761,13 @@
       "targetDateRemoved": "Target date removed",
       "boardOnly": "Closed to all but the board",
       "everyHandler": "Opened again to every handler of its type",
-      "workOrderSent": "A work order was sent to a contractor"
+      "workOrder": {
+        "written": "A work order was written for a contractor",
+        "pending": "A work order is on its way to a contractor",
+        "sent": "A work order was sent to a contractor",
+        "failed": "A work order to a contractor was not sent",
+        "unconfirmed": "A work order to a contractor may not have gone out; nobody knows"
+      }
     },
     "workOrders": {
       "open": "Work orders for {{type}}",
@@ -6224,7 +6230,7 @@
           "name": "Issue reports",
           "purpose": "Receiving and dealing with problems in the building, including the work orders handlers send to contractors.",
           "legalBasisNote": "Legitimate interest: managing the property. A reporter may volunteer data about health (art. 9).",
-          "retention": "The link to the person is detached by the purge; the issue and its photographs are kept. A public-form report is purged 365 days after it is closed. The text of a work order sent to a contractor is erased ten years after its issue is closed, when a claim about the work becomes time-barred (preskriptionslagen 2 §); whom it went to and when is kept."
+          "retention": "The link to the person is detached by the purge; the issue and its photographs are kept. A public-form report is purged 365 days after it is closed. The text of a work order sent to a contractor is erased ten years after its issue is closed, when a claim about the work becomes time-barred (preskriptionslagen 2 §); when it was sent is kept, and whom it went to is kept while the contractor stays on the list. Removing a contractor from the list erases the name and email address on their work orders."
         },
         "documents": {
           "name": "Document archive",
@@ -6349,7 +6355,7 @@
           "replies": "Replies go out through {{host}}.",
           "noMailbox": "No mailbox is configured.",
           "economicManager": "The association's economic manager, or whoever else keeps its books, who is handed the basis for them.",
-          "contractors": "The contractors the association hires to work on the building, each sent a work order about an issue: what the handler wrote, never the report or who made it. Each work order records whom it went to and when.",
+          "contractors": "The contractors the association hires to work on the building, each sent a work order about an issue: what the handler wrote, never the report or who made it. Each work order records whom it went to and when, until the contractor is removed from the list, which erases their name and email address from it.",
           "lantmateriet": "Lantmäteriet (the cooperative housing register, bostadsrättsregistret), to which the board hands the initial supply of the register's data under Lag (2026:485) 3 § and to which the association reports register events under Lag (2026:484) 3 kap.",
           "lantmaterietReports": "Lantmäteriet (the cooperative housing register, bostadsrättsregistret), to which the association reports register events under Lag (2026:484) 3 kap."
         },
