@@ -5,6 +5,7 @@ import type {
   IssueOutcome,
   IssuePriority,
   IssueReporterGroup,
+  IssueSignature,
   IssueStatusMeaning,
   IssueWaitingReason,
 } from "@openbrf/shared";
@@ -485,4 +486,183 @@ export function saveIssueReporting(input: {
   publicFormEnabled: boolean;
 }): Promise<ApiResult<{ publicFormEnabled: boolean }>> {
   return apiRequest("PUT", "/api/settings/issue-reporting", input);
+}
+
+/**
+ * An issue message as its reporter reads it: a handler's signed with a role,
+ * the board or the property manager, and never with a name (decision 19).
+ */
+export type OwnIssueMessage = {
+  id: string;
+  body: string;
+  createdAt: string;
+} & ({ side: "REPORTER" } | { side: "HANDLER"; signature: IssueSignature });
+
+/**
+ * An issue message as a handler reads it: a handler's with its role and who
+ * wrote it, the reporter's with no author - the queue row names the reporter,
+ * masked as a reporter is.
+ */
+export type IssueMessage = {
+  id: string;
+  body: string;
+  createdAt: string;
+} & (
+  | { side: "REPORTER" }
+  | { side: "HANDLER"; signature: IssueSignature; author: IssueHandler }
+);
+
+/** An internal note, which the reporter never reads. */
+export interface IssueNote {
+  id: string;
+  author: IssueHandler;
+  body: string;
+  createdAt: string;
+}
+
+/** A file the handlers attached to an issue for each other. */
+export interface IssueAttachment {
+  id: string;
+  url: string;
+  fileName: string;
+  contentType: string;
+  width: number | null;
+  height: number | null;
+  createdAt: string;
+}
+
+/** A saved reply a handler starts a message from (decision 17). */
+export interface IssueSavedReply {
+  id: string;
+  title: string;
+  body: string;
+  sortOrder: number;
+}
+
+export interface IssueSavedReplyInput {
+  title: string;
+  body: string;
+  sortOrder?: number;
+}
+
+/** The conversation on one's own issue. */
+export function fetchOwnIssueMessages(
+  issueId: string,
+): Promise<ApiResult<OwnIssueMessage[]>> {
+  return apiRequest(
+    "GET",
+    `/api/issues/${encodeURIComponent(issueId)}/messages`,
+  );
+}
+
+export function sendOwnIssueMessage(input: {
+  issueId: string;
+  body: string;
+}): Promise<ApiResult<OwnIssueMessage>> {
+  return apiRequest(
+    "POST",
+    `/api/issues/${encodeURIComponent(input.issueId)}/messages`,
+    { body: input.body },
+  );
+}
+
+/** The conversation with the reporter, as a handler reads it. */
+export function fetchIssueMessages(
+  issueId: string,
+): Promise<ApiResult<IssueMessage[]>> {
+  return apiRequest(
+    "GET",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/messages`,
+  );
+}
+
+export function sendIssueMessage(input: {
+  issueId: string;
+  body: string;
+}): Promise<ApiResult<IssueMessage>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/messages`,
+    { body: input.body },
+  );
+}
+
+export function fetchIssueNotes(
+  issueId: string,
+): Promise<ApiResult<IssueNote[]>> {
+  return apiRequest(
+    "GET",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/notes`,
+  );
+}
+
+export function addIssueNote(input: {
+  issueId: string;
+  body: string;
+}): Promise<ApiResult<IssueNote>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/notes`,
+    { body: input.body },
+  );
+}
+
+export function fetchIssueAttachments(
+  issueId: string,
+): Promise<ApiResult<IssueAttachment[]>> {
+  return apiRequest(
+    "GET",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/attachments`,
+  );
+}
+
+export function attachIssueFile(input: {
+  issueId: string;
+  file: File;
+}): Promise<ApiResult<IssueAttachment>> {
+  return apiUpload(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/attachments`,
+    input.file,
+  );
+}
+
+/** The saved replies, as a handler picks one. */
+export function fetchIssueSavedReplies(): Promise<
+  ApiResult<IssueSavedReply[]>
+> {
+  return apiRequest("GET", "/api/issue-queue/saved-replies");
+}
+
+/** The saved replies, as the board edits them. */
+export function fetchConfiguredSavedReplies(): Promise<
+  ApiResult<IssueSavedReply[]>
+> {
+  return apiRequest("GET", "/api/issue-saved-replies");
+}
+
+export function createIssueSavedReply(
+  input: IssueSavedReplyInput,
+): Promise<ApiResult<IssueSavedReply>> {
+  return apiRequest("POST", "/api/issue-saved-replies", input);
+}
+
+export function updateIssueSavedReply(input: {
+  id: string;
+  values: IssueSavedReplyInput;
+}): Promise<ApiResult<IssueSavedReply>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-saved-replies/${encodeURIComponent(input.id)}`,
+    input.values,
+  );
+}
+
+export function removeIssueSavedReply(
+  id: string,
+): Promise<ApiResult<undefined>> {
+  return apiRequest(
+    "DELETE",
+    `/api/issue-saved-replies/${encodeURIComponent(id)}`,
+  );
 }

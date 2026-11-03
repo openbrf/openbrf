@@ -350,6 +350,19 @@ locally the application runs from source beside the PostgreSQL that
       their own action, and a person whose processing is restricted is not
       mailed at all. Every issue has a number, shown in the queue and on the
       reporter's own list
+- [x] The conversation on an issue: the reporter and the handlers write to each
+      other on the issue itself, and a handler's message reaches the reporter
+      signed by the board or the property manager, never by a person, while the
+      handlers see who wrote it, a protected handler's name withheld. Beside it
+      the handlers keep internal notes and files of their own that the reporter
+      never sees, read by every handler the issue lets in, so an issue the
+      board keeps to itself keeps them with it. The board keeps saved replies,
+      one of them saying that what was reported is the tenant-owner's under the
+      bylaws, which a handler starts a message from. Text the board writes back
+      is refused while it carries a personal identity number. No row stores a
+      name, a mail says only that there is a new message and never what it says,
+      and no action offers it to a connected app
+      or the AI package (ADR 0056)
 - [x] One page, one audience: the board's work on its own pages under the
       Styrelsen section, each signed on its own heading, the overview as the
       house's notice board with one line for whoever works a queue, and a phone

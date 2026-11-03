@@ -21,6 +21,7 @@ import {
   SUPPORTED_LOCALES,
 } from "../i18n/i18n.service";
 import { DataProtectionSeedService } from "../data-protection/data-protection-seed.service";
+import { IssueSavedReplyService } from "../issues/issue-saved-reply.service";
 import { IssueTypeService } from "../issues/issue-type.service";
 import { lockSystemRole } from "../roles/role-lock";
 import { PagesService } from "../site/pages.service";
@@ -115,6 +116,7 @@ export class SetupService implements OnModuleInit {
     private readonly dataProtection: DataProtectionSeedService,
     private readonly claims: SetupClaimService,
     private readonly issueTypes: IssueTypeService,
+    private readonly issueSavedReplies: IssueSavedReplyService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -374,6 +376,26 @@ export class SetupService implements OnModuleInit {
         this.logger.error(
           "Setup finished, but the starting issue types could not be written. " +
             "The board adds its own under Settings: " +
+            failureName(cause),
+          failureFrames(cause),
+        );
+      }
+    }
+
+    /*
+     * The saved replies a new instance starts with (decision 17), beside the
+     * issue types and for their reason, in their own try so one failing does
+     * not keep the other from being written.
+     */
+    if (association.setupCompletedAt === null) {
+      try {
+        await this.issueSavedReplies.seedDefaults(
+          this.i18n.translatorFor(association.defaultLocale),
+        );
+      } catch (cause) {
+        this.logger.error(
+          "Setup finished, but the starting saved replies could not be " +
+            "written. The board adds its own under Settings: " +
             failureName(cause),
           failureFrames(cause),
         );

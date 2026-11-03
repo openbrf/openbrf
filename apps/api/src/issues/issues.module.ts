@@ -3,22 +3,27 @@ import { Module } from "@nestjs/common";
 import { ActionsModule } from "../actions/actions.module";
 import { MediaModule } from "../media/media.module";
 import { IssueActionsRegistrar } from "./issue-actions.registrar";
+import { IssueConversationService } from "./issue-conversation.service";
 import { IssueMailer } from "./issue-mailer.service";
 import { IssuePurgeService } from "./issue-purge.service";
 import { IssueResidentsService } from "./issue-residents.service";
+import { IssueSavedReplyService } from "./issue-saved-reply.service";
 import { IssueTypeService } from "./issue-type.service";
 import { IssueService } from "./issue.service";
 import {
   IssueQueueController,
   IssueReportController,
+  IssueSavedReplyAdminController,
   IssueTypeAdminController,
 } from "./issues.controller";
 
 /**
  * Reported issues: the board's type catalogue, the resident's report, the
  * queue whoever handles issues works from, the resident picker a handler
- * names a resident from on an issue they open, and the mail and the overdue
- * reminder that tell handlers of their issues (`IssueMailer`).
+ * names a resident from on an issue they open, the conversation on an
+ * issue - its messages, the handlers' notes and files, and the saved replies -
+ * and the mail and the overdue reminder that tell handlers of their issues
+ * (`IssueMailer`).
  *
  * MediaModule is imported for the photographs, and ActionsModule for the
  * queue's read actions (ADR 0040), which is not global because the registry is
@@ -27,7 +32,8 @@ import {
  * is why they are not listed here.
  *
  * The services are exported because the association's public website renders
- * the report form itself, in process, rather than calling this API over HTTP.
+ * the report form itself, in process, rather than calling this API over HTTP,
+ * and the saved replies because the setup wizard seeds them.
  *
  * IssuePurgeService is a provider and not exported: it is a scheduled job with
  * nobody to call it, and the integration suite reaches it through the module
@@ -39,6 +45,7 @@ import {
     IssueReportController,
     IssueQueueController,
     IssueTypeAdminController,
+    IssueSavedReplyAdminController,
   ],
   providers: [
     IssueService,
@@ -46,8 +53,10 @@ import {
     IssueTypeService,
     IssuePurgeService,
     IssueResidentsService,
+    IssueConversationService,
+    IssueSavedReplyService,
     IssueActionsRegistrar,
   ],
-  exports: [IssueService, IssueTypeService],
+  exports: [IssueService, IssueTypeService, IssueSavedReplyService],
 })
 export class IssuesModule {}
