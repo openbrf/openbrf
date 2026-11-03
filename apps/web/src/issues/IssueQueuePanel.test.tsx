@@ -551,6 +551,7 @@ describe("handling an issue", () => {
     await waitFor(() => {
       expect(select.disabled).toBe(true);
       expect(select.value).toBe("p-board");
+      expect(select.selectedOptions[0]?.textContent).toBe("Bea Styrelse");
     });
   });
 

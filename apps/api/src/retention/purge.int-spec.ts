@@ -446,6 +446,7 @@ beforeAll(async () => {
     id: issueTypeId,
     name: `Gallringsarende ${suffix}`,
     reporters: ["RESIDENTS"],
+    defaultAssigneePersonId: people.referenced,
   });
   await prisma.issue.create({
     data: {
@@ -1187,6 +1188,15 @@ describe("issues, documents, binder entries and files the person left behind", (
     expect(issue.assigneePersonId).toBeNull();
     expect(issue.enteredByPersonId).toBeNull();
     expect(issue.enteredByHandler).toBe(true);
+    // The type's default assignee is a link to the person as well.
+    expect(
+      (
+        await prisma.issueType.findUniqueOrThrow({
+          where: { id: issueTypeId },
+          select: { defaultAssigneePersonId: true },
+        })
+      ).defaultAssigneePersonId,
+    ).toBeNull();
     // The ciphers a public-form reporter would have left go with the link. An
     // address left behind would still answer "did this person report this".
     expect(issue.reporterNameCipher).toBeNull();

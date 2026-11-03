@@ -18,6 +18,7 @@ import {
 import type { DataSubjectReportSection } from "@openbrf/shared";
 
 import i18n from "../i18n";
+import { ISSUE_MEANING_LABEL } from "../issues/issue-labels";
 import { DataSubjectReport, SECTION_TITLE } from "./DataSubjectReport";
 import {
   RegisterRequestError,
@@ -2420,18 +2421,29 @@ describe("what the document answers for", () => {
     const assignments = within(
       sectionOf(inSwedish(SECTION_TITLE.issueAssignments)),
     );
-    // One for the issue and one for the type, both of the type Hiss.
-    expect(assignments.getAllByText("Hiss")).toHaveLength(2);
+    // One row for the issue and one for the type, both of the type Hiss. Each
+    // is found by its label, so swapping the two rows fails here.
+    const rows = assignments.getAllByRole("row");
+    const rowWith = (label: string) =>
+      rows.find((row) => within(row).queryByText(label) !== null);
+    const issueRow = rowWith(
+      inSwedish("register.person.report.issueAssignment.issue"),
+    );
+    const typeRow = rowWith(
+      inSwedish("register.person.report.issueAssignment.typeDefault"),
+    );
+    expect(issueRow).toBeDefined();
+    expect(typeRow).toBeDefined();
+    expect(issueRow).not.toBe(typeRow);
+    expect(within(issueRow!).getByText("Hiss")).toBeTruthy();
+    expect(within(typeRow!).getByText("Hiss")).toBeTruthy();
+    // The status is the issue's alone: the type's row has none.
     expect(
-      assignments.getByText(
-        inSwedish("register.person.report.issueAssignment.issue"),
-      ),
+      within(issueRow!).getByText(inSwedish(ISSUE_MEANING_LABEL.IN_PROGRESS)),
     ).toBeTruthy();
     expect(
-      assignments.getByText(
-        inSwedish("register.person.report.issueAssignment.typeDefault"),
-      ),
-    ).toBeTruthy();
+      within(typeRow!).queryByText(inSwedish(ISSUE_MEANING_LABEL.IN_PROGRESS)),
+    ).toBeNull();
   });
 
   it("prints a session's address and browser as they were recorded", async () => {
