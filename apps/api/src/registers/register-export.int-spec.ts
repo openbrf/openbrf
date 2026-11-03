@@ -153,6 +153,15 @@ const TRANSFER_ID = `rep-transfer-${suffix}`;
 
 let createdAssociation = false;
 let previousDesignation: string | null = null;
+let previousOrganizationNumber: string | null = null;
+
+/**
+ * The organisation number this suite exports under. Another suite on this
+ * worker may leave the association singleton without one, and the supply is
+ * refused on a blank number, so the suite sets its own and puts back what it
+ * found.
+ */
+const ORGANIZATION_NUMBER = "769600-0101";
 
 let ipCounter = 0;
 
@@ -401,23 +410,27 @@ beforeAll(async () => {
 
   const association = await prisma.association.findUnique({
     where: { id: 1 },
-    select: { propertyDesignation: true },
+    select: { propertyDesignation: true, organizationNumber: true },
   });
   if (association === null) {
     await prisma.association.create({
       data: {
         id: 1,
         name: `Brf Anmalan ${suffix}`,
-        organizationNumber: "769600-0101",
+        organizationNumber: ORGANIZATION_NUMBER,
         propertyDesignation: `Talgoxen ${suffix}`,
       },
     });
     createdAssociation = true;
   } else {
     previousDesignation = association.propertyDesignation;
+    previousOrganizationNumber = association.organizationNumber;
     await prisma.association.update({
       where: { id: 1 },
-      data: { propertyDesignation: `Talgoxen ${suffix}` },
+      data: {
+        propertyDesignation: `Talgoxen ${suffix}`,
+        organizationNumber: ORGANIZATION_NUMBER,
+      },
     });
   }
 
@@ -472,7 +485,10 @@ afterAll(async () => {
   } else {
     await prisma.association.update({
       where: { id: 1 },
-      data: { propertyDesignation: previousDesignation },
+      data: {
+        propertyDesignation: previousDesignation,
+        organizationNumber: previousOrganizationNumber,
+      },
     });
   }
   // The statutory archive is append-only, so the transfer, the termination, the
