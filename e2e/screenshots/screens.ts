@@ -2434,17 +2434,36 @@ export const SCREENS: readonly Screen[] = [
      * The same route as the cards above, and a card of its own. The board adds
      * an area, so the marker is the row the save wrote rather than the card,
      * which renders before its list is read.
+     *
+     * Added only where it is not there yet: a walk against a stack that is
+     * already up added it before, and adding it again is refused as a name
+     * taken, with the refusal on the card the image shows. So the entry first
+     * waits for the list's read, a row's count or the empty notice.
      */
     name: "settings-issue-places",
     as: "administrator",
     goto: appPath("/board/settings/issues-bookings"),
     prepare: [
-      { see: { panel: COMMON_AREAS_CARD } },
       {
-        fill: { label: "Nytt gemensamt utrymme", within: COMMON_AREAS_CARD },
-        value: COMMON_AREA,
+        see: {
+          text: /^(\d+ ärenden?|Inga gemensamma utrymmen\.)$/,
+          within: COMMON_AREAS_CARD,
+          first: true,
+        },
       },
-      { click: { button: "Lägg till", within: COMMON_AREAS_CARD } },
+      {
+        unlessSeen: { button: `Ta bort ${COMMON_AREA}` },
+        steps: [
+          {
+            fill: {
+              label: "Nytt gemensamt utrymme",
+              within: COMMON_AREAS_CARD,
+            },
+            value: COMMON_AREA,
+          },
+          { click: { button: "Lägg till", within: COMMON_AREAS_CARD } },
+        ],
+      },
     ],
     // The row the save wrote carries its own remove control, which exists only
     // once the list has been read back with the area in it.

@@ -1858,6 +1858,33 @@ describe("what the document prints", () => {
     expect(screen.queryByText(/Tillträde: Ja\./)).toBeNull();
   });
 
+  it("prints a recorded no about pets and the master key, not only a yes", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          entry: {
+            answer: "YES",
+            pets: false,
+            masterKey: false,
+            note: null,
+            until: null,
+          },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const row = screen.getByText(/Tillträde: Ja\./).closest("tr");
+    expect(row).not.toBeNull();
+    expect((row as HTMLElement).textContent ?? "").toContain(
+      "inga husdjur · ingen huvudnyckel",
+    );
+  });
+
   it("names the capacity somebody was present at a general meeting in", async () => {
     /*
      * "Present" is the smaller half of what this section says. EFL 6 kap. 27 §

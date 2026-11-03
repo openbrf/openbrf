@@ -61,7 +61,12 @@ import {
   toFindingView,
 } from "./issue-fit-views";
 import { type IssueTypeView, IssueTypeService } from "./issue-type.service";
-import { lockIssue, lockIssueForHandling, lockIssueType } from "./issue-lock";
+import {
+  holdOfferedPlace,
+  lockIssue,
+  lockIssueForHandling,
+  lockIssueType,
+} from "./issue-lock";
 import { IssueError } from "./issue.error";
 
 /**
@@ -1601,12 +1606,9 @@ export class IssueService {
     }
     if (data.placeId != null) {
       // A place the board switched off is not offered, so a report naming it
-      // is answered as one naming a place that is not there.
-      const place = await tx.issuePlace.findFirst({
-        where: { id: data.placeId, active: true },
-        select: { id: true },
-      });
-      if (place === null) {
+      // is answered as one naming a place that is not there. Held until the
+      // insert commits, so its key cannot be the one that fails.
+      if (!(await holdOfferedPlace(tx, data.placeId))) {
         throw new IssueError("No such place.", "place-not-found");
       }
     }
@@ -1724,6 +1726,29 @@ export class IssueService {
       },
       tx,
     );
+  }
+
+  /**
+   * An issue a handler's write has just changed, read in that write's
+   * transaction, for `viewOfWritten` once it commits. The write authorised the
+   * handler under its locks, so the row is not read through the reader's scope
+   * a second time: a handler who stops handling the issue just after the write
+   * commits would otherwise be told `issue-not-found` about a change that is
+   * stored.
+   */
+  async writtenIssue(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+  ): Promise<QueueRecord> {
+    return tx.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      include: ISSUE_INCLUDE,
+    });
+  }
+
+  /** The queue's row for an issue `writtenIssue` read. */
+  async viewOfWritten(issue: QueueRecord): Promise<QueuedIssueView> {
+    return this.viewOf(issue);
   }
 
   /** The queue's row for one issue just written. */
@@ -2136,7 +2161,9 @@ function nextState(
   };
 }
 
-type QueueRecord = Prisma.IssueGetPayload<{ include: typeof ISSUE_INCLUDE }>;
+export type QueueRecord = Prisma.IssueGetPayload<{
+  include: typeof ISSUE_INCLUDE;
+}>;
 
 export interface ApartmentRecord {
   id: string;
@@ -2185,7 +2212,8 @@ function refuseUnlinked(outcome: IssueLinkOutcome): void {
  * at the same moment makes the insert raise P2003 against the restrictive key.
  * That is a type that does not exist, and is answered as one rather than with
  * a 500. The apartment's key cannot be the one: the reporter's residency holds
- * the apartment in the register.
+ * the apartment in the register. Nor can the place's: `holdOfferedPlace` holds
+ * it until the insert commits.
  */
 function typeRemoved(cause: unknown): never {
   if (

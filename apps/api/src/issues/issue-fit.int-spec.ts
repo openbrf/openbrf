@@ -19,6 +19,7 @@ import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
+import { holdOfferedPlace } from "./issue-lock";
 
 /**
  * What is particular to a Swedish house on an issue, over HTTP against a real
@@ -846,6 +847,49 @@ describe("common-area places", () => {
     );
     expect(unknown.statusCode).toBe(404);
     expect(unknown.json()).toMatchObject({ reason: "place-not-found" });
+  });
+
+  it("are held while a write names them, so the board's removal waits and is refused", async () => {
+    const held = await place("Cykelrum hålls");
+    const issueId = await filed(plain, { withApartment: false });
+
+    // The write holds the place, then waits for the removal to be under way
+    // before it names it, as a report or a handler's change does.
+    let holding!: () => void;
+    const holds = new Promise<void>((resolve) => {
+      holding = resolve;
+    });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const write = prisma.$transaction(async (tx) => {
+      expect(await holdOfferedPlace(tx, held)).toBe(true);
+      holding();
+      await released;
+      await tx.issue.update({
+        where: { id: issueId },
+        data: { placeId: held },
+      });
+    });
+    await holds;
+
+    const removal = (async () =>
+      call(admin, "DELETE", `/api/issue-places/${held}`))();
+    // Without the hold the removal would be answered at once, and the write
+    // would then fail on the foreign key.
+    const early = await Promise.race([
+      removal.then(() => "answered"),
+      new Promise((resolve) => setTimeout(() => resolve("waiting"), 500)),
+    ]);
+    expect(early).toBe("waiting");
+
+    release();
+    await write;
+    const refused = await removal;
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ reason: "place-in-use" });
+    expect((await stored(issueId)).placeId).toBe(held);
   });
 
   it("are switched off once an issue names them, and removed while none does", async () => {

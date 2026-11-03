@@ -23,7 +23,11 @@ import {
   toEntryView,
 } from "./issue-fit-views";
 import { requireHandledIssue } from "./issue-handlers";
-import { lockIssue, lockIssueForHandling } from "./issue-lock";
+import {
+  holdOfferedPlace,
+  lockIssue,
+  lockIssueForHandling,
+} from "./issue-lock";
 import { IssueError } from "./issue.error";
 import { IssueService, type QueuedIssueView } from "./issue.service";
 
@@ -163,20 +167,14 @@ export class IssueFitService {
     issueId: string,
     placeId: string | null,
   ): Promise<QueuedIssueView> {
-    await this.prisma.$transaction(async (tx) => {
+    const written = await this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
       const issue = await this.requireHandled(tx, issueId, handlerPersonId);
-      if (placeId !== null && placeId !== issue.placeId) {
-        const place = await tx.issuePlace.findFirst({
-          where: { id: placeId, active: true },
-          select: { id: true },
-        });
-        if (place === null) {
-          throw new IssueError("No such place.", "place-not-found");
-        }
-      }
       if (placeId === issue.placeId) {
-        return;
+        return this.issues.writtenIssue(tx, issueId);
+      }
+      if (placeId !== null && !(await holdOfferedPlace(tx, placeId))) {
+        throw new IssueError("No such place.", "place-not-found");
       }
       await this.audit.record(
         {
@@ -191,9 +189,10 @@ export class IssueFitService {
         tx,
       );
       await tx.issue.update({ where: { id: issueId }, data: { placeId } });
+      return this.issues.writtenIssue(tx, issueId);
     });
     this.logger.log(`Issue ${issueId} place changed`);
-    return this.issues.queuedIssue(handlerPersonId, issueId, "show");
+    return this.issues.viewOfWritten(written);
   }
 
   /**
@@ -210,7 +209,7 @@ export class IssueFitService {
     const targetDate = requireDay(input.targetDate);
     requireFindingTargetDate(input.kind, input.inspectedOn, input.targetDate);
 
-    await this.prisma.$transaction(async (tx) => {
+    const written = await this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
       const issue = await this.requireHandled(tx, issueId, handlerPersonId);
       if (issue.closedAt !== null || issue.status.meaning === "DONE") {
@@ -238,7 +237,7 @@ export class IssueFitService {
         existing.protocolAttachmentId === protocol.id &&
         formatDateColumn(issue.targetDate) === input.targetDate;
       if (unchanged) {
-        return;
+        return this.issues.writtenIssue(tx, issueId);
       }
 
       const data = {
@@ -289,9 +288,10 @@ export class IssueFitService {
         },
         tx,
       );
+      return this.issues.writtenIssue(tx, issueId);
     });
     this.logger.log(`Issue ${issueId} marked as a finding`);
-    return this.issues.queuedIssue(handlerPersonId, issueId, "show");
+    return this.issues.viewOfWritten(written);
   }
 
   /** Takes the mark off. The target date stays; a handler may clear it. */
@@ -299,14 +299,14 @@ export class IssueFitService {
     handlerPersonId: string,
     issueId: string,
   ): Promise<QueuedIssueView> {
-    await this.prisma.$transaction(async (tx) => {
+    const written = await this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
       await this.requireHandled(tx, issueId, handlerPersonId);
       const { count } = await tx.issueFinding.deleteMany({
         where: { issueId },
       });
       if (count === 0) {
-        return;
+        return this.issues.writtenIssue(tx, issueId);
       }
       await this.audit.record(
         {
@@ -319,9 +319,10 @@ export class IssueFitService {
         },
         tx,
       );
+      return this.issues.writtenIssue(tx, issueId);
     });
     this.logger.log(`Issue ${issueId} is no longer marked as a finding`);
-    return this.issues.queuedIssue(handlerPersonId, issueId, "show");
+    return this.issues.viewOfWritten(written);
   }
 
   /**

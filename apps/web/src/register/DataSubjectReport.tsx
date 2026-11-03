@@ -1670,13 +1670,20 @@ export function DataSubjectReport({
                                 ? "issues.entry.answerYes"
                                 : "issues.entry.answerNo",
                             ),
+                            // Each answer as it was recorded, a "no" as much
+                            // as a "yes": the copy states what is held, and
+                            // leaves out only what was never asked.
                             details: [
-                              issue.entry.pets === true
-                                ? t("issues.entry.petsShort")
-                                : null,
-                              issue.entry.masterKey === true
-                                ? t("issues.entry.masterKeyShort")
-                                : null,
+                              recordedFlag(
+                                issue.entry.pets,
+                                t("issues.entry.petsShort"),
+                                t("issues.entry.petsNone"),
+                              ),
+                              recordedFlag(
+                                issue.entry.masterKey,
+                                t("issues.entry.masterKeyShort"),
+                                t("issues.entry.masterKeyNone"),
+                              ),
                               issue.entry.note,
                             ]
                               .filter((part) => part !== null)
@@ -3377,4 +3384,13 @@ function Rows({
       </table>
     </div>
   );
+}
+
+/** A yes-or-no answer as recorded, or null for one never given. */
+function recordedFlag(
+  value: boolean | null,
+  yes: string,
+  no: string,
+): string | null {
+  return value === null ? null : value ? yes : no;
 }

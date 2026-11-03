@@ -212,6 +212,43 @@ describe("filing a report", () => {
     });
   });
 
+  it("sends no common area the board switched off after it was chosen", async () => {
+    const session = userEvent.setup();
+    const { rerender } = renderPanel({ places: PLACES });
+
+    await session.selectOptions(
+      screen.getByLabelText(/vad gäller det/i),
+      "type-water",
+    );
+    await session.selectOptions(
+      screen.getByLabelText(/gemensamt utrymme/i),
+      "place-lift",
+    );
+    // A re-read of the lists no longer offers the lift.
+    rerender(
+      <ReportIssuePanel
+        types={TYPES}
+        apartments={APARTMENTS}
+        places={PLACES.filter((place) => place.id !== "place-lift")}
+        onReported={() => undefined}
+      />,
+    );
+    expect(
+      screen.getByLabelText<HTMLSelectElement>(/gemensamt utrymme/i).value,
+    ).toBe("");
+
+    await session.type(screen.getByLabelText(/vad har hänt/i), "Hissen står.");
+    await session.click(
+      screen.getByRole("button", { name: /skicka anmälan/i }),
+    );
+
+    await waitFor(() => {
+      expect(reportIssue).toHaveBeenCalledWith(
+        expect.objectContaining({ typeId: "type-water", placeId: null }),
+      );
+    });
+  });
+
   it("offers no common area once an apartment is chosen, and sends none", async () => {
     const session = userEvent.setup();
     renderPanel({ places: PLACES });

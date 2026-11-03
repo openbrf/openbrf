@@ -117,34 +117,40 @@ export class IssuePlaceService {
    * queue is (ADR 0054), so a property manager is not told how many board-only
    * issues the lift has. A place nobody has named still appears, with zeros,
    * while it is switched on.
+   *
+   * One transaction at REPEATABLE READ, so the places and both counts come
+   * from one snapshot: an issue filed or closed between two statements at READ
+   * COMMITTED could otherwise leave a place with more open issues than issues.
+   * It only reads, and a transaction that only reads is never refused there
+   * for a serialization failure, so it needs no retry.
    */
   async counts(readerPersonId: string): Promise<IssuePlaceCount[]> {
-    const scope = await issueReaderScope(
-      this.prisma,
-      readerPersonId,
-      new Date(),
+    const { places, all, open } = await this.prisma.$transaction(
+      async (tx) => {
+        const scope = await issueReaderScope(tx, readerPersonId, new Date());
+        const handled = issuesHandledWhere(scope);
+        const places = await tx.issuePlace.findMany({
+          orderBy: PLACE_ORDER,
+          select: { id: true, name: true, active: true },
+        });
+        const all = await tx.issue.groupBy({
+          by: ["placeId"],
+          where: { ...handled, placeId: { not: null } },
+          _count: { _all: true },
+        });
+        const open = await tx.issue.groupBy({
+          by: ["placeId"],
+          where: {
+            ...handled,
+            placeId: { not: null },
+            status: { meaning: { not: "DONE" } },
+          },
+          _count: { _all: true },
+        });
+        return { places, all, open };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
-    const handled = issuesHandledWhere(scope);
-    const [places, all, open] = await Promise.all([
-      this.prisma.issuePlace.findMany({
-        orderBy: PLACE_ORDER,
-        select: { id: true, name: true, active: true },
-      }),
-      this.prisma.issue.groupBy({
-        by: ["placeId"],
-        where: { ...handled, placeId: { not: null } },
-        _count: { _all: true },
-      }),
-      this.prisma.issue.groupBy({
-        by: ["placeId"],
-        where: {
-          ...handled,
-          placeId: { not: null },
-          status: { meaning: { not: "DONE" } },
-        },
-        _count: { _all: true },
-      }),
-    ]);
     const countOf = (rows: typeof all, placeId: string): number =>
       rows.find((row) => row.placeId === placeId)?._count._all ?? 0;
     return places

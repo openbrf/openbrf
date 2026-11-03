@@ -200,15 +200,25 @@ export function ReportIssuePanel({
     },
   );
 
+  /*
+   * The choices as the form shows them. A draft outlives a re-read of the
+   * lists, and a choice the lists no longer hold (a type or place the board
+   * switched off, a home the reporter moved out of) matches no option, so its
+   * select shows none chosen. It is sent as none, as it is shown, rather than
+   * sent unseen and refused with nothing on the form to correct.
+   */
+  const typeId = offered(draft.typeId, types);
+  const apartmentId = offered(draft.apartmentId, apartments);
+  // A place is for what is not in a home: choosing an apartment leaves it out,
+  // so a report never carries both.
+  const placeId = apartmentId === "" ? offered(draft.placeId, places) : "";
+
   const onSend = (): void => {
     setFailedPhotos([]);
     void submit.submit({
-      typeId: draft.typeId,
-      apartmentId: draft.apartmentId === "" ? null : draft.apartmentId,
-      // A place is for what is not in a home: choosing an apartment leaves it
-      // out, so a report never carries both.
-      placeId:
-        draft.apartmentId !== "" || draft.placeId === "" ? null : draft.placeId,
+      typeId,
+      apartmentId: apartmentId === "" ? null : apartmentId,
+      placeId: placeId === "" ? null : placeId,
       location: draft.location.trim() === "" ? null : draft.location.trim(),
       description: draft.description.trim(),
       photos,
@@ -223,7 +233,7 @@ export function ReportIssuePanel({
     setPhotos((current) => [...current, ...chosen].slice(0, MAX_PHOTOS));
   };
 
-  const ready = draft.typeId !== "" && draft.description.trim() !== "";
+  const ready = typeId !== "" && draft.description.trim() !== "";
 
   if (types.length === 0) {
     return (
@@ -293,7 +303,7 @@ export function ReportIssuePanel({
           {t("issues.report.type")}
           <select
             name="issueType"
-            value={draft.typeId}
+            value={typeId}
             onChange={(event) => {
               setDraft({ ...draft, typeId: event.target.value });
             }}
@@ -313,7 +323,7 @@ export function ReportIssuePanel({
             {t("issues.report.apartment")}
             <select
               name="issueApartment"
-              value={draft.apartmentId}
+              value={apartmentId}
               onChange={(event) => {
                 setDraft({ ...draft, apartmentId: event.target.value });
               }}
@@ -329,12 +339,12 @@ export function ReportIssuePanel({
           </label>
         )}
 
-        {places.length === 0 || draft.apartmentId !== "" ? null : (
+        {places.length === 0 || apartmentId !== "" ? null : (
           <label className={LABEL}>
             {t("issues.report.place")}
             <select
               name="issuePlace"
-              value={draft.placeId}
+              value={placeId}
               onChange={(event) => {
                 setDraft({ ...draft, placeId: event.target.value });
               }}
@@ -464,4 +474,9 @@ export function ReportIssuePanel({
       </LockedForm>
     </Panel>
   );
+}
+
+/** `id` while `choices` still holds it, otherwise none (""). */
+function offered(id: string, choices: readonly { id: string }[]): string {
+  return choices.some((choice) => choice.id === id) ? id : "";
 }

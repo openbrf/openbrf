@@ -7,13 +7,18 @@ import {
   vi,
 } from "vite-plus/test";
 
-import { fetchIssuePlaceCounts, ISSUE_PLACE_COUNTS_TIMEOUT_MS } from "./issues";
+import {
+  fetchIssuePlaceCounts,
+  fetchIssuePlaces,
+  ISSUE_PLACES_TIMEOUT_MS,
+} from "./issues";
 
 /**
- * The place counts the queue reads together with the issues. The screen draws
- * neither until both are in, so the counts have a deadline over the whole read:
- * an answer whose body stalls after its headers would otherwise leave the queue
- * loading with no way to ask again.
+ * The places the issues screen reads with the reporter's lists, and the place
+ * counts the queue reads with the issues. Neither screen draws until all its
+ * reads are in, so both have a deadline over the whole read: an answer whose
+ * body stalls after its headers would otherwise leave the screen loading with
+ * no way to ask again.
  */
 
 const fetchMock = vi.fn();
@@ -40,7 +45,10 @@ function untilAborted(signal: AbortSignal | undefined): Promise<never> {
 
 const OFFLINE = { ok: false, failure: { status: 0, reason: "offline" } };
 
-describe("the place counts", () => {
+describe.each([
+  ["the place counts", fetchIssuePlaceCounts],
+  ["the places a reporter may name", fetchIssuePlaces],
+] as const)("%s", (_name, read) => {
   it("come back as a failed read when the body stalls after the headers", async () => {
     fetchMock.mockImplementation((_path: string, init: RequestInit) =>
       Promise.resolve({
@@ -50,12 +58,12 @@ describe("the place counts", () => {
       }),
     );
 
-    const result = fetchIssuePlaceCounts();
+    const result = read();
     let settled = false;
     void result.then(() => {
       settled = true;
     });
-    await vi.advanceTimersByTimeAsync(ISSUE_PLACE_COUNTS_TIMEOUT_MS - 1);
+    await vi.advanceTimersByTimeAsync(ISSUE_PLACES_TIMEOUT_MS - 1);
     expect(settled).toBe(false);
 
     await vi.advanceTimersByTimeAsync(1);
@@ -67,23 +75,21 @@ describe("the place counts", () => {
       untilAborted(init.signal ?? undefined),
     );
 
-    const result = fetchIssuePlaceCounts();
-    await vi.advanceTimersByTimeAsync(ISSUE_PLACE_COUNTS_TIMEOUT_MS);
+    const result = read();
+    await vi.advanceTimersByTimeAsync(ISSUE_PLACES_TIMEOUT_MS);
 
     expect(await result).toEqual(OFFLINE);
   });
 
   it("are taken in when they arrive in time, and leave no timer behind", async () => {
-    const places = [
-      { id: "p-lift", name: "Hiss", active: true, issues: 2, open: 1 },
-    ];
+    const places = [{ id: "p-lift", name: "Hiss" }];
     fetchMock.mockResolvedValue({
       status: 200,
       ok: true,
       json: () => Promise.resolve(places),
     });
 
-    expect(await fetchIssuePlaceCounts()).toEqual({ ok: true, value: places });
+    expect(await read()).toEqual({ ok: true, value: places });
     expect(vi.getTimerCount()).toBe(0);
   });
 });

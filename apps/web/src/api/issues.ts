@@ -377,8 +377,14 @@ export function fetchReportableTypes(): Promise<
 }
 
 /** The common-area places a report may name. */
+/**
+ * The places a reporter may name. Bounded as the place counts are, by
+ * `ISSUE_PLACES_TIMEOUT_MS`: the issues screen waits for this read with the
+ * others before it shows the report form, and files a report without a place
+ * when it fails.
+ */
 export function fetchIssuePlaces(): Promise<ApiResult<IssuePlaceChoice[]>> {
-  return apiRequest("GET", "/api/issues/places");
+  return readPlaces("/api/issues/places");
 }
 
 export function fetchOwnApartments(): Promise<ApiResult<IssueApartment[]>> {
@@ -626,31 +632,35 @@ export function withdrawOwnEntry(
 }
 
 /**
- * How long the queue waits for the whole of the place counts, body included.
- * The counts are read with the queue and the screen draws neither until both
- * are in, so a server that never answers, or stops halfway through the answer,
- * would leave it loading with no retry; past this the read comes back as a
- * failed one and the screen goes on without places. The whole read is bounded,
- * not only the wait for the headers as `answerTimeoutMs` would: the answer is a
- * short list, so one still arriving after this is one that has stalled.
+ * How long a screen waits for the whole of a places read, body included. The
+ * issues screen reads the places with the reporter's lists, and the queue reads
+ * the place counts with the issues, and neither draws until all are in, so a
+ * server that never answers, or stops halfway through the answer, would leave
+ * it loading with no retry; past this the read comes back as a failed one and
+ * the screen goes on without places. The whole read is bounded, not only the
+ * wait for the headers as `answerTimeoutMs` would: the answer is a short list,
+ * so one still arriving after this is one that has stalled.
  */
-export const ISSUE_PLACE_COUNTS_TIMEOUT_MS = 10_000;
+export const ISSUE_PLACES_TIMEOUT_MS = 10_000;
 
-/** The places with how many issues this handler may open name each. */
-export async function fetchIssuePlaceCounts(): Promise<
-  ApiResult<IssuePlaceCount[]>
-> {
+/** A GET of a places list under `ISSUE_PLACES_TIMEOUT_MS`. */
+async function readPlaces<T>(path: string): Promise<ApiResult<T>> {
   const deadline = new AbortController();
   const timer = setTimeout(() => {
     deadline.abort();
-  }, ISSUE_PLACE_COUNTS_TIMEOUT_MS);
+  }, ISSUE_PLACES_TIMEOUT_MS);
   try {
-    return await apiRequest("GET", "/api/issue-queue/places", undefined, {
+    return await apiRequest("GET", path, undefined, {
       signal: deadline.signal,
     });
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** The places with how many issues this handler may open name each. */
+export function fetchIssuePlaceCounts(): Promise<ApiResult<IssuePlaceCount[]>> {
+  return readPlaces("/api/issue-queue/places");
 }
 
 export function setIssuePlace(input: {
