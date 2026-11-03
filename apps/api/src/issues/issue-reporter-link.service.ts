@@ -14,6 +14,7 @@ import {
 import { failureName } from "../logging/failure";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { issueReporterLinkMail } from "../mail/templates";
+import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import {
   type ReporterIssueMessageView,
   toReporterView,
@@ -24,7 +25,6 @@ import {
   extendReporterLink,
   type LiveReporterLink,
   liveReporterLinkByDigest,
-  REPORTER_LINK_DAYS_AFTER_LAST_MESSAGE,
 } from "./issue-reporter-link";
 import {
   hasReporterLinkTokenForm,
@@ -32,6 +32,12 @@ import {
   reporterLinkDigest,
 } from "./issue-reporter-link-token";
 import { IssueError } from "./issue.error";
+
+/**
+ * How long the transaction that sends a link mail may run: the mail driver's
+ * connection, greeting and socket timeouts (10 s, 10 s, 20 s) with room over.
+ */
+const MAIL_TRANSACTION_MS = 60_000;
 
 /** The queue a public report's link mail waits on. */
 export const REPORTER_LINK_QUEUE = "issue-reporter-link";
@@ -212,6 +218,12 @@ export class IssueReporterLinkService implements OnModuleInit {
    * digest is kept, so the first token cannot be sent again. The reporter
    * then holds two mails, of which the later one works.
    *
+   * The restriction is read twice: before a token is minted, to leave a
+   * restricted address alone, and again under the legal-hold registry lock
+   * that the send and the stamp run under, so a restriction granted in
+   * between is seen. A restriction granted while the mail server takes the
+   * message waits for it.
+   *
    * Answers whether a mail went. Nothing is mailed, and no link issued, for a
    * report that no longer has an address, that already has its link, that a
    * handler withdrew the link of, that closed long enough ago that a link
@@ -288,21 +300,30 @@ export class IssueReporterLinkService implements OnModuleInit {
 
       const token = mintReporterLinkToken();
       const tokenDigest = reporterLinkDigest(token);
+      /*
+       * Every instant that decides what the link opens is the database's:
+       * `LIVE` reads `now()`, so the lifetime is set from it too. A new link
+       * is created already expired and then extended by the one statement
+       * `extendReporterLink` is, in this transaction, so no reader sees it so.
+       */
       const link =
         existing === null
           ? await tx.issueReporterLink.create({
-              data: {
-                issueId,
-                tokenDigest,
-                expiresAt: daysFromNow(REPORTER_LINK_DAYS_AFTER_LAST_MESSAGE),
-              },
+              data: { issueId, tokenDigest, expiresAt: new Date(0) },
               select: { id: true },
             })
           : await tx.issueReporterLink.update({
               where: { id: existing.id },
-              data: { tokenDigest, issuedAt: new Date() },
+              data: { tokenDigest },
               select: { id: true },
             });
+      if (existing === null) {
+        await extendReporterLink(tx, link.id);
+      } else {
+        await tx.$executeRaw`
+          UPDATE "issue_reporter_link" SET "issuedAt" = now()
+          WHERE "id" = ${link.id}`;
+      }
 
       return {
         linkId: link.id,
@@ -310,6 +331,7 @@ export class IssueReporterLinkService implements OnModuleInit {
         tokenDigest,
         typeName: issue.type.name,
         emailCipher: issue.reporterEmailCipher,
+        emailIndex: issue.reporterEmailIndex,
       };
     });
 
@@ -317,64 +339,84 @@ export class IssueReporterLinkService implements OnModuleInit {
       return false;
     }
 
-    try {
-      await this.mail.send({
-        to: await this.encryption.decrypt(
-          "issue.reporterEmail",
-          issued.emailCipher,
-        ),
-        // The language they read the form in, or the association's own: a
-        // reporter without an account has no profile to name one.
-        locale,
-        template: issueReporterLinkMail,
-        props: {
-          typeName: issued.typeName,
-          linkUrl: reporterLinkUrl(this.env.APP_URL, issued.token),
-        },
-      });
-    } catch (error) {
-      if (error instanceof MailNotConfiguredError) {
-        this.logger.warn(
-          `Issue ${issueId} is filed but its private link was not mailed: this instance has no SMTP settings.`,
-        );
-        return false;
-      }
-      // The class of the failure only: a rejection can quote the address
-      // back, and the message carried the token.
-      this.logger.error(
-        `The private link of issue ${issueId} could not be mailed: ${failureName(error)}`,
-      );
-      throw error;
-    }
+    /*
+     * The send and the stamp under the registry lock, which a restriction's
+     * grant takes too: a restriction is granted before the check below or
+     * waits until the mail server has taken the message, and a check made in
+     * the transaction above would leave a gap in which the mail still goes to
+     * an address that was restricted meanwhile. The lock is held as long as
+     * the send can take, which the transaction's time limit allows for.
+     */
+    const mailed = await this.prisma.$transaction(
+      async (tx) => {
+        await lockLegalHoldRegistry(tx);
+        if (await this.isRestricted(tx, issued.emailIndex)) {
+          return false;
+        }
 
-    await this.prisma.$transaction(async (tx) => {
-      // Only the digest this delivery minted: a later delivery that replaced
-      // it owns the stamp.
-      const { count } = await tx.issueReporterLink.updateMany({
-        where: {
-          id: issued.linkId,
-          tokenDigest: issued.tokenDigest,
-          mailedAt: null,
-        },
-        data: { mailedAt: new Date() },
-      });
-      if (count === 0) {
-        return;
-      }
-      await this.audit.record(
-        {
-          action: "ISSUE_REPORTER_LINK_ISSUED",
-          channel: "SYSTEM",
-          // Nobody clicked anything: a report arrived with an address.
-          actorPersonId: null,
-          targetKind: "issue",
-          targetId: issueId,
-          // The link, never the token, its digest or the address.
-          context: { linkId: issued.linkId },
-        },
-        tx,
-      );
-    });
+        try {
+          await this.mail.send({
+            to: await this.encryption.decrypt(
+              "issue.reporterEmail",
+              issued.emailCipher,
+            ),
+            // The language they read the form in, or the association's own: a
+            // reporter without an account has no profile to name one.
+            locale,
+            template: issueReporterLinkMail,
+            props: {
+              typeName: issued.typeName,
+              linkUrl: reporterLinkUrl(this.env.APP_URL, issued.token),
+            },
+          });
+        } catch (error) {
+          if (error instanceof MailNotConfiguredError) {
+            this.logger.warn(
+              `Issue ${issueId} is filed but its private link was not mailed: this instance has no SMTP settings.`,
+            );
+            return false;
+          }
+          // The class of the failure only: a rejection can quote the address
+          // back, and the message carried the token.
+          this.logger.error(
+            `The private link of issue ${issueId} could not be mailed: ${failureName(error)}`,
+          );
+          throw error;
+        }
+
+        // Only the digest this delivery minted: a later delivery that
+        // replaced it owns the stamp.
+        const { count } = await tx.issueReporterLink.updateMany({
+          where: {
+            id: issued.linkId,
+            tokenDigest: issued.tokenDigest,
+            mailedAt: null,
+          },
+          data: { mailedAt: new Date() },
+        });
+        if (count === 0) {
+          return true;
+        }
+        await this.audit.record(
+          {
+            action: "ISSUE_REPORTER_LINK_ISSUED",
+            channel: "SYSTEM",
+            // Nobody clicked anything: a report arrived with an address.
+            actorPersonId: null,
+            targetKind: "issue",
+            targetId: issueId,
+            // The link, never the token, its digest or the address.
+            context: { linkId: issued.linkId },
+          },
+          tx,
+        );
+        return true;
+      },
+      { timeout: MAIL_TRANSACTION_MS, maxWait: 20_000 },
+    );
+    if (!mailed) {
+      return false;
+    }
 
     this.logger.log(`Mailed the private link of issue ${issueId}`);
     return true;
@@ -621,7 +663,3 @@ export function reporterLinkUrl(appUrl: string, token: string): string {
  * else in the address.
  */
 export const REPORTER_LINK_PATH = "/arende";
-
-function daysFromNow(days: number): Date {
-  return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
-}

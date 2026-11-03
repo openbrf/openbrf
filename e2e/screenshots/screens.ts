@@ -73,6 +73,15 @@ export type Target = Where & {
    */
   readonly first?: true;
   /**
+   * Take the last match: the newest, where the entry opens a row the queue
+   * lists oldest first within a status.
+   *
+   * For a row the entry has just created, on a stack that was already up and
+   * holds older rows the same words opened. Not for the screens a first walk
+   * and a repeated one must photograph alike by any row.
+   */
+  readonly last?: true;
+  /**
    * Look only inside the settings card whose level-2 heading reads exactly this.
    *
    * A section of the settings screen carries several cards on one route, so a
@@ -2477,11 +2486,13 @@ export const SCREENS: readonly Screen[] = [
     goto: appPath("/board/issues"),
     prepare: [
       { reportIssuePublicly: PUBLIC_REPORT },
-      // The first, for the reason the entry above gives.
+      // The last, which is this walk's report: the queue lists a status
+      // oldest first, and a stack that was already up holds the reports of
+      // earlier walks, which would take this walk's note and answer.
       {
         click: {
           text: new RegExp(`^Hantera ${PUBLIC_REPORT.type}:`),
-          first: true,
+          last: true,
         },
       },
       { see: { text: /^Anmälaren har inget konto och läser svaren/ } },

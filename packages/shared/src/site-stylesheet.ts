@@ -832,6 +832,7 @@ export const SITE_LAYOUT_STYLESHEET = `.site {
 
 .site-issue-facts dd {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .site-issue-date {

@@ -293,7 +293,11 @@ function locate(page: Page, target: Target): Locator {
           : panelOf(page, target.within),
     target,
   );
-  return target.first === true ? found.first() : found;
+  return target.first === true
+    ? found.first()
+    : target.last === true
+      ? found.last()
+      : found;
 }
 
 /** A route the walk keeps answering, with the matcher it was given under. */
@@ -748,7 +752,7 @@ async function reportIssuePublicly(
       await api.setPublicIssueReporting(board, stack.baseUrl, false);
     }
   }
-  await waitForReporterLink(board, before);
+  await waitForReporterLink(board, before, report);
 }
 
 /**
@@ -757,16 +761,26 @@ async function reportIssuePublicly(
  * The link is issued and mailed by a background job after the report is
  * filed, and the handling reads where it stands once, when the panel opens: a
  * walk that went straight on would photograph a link that is not there yet.
+ * Only a report that was not in the queue before, and that says what this
+ * walk's report says, counts: another report going live meanwhile must not end
+ * the wait.
  */
 async function waitForReporterLink(
   board: APIRequestContext,
   known: ReadonlySet<string>,
+  report: PubliclyReportedIssue,
 ): Promise<void> {
   const deadline = Date.now() + 30_000;
   for (;;) {
     const queue = await api.listIssueQueue(board, stack.baseUrl);
     if (
-      queue.some((row) => !known.has(row.id) && row.reporter.link === "live")
+      queue.some(
+        (row) =>
+          !known.has(row.id) &&
+          row.typeName === report.type &&
+          row.description === report.description &&
+          row.reporter.link === "live",
+      )
     ) {
       return;
     }

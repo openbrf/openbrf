@@ -33,6 +33,7 @@ import {
   type IssueReporterLinkMailProps,
   issueReporterLinkMail,
 } from "../mail/templates";
+import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   createIssueTypeFixture,
@@ -956,6 +957,66 @@ describe("D. rate limits and abuse", () => {
       });
       expect(await links.deliver(id)).toBe(false);
     } finally {
+      await prisma.person.update({
+        where: { id: personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
+  it("D6: a restriction granted while the delivery waits for the registry lock is seen, and nothing is mailed", async () => {
+    const email = `rl-restricted-late-${suffix}@exempel.se`;
+    const sealed = await encryption.encrypt("person.email", email);
+    const personId = `rl-restricted-late-${suffix}`;
+    await prisma.person.create({
+      data: {
+        id: personId,
+        firstName: "Rolf",
+        lastName: `Sen${suffix}`,
+        emailCipher: sealed.cipher,
+        emailIndex: sealed.index,
+      },
+    });
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Begränsad senare",
+      reporterName: null,
+      reporterEmail: email,
+    });
+    const before = sent.length;
+
+    // Stands in for a restriction's grant, which holds the registry lock until
+    // it commits: the delivery gets to the lock and waits there.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let locked: () => void = () => undefined;
+    const lockTaken = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const granting = prisma.$transaction(async (tx) => {
+      await lockLegalHoldRegistry(tx);
+      await tx.person.update({
+        where: { id: personId },
+        data: { processingRestrictedAt: new Date() },
+      });
+      locked();
+      await held;
+    });
+    try {
+      await lockTaken;
+      const delivering = links.deliver(id);
+      await new Promise((done) => setTimeout(done, 500));
+      release();
+      await granting;
+
+      expect(await delivering).toBe(false);
+      expect(sent.length).toBe(before);
+    } finally {
+      release();
+      await granting.catch(() => undefined);
       await prisma.person.update({
         where: { id: personId },
         data: { processingRestrictedAt: null },

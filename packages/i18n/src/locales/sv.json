@@ -148,7 +148,7 @@
       "heading": "Tack för din anmälan",
       "body": "Föreningen har tagit emot din anmälan ({{type}}). Via länken nedan kan du följa ärendet, läsa föreningens svar och skriva till föreningen.",
       "action": "Öppna ditt ärende",
-      "keepPrivate": "Länken är personlig: den som har den kan läsa och skriva i ärendet, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats."
+      "keepPrivate": "Länken är personlig: den som har den kan läsa och skriva i ärendet, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats, eller 365 dagar efter det senaste meddelandet så länge ärendet är öppet."
     }
   },
   "sms": {
@@ -3534,7 +3534,7 @@
       "messageHint": "Skriv inga personnummer. Det går inte att bifoga filer här.",
       "send": "Skicka",
       "closedNotice": "Ärendet är avslutat och tar inte emot fler meddelanden. Har du något nytt att anmäla gör du en ny anmälan på föreningens webbplats.",
-      "private": "Länken är personlig, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats.",
+      "private": "Länken är personlig, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats, eller ett år efter det senaste meddelandet så länge ärendet är öppet.",
       "notFoundTitle": "Länken öppnar inget ärende",
       "notFoundBody": "Länken kan ha gått ut eller dragits tillbaka. Kontakta föreningen via webbplatsen om du behöver hjälp med ditt ärende.",
       "notice": {

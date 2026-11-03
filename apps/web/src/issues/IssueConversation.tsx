@@ -51,8 +51,16 @@ const REVOKE_FAILURES: Readonly<Record<string, TranslationKey>> = {
 const ATTACHMENT_TYPES =
   "image/png,image/jpeg,image/webp,image/gif,application/pdf";
 
-/** The refusals that mean the issue on screen is out of date. */
-const STALE_REASONS: ReadonlySet<string> = new Set(["issue-not-found"]);
+/**
+ * The refusals that mean the issue on screen is out of date: it is no longer
+ * the reader's, or its reporter can no longer be written to or its link no
+ * longer withdrawn, which the queue's snapshot of the link had as otherwise.
+ */
+const STALE_REASONS: ReadonlySet<string> = new Set([
+  "issue-not-found",
+  "no-reporter",
+  "no-reporter-link",
+]);
 
 /** Everything the panel reads, applied to the screen in one step. */
 interface Read {

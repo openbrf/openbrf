@@ -463,6 +463,26 @@ describe("the conversation with the reporter", () => {
     expect(screen.queryByText("Kommer någon i dag?")).toBeNull();
   });
 
+  it("tells the queue when the reporter can no longer be written to", async () => {
+    sendIssueMessage.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "no-reporter" },
+    });
+    const onStale = vi.fn();
+    const session = userEvent.setup();
+    render(<IssueConversation issue={issue()} onStale={onStale} />);
+
+    await session.type(
+      await screen.findByLabelText("Vatten: meddelande till anmälaren"),
+      "Hej",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    await waitFor(() => {
+      expect(onStale).toHaveBeenCalled();
+    });
+  });
+
   it("tells the queue when the issue is no longer the reader's", async () => {
     sendIssueMessage.mockResolvedValue({
       ok: false,
