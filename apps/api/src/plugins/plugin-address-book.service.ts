@@ -355,9 +355,11 @@ export class PluginAddressBookService {
    * person is both here and in `residents()`. None where the plugin serves no
    * class. `declared` is the manifest's classes, the host's to pass; those the
    * install approved are read in the same repeatable-read transaction as the
-   * persons, as for {@link caller}, so a class withdrawn while the request
-   * runs cannot leave a person listed by a class the install no longer
-   * approves. Contact details on the terms of `residents()`.
+   * persons, as for {@link caller}. A class withdrawn while the request runs
+   * does not cancel the snapshot, so a person it already served may still be
+   * listed; what the one snapshot rules out is a person who joined the class
+   * after the withdrawal being listed on the consent from before it. Contact
+   * details on the terms of `residents()`.
    */
   async nonResidents(
     pluginId: string,
