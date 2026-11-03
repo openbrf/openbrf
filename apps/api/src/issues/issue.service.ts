@@ -49,6 +49,7 @@ import {
   knownFaultOf,
   knownFaultShownWhere,
   type KnownFaultView,
+  typeNameForTheHouse,
 } from "./issue-known-fault";
 import { type IssueTypeView, IssueTypeService } from "./issue-type.service";
 import {
@@ -803,7 +804,9 @@ export class IssueService {
     });
     return issues.flatMap((issue) => {
       const view = knownFaultOf(issue);
-      return view === null ? [] : [{ ...view, typeName: issue.type.name }];
+      return view === null
+        ? []
+        : [{ ...view, typeName: typeNameForTheHouse(issue.type) }];
     });
   }
 

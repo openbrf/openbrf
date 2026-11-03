@@ -288,7 +288,11 @@ wrote this record:
    in the reporter's own language. And whether a reporter sees that a case waits
    on them.
 2. **Which status a reopened case enters**: the default `IN_PROGRESS` status, or
-   the default `NEW` one, which puts it back among the unassigned.
+   the default `NEW` one, which puts it back among the unassigned. Until the
+   owner decides, a reporter's reply reopens a case into the default
+   `IN_PROGRESS` status, where it stays with its assignee; the change that
+   built reopening took that as its interim answer. A handler reopening a case
+   names the status as for any other move.
 3. **Whether a reporter's reply ends a wait on the reporter** by itself, or only
    alerts the assignee.
 4. **An administrator without a board seat and a type handled by the board

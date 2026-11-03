@@ -353,6 +353,18 @@ locally the application runs from source beside the PostgreSQL that
       is refused while it carries a personal identity number. No row stores a
       name, nothing of it is mailed, and no action offers it to a connected app
       or the AI package (ADR 0056)
+- [x] After an issue closes: a reply from its reporter within 30 days of
+      closing reopens it, back to its type's in-progress status with its
+      outcome cleared, and after that the reporter is offered a new report
+      linked to the old one. A handler merges a duplicate into another issue,
+      which closes it as a duplicate; its reporter keeps their own report,
+      follows where the other issue stands, and is written to with every other
+      reporter of the merged reports, each on their own report, so nobody reads
+      another's report and a protected reporter stays masked. A handler
+      publishes a short known fault on an open issue, signed by the board or
+      the property manager, which signed-in residents see on their report form
+      and on the post the issue came from, never on the public website and
+      never on an issue the board keeps to itself (ADR 0054)
 - [x] One page, one audience: the board's work on its own pages under the
       Styrelsen section, each signed on its own heading, the overview as the
       house's notice board with one line for whoever works a queue, and a phone

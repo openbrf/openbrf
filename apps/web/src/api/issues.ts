@@ -143,7 +143,8 @@ export interface KnownFault {
   body: string;
   signature: IssueSignature;
   publishedAt: string;
-  typeName: string;
+  /** Null on a type only handlers report, whose name is the board's own. */
+  typeName: string | null;
 }
 
 /**

@@ -63,9 +63,12 @@ const personIds = people.map((entry) => entry.personId);
 const typeIds = {
   plain: `il-type-plain-${suffix}`,
   boardOnly: `il-type-board-${suffix}`,
+  internal: `il-type-internal-${suffix}`,
 };
 let plain: IssueTypeFixture;
 let boardOnly: IssueTypeFixture;
+/** A type only handlers report: one of the board's internal categories. */
+let internal: IssueTypeFixture;
 
 let ipCounter = 0;
 function inject(options: {
@@ -273,6 +276,11 @@ beforeAll(async () => {
     name: `Försäkring ${suffix}`,
     reporters: ["RESIDENTS"],
     handledBy: "BOARD",
+  });
+  internal = await createIssueTypeFixture(prisma, {
+    id: typeIds.internal,
+    name: `Intern kategori ${suffix}`,
+    reporters: ["HANDLERS"],
   });
 
   for (const entry of people) {
@@ -789,6 +797,26 @@ describe("a known fault", () => {
     // is told of none.
     const outside = await as(outsider, "GET", "/api/issues/known-faults");
     expect(outside.statusCode).toBe(403);
+  });
+
+  it("withholds the name of a type only handlers report from the house", async () => {
+    const NOTICE = notice();
+    const issueId = await filed(internal, null);
+    const published = await as(
+      board,
+      "PUT",
+      `/api/issue-queue/${issueId}/known-fault`,
+      { body: NOTICE },
+    );
+    expect(published.statusCode).toBe(200);
+
+    const faults = await as(resident, "GET", "/api/issues/known-faults");
+    expect(
+      faults
+        .json<{ body: string; typeName: string | null }[]>()
+        .find((fault) => fault.body === NOTICE),
+    ).toMatchObject({ typeName: null });
+    expect(faults.body.includes(`Intern kategori ${suffix}`)).toBe(false);
   });
 
   it("is shown on the post its issue was reported from, to every reader of the post", async () => {

@@ -1,4 +1,4 @@
-import type { IssueSignature } from "@openbrf/shared";
+import type { IssueReporterGroup, IssueSignature } from "@openbrf/shared";
 
 import type { Prisma } from "../generated/prisma/client";
 import type { PrismaService } from "../database/prisma.service";
@@ -24,7 +24,13 @@ export interface KnownFaultView {
   body: string;
   signature: IssueSignature;
   publishedAt: string;
-  typeName: string;
+  /**
+   * The type's name, which is the board's own word for what kind of fault it
+   * is; null on a type only handlers report, whose name is one of the board's
+   * internal categories and shown to nobody who does not handle issues
+   * (ADR 0054).
+   */
+  typeName: string | null;
 }
 
 /**
@@ -49,7 +55,7 @@ export const KNOWN_FAULT_SELECT = {
   knownFault: true,
   knownFaultSignature: true,
   knownFaultPublishedAt: true,
-  type: { select: { name: true } },
+  type: { select: { name: true, reporters: true } },
 } as const;
 
 /** A known fault's notice, or null when the issue carries none. */
@@ -95,4 +101,17 @@ export async function readKnownFaults(
     }
   }
   return shown;
+}
+
+/**
+ * A type's name as the house may be told it: null for a type only handlers
+ * report, whose name is shown to nobody who does not handle issues.
+ */
+export function typeNameForTheHouse(type: {
+  name: string;
+  reporters: readonly IssueReporterGroup[];
+}): string | null {
+  return type.reporters.some((group) => group !== "HANDLERS")
+    ? type.name
+    : null;
 }

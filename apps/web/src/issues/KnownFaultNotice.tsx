@@ -23,7 +23,7 @@ export function KnownFaultNotice({
     body: string;
     signature: IssueSignature;
     publishedAt: string;
-    typeName?: string;
+    typeName?: string | null;
   };
 }): ReactElement {
   const { t } = useTranslation();
@@ -31,7 +31,9 @@ export function KnownFaultNotice({
     <div className="flex flex-col gap-1 rounded-control border-l-4 border-info bg-info-soft px-3 py-2 text-ink">
       <p className="flex flex-wrap items-baseline gap-x-2 text-small">
         <span className="font-semibold">{t("issues.knownFault.label")}</span>
-        {fault.typeName === undefined ? null : <span>{fault.typeName}</span>}
+        {fault.typeName === undefined || fault.typeName === null ? null : (
+          <span>{fault.typeName}</span>
+        )}
       </p>
       <p className="text-small whitespace-pre-line">{fault.body}</p>
       <p className={HINT}>
@@ -72,7 +74,9 @@ export function KnownFaultsList({
       <p className={HINT}>{t("issues.knownFault.listHint")}</p>
       <ul className="flex flex-col gap-2">
         {faults.map((fault) => (
-          <li key={`${fault.publishedAt}-${fault.typeName}-${fault.body}`}>
+          <li
+            key={`${fault.publishedAt}-${fault.typeName ?? ""}-${fault.body}`}
+          >
             <KnownFaultNotice fault={fault} />
           </li>
         ))}
