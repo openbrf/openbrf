@@ -1,5 +1,11 @@
 import { ISSUE_TEXT_RETENTION_YEARS } from "@openbrf/shared";
-import { useEffect, useState, type FormEvent, type ReactElement } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import { fetchIssueRetention, saveIssueRetention } from "../api/issues";
@@ -33,6 +39,10 @@ export function IssueRetentionPanel(): ReactElement {
   const [reads, setReads] = useState(0);
   /** The board's entry, or null while it shows what was read. */
   const [draft, setDraft] = useState<string | null>(null);
+  /** Counts the board's edits, so an answer can tell its entry was changed. */
+  const edits = useRef(0);
+  /** The edit count at the entry being saved. */
+  const sent = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -57,7 +67,11 @@ export function IssueRetentionPanel(): ReactElement {
       years: saved.years,
       failed: false,
     }));
-    setDraft(null);
+    // The answer is about the number that was sent. An entry typed while it
+    // was on its way stands, and nothing is said to have been saved for it.
+    if (edits.current === sent.current) {
+      setDraft(null);
+    }
   });
 
   const stored = loaded?.years ?? null;
@@ -75,6 +89,7 @@ export function IssueRetentionPanel(): ReactElement {
     if (outOfRange || save.pending) {
       return;
     }
+    sent.current = edits.current;
     void save.submit({ years: parsed });
   };
 
@@ -129,10 +144,12 @@ export function IssueRetentionPanel(): ReactElement {
               step={1}
               value={typed}
               onChange={(event) => {
+                edits.current += 1;
                 setDraft(event.target.value);
                 // A refusal or a confirmation is about the number that was
-                // sent; a new entry clears it.
-                if (save.state.kind !== "idle" && !save.pending) {
+                // sent; a new entry clears it, also while the answer is still
+                // on its way, which then no longer sets either.
+                if (save.state.kind !== "idle") {
                   save.reset();
                 }
               }}

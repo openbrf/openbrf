@@ -225,6 +225,8 @@ export class IssueRedactionService {
     await this.media.remove(fileId, handlerPersonId, "WEB", {
       // A name somebody gave a photograph of their home is free text too.
       recordFileName: false,
+      // A storage failure fails the redaction, and the file stays to retry.
+      bytesFirst: true,
       keep: async (tx) => {
         await lockIssueForHandling(tx, issueId);
         refuseHeld(await requireHandled(tx, issueId, handlerPersonId));

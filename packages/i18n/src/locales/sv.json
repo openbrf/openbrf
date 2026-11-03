@@ -3880,7 +3880,7 @@
       "description": "Beskrivning",
       "location": "Plats",
       "photos": "Anmälarens bilder",
-      "nothingLeft": "Det finns ingen fritext kvar att ta bort.",
+      "nothingLeft": "Beskrivningen, platsen och anmälarens foton är redan borttagna.",
       "confirm": "Ta bort för gott",
       "keep": "Behåll",
       "confirmHint": "Det går inte att ångra. Ingenting sparar texten eller filen, och ingenting skrivs i dess ställe.",

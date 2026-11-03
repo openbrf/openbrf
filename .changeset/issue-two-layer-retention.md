@@ -12,9 +12,11 @@ An issue now has two layers, and only one of them is kept for good.
   what makes a repeat fault countable years later.
 - **What goes.** The description, the free-text location, the messages, the
   internal notes and every photograph and handler's file, which are removed
-  from storage and not only from the issue. A nightly job removes them a number
-  of years after the issue closed. The board sets that number under Settings,
-  from one to ten years; a new instance and an upgraded one start at two. The
+  from storage and not only from the issue. A file whose stored copy cannot be
+  removed stays on the issue, and so does the text: the next night tries again,
+  and an erasure request stays open until it has succeeded. A nightly job
+  removes them a number of years after the issue closed. The board sets that
+  number under Settings, from one to ten years; a new instance and an upgraded one start at two. The
   issue then says, with the date, that its free text was removed.
 - **Legal hold on an issue.** A handler can place a legal hold on an issue, and
   release it again. While it stands, the issue keeps its free text past its

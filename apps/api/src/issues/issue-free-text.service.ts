@@ -47,10 +47,12 @@ export type FreeTextRemovalOutcome =
  * issue erasure job both do, written once so the two cannot disagree about
  * what goes.
  *
- * The files first, one transaction each, through `MediaService.remove`: the
- * row and its entry are written together and the bytes are removed from storage
- * after the commit, which is the order in which a failure leaves nothing a
- * person can still read. The join rows go with the file by their cascade. Then
+ * The files first, one transaction each, through `MediaService.remove` with
+ * `bytesFirst`: the row, its entry and the removal of the bytes from storage
+ * stand or fall together. A storage failure rolls the file back onto the issue
+ * and throws, so the text stays and the issue is selected again on the next
+ * run, rather than the erasure being recorded while the bytes remain with
+ * nothing left to name them. The join rows go with the file by their cascade. Then
  * the text, in one transaction with the entry that records it: the description
  * emptied, the location cleared, every issue message and internal note deleted,
  * and `freeTextRemovedAt` written.
@@ -87,6 +89,9 @@ export class IssueFreeTextService {
       let kept = false;
       const removed = await this.media.remove(fileId, null, "SYSTEM", {
         recordFileName: false,
+        // A file whose object could not be removed stays on the issue, and so
+        // does the erasure: the issue is selected again tomorrow.
+        bytesFirst: true,
         keep: async (tx) => {
           kept = !(await removal.stillDue(tx));
           return kept;

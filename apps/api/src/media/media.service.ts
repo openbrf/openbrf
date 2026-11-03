@@ -804,6 +804,15 @@ export class MediaService {
    * issue (ADR 0057). Called on the deleting transaction once the row is gone,
    * so the caller's entry stands only if the file went.
    *
+   * `bytesFirst` is for a caller that carries out an erasure and must not
+   * record it as done while the object stands: the objects are removed on the
+   * deleting transaction, after the row and its entry are written and before
+   * the commit. A storage failure throws and rolls the row back, so the row
+   * stays the one record a later attempt finds the object by, and the locks
+   * `keep` took are held for as long as the removal takes. If the commit itself
+   * then fails the row stands without its object, and a retry removes the row
+   * (removing an absent object succeeds).
+   *
    * Answers whether the file was removed: false for one already gone and for
    * one `keep` kept.
    */
@@ -818,6 +827,7 @@ export class MediaService {
         file: RemovableFile,
       ) => Promise<boolean>;
       onRemoved?: (tx: Prisma.TransactionClient) => Promise<void>;
+      bytesFirst?: boolean;
     } = {},
   ): Promise<boolean> {
     const known = await this.prisma.mediaFile.findUnique({
@@ -868,10 +878,23 @@ export class MediaService {
         },
         tx,
       );
+      if (options.bytesFirst === true) {
+        // A failure here rolls the row and its entry back: the row is still
+        // the record a retry finds the object by.
+        await this.storage.remove(held.storageKey);
+        if (held.unencryptedStorageKey !== null) {
+          await this.storage.remove(held.unencryptedStorageKey);
+        }
+      }
       return held;
     });
     if (file === null) {
       return false;
+    }
+
+    if (options.bytesFirst === true) {
+      // Both objects went on the transaction, from the row it read there.
+      return true;
     }
 
     await this.storage.remove(file.storageKey).catch((cause: unknown) => {

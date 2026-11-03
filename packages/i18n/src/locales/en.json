@@ -3880,7 +3880,7 @@
       "description": "Description",
       "location": "Location",
       "photos": "The reporter's photographs",
-      "nothingLeft": "Nothing of the free text is left to remove.",
+      "nothingLeft": "The description, the location and the reporter's photographs are already removed.",
       "confirm": "Remove for good",
       "keep": "Keep",
       "confirmHint": "This cannot be undone. Nothing keeps the text or the file, and nothing is written in its place.",

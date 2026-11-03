@@ -3,7 +3,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -65,7 +65,7 @@ const resident = {
 /** A reporter under a legal hold of their own. */
 const heldReporterId = `ir-held-${suffix}`;
 /** Former residents, whose erasure a test grants. */
-const formerIds = [1, 2, 3].map((n) => `ir-former-${String(n)}-${suffix}`);
+const formerIds = [1, 2, 3, 4].map((n) => `ir-former-${String(n)}-${suffix}`);
 const personIds = [
   board.personId,
   resident.personId,
@@ -728,6 +728,38 @@ describe("redaction", () => {
     expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(6);
   });
 
+  it("keeps a file and writes no entry when its object cannot be removed, and removes it on a retry", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: null,
+    });
+    const redact = () =>
+      inject({
+        method: "POST",
+        url: `/api/issue-queue/${issue.id}/redactions`,
+        headers: { cookie: boardCookie },
+        payload: { target: "photo", id: issue.photo.id },
+      });
+
+    const refuse = vi
+      .spyOn(storage, "remove")
+      .mockRejectedValue(new Error("The storage is unreachable."));
+    try {
+      expect((await redact()).statusCode).toBeGreaterThanOrEqual(500);
+    } finally {
+      refuse.mockRestore();
+    }
+
+    expect((await read(issue.id))._count.photos).toBe(1);
+    expect(await stored(issue.photo.storageKey)).toBe(true);
+    expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
+
+    expect((await redact()).statusCode).toBe(204);
+    expect((await read(issue.id))._count.photos).toBe(0);
+    expect(await stored(issue.photo.storageKey)).toBe(false);
+    expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(1);
+  });
+
   it("takes no replacement text, and is refused to a reporter and under a legal hold", async () => {
     const issue = await seed({
       reporterPersonId: resident.personId,
@@ -898,5 +930,91 @@ describe("a granted erasure request", () => {
       where: { personId },
     });
     expect(request.executedAt).not.toBeNull();
+  });
+
+  it("keeps the request open when the storage fails on night one, and finishes it after the recovery", async () => {
+    /*
+     * ADR 0057's first case: an issue purge that fails on night one. The
+     * object cannot be removed, so the file stays on the issue, the text stays,
+     * the reporter reference stays and the request stays open, while the
+     * person's account and contact details are already cleared. The next night
+     * removes the rest, detaches the reporter and closes the request.
+     */
+    const personId = formerIds[3] ?? "";
+    await createFormerResident(personId, new Date("2026-01-31"));
+    const issue = await seed({ reporterPersonId: personId, closedDaysAgo: 30 });
+    await grantErasure(prisma, personId, board.personId);
+
+    const refuse = vi
+      .spyOn(storage, "remove")
+      .mockImplementation((key: string) =>
+        key === issue.photo.storageKey
+          ? Promise.reject(new Error("The storage is unreachable."))
+          : Promise.resolve(),
+      );
+    try {
+      const night = await erasure.run();
+      expect(night.failed).toBeGreaterThanOrEqual(1);
+      await personPurge.purgePerson(personId, new Date());
+    } finally {
+      refuse.mockRestore();
+    }
+
+    // Night one: nothing is recorded as removed that is not.
+    const afterOne = await read(issue.id);
+    expect(afterOne.freeTextRemovedAt).toBeNull();
+    expect(afterOne.description).toBe(DESCRIPTION);
+    expect(afterOne.reporterPersonId).toBe(personId);
+    expect(afterOne._count.photos).toBe(1);
+    expect(await stored(issue.photo.storageKey)).toBe(true);
+    expect(
+      await prisma.mediaFile.count({ where: { id: issue.photo.fileId } }),
+    ).toBe(1);
+    expect(
+      (
+        await prisma.dataSubjectRequest.findFirstOrThrow({
+          where: { personId },
+        })
+      ).executedAt,
+    ).toBeNull();
+    expect(
+      await erasureRemainder(prisma, personId, new Date(), encryption),
+    ).toEqual([
+      expect.objectContaining({ domain: "issues", owed: 1, kept: 0 }),
+    ]);
+    // The account's contact details are already cleared.
+    expect(
+      (
+        await prisma.person.findUniqueOrThrow({
+          where: { id: personId },
+          select: { emailCipher: true },
+        })
+      ).emailCipher,
+    ).toBeNull();
+
+    // The storage is back: the retry removes what is left.
+    const night = await erasure.run();
+    expect(night.failed).toBe(0);
+    await personPurge.purgePerson(personId, new Date());
+
+    const afterTwo = await read(issue.id);
+    expect(afterTwo.freeTextRemovedAt).not.toBeNull();
+    expect(afterTwo.description).toBe("");
+    expect(afterTwo.reporterPersonId).toBeNull();
+    expect(afterTwo._count).toEqual({
+      messages: 0,
+      notes: 0,
+      photos: 0,
+      attachments: 0,
+    });
+    expect(await stored(issue.photo.storageKey)).toBe(false);
+    expect(await stored(issue.attachment.storageKey)).toBe(false);
+    expect(
+      (
+        await prisma.dataSubjectRequest.findFirstOrThrow({
+          where: { personId },
+        })
+      ).executedAt,
+    ).not.toBeNull();
   });
 });

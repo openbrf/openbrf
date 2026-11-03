@@ -63,3 +63,32 @@ describe("the number of years", () => {
     expect(screen.getByText(/redan nästa natt/)).toBeTruthy();
   });
 });
+
+describe("an entry typed while a save is on its way", () => {
+  it("stays in the field, and the answer does not say it was saved", async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    saveIssueRetention.mockReset().mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    await submit("5");
+    await waitFor(() => {
+      expect(saveIssueRetention).toHaveBeenCalledWith({ years: 5 });
+    });
+
+    const field = screen.getByLabelText(
+      /År efter att ett ärende stängts/,
+    ) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "10" } });
+    answer({ ok: true, value: { years: 5 } });
+
+    await waitFor(() => {
+      expect((screen.getByRole("button") as HTMLButtonElement).disabled).toBe(
+        false,
+      );
+    });
+    expect(field.value).toBe("10");
+    expect(screen.queryByText(/Sparat/)).toBeNull();
+  });
+});
