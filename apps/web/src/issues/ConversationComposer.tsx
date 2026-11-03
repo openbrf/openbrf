@@ -25,7 +25,9 @@ import { failureMessageKey, useSaveAction } from "../ui/save-state";
  *
  * With `savedReplies`, a handler can insert one of the association's saved
  * replies (decision 17) into the field. It is inserted, never sent: the
- * handler reads it, adapts it, and sends their own message.
+ * handler reads it, adapts it, and sends their own message. A reply that would
+ * take the draft over the length a message may have is not inserted, and the
+ * handler is told so; the draft is never cut to make it fit.
  */
 export function ConversationComposer<T>({
   label,
@@ -55,6 +57,8 @@ export function ConversationComposer<T>({
 }): ReactElement {
   const { t } = useTranslation();
   const [draft, setDraft] = useState("");
+  // Set when a saved reply did not fit; any change to the draft clears it.
+  const [tooLong, setTooLong] = useState(false);
   const pickerId = useId();
   const hintId = useId();
   const save = useSaveAction(
@@ -66,10 +70,12 @@ export function ConversationComposer<T>({
     (failure) => onRefused?.(failure.reason),
   );
   const busy = save.pending;
-  const empty = draft.trim() === "";
+  const unsendable =
+    draft.trim() === "" || draft.length > ISSUE_CONVERSATION_LIMITS.body;
 
   const change = (next: string): void => {
     setDraft(next);
+    setTooLong(false);
     if (save.state.kind === "failed") {
       save.reset();
     }
@@ -80,7 +86,7 @@ export function ConversationComposer<T>({
       className="flex flex-col gap-2"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!busy && !empty) {
+        if (!busy && !unsendable) {
           void save.submit(draft);
         }
       }}
@@ -88,6 +94,14 @@ export function ConversationComposer<T>({
       {save.state.kind === "failed" ? (
         <Notice tone="danger" live>
           {t(failureMessageKey(save.state.failure, failures, fallback))}
+        </Notice>
+      ) : null}
+
+      {tooLong ? (
+        <Notice tone="danger" live>
+          {t("issues.conversation.savedReplyTooLong", {
+            max: ISSUE_CONVERSATION_LIMITS.body,
+          })}
         </Notice>
       ) : null}
 
@@ -103,11 +117,16 @@ export function ConversationComposer<T>({
                 (reply) => reply.id === event.target.value,
               );
               if (picked !== undefined) {
-                change(
+                const next =
                   draft.trim() === ""
                     ? picked.body
-                    : `${draft.trimEnd()}\n\n${picked.body}`,
-                );
+                    : `${draft.trimEnd()}\n\n${picked.body}`;
+                // `maxLength` stops typing, not a change made here.
+                if (next.length > ISSUE_CONVERSATION_LIMITS.body) {
+                  setTooLong(true);
+                } else {
+                  change(next);
+                }
               }
             }}
             className={FIELD}
@@ -146,7 +165,7 @@ export function ConversationComposer<T>({
       <div>
         <button
           type="submit"
-          disabled={busy || empty}
+          disabled={busy || unsendable}
           className={PRIMARY_BUTTON}
         >
           {busy ? sendingLabel : sendLabel}

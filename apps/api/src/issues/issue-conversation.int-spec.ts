@@ -78,10 +78,12 @@ const typeIds = {
   plain: `ic-type-plain-${suffix}`,
   boardOnly: `ic-type-board-${suffix}`,
   turning: `ic-type-turning-${suffix}`,
+  turningFile: `ic-type-turning-file-${suffix}`,
 };
 let plain: IssueTypeFixture;
 let boardOnly: IssueTypeFixture;
 let turning: IssueTypeFixture;
+let turningFile: IssueTypeFixture;
 
 /** A personal identity number with a valid check digit, as one is pasted. */
 const WITH_A_NUMBER = "Ring Erik, 19811218-9876, om nyckeln.";
@@ -294,6 +296,11 @@ beforeAll(async () => {
   turning = await createIssueTypeFixture(prisma, {
     id: typeIds.turning,
     name: `Vänder ${suffix}`,
+    reporters: ["RESIDENTS"],
+  });
+  turningFile = await createIssueTypeFixture(prisma, {
+    id: typeIds.turningFile,
+    name: `Vänder fil ${suffix}`,
     reporters: ["RESIDENTS"],
   });
 
@@ -620,6 +627,78 @@ describe("internal notes and the handlers' files", () => {
     expect(
       (await read(admin, `/api/issue-queue/${issueId}/notes`)).statusCode,
     ).toBe(200);
+  });
+
+  it("keeps the name of a handler's file out of the audit log, as stored and as removed", async () => {
+    const revealing = `Rune Boende medical assessment ${suffix}.pdf`;
+    const pdf = Buffer.from(
+      "%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n",
+    );
+
+    // Kept: the upload's entry says what was accepted, and not what it was
+    // called. The name is still stored and served to the handlers.
+    const issueId = await filed(plain);
+    const kept = multipart(pdf, revealing, "application/pdf");
+    const attached = await inject({
+      method: "POST",
+      url: `/api/issue-queue/${issueId}/attachments`,
+      payload: kept.payload,
+      headers: { ...kept.headers, cookie: cookieOf(board) },
+    });
+    expect(attached.statusCode).toBe(201);
+    const stored = await prisma.issueAttachment.findMany({
+      where: { issueId },
+      select: { fileId: true, file: { select: { fileName: true } } },
+    });
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.file.fileName).toContain("medical assessment");
+    const keptEntries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "MEDIA_UPLOADED",
+        targetKind: "media",
+        targetId: stored[0]?.fileId ?? "",
+      },
+      select: { context: true },
+    });
+    expect(keptEntries).toHaveLength(1);
+    expect(JSON.stringify(keptEntries)).not.toContain("medical assessment");
+    expect(keptEntries[0]?.context).not.toHaveProperty("fileName");
+
+    // Refused after the upload: the file is taken away again, and the removal
+    // is in the log without the name too. The type is handed to the board
+    // while the upload waits, which is what refuses the attachment.
+    const refusedIssueId = await filed(turningFile);
+    const refusedUpload = multipart(pdf, revealing, "application/pdf");
+    const refused = await behindHandingToBoard(turningFile.id, () =>
+      inject({
+        method: "POST",
+        url: `/api/issue-queue/${refusedIssueId}/attachments`,
+        payload: refusedUpload.payload,
+        headers: { ...refusedUpload.headers, cookie: cookieOf(manager) },
+      }),
+    );
+    expect(refused.statusCode).toBe(404);
+    expect(
+      await prisma.issueAttachment.count({
+        where: { issueId: refusedIssueId },
+      }),
+    ).toBe(0);
+    const refusedEntries = await prisma.auditLogEntry.findMany({
+      where: {
+        actorPersonId: manager.personId,
+        action: { in: ["MEDIA_UPLOADED", "MEDIA_DELETED"] },
+      },
+      select: { action: true, context: true },
+    });
+    // Both the upload and its removal happened, and neither names the file.
+    expect(refusedEntries.map((entry) => entry.action).sort()).toEqual([
+      "MEDIA_DELETED",
+      "MEDIA_UPLOADED",
+    ]);
+    expect(JSON.stringify(refusedEntries)).not.toContain("medical assessment");
+    for (const entry of refusedEntries) {
+      expect(entry.context).not.toHaveProperty("fileName");
+    }
   });
 
   it("decides a message after the board hands the type to itself, not before", async () => {

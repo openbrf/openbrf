@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { ISSUE_CONVERSATION_LIMITS } from "@openbrf/shared";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
@@ -163,6 +164,51 @@ describe("the conversation with the reporter", () => {
       expect((field as HTMLTextAreaElement).value).toBe("");
     });
     expect(fetchIssueMessages).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not insert a saved reply that would take the draft over the limit, and keeps the draft", async () => {
+    const long = "x".repeat(ISSUE_CONVERSATION_LIMITS.body);
+    fetchIssueSavedReplies.mockResolvedValue({
+      ok: true,
+      value: [
+        { id: "r-long", title: "Långt svar", body: long, sortOrder: 0 },
+        { id: "r-1", title: "Kort svar", body: "Hej.", sortOrder: 1 },
+      ],
+    });
+    const session = userEvent.setup();
+    render(<IssueConversation issue={issue()} onStale={vi.fn()} />);
+
+    const picker = await screen.findByLabelText("Sparat svar");
+    const field = screen.getByLabelText(
+      "Vatten: meddelande till anmälaren",
+    ) as HTMLTextAreaElement;
+
+    // Into an empty field a reply of exactly the limit fits.
+    await session.selectOptions(picker, "r-long");
+    expect(field.value).toBe(long);
+    expect(screen.queryByText(/Det sparade svaret ryms inte/)).toBeNull();
+
+    // The same reply again would make 8002 characters: refused, not cut.
+    await session.selectOptions(picker, "r-long");
+    expect(field.value).toBe(long);
+    expect(
+      await screen.findByText(/Det sparade svaret ryms inte.*4000 tecken/),
+    ).toBeTruthy();
+
+    // A near-limit draft refuses even a short reply, and is not changed.
+    await session.clear(field);
+    await session.click(field);
+    await session.paste("y".repeat(ISSUE_CONVERSATION_LIMITS.body - 2));
+    await session.selectOptions(picker, "r-1");
+    expect(field.value).toBe("y".repeat(ISSUE_CONVERSATION_LIMITS.body - 2));
+    expect(screen.getByText(/Det sparade svaret ryms inte/)).toBeTruthy();
+    expect(sendIssueMessage).not.toHaveBeenCalled();
+
+    // Editing the draft clears the notice, and a reply that fits is inserted.
+    await session.clear(field);
+    expect(screen.queryByText(/Det sparade svaret ryms inte/)).toBeNull();
+    await session.selectOptions(picker, "r-1");
+    expect(field.value).toBe("Hej.");
   });
 
   it("keeps the words and says why when the server refuses them", async () => {

@@ -3800,6 +3800,7 @@
       "noReporter": "Ingen kan läsa ett svar på det här ärendet: det saknar anmälare, eller en adress att nå anmälaren på.",
       "savedReply": "Sparat svar",
       "savedReplyPick": "Infoga ett sparat svar...",
+      "savedReplyTooLong": "Det sparade svaret ryms inte: meddelandet skulle bli längre än {{max}} tecken. Korta först ner det du har skrivit.",
       "errors": {
         "issueNotFound": "Anmälan finns inte längre. Läs in sidan igen.",
         "issueNotFoundHandler": "Ärendet finns inte längre, eller hanteras inte längre av dig. Kön har lästs in igen.",

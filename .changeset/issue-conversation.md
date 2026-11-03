@@ -11,10 +11,12 @@ the conversation.
 
 - **Messages.** A resident writes on their own report, and whoever handles the
   issue answers in the queue. A handler's message reaches the reporter signed
-  by the board or by the property manager, never by a person. The handlers see who wrote each message; a handler with protected
-  personal data is not named to anyone. A message is refused on a report that
-  is closed. A handler cannot write to an issue nobody can read the answer on:
-  an internal issue, or a report from the website's form that left no address.
+  by the board or by the property manager, never by a person. The handlers see
+  who wrote each message; a handler with protected personal data is not named
+  to anyone. A reporter's message is refused on a report that is closed; a
+  handler's is not. A handler cannot write to an issue nobody can read the
+  answer on: an internal issue, or a report from the website's form that left
+  no address.
 - **Internal notes.** Handlers write notes for each other on an issue. The
   reporter never sees them. Every handler the issue lets in reads them, so the
   property manager does not see the notes on an issue the board keeps to

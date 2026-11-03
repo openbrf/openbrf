@@ -3800,6 +3800,7 @@
       "noReporter": "Nobody can read an answer on this issue: it has no reporter, or no address to reach them at.",
       "savedReply": "Saved reply",
       "savedReplyPick": "Insert a saved reply...",
+      "savedReplyTooLong": "That saved reply does not fit: the message would be longer than {{max}} characters. Shorten what you have written first.",
       "errors": {
         "issueNotFound": "That report is gone. Read the page again.",
         "issueNotFoundHandler": "That issue is gone, or no longer yours to handle. The queue has been read again.",

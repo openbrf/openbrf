@@ -339,6 +339,9 @@ export class IssueConversationService {
       ...(image ? { showsIdentifiablePersons: true } : {}),
       uploadedByPersonId: input.handlerPersonId,
       channel: "WEB",
+      // A handler's file name is free text about a case, a person's health or
+      // home among it. The audit log is append-only and outlives the issue.
+      recordFileName: false,
     });
 
     /*
@@ -370,7 +373,9 @@ export class IssueConversationService {
       // The upload and this removal are both in the audit log, which is the
       // honest record of what happened; the original failure is the one raised.
       await this.media
-        .remove(file.id, input.handlerPersonId, "WEB")
+        .remove(file.id, input.handlerPersonId, "WEB", {
+          recordFileName: false,
+        })
         .catch((removal: unknown) => {
           this.logger.error(
             `Could not remove file ${file.id} after its attachment was refused: ` +
