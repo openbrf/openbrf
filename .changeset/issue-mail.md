@@ -11,7 +11,8 @@ number.
   assignee. An issue that lands unassigned is mailed to everybody who handles
   its type.
 - **Urgent.** An urgent issue is mailed to everybody who handles its type,
-  whoever it is assigned to. So is an issue raised to urgent later.
+  whoever it is assigned to, and its assignee is told it is urgent. So is an
+  issue raised to urgent later.
 - **Assigned.** A handler giving an issue to somebody mails that person, once:
   an issue handed to them, away and back within the same clock hour (10:00 to
   10:59, say), mails them one time. A repeat after the hour turns mails again.
@@ -42,10 +43,10 @@ number.
   service renders and sends, so a restriction or a board-only change committed
   in that last moment can still be followed by one mail with the number, type
   and priority and no free text.
-- **No free text.** A mail gives the issue number, the type, the priority and a
-  link to the issue queue. It never includes what the reporter or a handler
-  wrote, where in the building the issue is, or who reported it. That text does
-  not pass through the mail provider.
+- **No free text.** A mail gives the issue number, the type and a link to the
+  issue queue. A mail to a handler also gives the priority. It never includes
+  what the reporter or a handler wrote, where in the building the issue is, or
+  who reported it. That text does not pass through the mail provider.
 - **Issue number.** Every issue has a number, shown in the issue queue, on the
   reporter's own list and in every mail, and returned by the `issue_list` and
   `issue_get` actions. Existing issues are numbered in the order they were
@@ -56,8 +57,9 @@ number.
   Each signed-in reporter has a budget of their own: five ordinary reports and
   five urgent ones an hour, which one reporter's reports cannot spend for
   anybody else. Past a budget, a report is still filed and shown in the queue,
-  but nobody is mailed about it. A report a handler later raises to urgent
-  counts as urgent from then on. An issue a handler opens has no budget.
+  but nobody is mailed about it. Every report from the sender in the past hour
+  counts, whether or not anybody was mailed about it. A report a handler later
+  raises to urgent counts as urgent from then on. An issue a handler opens has no budget.
 - **A bound on the mail messages send.** Each reporter has handlers mailed
   about at most ten of their own messages an hour, across all of their issues.
   Past that, a message is still stored and shown in the conversation, but

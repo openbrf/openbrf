@@ -485,11 +485,11 @@ describe("a report is filed", () => {
     ]);
   });
 
-  it("mails every handler of an Akut type, and tells the assignee it is theirs", async () => {
+  it("mails every handler of an Akut type, the assignee among them, and tells each it is urgent", async () => {
     const issueId = await report(urgentType);
 
     const told = recipientsOf(await notices(issueId));
-    expect(told.get(board.personId)).toBe("assigned");
+    expect(told.get(board.personId)).toBe("urgent");
     expect(told.get(admin.personId)).toBe("urgent");
     expect(told.get(manager.personId)).toBe("urgent");
     expect(told.has(restricted.personId)).toBe(false);
@@ -592,7 +592,8 @@ describe("a report is filed", () => {
       const urgent = await file(residentPrincipal, urgentType);
       const toldOfUrgent = recipientsOf(await notices(urgent));
       expect(toldOfUrgent.get(admin.personId)).toBe("urgent");
-      expect(toldOfUrgent.get(board.personId)).toBe("assigned");
+      // The assignee is among the handlers an Akut report goes to.
+      expect(toldOfUrgent.get(board.personId)).toBe("urgent");
 
       // Another resident's budget is their own.
       const theirs = await file(neighbourPrincipal, unassignedType);

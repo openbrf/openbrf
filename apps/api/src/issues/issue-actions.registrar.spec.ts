@@ -28,7 +28,7 @@ import {
 
 const QUEUED: QueuedIssueView = {
   id: "issue-1",
-  number: 1,
+  number: 7,
   meaning: "NEW",
   status: { id: "status-water-new", label: "Ny" },
   waitingReason: null,
@@ -379,7 +379,7 @@ describe("issue_get", () => {
     );
     expect(issue).toEqual({
       id: "issue-1",
-      number: 1,
+      number: 7,
       status: { id: "status-water-new", meaning: "NEW", label: "Ny" },
       waitingReason: null,
       outcome: null,

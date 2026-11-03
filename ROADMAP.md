@@ -345,10 +345,12 @@ locally the application runs from source beside the PostgreSQL that
       when it lands unassigned; an urgent one to every handler of its type; an
       assignment to the new assignee; a reopened one to its assignee; and one
       reminder to the assignee the morning after the target date has passed.
-      A mail gives the issue number, the type, the priority and a link, and
-      never anything a reporter or a handler wrote. Nobody is mailed about
-      their own action, and a person whose processing is restricted is not
-      mailed at all. Every issue has a number, shown in the queue and on the
+      A mail gives the issue number, the type and a link, a mail to a handler
+      the priority too, and never anything a reporter or a handler wrote.
+      Nobody is mailed about their own action. A person whose processing is
+      restricted is checked again just before the mail is handed over, which
+      narrows the window in which a restriction is not seen but does not close
+      it. Every issue has a number, shown in the queue and on the
       reporter's own list
 - [x] Who pays for an issue: a handler records the association, the
       tenant-owner or unclear, and never an amount. "Create a charge" opens a

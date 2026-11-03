@@ -155,7 +155,8 @@ const OVERDUE_REMINDER_MINUTE = 7 * 60;
 /**
  * How many reports from the website's form in an hour the handlers are mailed
  * about, whoever filed them: this many ordinary ones, and this many Akut ones
- * besides.
+ * besides. The count is of reports filed in the hour, not of mails queued: a
+ * report whose type had no handler to mail spends it all the same.
  *
  * The form's own limit is per client address, and an unassigned report mails
  * every handler of its type, so many senders together could otherwise spend
@@ -173,7 +174,7 @@ export const NOTIFIED_PUBLIC_REPORTS_PER_HOUR = 10;
 /**
  * How many of their own reports in an hour one signed-in reporter has the
  * handlers mailed about: this many ordinary ones, and this many Akut ones
- * besides, as for the website's form.
+ * besides, as for the website's form. Counted as filed, as for the form.
  *
  * Counted for each reporter, so one resident filing report after report
  * spends their own budget and nobody else's. Past it the report is filed and
@@ -340,11 +341,11 @@ export class IssueMailer implements OnModuleInit {
    * Queues the mail about a newly filed issue, in the transaction that files
    * it (decision 12).
    *
-   * Akut goes to every handler of the issue. Otherwise the assignee, when the
-   * type assigned one, or every handler of the issue when it landed
-   * unassigned. The assignee is told it is theirs either way. Whoever filed
-   * it is told nothing: the handler who opened it, or the reporter who
-   * reported it themselves, a handler among them.
+   * Akut goes to every handler of the issue, the assignee among them, who is
+   * told it is urgent. Otherwise the assignee, when the type assigned one,
+   * who is told it is theirs, or every handler of the issue when it landed
+   * unassigned. Whoever filed it is told nothing: the handler who opened it,
+   * or the reporter who reported it themselves, a handler among them.
    *
    * A report is mailed about only while its sender's budget for the hour
    * lasts: {@link NOTIFIED_PUBLIC_REPORTS_PER_HOUR} for the website's form,
@@ -386,8 +387,12 @@ export class IssueMailer implements OnModuleInit {
         issue.priority === "URGENT" ? "urgent" : "filed",
       );
     }
+    // An urgent issue tells its assignee that it is urgent: the assignee is
+    // one of the handlers it goes to, and one mail says both what the priority
+    // is and, in its facts, which issue.
     if (
       assignee !== null &&
+      !deliveries.has(assignee) &&
       (await this.isRecipient(tx, assignee, issue, now))
     ) {
       deliveries.set(assignee, "assigned");
@@ -971,6 +976,10 @@ export class IssueMailer implements OnModuleInit {
    * Whether this report's sender - the website's form, or one signed-in
    * reporter - has filed so many reports of its kind, ordinary or Akut, in the
    * hour before this one that it is mailed about no more.
+   *
+   * Every earlier report counts, whether or not a mail was queued for it: no
+   * record is kept of which were mailed about, and a report to a type nobody
+   * handles is still one more from the same sender.
    *
    * Counted under the sender's budget lock, which every report from that
    * sender takes before it counts and holds until it commits, so two reports
