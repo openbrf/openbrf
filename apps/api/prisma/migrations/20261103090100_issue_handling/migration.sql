@@ -37,7 +37,8 @@ CREATE INDEX "issue_enteredByPersonId_idx" ON "issue"("enteredByPersonId");
 -- grows with everything the association does.
 --
 -- Built in the migration's transaction rather than CONCURRENTLY, which a
--- transaction cannot do. The entrypoint applies migrations before the
--- application starts, so the lock the build holds blocks no writer, and one
--- association's log builds in moments.
+-- transaction cannot do. The lock the build holds blocks writes to
+-- audit_log_entry, so the application is stopped before an upgrade
+-- (docs/deployment.md, "The upgrade, step by step"), and one association's
+-- log builds in moments.
 CREATE INDEX "audit_log_entry_targetKind_targetId_createdAt_idx" ON "audit_log_entry"("targetKind", "targetId", "createdAt");

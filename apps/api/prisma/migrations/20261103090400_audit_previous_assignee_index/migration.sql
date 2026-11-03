@@ -12,8 +12,11 @@
 -- `prisma migrate diff` leaves it alone.
 --
 -- Built in the migration's transaction rather than CONCURRENTLY, which a
--- transaction cannot do: the entrypoint applies migrations before the
--- application starts, so the lock blocks no writer.
+-- transaction cannot do. A plain CREATE INDEX blocks writes to audit_log_entry
+-- until the build finishes, so the application is stopped before an upgrade
+-- (docs/deployment.md, "The upgrade, step by step"); a `pull` and `up -d` that
+-- leaves the previous application running holds its audited writes for the
+-- length of the build.
 CREATE INDEX "audit_log_entry_previousAssignee_idx"
   ON "audit_log_entry" ((("context" ->> 'previousAssigneePersonId')))
   WHERE ("context" ->> 'previousAssigneePersonId') IS NOT NULL;
