@@ -53,6 +53,11 @@ describe("findPhoneNumbers", () => {
       "0701234567",
     ],
     [
+      "a letter outside the Basic Multilingual Plane after an id-shaped run",
+      "cabcdefghijklmn0701234567\u{10400}",
+      "0701234567",
+    ],
+    [
       "a line break between an id-shaped run and the number",
       "cabcdefghijklmn\n0701234567",
       "0701234567",
