@@ -2255,6 +2255,10 @@ export const SCREENS: readonly Screen[] = [
             ],
           },
           { click: { button: "Spara ansvarsfördelningen" } },
+          // Waits for the save to be read back. Without it the check below
+          // runs before the date is there and ticks the box a second time,
+          // which withdraws the guide again.
+          { see: { text: /^Antagen / } },
         ],
       },
       // A saved draft that has lines and is not yet adopted.
