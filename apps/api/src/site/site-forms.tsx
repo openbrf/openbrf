@@ -1,3 +1,4 @@
+import type { MaintenanceResponsibility } from "@openbrf/shared";
 import type { TFunction } from "i18next";
 import type { ReactElement, ReactNode } from "react";
 
@@ -68,6 +69,16 @@ export interface SiteIssueType {
 }
 
 /**
+ * One line of the association's adopted responsibility guide, as the public
+ * report form shows it: the part, who maintains it, and the board's note.
+ */
+export interface SiteResponsibilityGuideLine {
+  part: string;
+  responsibility: MaintenanceResponsibility;
+  note: string | null;
+}
+
+/**
  * What a page's forms need to know about the request that reached them.
  *
  * Separate from SiteChrome because every field here is about one page and one
@@ -107,6 +118,17 @@ export interface SiteFormState {
    * a form whose only choice is empty cannot be filled in.
    */
   issueTypes: readonly SiteIssueType[] | null;
+  /**
+   * The responsibility guide the board has adopted, shown on the report form
+   * before its fields (decision 27 of the issue module plan), or null.
+   *
+   * Null while the guide is the example the board has not adopted, while it
+   * has no lines, and wherever the page offers no report form: an example
+   * shown to a reporter as if it were the association's answer is the legal
+   * fact the issue module refuses to state. The service decides which; this
+   * module only renders what it is handed.
+   */
+  responsibilityGuide: readonly SiteResponsibilityGuideLine[] | null;
 }
 
 /** A form block becomes a form, a confirmation, or nothing. */
@@ -156,6 +178,9 @@ export function renderSiteForm(
           {state.refused === "issue"
             ? formRefusal(t("site.issueForm.refused"))
             : null}
+          {state.responsibilityGuide === null
+            ? null
+            : responsibilityGuide(t, state.responsibilityGuide)}
           {issueFields(t, state, types)}
         </>
       )}
@@ -226,6 +251,56 @@ function contactFields(t: TFunction, state: SiteFormState): ReactElement {
 
       <button type="submit">{t("site.contactForm.submit")}</button>
     </form>
+  );
+}
+
+/**
+ * The association's adopted responsibility guide, before the report's fields:
+ * what is the tenant-owner's own to put right is worth knowing before writing
+ * it up.
+ *
+ * Folded, as on the signed-in report form, so it never stands between somebody
+ * and a report about a leak, and its sentence says to report anyway when
+ * unsure. A `<details>` opens with no script, which is what a page under a
+ * policy with no script source needs. The lines are the board's own words and
+ * are React children, so they are escaped like everything else on the page.
+ */
+function responsibilityGuide(
+  t: TFunction,
+  lines: readonly SiteResponsibilityGuideLine[],
+): ReactElement {
+  const title = t("issues.guide.reporterTitle");
+  return (
+    <details className="site-form-guide">
+      <summary>{title}</summary>
+      <p className="site-field-hint">{t("issues.guide.reporterIntro")}</p>
+      <p className="site-field-hint">{t("issues.guide.adopted")}</p>
+      <table>
+        <caption className="site-hidden">{title}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{t("issues.guide.part")}</th>
+            <th scope="col">{t("issues.guide.responsibility")}</th>
+            <th scope="col">{t("issues.guide.note")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((line, index) => (
+            // The lines carry no identifier, and the guide is read whole.
+            <tr key={`${String(index)}:${line.part}`}>
+              <td>{line.part}</td>
+              <td>
+                {
+                  // The words the application uses for the same value.
+                  t(`issues.maintenanceResponsibility.${line.responsibility}`)
+                }
+              </td>
+              <td>{line.note ?? ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </details>
   );
 }
 

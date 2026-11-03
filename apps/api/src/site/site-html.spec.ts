@@ -74,6 +74,7 @@ const FORMS: SiteFormState = {
   sent: null,
   refused: null,
   issueTypes: [{ id: "type-1", name: "Trasig port" }],
+  responsibilityGuide: null,
 };
 
 const PAGE = page([

@@ -298,6 +298,7 @@ describe("a page carrying a news teaser", () => {
     sent: null,
     refused: null,
     issueTypes: null,
+    responsibilityGuide: null,
   };
 
   const teasers = [

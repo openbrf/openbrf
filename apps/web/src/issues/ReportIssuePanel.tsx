@@ -7,6 +7,7 @@ import {
   type IssueApartment,
   type ReportableIssueType,
   reportIssue,
+  type ResponsibilityGuide,
 } from "../api/issues";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
@@ -23,6 +24,7 @@ import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import type { PostPrefill } from "./post-prefill";
+import { ResponsibilityGuideTable } from "./ResponsibilityGuideTable";
 
 /**
  * What the file picker offers.
@@ -62,6 +64,12 @@ export interface ReportIssuePanelProps {
    */
   prefill?: PostPrefill;
   /**
+   * The responsibility guide the board has adopted, shown before the fields,
+   * or null where there is none to show. The server hands a reporter only an
+   * adopted guide, never the example.
+   */
+  guide?: ResponsibilityGuide | null;
+  /**
    * Called once a report has been filed, so the caller can reload the list,
    * with the post it was made from, or null.
    */
@@ -88,11 +96,18 @@ const EMPTY = { typeId: "", apartmentId: "", location: "", description: "" };
  * of which the reporter can change or take out before sending, and the report
  * is linked to the post as it is filed. The link is sent once: after the report
  * is filed the form is empty again, and a second report is one of its own.
+ *
+ * The association's responsibility guide comes before the fields, where the
+ * board has adopted one (decision 27): what is the tenant-owner's own to put
+ * right is worth knowing before writing it up. Folded, so it never stands
+ * between a resident and a report about a leak, and its sentence says to
+ * report anyway when unsure.
  */
 export function ReportIssuePanel({
   types,
   apartments,
   prefill,
+  guide = null,
   onReported,
 }: ReportIssuePanelProps): ReactElement {
   const { t } = useTranslation();
@@ -241,6 +256,19 @@ export function ReportIssuePanel({
         className="flex flex-col gap-4"
         onSend={onSend}
       >
+        {guide === null ? null : (
+          <details className="flex flex-col gap-2">
+            <summary className="min-h-11 cursor-pointer py-2 text-small font-semibold">
+              {t("issues.guide.reporterTitle")}
+            </summary>
+            <p className={HINT}>{t("issues.guide.reporterIntro")}</p>
+            <ResponsibilityGuideTable
+              guide={guide}
+              caption={t("issues.guide.reporterTitle")}
+            />
+          </details>
+        )}
+
         <label className={LABEL}>
           {t("issues.report.type")}
           <select
