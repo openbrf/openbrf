@@ -1838,9 +1838,7 @@ describe("what the document prints", () => {
     expect(screen.getByText("2026-10-02")).toBeTruthy();
     expect(screen.getAllByText(/Borttaget av en handläggare/)).toHaveLength(2);
     expect(screen.getAllByText("2026-11-03")).toHaveLength(2);
-    expect(
-      screen.getAllByText(/Gallrat enligt regeln för gallring/),
-    ).toHaveLength(2);
+    expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(2);
   });
 
   it("names the capacity somebody was present at a general meeting in", async () => {

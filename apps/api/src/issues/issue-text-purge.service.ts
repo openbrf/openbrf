@@ -47,9 +47,19 @@ const PURGE_CRON = "21 3 * * *";
  * keeps its text and is selected again the next night, so a bound on what is
  * read would let five hundred failing old issues keep every newer one past its
  * clock for as long as they failed. The run reads on past them, a page after
- * the last one it saw, until a page comes back empty.
+ * the last one it saw, up to {@link MAX_ATTEMPTS_PER_RUN}.
  */
 const MAX_ISSUES_PER_RUN = 500;
+
+/**
+ * The most issues one run tries, removed or not.
+ *
+ * Twice the removals, so a run gets past as many failing or kept issues as it
+ * removes. Without it a backlog that fails throughout - storage that refuses
+ * every removal - would be read to its end in one run, past the time the job
+ * queue gives a job before it hands the same night's run out again.
+ */
+const MAX_ATTEMPTS_PER_RUN = 2 * MAX_ISSUES_PER_RUN;
 
 /** Where a page of the scan left off: the last issue's closing and id. */
 interface IssueCursor {
@@ -142,7 +152,9 @@ export class IssueTextPurgeService implements OnModuleInit {
     let purged = 0;
     let failed = 0;
     let after: IssueCursor | undefined;
-    while (purged < MAX_ISSUES_PER_RUN) {
+    const bounded = (): boolean =>
+      purged >= MAX_ISSUES_PER_RUN || considered >= MAX_ATTEMPTS_PER_RUN;
+    while (!bounded()) {
       const page = await this.eligiblePage(now, clock, after);
       if (page.length === 0) {
         break;
@@ -150,7 +162,7 @@ export class IssueTextPurgeService implements OnModuleInit {
       for (const { id } of page) {
         // The bound holds inside a page too: a page read with room left is not
         // carried through once the run has taken its share.
-        if (purged >= MAX_ISSUES_PER_RUN) {
+        if (bounded()) {
           break;
         }
         considered += 1;
@@ -181,11 +193,13 @@ export class IssueTextPurgeService implements OnModuleInit {
         )} issues past their clock`,
       );
     }
-    if (purged >= MAX_ISSUES_PER_RUN) {
+    if (bounded()) {
       this.logger.log(
         `Issue text purge stopped at its per-run bound of ${String(
           MAX_ISSUES_PER_RUN,
-        )}; the rest are reached by the next run.`,
+        )} removals or ${String(
+          MAX_ATTEMPTS_PER_RUN,
+        )} attempts; the rest are reached by the next run.`,
       );
     }
 

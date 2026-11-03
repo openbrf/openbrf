@@ -5,12 +5,12 @@ import "../i18n";
 import { IssueLocation } from "./IssueFreeText";
 
 /**
- * How a location reads once the purge has removed the issue's free text
- * (ADR 0057): as removed, and not as a place nobody gave.
+ * How a location reads once the issue's free text is gone (ADR 0057): as
+ * removed with the free text, naming neither a cause nor a place.
  */
 
 describe("the location of an issue", () => {
-  it("says it was removed under the retention rule once the free text is gone", () => {
+  it("says the free text was removed, and when, once it is gone", () => {
     render(
       <IssueLocation
         issue={{
@@ -21,7 +21,7 @@ describe("the location of an issue", () => {
       />,
     );
 
-    expect(screen.getByText(/Gallrat enligt regeln för gallring/)).toBeTruthy();
+    expect(screen.getByText(/Fritexten togs bort/)).toBeTruthy();
     expect(screen.getByText("2026-11-03")).toBeTruthy();
     expect(screen.queryByText(/Ingen plats/)).toBeNull();
   });
@@ -51,6 +51,6 @@ describe("the location of an issue", () => {
       />,
     );
 
-    expect(screen.queryByText(/Gallrat|Borttaget/)).toBeNull();
+    expect(screen.queryByText(/Fritexten togs bort|Borttaget/)).toBeNull();
   });
 });

@@ -542,7 +542,7 @@ export class IssueService {
       statusId: type.newStatusId,
       reporterPersonId: principal.personId,
       apartmentId,
-      location: input.location ?? null,
+      location: locationOrNull(input.location),
       description: input.description,
     };
     const postId = input.postId ?? null;
@@ -606,14 +606,11 @@ export class IssueService {
         reporterNameCipher: name?.cipher ?? null,
         reporterEmailCipher: email?.cipher ?? null,
         reporterEmailIndex: email?.index ?? null,
-        // Empty is nothing, exactly as it is for the name and the address
-        // above: the form's location field is optional, so a visitor who
-        // touched it and thought better of it must not leave the board an
-        // issue whose location is present and blank.
-        location:
-          input.location == null || input.location === ""
-            ? null
-            : input.location,
+        // Empty is nothing, as it is for the name and the address above: the
+        // form's location field is optional, so a visitor who touched it and
+        // thought better of it must not leave the board an issue whose
+        // location is present and blank.
+        location: locationOrNull(input.location),
         description: input.description,
       }),
     );
@@ -695,10 +692,7 @@ export class IssueService {
         enteredByPersonId: principal.personId,
         enteredByHandler: true,
         apartmentId: resident?.apartmentId ?? null,
-        location:
-          input.location == null || input.location.trim() === ""
-            ? null
-            : input.location,
+        location: locationOrNull(input.location),
         description: input.description,
       });
       /*
@@ -2109,6 +2103,16 @@ function refuseUnlinked(outcome: IssueLinkOutcome): void {
  * a 500. The apartment's key cannot be the one: the reporter's residency holds
  * the apartment in the register.
  */
+/**
+ * A location as it is filed: null where none was given, and where the field
+ * holds only blanks. Every way an issue is filed reads it through this, so a
+ * blank location is never stored, and a handler's redaction or the purge never
+ * records the removal of one nobody wrote.
+ */
+function locationOrNull(location: string | null | undefined): string | null {
+  return location == null || location.trim() === "" ? null : location;
+}
+
 function typeRemoved(cause: unknown): never {
   if (
     cause instanceof Prisma.PrismaClientKnownRequestError &&

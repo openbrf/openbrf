@@ -10,7 +10,9 @@ import { Notice } from "../ui/Notice";
 
 /**
  * How an issue's free text reads once some of it is gone (ADR 0057): taken out
- * by a handler, or by the nightly purge after the issue closed.
+ * by a handler, or with the whole free-text layer by the nightly purge after
+ * the issue closed or by a granted erasure request. The words for the layer
+ * name no cause, because both write the same date.
  *
  * The same words for the reporter and for the handlers. A redacted text is
  * empty on the server, so an empty field here would read as one somebody filed
@@ -38,7 +40,7 @@ export function RedactedMark({
   );
 }
 
-/** "Removed under the retention rule on 2026-11-03", in place of a purged text. */
+/** "Free text removed on 2026-11-03", in place of a text the layer took with it. */
 export function PurgedMark({
   at,
   t,
@@ -93,10 +95,10 @@ export function IssueDescription({
 }
 
 /**
- * The free-text location, the mark once it was removed by a handler or by the
- * purge, or none recorded. The purge empties the location with the rest of the
- * free text, so a location that is null on a purged issue is not one nobody
- * gave.
+ * The free-text location, the mark once it was removed by a handler or with
+ * the free-text layer, or none recorded. Whether a location was given is not
+ * kept once the layer is gone, so the mark there says the free text was
+ * removed and claims no location.
  */
 export function IssueLocation({
   issue,

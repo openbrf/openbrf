@@ -40,6 +40,7 @@ removed, by a handler or by the nightly job, instead of printing it blank.
 Every redaction, legal hold and change of the setting is recorded in the audit
 log with who did it, and never the text or a file's name.
 
-On the first night after upgrading, the free text of every issue closed more
-than two years earlier is removed. A board that wants to keep it longer sets a
-longer clock before that night.
+From the first night after upgrading, the free text of every issue closed more
+than two years earlier is removed, at most 500 issues a night, oldest closing
+first. A board that wants to keep it longer sets a longer clock before that
+night.

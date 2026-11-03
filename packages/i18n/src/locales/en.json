@@ -1950,7 +1950,7 @@
       "description": "How many years after an issue closes its free text is kept. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, stay with the issue; the description, the location, the conversation, the internal notes and the photographs and files are removed that many years after it closes, unless a legal hold stands on it.",
       "years": "Years after an issue closes",
       "yearsHint": "A whole number between 1 and 10. A new instance starts at 2.",
-      "purgeJob": "The purge runs every night and reads this number when it runs, so a change moves every pending date at once. After a shorter setting, the next night removes the free text of every issue already past it.",
+      "purgeJob": "The purge runs every night and reads this number when it runs, so a change moves every pending date at once. After a shorter setting, the nights that follow remove the free text of the issues already past it, at most 500 issues a night.",
       "loading": "Reading the setting...",
       "loadFailed": "The setting could not be read just now.",
       "errors": {
@@ -3954,8 +3954,8 @@
     },
     "redaction": {
       "removedOn": "Removed by a handler on <data>{{date}}</data>",
-      "purgedOn": "Removed under the retention rule on <data>{{date}}</data>",
-      "freeTextRemoved": "The free text, the conversation and the photographs were removed on <data>{{date}}</data> under the association's retention rule. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, remain.",
+      "purgedOn": "Free text removed on <data>{{date}}</data>",
+      "freeTextRemoved": "The free text, the conversation and the photographs were removed on <data>{{date}}</data>. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, remain.",
       "title": "Free text and legal hold",
       "intro": "A handler can remove the description, the location, a message, an internal note, a photograph or a file at any time, for instance when a person named in it has been granted erasure. What is removed is gone: nothing keeps the text, and nothing is written in its place.",
       "remove": "Remove",
