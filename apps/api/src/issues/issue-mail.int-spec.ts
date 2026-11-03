@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -716,6 +717,24 @@ describe("a handler acts on an issue", () => {
       [manager.personId, "assigned"],
       [admin.personId, "assigned"],
     ]);
+  });
+
+  it("counts an assignment notice a repeat within the hour drops as not queued", async () => {
+    const issueId = await report(unassignedType);
+    await mailer.ensureQueues();
+    const assign = () =>
+      prisma.$transaction((tx) =>
+        mailer.assignedInTransaction(
+          tx,
+          issueId,
+          manager.personId,
+          board.personId,
+        ),
+      );
+
+    expect(await assign()).toBe(1);
+    // The same person for the same issue within the hour: nothing is queued.
+    expect(await assign()).toBe(0);
   });
 
   it("queues one reopening notice for an issue reopened twice before it is delivered", async () => {
@@ -1570,6 +1589,51 @@ describe("delivering a mail", () => {
       await prisma.person.update({
         where: { id: admin.personId },
         data: { processingRestrictedAt: null },
+      });
+    }
+    expect(sent).toEqual([]);
+  });
+
+  it("sends nothing to an address that was changed while it was decrypted", async () => {
+    const issueId = await report(unassignedType);
+    const sent = captureSends();
+    const encryption = app.get(FieldEncryptionService);
+    const decrypt = encryption.decrypt.bind(encryption);
+    const before = await prisma.person.findUniqueOrThrow({
+      where: { id: admin.personId },
+      select: { emailCipher: true },
+    });
+    const spy = vi
+      .spyOn(encryption, "decrypt")
+      .mockImplementation(async (...args) => {
+        const plain = await decrypt(...args);
+        // The address is changed after the first read found it.
+        await prisma.person.update({
+          where: { id: admin.personId },
+          data: {
+            emailCipher: (
+              await encryption.encrypt(
+                "person.email",
+                `moved-${randomUUID()}@example.test`,
+              )
+            ).cipher,
+          },
+        });
+        return plain;
+      });
+    try {
+      expect(
+        await mailer.deliver({
+          issueId,
+          personId: admin.personId,
+          event: "filed",
+        }),
+      ).toBe(false);
+    } finally {
+      spy.mockRestore();
+      await prisma.person.update({
+        where: { id: admin.personId },
+        data: { emailCipher: before.emailCipher },
       });
     }
     expect(sent).toEqual([]);

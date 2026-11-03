@@ -365,14 +365,18 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
    * The queue must already exist: `ensureQueue` talks to the database on its
    * own connection, and calling it here would put a queue's creation inside
    * somebody else's transaction. Callers await it before they open one.
+   *
+   * Answers the job's id, or null where the queue declined to create one: a
+   * job sent with a `singletonKey` and `singletonSeconds` whose slot is taken
+   * is dropped without an error.
    */
   async sendInTransaction<Data extends object>(
     tx: TransactionalSql,
     name: string,
     data: Data,
     options?: JobSendOptions,
-  ): Promise<void> {
-    await this.boss.send(name, data, {
+  ): Promise<string | null> {
+    return this.boss.send(name, data, {
       ...options,
       db: transactionalDb(tx),
     });

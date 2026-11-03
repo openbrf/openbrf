@@ -829,10 +829,15 @@ export class IssueMailer implements OnModuleInit {
       current !== null && stillSo(current, job, now)
         ? await this.prisma.person.findFirst({
             where: recipientWhereOf(current, job, now),
-            select: { id: true },
+            select: { emailCipher: true },
           })
         : null;
-    if (current === null || stillRecipient === null) {
+    // An address changed while it was decrypted is not the one decrypted.
+    if (
+      current === null ||
+      stillRecipient === null ||
+      stillRecipient.emailCipher !== cipher
+    ) {
       this.logger.log(
         `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
       );
@@ -1022,8 +1027,9 @@ export class IssueMailer implements OnModuleInit {
         continue;
       }
       const key = throttleKeyOf({ issueId, personId, event });
+      let id: string | null;
       if (key === null) {
-        await this.jobs.sendInTransaction<IssueNoticeJob>(
+        id = await this.jobs.sendInTransaction<IssueNoticeJob>(
           tx,
           ISSUE_NOTICE_QUEUE,
           { issueId, personId, event },
@@ -1032,7 +1038,7 @@ export class IssueMailer implements OnModuleInit {
       } else {
         // The job is told its own id, to give back its own slot by.
         const jobId = randomUUID();
-        await this.jobs.sendInTransaction<IssueNoticeJob>(
+        id = await this.jobs.sendInTransaction<IssueNoticeJob>(
           tx,
           ISSUE_NOTICE_QUEUE,
           { issueId, personId, event, jobId },
@@ -1044,7 +1050,10 @@ export class IssueMailer implements OnModuleInit {
           },
         );
       }
-      queued += 1;
+      // A send whose slot is taken answers null and queues nothing.
+      if (id !== null) {
+        queued += 1;
+      }
     }
     return queued;
   }

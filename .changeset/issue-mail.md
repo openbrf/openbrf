@@ -36,7 +36,7 @@ number.
   the property manager. A person whose processing is restricted (GDPR art. 18)
   is not mailed: the restriction is checked when the mail is queued, when it is
   delivered and again after the address is decrypted, just before it is handed
-  to the mail service.
+  to the mail service. An address changed in the meantime is not mailed either.
 - **No free text.** A mail gives the issue number, the type, the priority and a
   link to the issue queue. It never includes what the reporter or a handler
   wrote, where in the building the issue is, or who reported it. That text does
