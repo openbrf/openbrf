@@ -26,6 +26,7 @@ vi.mock("../api/issues", async (importOriginal) => ({
 function own(overrides: Partial<OwnIssue> = {}): OwnIssue {
   return {
     id: "issue-1",
+    number: 1,
     meaning: "IN_PROGRESS",
     typeId: "type-water",
     typeName: "Vatten",
