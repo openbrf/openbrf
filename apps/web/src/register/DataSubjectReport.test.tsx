@@ -1824,11 +1824,13 @@ describe("what the document prints", () => {
     expect(row).not.toBeNull();
     const cell = within(row as HTMLElement);
     expect(cell.getByText(/Rörmokare Ab · Skickad/)).toBeTruthy();
+    expect(cell.getByText(/2026-01-06/)).toBeTruthy();
     expect(
       cell.getByText(
         /En entreprenör som sedan tagits bort från listan · Inte bekräftad som skickad/,
       ),
     ).toBeTruthy();
+    expect(cell.getByText(/2026-01-07/)).toBeTruthy();
   });
 
   it("names the capacity somebody was present at a general meeting in", async () => {

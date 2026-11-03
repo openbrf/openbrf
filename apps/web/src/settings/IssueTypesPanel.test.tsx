@@ -149,6 +149,29 @@ describe("the ring-fence", () => {
       expect(fetchIssueTypes).toHaveBeenCalledTimes(2);
     });
   });
+
+  it("is lifted by clearing the box of a ring-fenced type", async () => {
+    fetchIssueTypes.mockResolvedValue({
+      ok: true,
+      value: [type({ ringFenced: true })],
+    });
+    const session = userEvent.setup();
+    render(<IssueTypesPanel />);
+    await shown();
+
+    const box = screen.getByLabelText(
+      "Vatten: avskärmad, inget når en entreprenör",
+    );
+    expect(box).toHaveProperty("checked", true);
+    await session.click(box);
+
+    await waitFor(() => {
+      expect(setIssueTypeRingFence).toHaveBeenCalledWith({
+        id: "type-water",
+        ringFenced: false,
+      });
+    });
+  });
 });
 
 describe("who may report a type", () => {
