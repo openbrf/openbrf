@@ -420,6 +420,7 @@ const BOARD_FEED = (() => {
     erasedAt: null,
     liked: false,
     issue: null,
+    knownFault: null,
     mayReportIssue: false,
     mayEdit: false,
     mayReadHistory: false,

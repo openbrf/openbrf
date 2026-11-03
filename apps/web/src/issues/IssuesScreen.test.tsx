@@ -91,8 +91,16 @@ const LIFT = post({
 
 const READER = viewer(["issues:report"]);
 
+/** jsdom lays nothing out and has no scrollIntoView; a follow-up calls it. */
+const scrollIntoView = vi.fn();
+const ownScrollIntoView = Object.getOwnPropertyDescriptor(
+  Element.prototype,
+  "scrollIntoView",
+);
+
 beforeEach(() => {
   vi.clearAllMocks();
+  Element.prototype.scrollIntoView = scrollIntoView;
   fetchOwnIssues.mockResolvedValue(ok([]));
   fetchKnownFaults.mockResolvedValue(ok([]));
   reportIssue.mockResolvedValue(ok({ id: "issue-1" }));
@@ -119,6 +127,15 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  if (ownScrollIntoView !== undefined) {
+    Object.defineProperty(
+      Element.prototype,
+      "scrollIntoView",
+      ownScrollIntoView,
+    );
+  } else {
+    Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+  }
 });
 
 describe("a report made from a post", () => {
@@ -317,6 +334,7 @@ describe("known faults and a report that follows up another", () => {
         "Den här anmälan följer upp din tidigare anmälan om Hiss.",
       ),
     ).toBeTruthy();
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
     expect(
       (screen.getByLabelText("Vad gäller det") as HTMLSelectElement).value,
     ).toBe("type-lift");
