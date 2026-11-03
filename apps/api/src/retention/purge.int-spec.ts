@@ -85,6 +85,8 @@ const binderFileId = `purge-binder-file-${suffix}`;
  * named in here has an art. 17 request, decided by the board on its merits.
  */
 const ISSUE_DESCRIPTION = "Grannen i 1202 stallde cyklar i trapphuset";
+/** What the person wrote in the conversation on that issue. */
+const ISSUE_MESSAGE = "Cyklarna står kvar i trapphuset";
 
 /** The moment the retention policy has run out on that move-out, and before. */
 let dueAt: Date;
@@ -463,6 +465,19 @@ beforeAll(async () => {
       closedAt: new Date(),
       outcome: "FIXED",
     },
+  });
+  // The conversation on it, as its reporter and as a handler writing a note:
+  // each names its writer, and the words are the issue's.
+  await prisma.issueMessage.create({
+    data: {
+      issueId,
+      side: "REPORTER",
+      authorPersonId: people.referenced,
+      body: ISSUE_MESSAGE,
+    },
+  });
+  await prisma.issueNote.create({
+    data: { issueId, authorPersonId: people.referenced, body: ISSUE_MESSAGE },
   });
   await prisma.mediaFile.createMany({
     data: [
@@ -1207,6 +1222,20 @@ describe("issues, documents, binder entries and files the person left behind", (
     // including the neighbour it names. That is why this is a detachment and
     // why nothing calls the result anonymous.
     expect(issue.description).toBe(ISSUE_DESCRIPTION);
+
+    // The conversation is detached from its writer as the issue is, and its
+    // words stay with the issue, on the issue's own clock (ADR 0057).
+    const message = await prisma.issueMessage.findFirstOrThrow({
+      where: { issueId },
+      select: { authorPersonId: true, body: true },
+    });
+    const note = await prisma.issueNote.findFirstOrThrow({
+      where: { issueId },
+      select: { authorPersonId: true, body: true },
+    });
+    expect(message).toEqual({ authorPersonId: null, body: ISSUE_MESSAGE });
+    expect(note).toEqual({ authorPersonId: null, body: ISSUE_MESSAGE });
+    expect(outcome?.cleared).toContain("issueConversation");
 
     const document = await prisma.document.findUniqueOrThrow({
       where: { id: documentId },

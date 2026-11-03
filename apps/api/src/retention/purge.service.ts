@@ -646,6 +646,7 @@ export class PurgeService implements OnModuleInit {
    *
    * Distinct scans rather than a join: reporterPersonId, assigneePersonId and
    * enteredByPersonId on an issue, defaultAssigneePersonId on an issue type,
+   * authorPersonId on an issue message and on an internal note,
    * uploadedByPersonId on a document and the same column on a media file, and
    * filedByPersonId on an apartment binder entry, are plain columns with an
    * index each, and asking each of them for its distinct values is one index
@@ -657,6 +658,8 @@ export class PurgeService implements OnModuleInit {
       assignees,
       enteredBy,
       typeDefaults,
+      messageAuthors,
+      noteAuthors,
       documents,
       media,
       binderEntries,
@@ -676,6 +679,14 @@ export class PurgeService implements OnModuleInit {
       this.prisma.issueType.groupBy({
         by: ["defaultAssigneePersonId"],
         where: { defaultAssigneePersonId: { not: null } },
+      }),
+      this.prisma.issueMessage.groupBy({
+        by: ["authorPersonId"],
+        where: { authorPersonId: { not: null } },
+      }),
+      this.prisma.issueNote.groupBy({
+        by: ["authorPersonId"],
+        where: { authorPersonId: { not: null } },
       }),
       this.prisma.document.groupBy({
         by: ["uploadedByPersonId"],
@@ -710,6 +721,11 @@ export class PurgeService implements OnModuleInit {
     for (const row of typeDefaults) {
       if (row.defaultAssigneePersonId !== null) {
         ids.add(row.defaultAssigneePersonId);
+      }
+    }
+    for (const row of [...messageAuthors, ...noteAuthors]) {
+      if (row.authorPersonId !== null) {
+        ids.add(row.authorPersonId);
       }
     }
     for (const row of [...documents, ...media]) {
@@ -951,6 +967,24 @@ export class PurgeService implements OnModuleInit {
         data: { defaultAssigneePersonId: null },
       });
 
+      /*
+       * Who wrote an issue message or an internal note. The words stay with
+       * the issue, which purges them with its free text on its own clock (ADR
+       * 0057), and the audit entry for each still names its writer; what goes
+       * is the reference. A handler's message keeps the role it was signed
+       * with, which names nobody, and is shown to the handlers as written by
+       * somebody no longer known.
+       */
+      const { count: messagesDetachedFromPerson } =
+        await tx.issueMessage.updateMany({
+          where: { authorPersonId: personId },
+          data: { authorPersonId: null },
+        });
+      const { count: notesDetachedFromPerson } = await tx.issueNote.updateMany({
+        where: { authorPersonId: personId },
+        data: { authorPersonId: null },
+      });
+
       const { count: documentsDetachedFromPerson } =
         await tx.document.updateMany({
           where: { uploadedByPersonId: personId },
@@ -985,6 +1019,9 @@ export class PurgeService implements OnModuleInit {
 
       if (issuesDetachedFromPerson > 0) {
         cleared.push("issues");
+      }
+      if (messagesDetachedFromPerson + notesDetachedFromPerson > 0) {
+        cleared.push("issueConversation");
       }
       if (
         issuesUnassignedFromPerson +

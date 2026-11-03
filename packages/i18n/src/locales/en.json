@@ -815,6 +815,8 @@
           "ISSUE_TARGET_DATE_CHANGED": "The target date of an issue was changed",
           "ISSUE_ACCESS_CHANGED": "Who handles an issue was changed",
           "ISSUE_RESIDENTS_LISTED": "A handler was shown who lives in an apartment, to open an issue",
+          "ISSUE_MESSAGE_SENT": "A message was written on an issue",
+          "ISSUE_NOTE_ADDED": "An internal note was written on an issue",
           "MOVE_IN_RECORDED": "A move-in was recorded",
           "MOVE_OUT_RECORDED": "A move-out was recorded",
           "PLUGIN_ENABLED": "A plugin was switched on",
@@ -1696,6 +1698,30 @@
       "noDefaultAssignee": "Nobody: tell every handler",
       "handledByBoardHint": "The board and an administrator handle these issues, an administrator without a seat on the board included. The property manager does not see them. Making a type the board's unassigns the property manager from its issues.",
       "handledByEveryHandlerHint": "Every handler sees these issues, the property manager included. An issue with no assignee is told to all of them."
+    },
+    "issueSavedReplies": {
+      "title": "Saved replies",
+      "description": "Texts whoever handles an issue can start a message to the reporter from. Picking one fills the message field and sends nothing. Reword them to your own bylaws.",
+      "loading": "Reading the saved replies...",
+      "loadFailed": "The saved replies could not be read just now.",
+      "empty": "No saved replies.",
+      "titleLabel": "Name",
+      "titleNamed": "{{title}}: name",
+      "bodyLabel": "Text",
+      "bodyNamed": "{{title}}: text",
+      "bodyHint": "Sent to the reporter signed as the board or the property manager. No personal identity numbers.",
+      "addTitle": "New saved reply",
+      "add": "Add",
+      "save": "Save",
+      "saving": "Saving...",
+      "remove": "Remove",
+      "removeNamed": "Remove {{title}}",
+      "errors": {
+        "notFound": "That saved reply is gone. The list has been read again.",
+        "tooMany": "The association already keeps as many saved replies as it may.",
+        "personalIdentityNumber": "The text carries a personal identity number. Remove it and save again.",
+        "unknown": "The saved replies could not be changed just now. Please try again."
+      }
     },
     "issueReporting": {
       "title": "Issue reports from the website",
@@ -3558,6 +3584,16 @@
       "other": "Other",
       "insurance": "Insurance"
     },
+    "seededSavedReplies": {
+      "received": {
+        "title": "We have received your issue",
+        "body": "Thank you for getting in touch. We have received your issue and will write here when we know more."
+      },
+      "bylaws": {
+        "title": "Yours under the bylaws",
+        "body": "Thank you for your report. Under the association's bylaws, what you describe is for you as the tenant-owner to maintain, so you arrange the work and pay for it. The bylaws say what applies to your apartment. Write here if you have any questions."
+      }
+    },
     "report": {
       "title": "Report an issue",
       "description": "The board and the property manager read this. Nothing here is published.",
@@ -3671,7 +3707,7 @@
     },
     "handling": {
       "__after__": "queue",
-      "open": "Handle {{type}}: assignee, priority, target date and timeline",
+      "open": "Handle {{type}}: assignee, priority, target date, timeline and messages",
       "assignee": "Assignee",
       "assigneeNamed": "{{type}}: assignee",
       "unassigned": "Unassigned",
@@ -3736,6 +3772,64 @@
         "typeNotFound": "That type is not one you can open an issue under. Reload the page.",
         "residentNotFound": "That resident no longer lives in the apartment. Choose the apartment again, or leave the resident out.",
         "unknown": "The issue could not be opened just now. Please try again."
+      }
+    },
+    "conversation": {
+      "title": "Messages with the reporter",
+      "openOwn": "Messages about {{type}}",
+      "loading": "Reading the messages...",
+      "readFailed": "The messages could not be read just now. Close and open them again.",
+      "readFailedHandler": "The messages, notes or files could not be read just now. Close and open the issue again.",
+      "empty": "No messages yet.",
+      "emptyOwn": "No messages yet. The board or the property manager answers here.",
+      "you": "You",
+      "reporter": "Reporter",
+      "signature": {
+        "BOARD": "The board",
+        "PROPERTY_MANAGER": "The property manager"
+      },
+      "signedAs": "to the reporter as {{role}}",
+      "message": "Message",
+      "messageNamed": "{{type}}: your message",
+      "toReporterNamed": "{{type}}: message to the reporter",
+      "ownHint": "Only you and whoever handles issues read this. No personal identity numbers, please.",
+      "toReporterHint": "The reporter reads this signed as the board or the property manager, never with your name.",
+      "send": "Send",
+      "sending": "Sending...",
+      "closedOwn": "This report is closed and takes no more messages.",
+      "noReporter": "Nobody can read an answer on this issue: it has no reporter, or no address to reach them at.",
+      "savedReply": "Saved reply",
+      "savedReplyPick": "Insert a saved reply...",
+      "errors": {
+        "issueNotFound": "That report is gone. Read the page again.",
+        "issueNotFoundHandler": "That issue is gone, or no longer yours to handle. The queue has been read again.",
+        "issueClosed": "This report was closed while you wrote. Your message was not sent.",
+        "noReporter": "Nobody can read an answer on this issue.",
+        "personalIdentityNumber": "The text carries a personal identity number. Remove it and send again.",
+        "unknown": "That could not be sent just now. Please try again."
+      }
+    },
+    "notes": {
+      "title": "Internal notes",
+      "hint": "Only those who handle this issue read these. The reporter never does.",
+      "empty": "No notes yet.",
+      "label": "Note",
+      "labelNamed": "{{type}}: internal note",
+      "add": "Add note",
+      "adding": "Adding..."
+    },
+    "attachments": {
+      "title": "Files for those who handle the issue",
+      "hint": "An image or a PDF, such as a quote or a protocol. The reporter never sees these.",
+      "empty": "No files yet.",
+      "add": "Attach a file",
+      "addNamed": "{{type}}: attach a file",
+      "adding": "Uploading...",
+      "errors": {
+        "tooMany": "This issue already carries as many files as it may.",
+        "tooLarge": "The file is larger than allowed.",
+        "unsupported": "Only an image (PNG, JPEG, WebP, GIF) or a PDF can be attached.",
+        "unknown": "The file could not be attached just now. Please try again."
       }
     }
   },

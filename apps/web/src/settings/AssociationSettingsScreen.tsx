@@ -28,6 +28,7 @@ import { BrokerUpdateRequestsPanel } from "./BrokerUpdateRequestsPanel";
 import { ContactInboxPanel } from "./ContactInboxPanel";
 import { HousingCooperativePanel } from "./HousingCooperativePanel";
 import { IssueReportingPanel } from "./IssueReportingPanel";
+import { IssueSavedRepliesPanel } from "./IssueSavedRepliesPanel";
 import { IssueTypesPanel } from "./IssueTypesPanel";
 import { MeetingBylawsPanel } from "./MeetingBylawsPanel";
 import { MotionDeadlinePanel } from "./MotionDeadlinePanel";
@@ -422,6 +423,10 @@ export function AssociationSettingsScreen({
            board configures the catalogue; an administrator decides whether
            the public one exists. */
         return <IssueTypesPanel />;
+      case "issueSavedReplies":
+        /* Beside the catalogue: what a handler answers a reporter with is the
+           board's vocabulary as much as the types are. */
+        return <IssueSavedRepliesPanel />;
       case "bookableResources":
         /* What the house offers and how much of it one household may take.
            The board's own policy for its own building, which is why it shares

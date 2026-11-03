@@ -6,6 +6,7 @@ import { localDayOfInstant } from "../bookings/booking-calendar";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Panel } from "../ui/Panel";
 import { IssueStatusChip } from "./IssueStatusChip";
+import { OwnIssueConversation } from "./OwnIssueConversation";
 
 export interface OwnIssuesPanelProps {
   issues: readonly OwnIssue[];
@@ -14,9 +15,10 @@ export interface OwnIssuesPanelProps {
 /**
  * What this account has reported.
  *
- * Read-only: a reporter follows their report, and moving it between states is
- * the job of whoever handles issues. Without that separation the queue would be
- * a list of what residents thought was done rather than of what was.
+ * A reporter follows their report and talks with whoever handles it in its
+ * conversation, and moving it between states is the job of whoever handles
+ * issues. Without that separation the queue would be a list of what residents
+ * thought was done rather than of what was.
  */
 export function OwnIssuesPanel({ issues }: OwnIssuesPanelProps): ReactElement {
   const { t } = useTranslation();
@@ -90,6 +92,8 @@ export function OwnIssuesPanel({ issues }: OwnIssuesPanelProps): ReactElement {
                   ))}
                 </ul>
               )}
+
+              <OwnIssueConversation issue={issue} />
             </li>
           ))}
         </ul>
