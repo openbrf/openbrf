@@ -2257,7 +2257,9 @@ export const SCREENS: readonly Screen[] = [
           { click: { button: "Spara ansvarsfördelningen" } },
           // Waits for the save to be read back. Without it the check below
           // runs before the date is there and ticks the box a second time,
-          // which withdraws the guide again.
+          // which withdraws the guide again. For an adopted guide the date is
+          // there at once, so the capture waits for the saving label to go
+          // (see `waitUntilGone` below).
           { see: { text: /^Antagen / } },
         ],
       },
@@ -2271,6 +2273,11 @@ export const SCREENS: readonly Screen[] = [
       },
     ],
     waitFor: { text: /^Antagen / },
+    // An adopted guide shows its date from the stored table, so the marker
+    // above is there before a save started by this entry has finished. The
+    // panel's own saving label is gone when it has, and the form is no longer
+    // locked.
+    waitUntilGone: { text: "Sparar..." },
     capture: { panel: "Ansvarsfördelning" },
   },
   {
