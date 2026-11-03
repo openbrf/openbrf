@@ -245,6 +245,15 @@ export type IssueQueueCounts = Record<
   number
 >;
 
+/**
+ * One view of the queue and every view's count, read at one moment
+ * (`IssueService.readQueueSnapshot`): what the queue screen draws.
+ */
+export interface IssueQueueSnapshot {
+  issues: QueuedIssueView[];
+  counts: IssueQueueCounts;
+}
+
 /** What a read of the queue may be narrowed to. */
 export interface IssueQueueFilter {
   /** The meaning of the status the issue stands in. */
@@ -755,9 +764,9 @@ export class IssueService {
    *
    * One view of it (`IssueQueueView`), narrowed by `IssueBoardFilter`; with
    * neither, every issue the reader handles, closed ones included. The screen
-   * asks with the open meanings unless the handler chooses otherwise. The same
-   * conditions as `countQueue`, so the screen's numbers are the lengths of
-   * these lists.
+   * asks with the open meanings unless the handler chooses otherwise, and
+   * reads the list with its counts (`readQueueSnapshot`). The same conditions
+   * as `countQueue`, so a count is the length of its list.
    */
   async listQueue(
     readerPersonId: string,
@@ -800,31 +809,67 @@ export class IssueService {
     const narrowed = await this.boardWhere(readerPersonId, filter, now);
 
     return this.prisma.$transaction(
+      async (tx) =>
+        countQueueIn(
+          tx,
+          await narrowed(tx),
+          readerPersonId,
+          today,
+          filter.meaning,
+        ),
+      { isolationLevel: "RepeatableRead" },
+    );
+  }
+
+  /**
+   * What the queue screen draws: one view's issues, as `listQueue` reads them,
+   * and every view's count, as `countQueue` counts them. Reached with
+   * issues:handle.
+   *
+   * Read in one REPEATABLE READ transaction, so the rows and the numbers
+   * describe the queue at one moment. Read as two requests, an issue assigned
+   * or closed between them would be in the list and not in its view's count,
+   * or the other way round.
+   */
+  async readQueueSnapshot(
+    readerPersonId: string,
+    view: IssueQueueView,
+    filter: IssueBoardFilter = {},
+  ): Promise<IssueQueueSnapshot> {
+    const now = new Date();
+    const today = localDayOf(now);
+    const narrowed = await this.boardWhere(readerPersonId, filter, now);
+    const meanings = meaningsInView(view, filter.meaning);
+
+    const { rows, counts } = await this.prisma.$transaction(
       async (tx) => {
         const where = await narrowed(tx);
-        const count = async (view: IssueQueueView): Promise<number> => {
-          const meanings = meaningsInView(view, filter.meaning);
-          return meanings.length === 0
-            ? 0
-            : tx.issue.count({
-                where: {
-                  AND: [
-                    where,
-                    viewWhere(view, readerPersonId, today),
-                    { status: { meaning: { in: [...meanings] } } },
-                  ],
-                },
-              });
-        };
         // One after another: a transaction runs one statement at a time.
-        const mine = await count("MINE");
-        const unassigned = await count("UNASSIGNED");
-        const overdue = await count("OVERDUE");
-        const all = await count("ALL");
-        return { mine, unassigned, overdue, all };
+        const read =
+          meanings.length === 0
+            ? []
+            : await readQueueIn(
+                tx,
+                { AND: [where, viewWhere(view, readerPersonId, today)] },
+                meanings,
+                null,
+                undefined,
+              );
+        return {
+          rows: read,
+          counts: await countQueueIn(
+            tx,
+            where,
+            readerPersonId,
+            today,
+            filter.meaning,
+          ),
+        };
       },
       { isolationLevel: "RepeatableRead" },
     );
+
+    return { issues: await this.queuedViews(rows, "show"), counts };
   }
 
   /**
@@ -1561,9 +1606,10 @@ export class IssueService {
   }
 
   /**
-   * What a search of the queue matches: every word somewhere in the issue's
-   * description, its place, its type's name, its apartment's designation or
-   * its reporter's name, case aside.
+   * What a search of the queue matches: each of its words (`searchTermsOf`:
+   * the first `ISSUE_SEARCH_LIMITS.terms` different ones; any after those are
+   * not read) somewhere in the issue's description, its place, its type's
+   * name, its apartment's designation or its reporter's name, case aside.
    *
    * Never what the reader is not shown. A reporter with protected personal data
    * is shown without their name or apartment (`IssueReporterView`), so neither
@@ -1777,40 +1823,15 @@ export class IssueService {
     after: IssueQueueCursor | null,
     take: number | undefined,
   ): Promise<QueueRecord[]> {
-    const from =
-      after === null ? 0 : ISSUE_STATUS_MEANINGS.indexOf(after.meaning);
-    const read = meanings.filter(
-      (meaning) => ISSUE_STATUS_MEANINGS.indexOf(meaning) >= from,
-    );
     return this.prisma.$transaction(
-      async (tx) => {
-        const where =
-          typeof whereOf === "function" ? await whereOf(tx) : whereOf;
-        const rows: QueueRecord[] = [];
-        for (const meaning of read) {
-          const remaining = take === undefined ? undefined : take - rows.length;
-          if (remaining === 0) {
-            break;
-          }
-          rows.push(
-            ...(await tx.issue.findMany({
-              where: {
-                AND: [
-                  where,
-                  { status: { meaning } },
-                  after !== null && meaning === after.meaning
-                    ? afterWithinMeaning(after)
-                    : {},
-                ],
-              },
-              orderBy: QUEUE_ORDER_WITHIN_MEANING,
-              ...(remaining === undefined ? {} : { take: remaining }),
-              include: ISSUE_INCLUDE,
-            })),
-          );
-        }
-        return rows;
-      },
+      async (tx) =>
+        readQueueIn(
+          tx,
+          typeof whereOf === "function" ? await whereOf(tx) : whereOf,
+          meanings,
+          after,
+          take,
+        ),
       { isolationLevel: "RepeatableRead" },
     );
   }
@@ -2049,6 +2070,82 @@ export function viewWhere(
     case "ALL":
       return {};
   }
+}
+
+/**
+ * Issues in the queue's order, from a point in it, read in the transaction
+ * given, as `IssueService.readQueue` describes. The caller's transaction is
+ * REPEATABLE READ, so every meaning sees the queue at one moment.
+ */
+async function readQueueIn(
+  tx: Prisma.TransactionClient,
+  where: Prisma.IssueWhereInput,
+  meanings: readonly IssueStatusMeaning[],
+  after: IssueQueueCursor | null,
+  take: number | undefined,
+): Promise<QueueRecord[]> {
+  const from =
+    after === null ? 0 : ISSUE_STATUS_MEANINGS.indexOf(after.meaning);
+  const rows: QueueRecord[] = [];
+  for (const meaning of meanings) {
+    if (ISSUE_STATUS_MEANINGS.indexOf(meaning) < from) {
+      continue;
+    }
+    const remaining = take === undefined ? undefined : take - rows.length;
+    if (remaining === 0) {
+      break;
+    }
+    rows.push(
+      ...(await tx.issue.findMany({
+        where: {
+          AND: [
+            where,
+            { status: { meaning } },
+            after !== null && meaning === after.meaning
+              ? afterWithinMeaning(after)
+              : {},
+          ],
+        },
+        orderBy: QUEUE_ORDER_WITHIN_MEANING,
+        ...(remaining === undefined ? {} : { take: remaining }),
+        include: ISSUE_INCLUDE,
+      })),
+    );
+  }
+  return rows;
+}
+
+/**
+ * How many issues each view holds of those `where` selects, counted in the
+ * transaction given by the conditions each view is read by.
+ */
+async function countQueueIn(
+  tx: Prisma.TransactionClient,
+  where: Prisma.IssueWhereInput,
+  readerPersonId: string,
+  today: LocalDay,
+  meaning: IssueMeaningFilter | undefined,
+): Promise<IssueQueueCounts> {
+  const count = async (view: IssueQueueView): Promise<number> => {
+    const meanings = meaningsInView(view, meaning);
+    return meanings.length === 0
+      ? 0
+      : tx.issue.count({
+          where: {
+            AND: [
+              where,
+              viewWhere(view, readerPersonId, today),
+              { status: { meaning: { in: [...meanings] } } },
+            ],
+          },
+        });
+  };
+  // One after another: a transaction runs one statement at a time.
+  const mine = await count("MINE");
+  const unassigned = await count("UNASSIGNED");
+  const overdue = await count("OVERDUE");
+  const all = await count("ALL");
+  return { mine, unassigned, overdue, all };
 }
 
 /**

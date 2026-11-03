@@ -23,16 +23,14 @@ import { IssueQueueScreen } from "./IssueQueueScreen";
  * nowhere to put it. So this file asserts the request as well as the panel.
  */
 
-const fetchIssueQueue = vi.fn();
-const fetchIssueQueueCounts = vi.fn();
+const fetchIssueQueueSnapshot = vi.fn();
 const fetchHandlerIssueTypes = vi.fn();
 const fetchOwnIssues = vi.fn();
 const setIssueStatus = vi.fn();
 
 vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
-  fetchIssueQueue: (input?: unknown) => fetchIssueQueue(input),
-  fetchIssueQueueCounts: (input?: unknown) => fetchIssueQueueCounts(input),
+  fetchIssueQueueSnapshot: (input: unknown) => fetchIssueQueueSnapshot(input),
   fetchHandlerIssueTypes: () => fetchHandlerIssueTypes(),
   fetchOwnIssues: () => fetchOwnIssues(),
   setIssueStatus: (input: unknown) => setIssueStatus(input),
@@ -113,15 +111,22 @@ function issue(
   } as QueuedIssue;
 }
 
+/** The counts the queue is answered with unless a test says otherwise. */
+const COUNTS = { mine: 1, unassigned: 2, overdue: 0, all: 5 };
+
+/** A snapshot of the queue: one view's issues and every view's count. */
+function answer(
+  issues: readonly QueuedIssue[],
+  counts: Record<keyof typeof COUNTS, number> = COUNTS,
+) {
+  return { ok: true, value: { issues: [...issues], counts } };
+}
+
 /** The external property manager: the queue, and nothing else of the board's. */
 const PROPERTY_MANAGER = ["issues:handle", "self:manage"];
 
 beforeEach(() => {
-  fetchIssueQueue.mockReset().mockResolvedValue({ ok: true, value: [issue()] });
-  fetchIssueQueueCounts.mockReset().mockResolvedValue({
-    ok: true,
-    value: { mine: 1, unassigned: 2, overdue: 0, all: 5 },
-  });
+  fetchIssueQueueSnapshot.mockReset().mockResolvedValue(answer([issue()]));
   fetchHandlerIssueTypes.mockReset().mockResolvedValue({
     ok: true,
     value: [
@@ -141,6 +146,15 @@ beforeEach(() => {
             active: true,
             sortOrder: 0,
             issueCount: 1,
+          },
+          {
+            id: "s-doing",
+            meaning: "IN_PROGRESS",
+            label: "Pågår",
+            isDefault: false,
+            active: true,
+            sortOrder: 1,
+            issueCount: 0,
           },
         ],
       },
@@ -175,9 +189,9 @@ describe("the property manager", () => {
     });
     expect(screen.getByText("Det droppar i taket.")).toBeTruthy();
     expect(screen.getByText("Rune Boende")).toBeTruthy();
-    expect(fetchIssueQueue).toHaveBeenCalledTimes(1);
+    expect(fetchIssueQueueSnapshot).toHaveBeenCalledTimes(1);
     // Mina, of the open issues: the handler's own work, first.
-    expect(fetchIssueQueue).toHaveBeenCalledWith({
+    expect(fetchIssueQueueSnapshot).toHaveBeenCalledWith({
       view: "MINE",
       meaning: "OPEN",
     });
@@ -207,7 +221,7 @@ describe("a resident", () => {
     expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
     expect(screen.queryByText("Styrelse och förvaltare")).toBeNull();
     expect(screen.queryByText("Ärendekön")).toBeNull();
-    expect(fetchIssueQueue).not.toHaveBeenCalled();
+    expect(fetchIssueQueueSnapshot).not.toHaveBeenCalled();
     expect(fetchHandlerIssueTypes).not.toHaveBeenCalled();
   });
 });
@@ -221,7 +235,7 @@ describe("a read that fails", () => {
      * tell the people who handle the house's faults there are none, and the
      * notice above it would not undo the sentence.
      */
-    fetchIssueQueue.mockResolvedValue({
+    fetchIssueQueueSnapshot.mockResolvedValue({
       ok: false,
       failure: { status: 500, reason: "unexpected" },
     });
@@ -263,8 +277,11 @@ describe("the four views", () => {
       expect(link.getAttribute("href")).toBe(href);
       expect(link.getAttribute("aria-current")).toBeNull();
     }
-    // Counted under the filter the list is read by, without the view.
-    expect(fetchIssueQueueCounts).toHaveBeenCalledWith({ meaning: "OPEN" });
+    // Counted in the read of the list, under the filter it is read by.
+    expect(fetchIssueQueueSnapshot).toHaveBeenCalledWith({
+      view: "MINE",
+      meaning: "OPEN",
+    });
   });
 
   it("reads the view the address names", async () => {
@@ -276,17 +293,16 @@ describe("the four views", () => {
       name: "Försenade 0",
     });
     expect(overdue.getAttribute("aria-current")).toBe("page");
-    expect(fetchIssueQueue).toHaveBeenCalledWith({
+    expect(fetchIssueQueueSnapshot).toHaveBeenCalledWith({
       view: "OVERDUE",
       meaning: "OPEN",
     });
   });
 
   it("makes the overdue count stand out while there are overdue issues", async () => {
-    fetchIssueQueueCounts.mockResolvedValue({
-      ok: true,
-      value: { mine: 0, unassigned: 0, overdue: 3, all: 3 },
-    });
+    fetchIssueQueueSnapshot.mockResolvedValue(
+      answer([issue()], { mine: 0, unassigned: 0, overdue: 3, all: 3 }),
+    );
     render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
 
     const overdue = await within(views()).findByRole("link", {
@@ -295,14 +311,14 @@ describe("the four views", () => {
     expect(overdue.querySelector(".text-danger")?.textContent).toBe("3");
   });
 
-  it("draws the views without numbers when they could not be counted", async () => {
-    fetchIssueQueueCounts.mockResolvedValue({
+  it("draws the views without numbers when the queue could not be read", async () => {
+    fetchIssueQueueSnapshot.mockResolvedValue({
       ok: false,
       failure: { status: 500, reason: "unexpected" },
     });
     render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
 
-    await screen.findByText("Det droppar i taket.");
+    await screen.findByText("Ärendena kunde inte läsas just nu.");
     expect(
       within(views())
         .getAllByRole("link")
@@ -311,7 +327,7 @@ describe("the four views", () => {
   });
 
   it("says which view is empty, and says nothing matches once the filter narrows it", async () => {
-    fetchIssueQueue.mockResolvedValue({ ok: true, value: [] });
+    fetchIssueQueueSnapshot.mockResolvedValue(answer([]));
     render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
 
     expect(
@@ -337,17 +353,12 @@ describe("the filter and the search", () => {
     await userEvent.selectOptions(field("Prioritet"), "LOW");
 
     await waitFor(() => {
-      expect(fetchIssueQueue).toHaveBeenLastCalledWith({
+      expect(fetchIssueQueueSnapshot).toHaveBeenLastCalledWith({
         view: "ALL",
         meaning: "DONE",
         typeId: "type-water",
         priority: "LOW",
       });
-    });
-    expect(fetchIssueQueueCounts).toHaveBeenLastCalledWith({
-      meaning: "DONE",
-      typeId: "type-water",
-      priority: "LOW",
     });
   });
 
@@ -358,9 +369,8 @@ describe("the filter and the search", () => {
     await userEvent.selectOptions(field("Status"), "Alla, även klara");
 
     await waitFor(() => {
-      expect(fetchIssueQueue).toHaveBeenLastCalledWith({ view: "ALL" });
+      expect(fetchIssueQueueSnapshot).toHaveBeenLastCalledWith({ view: "ALL" });
     });
-    expect(fetchIssueQueueCounts).toHaveBeenLastCalledWith({});
   });
 
   it("searches once the handler stops typing, trimmed, and clears with the filter", async () => {
@@ -369,26 +379,22 @@ describe("the filter and the search", () => {
 
     await userEvent.type(field("Sök"), "  läcka  ");
     await waitFor(() => {
-      expect(fetchIssueQueue).toHaveBeenLastCalledWith({
+      expect(fetchIssueQueueSnapshot).toHaveBeenLastCalledWith({
         view: "MINE",
         meaning: "OPEN",
         search: "läcka",
       });
     });
-    expect(fetchIssueQueueCounts).toHaveBeenLastCalledWith({
-      meaning: "OPEN",
-      search: "läcka",
-    });
     // Asked for the word, never once per letter on the way to it.
     expect(
-      fetchIssueQueue.mock.calls.filter(
+      fetchIssueQueueSnapshot.mock.calls.filter(
         ([input]) => (input as { search?: string }).search !== undefined,
       ),
     ).toHaveLength(1);
 
     await userEvent.click(screen.getByRole("button", { name: "Rensa filter" }));
     await waitFor(() => {
-      expect(fetchIssueQueue).toHaveBeenLastCalledWith({
+      expect(fetchIssueQueueSnapshot).toHaveBeenLastCalledWith({
         view: "MINE",
         meaning: "OPEN",
       });
@@ -398,7 +404,7 @@ describe("the filter and the search", () => {
 
   it("never draws an earlier filter's answer over a later one's", async () => {
     let answerFirst: (value: unknown) => void = () => undefined;
-    fetchIssueQueue
+    fetchIssueQueueSnapshot
       .mockReset()
       .mockImplementationOnce(
         () =>
@@ -406,17 +412,118 @@ describe("the filter and the search", () => {
             answerFirst = resolve;
           }),
       )
-      .mockResolvedValue({
-        ok: true,
-        value: [issue({ id: "issue-urgent", description: "Akut läcka." })],
-      });
+      .mockResolvedValue(
+        answer([issue({ id: "issue-urgent", description: "Akut läcka." })]),
+      );
     render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
 
     await userEvent.selectOptions(field("Prioritet"), "URGENT");
     expect(await screen.findByText("Akut läcka.")).toBeTruthy();
 
-    answerFirst({ ok: true, value: [issue()] });
+    answerFirst(answer([issue()]));
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText("Akut läcka.")).toBeTruthy();
+    expect(screen.queryByText("Det droppar i taket.")).toBeNull();
+  });
+});
+
+describe("a save that finishes under another view or filter", () => {
+  /** Holds the next save open until the test answers it. */
+  function deferSave(): (value: unknown) => void {
+    let finish: (value: unknown) => void = () => undefined;
+    setIssueStatus.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    return (value) => {
+      finish(value);
+    };
+  }
+
+  async function startSave(): Promise<(value: unknown) => void> {
+    const finish = deferSave();
+    await userEvent.selectOptions(
+      screen.getByLabelText("Vatten anmält 2026-08-20: status"),
+      "s-doing",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Spara status" }));
+    await waitFor(() => {
+      expect(setIssueStatus).toHaveBeenCalledTimes(1);
+    });
+    return finish;
+  }
+
+  /** The views' links as they read, numbers and all. */
+  const viewNames = () =>
+    within(views())
+      .getAllByRole("link")
+      .map((link) => link.textContent);
+
+  it("reads the view the handler moved to, not the one the save began in", async () => {
+    const { rerender } = render(
+      <IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} view="MINE" />,
+    );
+    await screen.findByText("Det droppar i taket.");
+    const finish = await startSave();
+
+    fetchIssueQueueSnapshot.mockResolvedValue(
+      answer([issue({ id: "issue-all", description: "Hela kön." })], {
+        mine: 0,
+        unassigned: 4,
+        overdue: 0,
+        all: 4,
+      }),
+    );
+    rerender(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} view="ALL" />);
+    expect(await screen.findByText("Hela kön.")).toBeTruthy();
+
+    finish({ ok: true, value: issue({ id: "issue-all" }) });
+    await waitFor(() => {
+      expect(fetchIssueQueueSnapshot).toHaveBeenCalledTimes(3);
+    });
+    expect(
+      fetchIssueQueueSnapshot.mock.calls.map(
+        ([input]) => (input as { view: string }).view,
+      ),
+    ).toEqual(["MINE", "ALL", "ALL"]);
+    await waitFor(() => {
+      expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
+    });
+    expect(screen.getByText("Hela kön.")).toBeTruthy();
+    expect(screen.queryByText("Det droppar i taket.")).toBeNull();
+    expect(viewNames()).toEqual([
+      "Mina 0",
+      "Ej tilldelade 4",
+      "Försenade 0",
+      "Alla 4",
+    ]);
+  });
+
+  it("reads under the filter the handler set while it was saving", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+    const finish = await startSave();
+
+    fetchIssueQueueSnapshot.mockResolvedValue(
+      answer([issue({ id: "issue-urgent", description: "Akut läcka." })]),
+    );
+    await userEvent.selectOptions(field("Prioritet"), "URGENT");
+    expect(await screen.findByText("Akut läcka.")).toBeTruthy();
+
+    finish({ ok: true, value: issue() });
+    await waitFor(() => {
+      expect(fetchIssueQueueSnapshot).toHaveBeenCalledTimes(3);
+    });
+    expect(fetchIssueQueueSnapshot).toHaveBeenLastCalledWith({
+      view: "MINE",
+      meaning: "OPEN",
+      priority: "URGENT",
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
+    });
     expect(screen.getByText("Akut läcka.")).toBeTruthy();
     expect(screen.queryByText("Det droppar i taket.")).toBeNull();
   });

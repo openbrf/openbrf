@@ -190,13 +190,14 @@ closed case, because a closed case is not overdue. A status filter narrows every
 view alike, by meaning and never by a label: every open meaning, one meaning, or
 closed cases as well. The screen opens it on the open cases, so each view starts
 as the work still to do. A filter by type and by priority, and a search, narrow
-the same way. Each view's count is taken under the same conditions as its list
-and in one snapshot, so a count always matches its list. The board's front page
-shows three of those counts under the open filter: open, overdue and unassigned.
-It shows no charts.
+the same way. Each view's count is taken under the same conditions as its list,
+and the screen reads a view's list and all four counts in one snapshot, so a
+count always matches its list. The board's front page shows three of those
+counts under the open filter: open, overdue and unassigned. It shows no charts.
 
-The search matches every word somewhere in the case's description, its place,
-its type's name, its apartment's designation or its reporter's name. It searches
+The search matches each of its words somewhere in the case's description, its
+place, its type's name, its apartment's designation or its reporter's name. It
+reads the first six different words and ignores any after them. It searches
 only the cases the reader handles. It never matches what the reader is not
 shown: a protected reporter's name and apartment match nothing, so a search
 cannot reveal one by trial and error. Who is protected is read in the same

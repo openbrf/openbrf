@@ -310,7 +310,7 @@ export type IssueQueueCounts = Record<
   number
 >;
 
-/** The filter as the query string of the queue's two reads. */
+/** The filter as the query string of the queue's reads. */
 function queueQuery(filter: IssueQueueFilter, view?: IssueQueueView): string {
   const query = new URLSearchParams();
   if (view !== undefined) {
@@ -333,17 +333,25 @@ function queueQuery(filter: IssueQueueFilter, view?: IssueQueueView): string {
   return text === "" ? "" : `?${text}`;
 }
 
+/** One view of the queue and every view's count, read at one moment. */
+export interface IssueQueueSnapshot {
+  issues: QueuedIssue[];
+  counts: IssueQueueCounts;
+}
+
 /**
- * One view of the queue, narrowed by the filter.
- *
- * With no view and no filter, every issue the reader handles, closed ones
- * included.
+ * One view of the queue, narrowed by the filter, with how many issues each
+ * view holds under the same filter. The server reads both in one transaction,
+ * so a count never disagrees with the list read beside it.
  */
-export function fetchIssueQueue(
-  input: { view?: IssueQueueView } & IssueQueueFilter = {},
-): Promise<ApiResult<QueuedIssue[]>> {
+export function fetchIssueQueueSnapshot(
+  input: { view: IssueQueueView } & IssueQueueFilter,
+): Promise<ApiResult<IssueQueueSnapshot>> {
   const { view, ...filter } = input;
-  return apiRequest("GET", `/api/issue-queue${queueQuery(filter, view)}`);
+  return apiRequest(
+    "GET",
+    `/api/issue-queue/snapshot${queueQuery(filter, view)}`,
+  );
 }
 
 /**

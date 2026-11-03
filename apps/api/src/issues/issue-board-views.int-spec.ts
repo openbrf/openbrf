@@ -10,12 +10,13 @@ import {
   type IssueStatusMeaning,
   localDayOf,
 } from "@openbrf/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   createIssueTypeFixture,
@@ -75,6 +76,7 @@ const typeIds = {
   lift: `bv-type-lift-${suffix}`,
   insurance: `bv-type-insurance-${suffix}`,
   search: `bv-type-search-${suffix}`,
+  snapshot: `bv-type-snapshot-${suffix}`,
 };
 let water: IssueTypeFixture;
 let lift: IssueTypeFixture;
@@ -166,6 +168,23 @@ async function counts(
   });
   expect(response.statusCode, response.body).toBe(200);
   return response.json<Counts>();
+}
+
+interface Snapshot {
+  issues: QueuedRow[];
+  counts: Counts;
+}
+
+async function snapshot(
+  who: { personId: string },
+  params: Record<string, string> = {},
+): Promise<Snapshot> {
+  const response = await inject({
+    url: `/api/issue-queue/snapshot${query(params)}`,
+    cookie: cookies[who.personId],
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  return response.json<Snapshot>();
 }
 
 /** Text in code-unit order, so two lists of identifiers compare as sets. */
@@ -621,6 +640,124 @@ describe("the counts", () => {
   it("are closed to a resident, as the queue is", async () => {
     const response = await inject({
       url: "/api/issue-queue/counts",
+      cookie: cookies[resident.personId],
+    });
+    expect(response.statusCode).toBe(403);
+  });
+});
+
+describe("the snapshot", () => {
+  it("is the view's list and every view's count, as the two reads answer them", async () => {
+    for (const filter of [
+      { meaning: "OPEN" },
+      {},
+      { meaning: "DONE", view: "OVERDUE" },
+      { priority: "URGENT", view: "MINE" },
+      { view: "UNASSIGNED", q: `Beskrivning` },
+    ] as Record<string, string>[]) {
+      for (const typeId of [...viewTypes(), insurance.id]) {
+        const { view, ...rest } = filter;
+        const params = { ...rest, typeId };
+        const read = await snapshot(board, { ...params, view: view ?? "ALL" });
+        expect(read.counts, JSON.stringify(filter)).toEqual(
+          await counts(board, params),
+        );
+        expect(ids(read.issues), JSON.stringify(filter)).toEqual(
+          ids(await list(board, { ...params, view: view ?? "ALL" })),
+        );
+      }
+    }
+  });
+
+  it("reads the list and the counts at one moment, whatever is written between them", async () => {
+    const type = await createIssueTypeFixture(prisma, {
+      id: typeIds.snapshot,
+      name: `Ögonblick ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    const taken = await issue(type, "taken");
+    const params = { view: "UNASSIGNED", typeId: type.id, meaning: "OPEN" };
+
+    /*
+     * Another handler takes the issue once the list is read and before the
+     * first count is: on its own connection, outside the read's transaction,
+     * and committed before the read goes on.
+     */
+    const transaction = prisma.$transaction.bind(prisma);
+    let written = false;
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementation(((
+      first: unknown,
+      options?: unknown,
+    ) => {
+      if (
+        typeof first !== "function" ||
+        (options as { isolationLevel?: string } | undefined)?.isolationLevel !==
+          "RepeatableRead"
+      ) {
+        return transaction(first as never, options as never);
+      }
+      const run = first as (tx: Prisma.TransactionClient) => Promise<unknown>;
+      return transaction(
+        (tx: Prisma.TransactionClient) =>
+          run(
+            new Proxy(tx, {
+              get(target, property, receiver) {
+                const value: unknown = Reflect.get(target, property, receiver);
+                if (property !== "issue") {
+                  return value;
+                }
+                const delegate = value as Prisma.TransactionClient["issue"];
+                return new Proxy(delegate, {
+                  get(model, name, inner) {
+                    if (name === "count" && !written) {
+                      written = true;
+                      return async (...args: unknown[]) => {
+                        await prisma.issue.update({
+                          where: { id: taken },
+                          data: { assigneePersonId: colleague.personId },
+                        });
+                        return (model.count as (...rest: unknown[]) => unknown)(
+                          ...args,
+                        );
+                      };
+                    }
+                    return Reflect.get(model, name, inner) as unknown;
+                  },
+                });
+              },
+            }),
+          ),
+        options as never,
+      );
+    }) as never);
+    try {
+      const read = await snapshot(board, params);
+      expect(written).toBe(true);
+      expect(ids(read.issues)).toEqual([taken]);
+      expect(read.counts).toEqual({
+        mine: 0,
+        unassigned: 1,
+        overdue: 0,
+        all: 1,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    // Read again, the issue has left the view, and its count with it.
+    const after = await snapshot(board, params);
+    expect(after.issues).toEqual([]);
+    expect(after.counts).toEqual({
+      mine: 0,
+      unassigned: 0,
+      overdue: 0,
+      all: 1,
+    });
+  });
+
+  it("is closed to a resident, as the queue is", async () => {
+    const response = await inject({
+      url: "/api/issue-queue/snapshot",
       cookie: cookies[resident.personId],
     });
     expect(response.statusCode).toBe(403);

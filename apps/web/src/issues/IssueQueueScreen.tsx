@@ -6,20 +6,13 @@ import {
   type IssueQueueView,
 } from "@openbrf/shared";
 import { Link } from "@tanstack/react-router";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactElement,
-} from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import {
   fetchHandlerIssueTypes,
-  fetchIssueQueue,
-  fetchIssueQueueCounts,
+  fetchIssueQueueSnapshot,
   type IssueQueueCounts,
   type IssueQueueFilter,
   type IssueTypeView,
@@ -74,9 +67,9 @@ interface Loaded {
   filterKey: string | null;
   queue: readonly QueuedIssue[];
   /**
-   * How many issues each view holds under the same filter, or null when they
-   * could not be counted: the views are then drawn without numbers rather
-   * than with numbers nobody read.
+   * How many issues each view holds under the same filter, read with the list
+   * and at the same moment, or null when the read failed: the views are then
+   * drawn without numbers rather than with numbers nobody read.
    */
   counts: IssueQueueCounts | null;
   /**
@@ -117,12 +110,12 @@ const STATUS_CHOICE_LABEL: Readonly<Record<StatusChoice, TranslationKey>> = {
  * tilldelade, those given to nobody; Försenade, those past their target date;
  * and Alla. Each is a link, so the board's front page leads to one and the back
  * button walks them. Each carries how many issues it holds under the filter
- * below it, counted by the server under the conditions the list is read by,
- * so the number and the list agree. The filter - status, type, priority and a
- * search - narrows every view alike and opens on the open issues, so each
- * view starts as the work still to do. The search is asked of the server, which
- * matches only what the reader may read: a protected reporter's name and
- * apartment match nothing.
+ * below it, counted by the server under the conditions the list is read by
+ * and in the same read, so the number and the list agree. The filter -
+ * status, type, priority and a search - narrows every view alike and opens on
+ * the open issues, so each view starts as the work still to do. The search is
+ * asked of the server, which matches only what the reader may read: a
+ * protected reporter's name and apartment match nothing.
  *
  * Hiding the queue is courtesy only. The API refuses the read either way.
  */
@@ -139,7 +132,16 @@ export function IssueQueueScreen({
   const [typed, setTyped] = useState("");
   const [search, setSearch] = useState("");
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
-  const currentRead = useRef(0);
+  /*
+   * Bumped to read the queue again under whatever view and filter are current
+   * then: a save, an issue opened or a retry asks for it. A save started under
+   * an earlier view finishes into this one, so it has no request of its own to
+   * hold on to.
+   */
+  const [readCount, setReadCount] = useState(0);
+  const reload = useCallback((): void => {
+    setReadCount((count) => count + 1);
+  }, []);
 
   /*
    * The search is asked once the handler stops typing, rather than once per
@@ -170,49 +172,43 @@ export function IssueQueueScreen({
   const filterKey = JSON.stringify(narrowing);
   const key = JSON.stringify({ view, filter: narrowing });
 
-  /**
+  /*
    * Reads, and applies the answer only while it is still the newest one, on
    * the precedent `MotionQueueScreen` sets: the filter changes while a read is
-   * out, and the failure notice offers a retry.
+   * out, and a save or the failure notice asks for another. A newer read, or
+   * leaving, runs the cleanup, which drops the answer to this one.
    */
-  const reload = useCallback((): void => {
+  useEffect(() => {
     if (!canHandle) {
       return;
     }
-    const version = ++currentRead.current;
+    let current = true;
     const { view: asked, filter: counted } = JSON.parse(key) as {
       view: IssueQueueView;
       filter: IssueQueueFilter;
     };
     // Read together and applied together, so a row is never drawn against
-    // the statuses of an earlier read, and the numbers on the views answer
-    // the same filter as the list under them.
+    // the statuses of an earlier read. The list and the numbers on the views
+    // are one answer, read by the server at one moment.
     void Promise.all([
-      fetchIssueQueue({ view: asked, ...counted }),
-      fetchIssueQueueCounts(counted),
+      fetchIssueQueueSnapshot({ view: asked, ...counted }),
       fetchHandlerIssueTypes(),
-    ]).then(([queue, counts, types]) => {
-      if (version === currentRead.current) {
+    ]).then(([snapshot, types]) => {
+      if (current) {
         setLoaded({
           key,
           filterKey: JSON.stringify(counted),
-          queue: queue.ok ? queue.value : [],
-          counts: counts.ok ? counts.value : null,
+          queue: snapshot.ok ? snapshot.value.issues : [],
+          counts: snapshot.ok ? snapshot.value.counts : null,
           types: types.ok ? types.value : null,
-          loadFailed: !queue.ok,
+          loadFailed: !snapshot.ok,
         });
       }
     });
-  }, [canHandle, key]);
-
-  useEffect(() => {
-    reload();
-    // Leaving supersedes whatever is in flight, so a late answer is dropped by
-    // the same check that drops a superseded one.
     return () => {
-      currentRead.current += 1;
+      current = false;
     };
-  }, [reload]);
+  }, [canHandle, key, readCount]);
 
   const ready = loaded.key !== null;
   // The list on screen answers an earlier filter until this one's answer lands.
@@ -414,6 +410,6 @@ function ViewNav({
  * marks nothing else here.
  */
 const VIEW_LINK =
-  "flex min-h-11 items-center gap-2 border-b-[3px] px-3 text-body font-medium whitespace-nowrap transition-colors duration-150 ease-out";
+  "flex min-h-11 items-center gap-2 border-b-[3px] px-3 text-body font-medium whitespace-nowrap transition-colors duration-(--obrf-motion-duration) ease-(--obrf-motion-easing)";
 const VIEW_AT_REST = `${VIEW_LINK} border-transparent text-ink-muted hover:text-ink`;
 const VIEW_CURRENT = `${VIEW_LINK} border-trust text-ink`;

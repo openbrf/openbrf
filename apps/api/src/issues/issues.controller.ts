@@ -48,6 +48,7 @@ import {
   type IssueHandlerView,
   type IssuePhotoView,
   type IssueQueueCounts,
+  type IssueQueueSnapshot,
   IssueService,
   type IssueTimelineStep,
   type OwnIssueView,
@@ -345,6 +346,24 @@ export class IssueQueueController {
     return this.issues.countQueue(
       actingPersonId(request),
       boardFilterOf(boardFilterSchema.parse(query)),
+    );
+  }
+
+  /**
+   * What the queue screen draws: one view's issues and every view's count
+   * under the same filter, read at one moment, so a count never disagrees
+   * with the list beside it. Takes the parameters the list does.
+   */
+  @Get("snapshot")
+  async snapshot(
+    @Req() request: RequestWithPrincipal,
+    @Query() query: unknown,
+  ): Promise<IssueQueueSnapshot> {
+    const parsed = boardViewSchema.parse(query);
+    return this.issues.readQueueSnapshot(
+      actingPersonId(request),
+      parsed.view ?? "ALL",
+      boardFilterOf(parsed),
     );
   }
 
