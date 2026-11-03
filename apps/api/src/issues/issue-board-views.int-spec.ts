@@ -22,6 +22,7 @@ import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
+import { IssueService } from "./issue.service";
 
 /**
  * The board's views of the issue queue over HTTP, against a real database
@@ -59,9 +60,11 @@ const board = person("board", "Bea", "Styrelse");
 const colleague = person("colleague", "Carl", "Kollega");
 const manager = person("manager", "Frida", "Forvaltare");
 const resident = person("resident", "Rune", "Boende");
+/** A property manager whose board seat the authorization tests end. */
+const seated = person("seated", "Gunnar", "Ledamot");
 /** A resident with protected personal data, as a reporter. */
 const shielded = person("shielded", "Sara", "Skyddad");
-const people = [board, colleague, manager, resident, shielded];
+const people = [board, colleague, manager, resident, shielded, seated];
 const personIds = people.map((entry) => entry.personId);
 
 const addressId = `bv-address-${suffix}`;
@@ -325,8 +328,19 @@ beforeAll(async () => {
       electedOn: new Date("2025-05-15"),
     })),
   });
-  await prisma.systemRole.create({
-    data: { personId: manager.personId, role: "PROPERTY_MANAGER" },
+  await prisma.systemRole.createMany({
+    data: [manager, seated].map((entry) => ({
+      personId: entry.personId,
+      role: "PROPERTY_MANAGER" as const,
+    })),
+  });
+  // Held until a test ends it: the reader who is a property manager too.
+  await prisma.boardPosition.create({
+    data: {
+      personId: seated.personId,
+      position: "BOARD_MEMBER",
+      electedOn: new Date("2025-05-15"),
+    },
   });
   await prisma.residency.createMany({
     data: [
@@ -778,6 +792,124 @@ describe("the snapshot", () => {
   });
 });
 
+describe("the queue's authorization", () => {
+  /**
+   * Ends the reader's board seat once the queue's transaction is asked for and
+   * before it begins: the moment a scope read ahead of it would already have
+   * answered "board", and one read inside it must not. The seat is held again,
+   * and the spy removed, whatever the read does.
+   */
+  async function withSeatEndedAtTransactionEntry<T>(
+    read: () => Promise<T>,
+  ): Promise<T> {
+    const transaction = prisma.$transaction.bind(prisma);
+    let ended = false;
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementation((async (
+      first: unknown,
+      options?: unknown,
+    ) => {
+      if (
+        typeof first === "function" &&
+        (options as { isolationLevel?: string } | undefined)?.isolationLevel ===
+          "RepeatableRead" &&
+        !ended
+      ) {
+        ended = true;
+        await prisma.boardPosition.updateMany({
+          where: { personId: seated.personId },
+          data: {
+            endedOn: dateColumnOf(addLocalDays(localDayOf(new Date()), -1)),
+          },
+        });
+      }
+      return transaction(first as never, options as never);
+    }) as never);
+    try {
+      const result = await read();
+      expect(ended).toBe(true);
+      return result;
+    } finally {
+      spy.mockRestore();
+      await prisma.boardPosition.updateMany({
+        where: { personId: seated.personId },
+        data: { endedOn: null },
+      });
+    }
+  }
+
+  const service = () => app.get(IssueService);
+  const open = { meaning: "OPEN" } as const;
+
+  it("lets the reader in as the board while the seat is held", async () => {
+    expect(
+      ids(
+        await service().listQueue(seated.personId, "ALL", {
+          typeId: insurance.id,
+        }),
+      ),
+    ).toEqual([filed.boardOnly]);
+    expect(
+      ids(
+        await service().listQueue(seated.personId, "ALL", {
+          typeId: water.id,
+        }),
+      ),
+    ).toContain(filed.closedToBoard);
+  });
+
+  it("lists only what the property manager handles when the seat ends as the read begins", async () => {
+    const kept = await withSeatEndedAtTransactionEntry(() =>
+      service().listQueue(seated.personId, "ALL", { typeId: insurance.id }),
+    );
+    expect(ids(kept)).toEqual([]);
+
+    const waterRows = await withSeatEndedAtTransactionEntry(() =>
+      service().listQueue(seated.personId, "ALL", { typeId: water.id }),
+    );
+    expect(ids(waterRows)).not.toContain(filed.closedToBoard);
+    expect(ids(waterRows)).toContain(filed.mineNew);
+  });
+
+  it("counts only what the property manager handles when the seat ends as the count begins", async () => {
+    const insuranceCounts = await withSeatEndedAtTransactionEntry(() =>
+      service().countQueue(seated.personId, { typeId: insurance.id }),
+    );
+    expect(insuranceCounts).toEqual({
+      mine: 0,
+      unassigned: 0,
+      overdue: 0,
+      all: 0,
+    });
+
+    const waterCounts = await withSeatEndedAtTransactionEntry(() =>
+      service().countQueue(seated.personId, { typeId: water.id, ...open }),
+    );
+    expect(waterCounts).toEqual(
+      await counts(manager, { typeId: water.id, ...open }),
+    );
+  });
+
+  it("reads the snapshot's list and counts as the property manager when the seat ends as the read begins", async () => {
+    const insuranceRead = await withSeatEndedAtTransactionEntry(() =>
+      service().readQueueSnapshot(seated.personId, "ALL", {
+        typeId: insurance.id,
+      }),
+    );
+    expect(insuranceRead.issues).toEqual([]);
+    expect(insuranceRead.counts.all).toBe(0);
+
+    const waterRead = await withSeatEndedAtTransactionEntry(() =>
+      service().readQueueSnapshot(seated.personId, "ALL", {
+        typeId: water.id,
+      }),
+    );
+    expect(ids(waterRead.issues)).not.toContain(filed.closedToBoard);
+    expect(waterRead.counts).toEqual(
+      await counts(manager, { typeId: water.id }),
+    );
+  });
+});
+
 describe("the search", () => {
   const search = async (
     who: { personId: string },
@@ -853,7 +985,12 @@ describe("the search", () => {
     });
     expect(
       await counts(board, { typeId: searched.id, q: shielded.lastName }),
-    ).toEqual({ mine: 0, unassigned: 0, overdue: 0, all: 0 });
+    ).toEqual({
+      mine: 0,
+      unassigned: 0,
+      overdue: 0,
+      all: 0,
+    });
   });
 
   it("never finds for the property manager what the board keeps to itself", async () => {
