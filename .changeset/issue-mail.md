@@ -15,7 +15,8 @@ number.
 - **Assigned.** A handler giving an issue to somebody mails that person.
 - **Overdue.** The assignee is reminded once, the morning after the target date,
   when the issue is not done. A new target date that passes gives a new
-  reminder. The same date set again does not.
+  reminder. A date set again, or moved away from and back to, does not. An issue
+  given to somebody after its date has passed gives them the reminder then.
 - **Reopened.** A done issue that is opened again is mailed to its assignee, or
   to everybody who handles it when it has no assignee.
 - Nobody is mailed about their own action. A board-only issue is never mailed to
@@ -34,7 +35,7 @@ number.
   nobody is mailed about it.
 
 The issues row of the record of processing activities now names the mail
-server among its recipients, counts board members among its data subjects and
-says what the mails contain. A row the board has not edited is updated at the
-next start. A row the board has edited keeps the board's words, so a board that
-edited it should add these three points itself.
+server among its recipients, counts board members and former residents among its
+data subjects and says what the mails contain. A row the board has not edited is
+updated at the next start. A row the board has edited keeps the board's words,
+so a board that edited it should add these four points itself.

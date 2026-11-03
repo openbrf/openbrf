@@ -160,7 +160,7 @@
       "urgent": {
         "subject": "Akut ärende {{number}}: {{type}}",
         "heading": "Ett ärende är akut",
-        "body": "Ärende {{number}}, {{type}}, har prioritet Akut, och alla som handlägger ärenden av den här typen får det här mejlet. Vad som har anmälts står i ärendekön, inte i det här mejlet."
+        "body": "Ärende {{number}}, {{type}}, har prioritet Akut, och du är en av dem som handlägger det. Vad som har anmälts står i ärendekön, inte i det här mejlet."
       },
       "overdue": {
         "subject": "Ärende {{number}} har passerat senast klart: {{type}}",
@@ -6155,7 +6155,7 @@
         },
         "issues": {
           "name": "Felanmälningar",
-          "purpose": "Ta emot och åtgärda fel i huset, och meddela den som handlägger ett ärende och den som anmälde det med e-post. Mejlen innehåller ärendenummer, ärendetyp, prioritet och en länk, aldrig vad någon har skrivit.",
+          "purpose": "Ta emot och åtgärda fel i huset, och meddela den som handlägger ett ärende och den som anmälde det med e-post. Mejlen innehåller ärendenummer, ärendetyp och en länk, och mejlen till den som handlägger ett ärende också prioritet; aldrig vad någon har skrivit.",
           "legalBasisNote": "Berättigat intresse: att förvalta fastigheten. Den som anmäler kan självmant skriva uppgifter om hälsa (art. 9).",
           "retention": "Kopplingen till personen tas bort vid gallringen; ärendet och bilderna behålls. Anmälningar från det öppna formuläret gallras 365 dagar efter avslut."
         },

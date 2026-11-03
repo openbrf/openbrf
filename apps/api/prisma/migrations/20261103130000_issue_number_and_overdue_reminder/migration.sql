@@ -42,6 +42,6 @@ ALTER SEQUENCE "issue_number_seq" OWNED BY "issue"."number";
 
 CREATE UNIQUE INDEX "issue_number_key" ON "issue"("number");
 
--- The target date the assignee was last reminded of; null on every existing
+-- The target dates the assignee has been reminded of; empty on every existing
 -- issue, which has had no reminder.
-ALTER TABLE "issue" ADD COLUMN "overdueRemindedFor" DATE;
+ALTER TABLE "issue" ADD COLUMN "overdueRemindedFor" DATE[] DEFAULT ARRAY[]::DATE[];

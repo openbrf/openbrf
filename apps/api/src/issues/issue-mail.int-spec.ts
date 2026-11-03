@@ -590,6 +590,77 @@ describe("the overdue reminder", () => {
     expect((await notices(issueId)).slice(before)).toHaveLength(2);
   });
 
+  it("reminds once for a date moved away and back after both dates were reminded", async () => {
+    const issueId = await report(assignedType);
+    const before = (await notices(issueId)).length;
+    const dateA = formatLocalDay(addLocalDays(today(), -2));
+    const dateB = formatLocalDay(addLocalDays(today(), -1));
+
+    await issues.setTargetDate(issueId, dateA, board.personId);
+    expect(await mailer.remindOverdue({ issueId, targetDate: dateA })).toBe(
+      true,
+    );
+    await issues.setTargetDate(issueId, dateB, board.personId);
+    expect(await mailer.remindOverdue({ issueId, targetDate: dateB })).toBe(
+      true,
+    );
+
+    // Back to A: its reminder went out before B's, and B's must not erase it.
+    await issues.setTargetDate(issueId, dateA, board.personId);
+    expect(await mailer.remindOverdue({ issueId, targetDate: dateA })).toBe(
+      false,
+    );
+    expect(
+      (await notices(issueId))
+        .slice(before)
+        .map((job) => [job.event, job.targetDate]),
+    ).toEqual([
+      ["overdue", dateA],
+      ["overdue", dateB],
+    ]);
+  });
+
+  it("reminds the assignee given an issue after its job found nobody assigned", async () => {
+    const issueId = await report(unassignedType);
+    const yesterday = formatLocalDay(addLocalDays(today(), -1));
+    await issues.setTargetDate(issueId, yesterday, board.personId);
+    const job = { issueId, targetDate: yesterday };
+    // The morning's job runs with nobody to remind and claims nothing.
+    expect(await mailer.remindOverdue(job)).toBe(false);
+    const queuedBefore = (await overdueJobs(issueId)).length;
+
+    await issues.assign(issueId, manager.personId, board.personId);
+
+    expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
+    expect(await mailer.remindOverdue(job)).toBe(true);
+    // Given on to somebody else: the date is claimed, so no second reminder.
+    await issues.assign(issueId, admin.personId, board.personId);
+    expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
+    expect(await mailer.remindOverdue(job)).toBe(false);
+  });
+
+  it("does not queue the reminder again when the date has not passed or the actor takes the issue themselves", async () => {
+    const future = await report(unassignedType);
+    await issues.setTargetDate(
+      future,
+      formatLocalDay(addLocalDays(today(), 3)),
+      board.personId,
+    );
+    const futureJobs = (await overdueJobs(future)).length;
+    await issues.assign(future, manager.personId, board.personId);
+    expect(await overdueJobs(future)).toHaveLength(futureJobs);
+
+    const past = await report(unassignedType);
+    await issues.setTargetDate(
+      past,
+      formatLocalDay(addLocalDays(today(), -1)),
+      board.personId,
+    );
+    const pastJobs = (await overdueJobs(past)).length;
+    await issues.assign(past, board.personId, board.personId);
+    expect(await overdueJobs(past)).toHaveLength(pastJobs);
+  });
+
   it("sends nothing for a stale job, a date not yet passed, a closed issue or one nobody is assigned", async () => {
     const issueId = await report(assignedType);
     const yesterday = formatLocalDay(addLocalDays(today(), -1));
@@ -700,6 +771,53 @@ describe("delivering a mail", () => {
       }),
     ).toBe(false);
     expect(sent).toEqual([]);
+  });
+
+  it("drops a notice to the handlers of an unassigned issue once somebody is assigned", async () => {
+    const issueId = await report(unassignedType);
+    const sent = captureSends();
+    const filed = {
+      issueId,
+      personId: admin.personId,
+      event: "filed",
+    } as const;
+
+    expect(await mailer.deliver(filed)).toBe(true);
+    expect(sent).toHaveLength(1);
+
+    await issues.assign(issueId, manager.personId, board.personId);
+
+    // "Nobody is assigned" is untrue now, for the handler and the assignee.
+    expect(await mailer.deliver(filed)).toBe(false);
+    expect(await mailer.deliver({ ...filed, personId: manager.personId })).toBe(
+      false,
+    );
+    expect(sent).toHaveLength(1);
+  });
+
+  it("drops a reopening or message notice for somebody the issue is no longer assigned to", async () => {
+    const issueId = await report(assignedType);
+    const sent = captureSends();
+
+    for (const event of ["reopened", "message"] as const) {
+      expect(
+        await mailer.deliver({ issueId, personId: manager.personId, event }),
+      ).toBe(true);
+    }
+    expect(sent).toHaveLength(2);
+
+    await issues.assign(issueId, admin.personId, board.personId);
+
+    for (const event of ["reopened", "message"] as const) {
+      // Queued for the manager, who is no longer the assignee.
+      expect(
+        await mailer.deliver({ issueId, personId: manager.personId, event }),
+      ).toBe(false);
+      expect(
+        await mailer.deliver({ issueId, personId: admin.personId, event }),
+      ).toBe(true);
+    }
+    expect(sent).toHaveLength(4);
   });
 
   it("carries the number, the type and the priority, and nothing a reporter or a handler wrote", async () => {

@@ -67,8 +67,10 @@ import { lockIssue } from "./issue-lock";
  * Each delivery reads the issue again and sends nothing once what it tells of
  * is no longer so - the issue closed, handed on, lowered from Akut, or the
  * person no longer handling it - so a job that waited on a retry never tells a
- * handler something that stopped being true. A delivery run twice repeats one
- * person's mail and nobody else's.
+ * handler something that stopped being true. That includes who it goes to: a
+ * notice to the handlers of an unassigned issue is dropped once somebody is
+ * assigned, and a notice to the assignee once somebody else is. A delivery run
+ * twice repeats one person's mail and nobody else's.
  *
  * ## The overdue reminder
  *
@@ -76,10 +78,15 @@ import { lockIssue } from "./issue-lock";
  * the breach reminder does. Setting a target date queues a job for the morning
  * after it, carrying the date; a job whose date is no longer the issue's finds
  * itself stale and sends nothing. A job that is owed claims the reminder under
- * the issue's lock by writing the date to `overdueRemindedFor` and queues the
- * delivery in the same transaction, so a second job for the same date - the
- * date moved away and back, or the issue reopened - finds it claimed. Once for
+ * the issue's lock by adding the date to `overdueRemindedFor`, the list of
+ * dates reminded, and queues the delivery in the same transaction, so a second
+ * job for the same date - the date moved away and back, or the issue reopened -
+ * finds it claimed, however many other dates were reminded in between. Once for
  * each target date: moving the date gives the new one a reminder of its own.
+ *
+ * A job that finds the issue without an assignee this channel reaches claims
+ * nothing, so the reminder is still owed. Nothing queues the job again on its
+ * own, so assigning the issue does: see {@link IssueMailer.assignedInTransaction}.
  */
 
 /** Sends one person one mail about one issue. */
@@ -289,6 +296,13 @@ export class IssueMailer implements OnModuleInit {
   /**
    * Queues the mail to a new assignee, in the transaction that assigns them.
    * Nothing when the actor assigned the issue to themselves.
+   *
+   * Also queues the overdue reminder again when the issue's target date has
+   * already passed and nobody has been reminded of it: the job of that morning
+   * found no assignee and claimed nothing, and nothing else would send it now.
+   * A job for a date already reminded finds it claimed, so this never repeats
+   * a reminder. Not for a handler assigning the issue to themselves, who has
+   * just taken it knowing its date.
    */
   async assignedInTransaction(
     tx: Prisma.TransactionClient,
@@ -304,12 +318,26 @@ export class IssueMailer implements OnModuleInit {
     ) {
       return 0;
     }
-    return this.queue(
+    const queued = await this.queue(
       tx,
       issueId,
       new Map([[assigneePersonId, "assigned"]]),
       actorPersonId,
     );
+    if (
+      assigneePersonId !== actorPersonId &&
+      issue.targetDate !== null &&
+      overdueFor(issue, formatDateColumn(issue.targetDate), now) &&
+      !remindedFor(issue, formatDateColumn(issue.targetDate))
+    ) {
+      await this.scheduleOverdue(
+        tx,
+        issueId,
+        localDayOfColumn(issue.targetDate),
+        now,
+      );
+    }
+    return queued;
   }
 
   /**
@@ -449,10 +477,14 @@ export class IssueMailer implements OnModuleInit {
       // otherwise both find it unclaimed.
       await lockIssue(tx, job.issueId);
       const issue = await this.readIssue(tx, job.issueId);
-      if (issue === null || !overdueFor(issue, job.targetDate, now)) {
+      if (
+        issue === null ||
+        issue.targetDate === null ||
+        !overdueFor(issue, job.targetDate, now)
+      ) {
         return false;
       }
-      if (formatDateColumn(issue.overdueRemindedFor) === job.targetDate) {
+      if (remindedFor(issue, job.targetDate)) {
         return false;
       }
       const assignee = issue.assigneePersonId;
@@ -464,7 +496,9 @@ export class IssueMailer implements OnModuleInit {
       }
       await tx.issue.update({
         where: { id: job.issueId },
-        data: { overdueRemindedFor: issue.targetDate },
+        // Added to the dates already reminded: a date reminded earlier stays
+        // claimed.
+        data: { overdueRemindedFor: { push: issue.targetDate } },
       });
       await this.jobs.sendInTransaction<IssueNoticeJob>(
         tx,
@@ -745,6 +779,22 @@ function overdueFor(
   );
 }
 
+/** Whether the assignee has already been reminded of this target date. */
+function remindedFor(issue: NoticeIssue, targetDate: string): boolean {
+  return issue.overdueRemindedFor.some(
+    (day) => formatDateColumn(day) === targetDate,
+  );
+}
+
+/**
+ * Whether a notice for this person still goes to them by who the issue is
+ * assigned to: to the assignee when it has one, and to its handlers when it has
+ * none. The reading of handlers' access is the recipient query's.
+ */
+function routedTo(issue: NoticeIssue, personId: string): boolean {
+  return issue.assigneePersonId === null || issue.assigneePersonId === personId;
+}
+
 /**
  * Whether what a delivery tells of is still so when it is sent. A mail that
  * waited on a retry must not tell a handler of an issue given to somebody
@@ -755,7 +805,7 @@ function stillSo(issue: NoticeIssue, job: IssueNoticeJob, now: Date): boolean {
     case "reporterMessage":
       return issue.reporterPersonId === job.personId;
     case "message":
-      return true;
+      return routedTo(issue, job.personId);
     case "assigned":
       return (
         issue.status.meaning !== "DONE" &&
@@ -770,7 +820,10 @@ function stillSo(issue: NoticeIssue, job: IssueNoticeJob, now: Date): boolean {
         overdueFor(issue, job.targetDate, now)
       );
     case "filed":
+      // Told to the handlers of an issue nobody is assigned; once somebody is,
+      // "nobody is assigned" is untrue, and the assignee is told it is theirs.
+      return issue.status.meaning !== "DONE" && issue.assigneePersonId === null;
     case "reopened":
-      return issue.status.meaning !== "DONE";
+      return issue.status.meaning !== "DONE" && routedTo(issue, job.personId);
   }
 }

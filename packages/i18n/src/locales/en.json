@@ -160,7 +160,7 @@
       "urgent": {
         "subject": "Urgent issue {{number}}: {{type}}",
         "heading": "An issue is urgent",
-        "body": "Issue {{number}}, {{type}}, has the priority Urgent, and everybody who handles issues of this type receives this email. What was reported is in the issue queue, not in this email."
+        "body": "Issue {{number}}, {{type}}, has the priority Urgent, and you are among those who handle it. What was reported is in the issue queue, not in this email."
       },
       "overdue": {
         "subject": "Issue {{number}} is past its target date: {{type}}",
@@ -6155,7 +6155,7 @@
         },
         "issues": {
           "name": "Issue reports",
-          "purpose": "Receiving and dealing with problems in the building, and telling whoever handles an issue, and whoever reported it, by email. The emails carry the issue number, the issue type, the priority and a link, never what anybody wrote.",
+          "purpose": "Receiving and dealing with problems in the building, and telling whoever handles an issue, and whoever reported it, by email. The emails carry the issue number, the issue type and a link, and the emails to whoever handles an issue the priority too; never what anybody wrote.",
           "legalBasisNote": "Legitimate interest: managing the property. A reporter may volunteer data about health (art. 9).",
           "retention": "The link to the person is detached by the purge; the issue and its photographs are kept. A public-form report is purged 365 days after it is closed."
         },

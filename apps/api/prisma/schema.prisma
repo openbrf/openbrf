@@ -4507,13 +4507,15 @@ model Issue {
   /// it.
   targetDate DateTime? @db.Date
 
-  /// The target date the assignee was last reminded of being past, or null
-  /// while no reminder has gone out. The overdue reminder is owed once for each
-  /// target date: a reminder job finding this equal to the issue's target date
-  /// sends nothing, so a job queued twice for one date, or a date moved away
-  /// and back, reminds once. Written with the claim that queues the mail, under
-  /// the issue's lock. Not personal data.
-  overdueRemindedFor DateTime? @db.Date
+  /// The target dates the assignee has been reminded of being past, empty while
+  /// no reminder has gone out. The overdue reminder is owed once for each target
+  /// date: a reminder job finding its date here sends nothing, so a job queued
+  /// twice for one date, or a date moved away and back after both were
+  /// reminded, reminds once. A list rather than the last date, because moving
+  /// to another date and processing its reminder must not forget the first.
+  /// Grows by one for each reminder sent. Written with the claim that queues the
+  /// mail, under the issue's lock. Not personal data.
+  overdueRemindedFor DateTime[] @db.Date @default([])
 
   /// Closed to every handler but the board, whatever its type allows (decision
   /// 13). A handler tightens an issue; only the board loosens it again, and
