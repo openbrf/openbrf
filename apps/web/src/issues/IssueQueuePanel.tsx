@@ -31,6 +31,7 @@ import { IssueHandlerName } from "./IssueHandlerName";
 import { IssueHandling } from "./IssueHandling";
 import { IssuePriorityChip } from "./IssuePriorityChip";
 import { IssueStatusChip } from "./IssueStatusChip";
+import { IssueWorkOrders } from "./IssueWorkOrders";
 
 const QUEUE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.queue.errors.issueNotFound",
@@ -271,6 +272,8 @@ export function IssueQueuePanel({
                   type={type}
                   onChanged={onChanged}
                 />
+
+                <WorkOrdersDisclosure issue={issue} />
               </li>
             );
           })}
@@ -309,6 +312,33 @@ function HandlingDisclosure({
       {open ? (
         <div className="pt-2">
           <IssueHandling issue={issue} type={type} onChanged={onChanged} />
+        </div>
+      ) : null}
+    </details>
+  );
+}
+
+/**
+ * The work orders on one issue, under a disclosure of their own: read only
+ * while it is open, as the handling is, and apart from it because a work order
+ * is the one act on an issue that leaves the instance.
+ */
+function WorkOrdersDisclosure({ issue }: { issue: QueuedIssue }): ReactElement {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="flex flex-col gap-3"
+      onToggle={(event) => {
+        setOpen(event.currentTarget.open);
+      }}
+    >
+      <summary className="flex min-h-11 cursor-pointer items-center text-small font-semibold">
+        {t("issues.workOrders.open", { type: issue.typeName })}
+      </summary>
+      {open ? (
+        <div className="pt-2">
+          <IssueWorkOrders issue={issue} />
         </div>
       ) : null}
     </details>

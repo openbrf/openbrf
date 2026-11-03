@@ -182,6 +182,8 @@ const COLUMN_COVERAGE = {
   IssueType: {
     defaultAssigneePersonId: { sections: ["issueAssignments"] },
   },
+  // The handler who sent a work order is its sending's actor.
+  WorkOrder: { sentByPersonId: { actedAs: ["ISSUE_WORK_ORDER_SENT"] } },
   Document: { uploadedByPersonId: { sections: ["documents"] } },
   ApartmentDocument: { filedByPersonId: { sections: ["apartmentDocuments"] } },
   LegalHold: {

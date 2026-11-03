@@ -12,11 +12,19 @@ import {
   IssueReportController,
   IssueTypeAdminController,
 } from "./issues.controller";
+import { ContractorService } from "./contractor.service";
+import { WorkOrderMailerService } from "./work-order-mailer.service";
+import { WorkOrderService } from "./work-order.service";
+import {
+  ContractorAdminController,
+  IssueWorkOrderController,
+} from "./work-orders.controller";
 
 /**
  * Reported issues: the board's type catalogue, the resident's report, the
- * queue whoever handles issues works from, and the resident picker a handler
- * names a resident from on an issue they open.
+ * queue whoever handles issues works from, the resident picker a handler
+ * names a resident from on an issue they open, and the contractors a handler
+ * sends a work order to, with the record of what was sent.
  *
  * MediaModule is imported for the photographs, and ActionsModule for the
  * queue's read actions (ADR 0040), which is not global because the registry is
@@ -37,6 +45,8 @@ import {
     IssueReportController,
     IssueQueueController,
     IssueTypeAdminController,
+    IssueWorkOrderController,
+    ContractorAdminController,
   ],
   providers: [
     IssueService,
@@ -44,6 +54,9 @@ import {
     IssuePurgeService,
     IssueResidentsService,
     IssueActionsRegistrar,
+    ContractorService,
+    WorkOrderService,
+    WorkOrderMailerService,
   ],
   exports: [IssueService, IssueTypeService],
 })

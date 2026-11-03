@@ -542,5 +542,7 @@ function TimelineSentence({
             : t("issues.timeline.everyHandler")}
         </>
       );
+    case "workOrder":
+      return <>{t("issues.timeline.workOrderSent")}</>;
   }
 }

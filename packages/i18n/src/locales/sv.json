@@ -106,6 +106,11 @@
       "heading": "Svar från styrelsen i {{association}}",
       "footer": "Det här svaret kommer från {{association}}. Svara på meddelandet, eller skriv till {{address}}, så når det hela styrelsen."
     },
+    "workOrder": {
+      "subject": "Arbetsorder från {{association}}",
+      "heading": "Arbetsorder",
+      "footerNotice": "Du får det här för att {{association}} har dig på sin lista över entreprenörer. Kontakta föreningen om något i arbetsordern är oklart."
+    },
     "news": {
       "subject": "{{title}} - {{association}}",
       "body": "{{association}} har publicerat en nyhet.",
@@ -815,6 +820,7 @@
           "ISSUE_TARGET_DATE_CHANGED": "Senast klart för ett ärende ändrades",
           "ISSUE_ACCESS_CHANGED": "Vilka som hanterar ett ärende ändrades",
           "ISSUE_RESIDENTS_LISTED": "Någon som hanterar ärenden visades vilka som bor i en lägenhet, för att lägga upp ett ärende",
+          "ISSUE_WORK_ORDER_SENT": "En arbetsorder i ett ärende skickades till en entreprenör",
           "MOVE_IN_RECORDED": "En inflyttning registrerades",
           "MOVE_OUT_RECORDED": "En utflyttning registrerades",
           "PLUGIN_ENABLED": "Ett tillägg slogs på",
@@ -1696,6 +1702,33 @@
       "noDefaultAssignee": "Ingen: meddela alla som hanterar",
       "handledByBoardHint": "Styrelsen och en administratör hanterar de här ärendena, också en administratör utan plats i styrelsen. Förvaltaren ser dem inte. När en typ blir styrelsens tas förvaltaren bort som ansvarig på dess ärenden.",
       "handledByEveryHandlerHint": "Alla som hanterar ärenden ser de här ärendena, förvaltaren också. Ett ärende utan ansvarig meddelas till alla."
+    },
+    "contractors": {
+      "title": "Entreprenörer",
+      "description": "Företagen som föreningen anlitar för arbete i huset. Den som hanterar ett ärende skickar en arbetsorder till dem från ärendet, med e-post till adressen här. Telefonnumret är till för den som hanterar ärendet och skickas ingenstans.",
+      "loading": "Hämtar entreprenörerna...",
+      "loadFailed": "Entreprenörerna kunde inte läsas just nu. Ladda om sidan.",
+      "empty": "Det finns inga entreprenörer på listan än.",
+      "name": "Namn",
+      "trade": "Yrke",
+      "tradePlaceholder": "Rörmokare, elektriker, låssmed...",
+      "phone": "Telefon",
+      "email": "E-postadress",
+      "active": "Erbjuds för nya arbetsorder",
+      "fieldNamed": "{{name}}: {{field}}",
+      "noEmailHint": "Utan adress kan ingen arbetsorder skickas till dem.",
+      "workOrderCount": "Skickade arbetsorder: {{count}}",
+      "save": "Spara",
+      "addTitle": "Lägg till en entreprenör",
+      "add": "Lägg till entreprenör",
+      "remove": "Ta bort",
+      "removeNamed": "Ta bort {{name}}",
+      "errors": {
+        "notFound": "Entreprenören finns inte längre på listan. Listan har lästs om.",
+        "incomplete": "En entreprenör behöver ett namn och ett yrke.",
+        "invalidBody": "Kontrollera fälten: adressen måste vara en giltig e-postadress.",
+        "unknown": "Listan gick inte att ändra just nu. Försök igen."
+      }
     },
     "issueReporting": {
       "title": "Felanmälan från webbplatsen",
@@ -3711,7 +3744,59 @@
       "targetDate": "Senast klart satt till <data>{{date}}</data>",
       "targetDateRemoved": "Senast klart borttaget",
       "boardOnly": "Stängt för alla utom styrelsen",
-      "everyHandler": "Öppnat igen för alla som hanterar typen"
+      "everyHandler": "Öppnat igen för alla som hanterar typen",
+      "workOrderSent": "En arbetsorder skickades till en entreprenör"
+    },
+    "workOrders": {
+      "open": "Arbetsorder för {{type}}",
+      "loading": "Hämtar arbetsorder...",
+      "readFailed": "Arbetsorder eller entreprenörer gick inte att läsa just nu. Stäng och öppna igen.",
+      "none": "Ingen arbetsorder har skickats i ärendet.",
+      "logTitle": "Skickade",
+      "sentBy": "skickad av",
+      "contents": "Vad den innehöll",
+      "pending": "På väg till e-postservern.",
+      "delivered": "Mottagen av e-postservern.",
+      "failed": "Inte skickad:",
+      "failure": {
+        "mailNotConfigured": "ingen e-postserver är inställd.",
+        "sendFailed": "e-postservern tog inte emot den.",
+        "sendingInterrupted": "sändningen avbröts innan den började. Skriv den igen för att skicka den.",
+        "deliveryUnconfirmed": "sändningen avbröts, och det går inte att veta om den kom fram. Fråga entreprenören innan du skickar den igen."
+      },
+      "ringFenced": "Inget om ett ärende av den här typen får nå en entreprenör, så ingen arbetsorder kan skickas.",
+      "noContractors": "Det finns inga entreprenörer på listan. Styrelsen lägger till dem i inställningarna, under Ärenden och bokningar.",
+      "write": "Ny arbetsorder",
+      "writeHint": "Skriv vad entreprenören ska göra, och var. Arbetsordern skickas som du skriver den, och inget annat från ärendet följer med: inte felanmälan, inte vem som gjorde den, inte bilderna.",
+      "protectedReporter": "Den som anmälde har skyddade personuppgifter. Skriv inte namnet eller lägenheten i arbetsordern; ordna tillträde genom styrelsen.",
+      "contractor": "Entreprenör",
+      "contractorNamed": "{{type}}: entreprenör",
+      "chooseContractor": "Välj entreprenör",
+      "contractorOption": "{{name}} ({{trade}})",
+      "contractorWithoutEmail": "{{name}} ({{trade}}), ingen adress på listan",
+      "phone": "Telefon:",
+      "body": "Arbetsorder",
+      "bodyNamed": "{{type}}: arbetsorder",
+      "preview": "Förhandsgranska",
+      "previewing": "Förbereder förhandsgranskningen...",
+      "previewTitle": "Mejlet som entreprenören kommer att få det",
+      "to": "Till",
+      "subject": "Ämne",
+      "previewHint": "Läs igenom. När du skickar sparas i ärendet vem den gick till, när och vad den innehöll, så att alla som hanterar ärendet kan läsa det.",
+      "mailNotConfigured": "Ingen e-postserver är inställd, så arbetsordern skulle sparas men inte skickas.",
+      "send": "Skicka till {{name}}",
+      "sending": "Skickar...",
+      "edit": "Ändra",
+      "sent": "Arbetsordern till {{name}} är sparad och på väg.",
+      "errors": {
+        "issueNotFound": "Ärendet finns inte längre, eller är inte längre ditt att hantera.",
+        "contractorNotFound": "Entreprenören finns inte längre på listan. Listan har lästs om.",
+        "contractorWithoutEmail": "Listan har ingen adress till entreprenören. Styrelsen lägger till en i inställningarna.",
+        "ringFenced": "Inget om ett ärende av den här typen får nå en entreprenör.",
+        "identityNumber": "Arbetsordern innehåller ett personnummer. Skriv den utan.",
+        "empty": "Arbetsordern är tom.",
+        "unknown": "Arbetsordern gick inte att förbereda eller skicka just nu. Försök igen."
+      }
     },
     "open": {
       "__after__": "timeline",
@@ -6113,7 +6198,7 @@
         },
         "issues": {
           "name": "Felanmälningar",
-          "purpose": "Ta emot och åtgärda fel i huset.",
+          "purpose": "Ta emot och åtgärda fel i huset, med de arbetsorder som skickas till entreprenörer.",
           "legalBasisNote": "Berättigat intresse: att förvalta fastigheten. Den som anmäler kan självmant skriva uppgifter om hälsa (art. 9).",
           "retention": "Kopplingen till personen tas bort vid gallringen; ärendet och bilderna behålls. Anmälningar från det öppna formuläret gallras 365 dagar efter avslut."
         },
@@ -6240,6 +6325,7 @@
           "replies": "Svar skickas via {{host}}.",
           "noMailbox": "Ingen brevlåda är konfigurerad.",
           "economicManager": "Föreningens ekonomiska förvaltare, eller den som annars sköter bokföringen, som får underlaget för den.",
+          "contractors": "Entreprenörer som föreningen anlitar för arbete i huset, som var och en får en arbetsorder om ett ärende: det som den som hanterar ärendet skrev, aldrig felanmälan eller vem som gjorde den. Varje arbetsorder sparar vem den gick till och när.",
           "lantmateriet": "Lantmäteriet (bostadsrättsregistret), dit styrelsen gör det inledande uppgiftslämnandet av registrets uppgifter enligt Lag (2026:485) 3 § och dit föreningen anmäler registerhändelser enligt Lag (2026:484) 3 kap.",
           "lantmaterietReports": "Lantmäteriet (bostadsrättsregistret), dit föreningen anmäler registerhändelser enligt Lag (2026:484) 3 kap."
         },

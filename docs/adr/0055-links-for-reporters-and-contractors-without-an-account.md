@@ -238,6 +238,37 @@ with the preview and the stored recipient, date and contents, and the link is
 switched on afterwards. Neither way is open on a ring-fenced case (above). The
 reporter's link is not behind that gate.
 
+### The mailed work order
+
+The fallback is built first, because it is what a release ships with whatever
+the review says, and it asks nothing of the switch. Building it took a provisional
+answer to three of the open questions below; each stands until the owner
+answers it:
+
+- **Question 2.** The contractor register holds an email address beside the
+  name, the trade and the telephone number, optional, and a contractor without
+  one is listed and offered for no work order.
+- **Question 3.** The mail is the work order: the handler's text, the
+  contractor's name in the greeting and the association's in the heading, and
+  nothing else from the case. Decision 21 keeps free text out of the mails that
+  tell somebody who can sign in that something happened; a contractor cannot
+  sign in, so the work order travels whole, and the preview is what answers for
+  it. A text holding a personal identity number is refused.
+- **Question 4.** A work order on a case whose reporter has protected personal
+  data is not refused. Nothing of the case goes into it but what the handler
+  writes, and the form tells the handler to keep the reporter's name and home
+  out of it and arrange access through the board.
+
+The work order is stored with a copy of whom it went to, the text and who sent
+it before the mail is put on the queue, in one transaction, and the mail is
+sent at most once; a sending that fails says so on the work order with a code.
+The audit entry names the case, the work order, the contractor and the sender,
+with the length of the text and none of its words. A contractor removed from
+the register leaves the record of what was sent them.
+
+A ring-fenced type is a column on the type, `ringFenced`, read by the refusal
+and set by nothing until question 5 of ADR 0054 is answered.
+
 ## Open questions
 
 Calls the plan does not make, left to the owner and listed on the task that
@@ -248,13 +279,16 @@ wrote this record:
    it (ADR 0054), after which the page reads but takes no reply.
 2. **How a contractor's link reaches the contractor.** The register the plan
    describes holds a name, a trade and a telephone number (decision 23), so it
-   has no address to mail the link or the work order to.
+   has no address to mail the link or the work order to. Answered
+   provisionally under [The mailed work order](#the-mailed-work-order).
 3. **A mailed work order and decision 21.** Decision 21 puts no free text in any
    mail. A work order mailed under the fallback of decision 25 is the handler's
-   own text; whether decision 21 reaches it.
+   own text; whether decision 21 reaches it. Answered provisionally under
+   [The mailed work order](#the-mailed-work-order).
 4. **A work order on an apartment whose household has protected personal data.**
    The contractor needs to know where to go. What the work order may say, and
    whether such a work order is refused, as the plan's research proposes.
+   Answered provisionally under [The mailed work order](#the-mailed-work-order).
 5. **Whether a contractor may send anything but a photograph**, such as a PDF
    report. This record allows images alone, as the plan says photographs.
 

@@ -1841,6 +1841,8 @@ enum AuditAction {
   ISSUE_ACCESS_CHANGED
   /// A handler was told who lives in one apartment today, to name a resident on an issue they open. The entry names the apartment and how many residents were listed, never who.
   ISSUE_RESIDENTS_LISTED
+  /// A handler sent a work order on an issue to a contractor. The entry names the issue, the work order, the contractor and the handler as its actor, and how long the text was; never a word of it, nor the contractor's name or address.
+  ISSUE_WORK_ORDER_SENT
   /// A person was moved into an apartment.
   MOVE_IN_RECORDED
   /// A residency was given its move-out date.
@@ -4346,6 +4348,17 @@ model IssueType {
   /// access report answers for it in `issueAssignments` (ADR 0057).
   defaultAssigneePersonId String?
 
+  /// Whether its issues are ring-fenced (decision 32 of the issue module's
+  /// plan): nothing about them reaches a contractor, whoever handles them. A
+  /// work order on such an issue is refused inside `WorkOrderService`, its
+  /// preview included (ADR 0055).
+  ///
+  /// Read by that refusal and written by nothing yet. Which types carry it,
+  /// and who may set it, is ADR 0054's open question 5, answered with the
+  /// rest of the ring-fence; until then a type is not ring-fenced unless the
+  /// database says so.
+  ringFenced Boolean @default(false)
+
   /// Its statuses: at least one of each meaning, one of which is the default
   /// of that meaning. Written with the type and never left without them.
   statuses IssueStatus[]
@@ -4523,6 +4536,9 @@ model Issue {
 
   photos IssuePhoto[]
 
+  /// What the handlers sent contractors about it, oldest first.
+  workOrders WorkOrder[]
+
   /// The post this issue was reported from, when it was.
   post Post?
 
@@ -4571,6 +4587,125 @@ model IssuePhoto {
   @@unique([issueId, fileId])
   @@index([issueId, sortOrder])
   @@map("issue_photo")
+}
+
+/// A firm or tradesperson the association hires to work on the building
+/// (entreprenör): the association's own list, kept by the board.
+///
+/// Never an account, a person in the register or a handler of issues. A
+/// contractor is reached by a work order and nothing else, and reads nothing in
+/// the instance. A sole trader's name, telephone number and address are
+/// personal data all the same, which is why a contractor can be removed from
+/// the list at any time: what was sent them stays on the work order, which
+/// keeps its own copy of whom it went to. The telephone number and the address
+/// are encrypted at rest, as a reporter's address is, with no blind index:
+/// nothing looks a contractor up by either.
+model Contractor {
+  id String @id @default(cuid())
+
+  name  String
+  trade String
+
+  /// For the handler to ring; never sent anywhere.
+  phoneCipher String?
+
+  /// Where a work order is mailed. Optional, because a contractor the board
+  /// rings rather than mails still belongs on the list, and is then offered
+  /// for no work order.
+  emailCipher String?
+
+  /// Whether handlers are offered the contractor for a new work order. Switched
+  /// off rather than removed by a board that stops using a firm and wants the
+  /// list to say whom it used.
+  active Boolean @default(true)
+
+  workOrders WorkOrder[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, name])
+  @@map("contractor")
+}
+
+/// Whether a work order's mail went out.
+enum WorkOrderDeliveryStatus {
+  /// Written, and not yet handed to a mail server.
+  PENDING
+  /// Accepted by the mail server. Not a claim that anybody read it.
+  SENT
+  /// The mail server refused it, this instance has none configured, or the
+  /// sending stopped where nothing can tell whether it went out. The work
+  /// order is on the issue either way: what failed is the sending.
+  FAILED
+}
+
+/// What a handler sent a contractor about one issue (arbetsorder), and the
+/// record of it: who received it, when, and what it said.
+///
+/// The record is the point. GDPR art. 15(1)(c) has the association tell a
+/// person which recipients their data was disclosed to, and art. 19 has it tell
+/// each recipient of a later rectification or erasure, and neither can be
+/// answered from a mail server's log. So the row is written before the mail is
+/// sent, with a copy of the recipient as the mail addressed them and the text
+/// as it was previewed, and the sending is a job that follows the commit (the
+/// board mailbox's reply is the precedent).
+///
+/// The text is the handler's and nothing else. The mail carries no report,
+/// no reporter and no link into the application, so what leaves the instance is
+/// what the handler wrote and read back before sending (decision 23 of the issue
+/// module's plan).
+///
+/// Mailed because the contractor's own link is not yet switched on (decision
+/// 25): this is the way a work order travels until it is, and stays the
+/// record of what was sent once it is.
+model WorkOrder {
+  id String @id @default(cuid())
+
+  /// Cascade: a work order is part of its issue's record, and an issue removed
+  /// takes it along.
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The contractor on the list it was written to. SetNull: a contractor
+  /// removed from the list leaves the record of what was sent them, which
+  /// names them by the copy below.
+  contractorId String?
+  contractor   Contractor? @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+
+  /// Whom it went to, as the mail addressed them. Copied rather than read
+  /// through the contractor, so the record keeps saying who received it after
+  /// the list is corrected or the contractor removed. The address encrypted
+  /// as the contractor's is.
+  recipientName        String
+  recipientEmailCipher String
+
+  /// The work order, as the handler wrote and previewed it.
+  body String
+
+  /// The handler who sent it. A plain column, for the reason the issue's
+  /// `reporterPersonId` gives. The person named acted: the audit entry for the
+  /// sending names them as its actor.
+  sentByPersonId String?
+
+  deliveryStatus WorkOrderDeliveryStatus @default(PENDING)
+
+  /// Why it did not go out, as a code and never as the mail server's own
+  /// words, which quote the envelope back. See `work-order-delivery.ts`.
+  deliveryFailure String?
+
+  /// When an attempt claimed it for sending, a moment before it was handed to
+  /// a mail server, and cleared again when the sending is recorded as failed.
+  /// A time here beside PENDING is a sending nothing has confirmed.
+  claimedAt DateTime?
+
+  /// When the handler sent it: the date the record answers with.
+  createdAt DateTime @default(now())
+
+  @@index([issueId, createdAt])
+  @@index([contractorId])
+  @@index([sentByPersonId])
+  @@map("work_order")
 }
 
 // ---------------------------------------------------------------------------

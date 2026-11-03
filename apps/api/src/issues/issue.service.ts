@@ -292,6 +292,8 @@ export type IssueTimelineStep = {
   | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
+  /** A work order was sent; the work orders themselves say to whom. */
+  | { kind: "workOrder" }
 );
 
 /**
@@ -2096,6 +2098,7 @@ const TIMELINE_ACTIONS = [
   "ISSUE_PRIORITY_CHANGED",
   "ISSUE_TARGET_DATE_CHANGED",
   "ISSUE_ACCESS_CHANGED",
+  "ISSUE_WORK_ORDER_SENT",
 ] as const satisfies readonly AuditAction[];
 
 /**
@@ -2162,6 +2165,8 @@ function timelineStep(
         actor,
         boardOnly: context.boardOnly === true,
       };
+    case "ISSUE_WORK_ORDER_SENT":
+      return { kind: "workOrder", at, actor };
     default:
       return {
         kind: "status",
