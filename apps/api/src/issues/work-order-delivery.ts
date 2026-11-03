@@ -21,7 +21,7 @@ export const WORK_ORDER_DELIVERY_FAILURES = {
    * driver does not say whether the error came before or after the server took
    * the message, so this is unconfirmed, like `unconfirmed`, and is shown so.
    */
-  refused: "send-failed",
+  sendErrored: "send-failed",
 
   /** The sending was given up on before any attempt reached this work order. */
   interrupted: "sending-interrupted",

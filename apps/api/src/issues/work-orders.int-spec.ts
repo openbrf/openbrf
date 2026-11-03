@@ -651,7 +651,7 @@ describe("a work order", () => {
     }
   });
 
-  it("records a mail server's refusal as a code on the work order", async () => {
+  it("records a failed mail send as a code on the work order, unconfirmed on the timeline", async () => {
     const issueId = await filed(plain, "refused");
     const sent = (
       await previewAndSend(as(board), issueId, {
@@ -675,7 +675,9 @@ describe("a work order", () => {
       }),
     ).toEqual({ deliveryStatus: "FAILED", deliveryFailure: "send-failed" });
 
-    // The timeline step says the mail did not go, not that it was sent.
+    // The timeline step says nobody can vouch for the mail, not that it was
+    // sent and not that it was not: the driver's error may have come after the
+    // server took the message.
     const timeline = await inject({
       method: "GET",
       url: `/api/issue-queue/${issueId}/timeline`,
@@ -684,7 +686,7 @@ describe("a work order", () => {
     expect(
       timeline.json<{ kind: string; delivery?: string }[]>(),
     ).toContainEqual(
-      expect.objectContaining({ kind: "workOrder", delivery: "failed" }),
+      expect.objectContaining({ kind: "workOrder", delivery: "unconfirmed" }),
     );
   });
 
@@ -1194,6 +1196,18 @@ describe("the sending", () => {
       deliveryStatus: "FAILED",
       deliveryFailure: "mail-not-configured",
     });
+
+    // Nothing left this instance, so the timeline may say it was not sent.
+    const timeline = await inject({
+      method: "GET",
+      url: `/api/issue-queue/${issueId}/timeline`,
+      cookie: as(board),
+    });
+    expect(
+      timeline.json<{ kind: string; delivery?: string }[]>(),
+    ).toContainEqual(
+      expect.objectContaining({ kind: "workOrder", delivery: "failed" }),
+    );
   });
 
   it("leaves a work order untouched for the retry when the association's language cannot be read", async () => {

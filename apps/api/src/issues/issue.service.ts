@@ -44,7 +44,7 @@ import {
 import { type IssueTypeView, IssueTypeService } from "./issue-type.service";
 import { lockIssue, lockIssueForHandling, lockIssueType } from "./issue-lock";
 import { IssueError } from "./issue.error";
-import { WORK_ORDER_DELIVERY_FAILURES } from "./work-order-delivery";
+import { workOrderKnownNotSent } from "./work-order-delivery";
 
 /**
  * How many photographs one report may carry.
@@ -1256,9 +1256,13 @@ export class IssueService {
           ? ("sent" as const)
           : order.deliveryStatus === "PENDING"
             ? ("pending" as const)
-            : order.deliveryFailure === WORK_ORDER_DELIVERY_FAILURES.unconfirmed
-              ? ("unconfirmed" as const)
-              : ("failed" as const),
+            : // Only a failure after which nothing left this instance reads
+              // "not sent"; a mail driver's error (`send-failed`) and a sending
+              // that may have gone out are unconfirmed, as on the work order
+              // list and in the data subject report.
+              workOrderKnownNotSent(order.deliveryFailure)
+              ? ("failed" as const)
+              : ("unconfirmed" as const),
       ]),
     );
 

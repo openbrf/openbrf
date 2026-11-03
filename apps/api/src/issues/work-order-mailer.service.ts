@@ -55,8 +55,8 @@ export const WORK_ORDER_ABANDONED_QUEUE = "issue-work-order-abandoned";
 
 const WORK_ORDER_JOB_OPTIONS = {
   // For the failures a second attempt can change: a database that went away, a
-  // worker that was killed. A mail server refusing the address is recorded on
-  // the row instead, and the handler is shown it.
+  // worker that was killed. A mail send that errors is recorded on the row
+  // instead, as unconfirmed, and the handler is shown it.
   retryLimit: 5,
   retryDelay: 10,
   retryBackoff: true,
@@ -152,7 +152,7 @@ export class WorkOrderMailerService implements OnModuleInit {
   async send(workOrderId: string): Promise<"sent" | "failed" | "skipped"> {
     // Read before the claim: a read that fails here fails the job, which is
     // retried with the work order untouched. After the claim it would land in
-    // the catch below and record a mail server's refusal nobody made.
+    // the catch below and record a send error nobody made.
     const locale = await this.defaultLocale();
     const order = await this.prisma.$transaction((tx) =>
       this.claim(tx, workOrderId),
@@ -186,7 +186,7 @@ export class WorkOrderMailerService implements OnModuleInit {
         workOrderId,
         error instanceof MailNotConfiguredError
           ? WORK_ORDER_DELIVERY_FAILURES.mailNotConfigured
-          : WORK_ORDER_DELIVERY_FAILURES.refused,
+          : WORK_ORDER_DELIVERY_FAILURES.sendErrored,
       );
       // By the work order and the class of the failure, never the address and
       // never the mail server's own words, which quote it back.
