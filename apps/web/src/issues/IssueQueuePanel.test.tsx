@@ -177,13 +177,14 @@ describe("the issue number", () => {
   it("is shown on the row, as the mail about the issue names it", () => {
     render(
       <IssueQueuePanel
-        issues={[issue()]}
+        issues={[issue(), issue({ id: "issue-2", number: 8 })]}
         types={TYPES}
         onChanged={() => undefined}
       />,
     );
 
     expect(screen.getByText("Ärende 7")).toBeTruthy();
+    expect(screen.getByText("Ärende 8")).toBeTruthy();
   });
 });
 
