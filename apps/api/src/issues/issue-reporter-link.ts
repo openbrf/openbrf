@@ -11,9 +11,11 @@ import { Prisma } from "../generated/prisma/client";
  *   held by nobody.
  * - **it is not revoked.** A handler withdrew it, and that is final.
  * - **it has not expired.** `expiresAt` is 365 days after the latest issue
- *   message or the link's issue, whichever is later
+ *   message or the day the link was issued, whichever is later
  *   (`REPORTER_LINK_DAYS_AFTER_LAST_MESSAGE`), so an issue that stays open and
- *   quiet does not keep a bearer secret alive in a mailbox for ever.
+ *   quiet does not keep a bearer secret alive in a mailbox for ever. Closing
+ *   does not extend it: the two ends are caps, and the first one reached ends
+ *   the link (ADR 0055).
  * - **its issue was not closed more than 30 days ago**
  *   (`REPORTER_LINK_DAYS_AFTER_CLOSING`). A reply within those 30 days is what
  *   the reopening rule reads (ADR 0054); after them the link has nothing left

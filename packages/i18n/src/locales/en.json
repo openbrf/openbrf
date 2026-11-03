@@ -148,7 +148,7 @@
       "heading": "Thank you for your report",
       "body": "The association has received your report ({{type}}). Through the link below you can follow the issue, read the association's answers and write to the association.",
       "action": "Open your issue",
-      "keepPrivate": "The link is personal: whoever has it can read and write in the issue, so do not share it. It stops working 30 days after the issue is closed, or 365 days after the last message while the issue is open."
+      "keepPrivate": "The link is personal: whoever has it can read and write in the issue, so do not share it. It stops working 30 days after the issue is closed or 365 days after the latest message in it, whichever comes first; until a message is written, the 365 days count from this mail."
     }
   },
   "sms": {
@@ -3583,7 +3583,7 @@
       "messageHint": "Do not write personal identity numbers. Files cannot be attached here.",
       "send": "Send",
       "closedNotice": "This issue is closed and takes no more messages. If you have something new to report, make a new report on the association's website.",
-      "private": "The link is personal, so do not share it. It stops working 30 days after the issue is closed, or one year after the latest message while the issue is open.",
+      "private": "The link is personal, so do not share it. It stops working 30 days after the issue is closed or one year after the latest message in it, whichever comes first; until a message is written, the year counts from when the link was mailed.",
       "notFoundTitle": "This link opens no issue",
       "notFoundBody": "The link may have expired or been withdrawn. Contact the association through its website if you need help with your issue.",
       "notice": {

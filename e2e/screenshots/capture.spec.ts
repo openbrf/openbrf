@@ -293,11 +293,7 @@ function locate(page: Page, target: Target): Locator {
           : panelOf(page, target.within),
     target,
   );
-  return target.first === true
-    ? found.first()
-    : target.last === true
-      ? found.last()
-      : found;
+  return target.first === true ? found.first() : found;
 }
 
 /** A route the walk keeps answering, with the matcher it was given under. */
@@ -397,6 +393,18 @@ async function perform(
   }
   if ("openMailedLink" in action) {
     await page.goto(await mailedLink(action.openMailedLink));
+    return;
+  }
+  if ("openPubliclyReportedIssue" in action) {
+    // The queue row, by the address it shows, then its own handling control.
+    // A click is strict, so a second row with the address fails the walk
+    // rather than handling one of the two.
+    await page
+      .locator("li", {
+        hasText: walkAddress(action.openPubliclyReportedIssue),
+      })
+      .locator("summary", { hasText: /^Hantera / })
+      .click();
     return;
   }
   if ("visit" in action) {
@@ -706,8 +714,8 @@ function walkAddress(email: string): string {
 /**
  * Reports an issue through the public form, from a page written for it.
  *
- * The type is added open to the public if the instance has none of that name,
- * and the board's switch for public reports is put back as it was found, so
+ * The type is added open to the public if the instance has no active one of
+ * that name the public may report under, and the board's switch for public reports is put back as it was found, so
  * the screens after this one photograph the settings and the website as the
  * board left them.
  */
@@ -716,8 +724,15 @@ async function reportIssuePublicly(
   report: PubliclyReportedIssue,
 ): Promise<void> {
   const types = await api.listIssueTypes(board, stack.baseUrl);
+  // Only a type the public form takes: one of that name an earlier run or a
+  // board left switched off, or for residents only, would be refused.
   const type =
-    types.find((candidate) => candidate.name === report.type) ??
+    types.find(
+      (candidate) =>
+        candidate.name === report.type &&
+        candidate.active &&
+        candidate.reporters.includes("PUBLIC"),
+    ) ??
     (await api.createIssueType(board, stack.baseUrl, {
       name: report.type,
       reporters: ["PUBLIC"],

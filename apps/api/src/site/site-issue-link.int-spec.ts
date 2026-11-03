@@ -313,7 +313,11 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  const personIds = [board.personId, `rl-restricted-${suffix}`];
+  const personIds = [
+    board.personId,
+    `rl-restricted-${suffix}`,
+    `rl-restricted-late-${suffix}`,
+  ];
   await prisma.issue.deleteMany({ where: { typeId: publicType.id } });
   await prisma.issueType.deleteMany({ where: { id: publicType.id } });
   await prisma.session.deleteMany({
@@ -506,20 +510,36 @@ describe("A. the token", () => {
     const { token } = await reported();
     const unknown = await page(`obrf_rl_${"A".repeat(43)}`);
 
-    const transaction = vi.spyOn(prisma, "$transaction");
-    for (const malformed of [
-      "obrf_dt_" + token.slice(8),
-      token.slice(0, -1),
-      `${token}A`,
-      token.replace(/.$/, "%"),
-      "x",
-    ]) {
-      const answer = await page(encodeURIComponent(malformed));
-      expect(answer.statusCode).toBe(404);
-      expect(answer.body).toBe(unknown.body);
+    // Every way this code reaches the database: a transaction, a raw
+    // statement, or the link's own table.
+    const asked = [
+      vi.spyOn(prisma, "$transaction"),
+      vi.spyOn(prisma, "$queryRaw"),
+      vi.spyOn(prisma, "$executeRaw"),
+      vi.spyOn(prisma.issueReporterLink, "findUnique"),
+      vi.spyOn(prisma.issueReporterLink, "findFirst"),
+      vi.spyOn(prisma.issueReporterLink, "findMany"),
+    ];
+    try {
+      for (const malformed of [
+        "obrf_dt_" + token.slice(8),
+        token.slice(0, -1),
+        `${token}A`,
+        token.replace(/.$/, "%"),
+        "x",
+      ]) {
+        const answer = await page(encodeURIComponent(malformed));
+        expect(answer.statusCode).toBe(404);
+        expect(answer.body).toBe(unknown.body);
+      }
+      for (const spy of asked) {
+        expect(spy).not.toHaveBeenCalled();
+      }
+    } finally {
+      for (const spy of asked) {
+        spy.mockRestore();
+      }
     }
-    expect(transaction).not.toHaveBeenCalled();
-    transaction.mockRestore();
 
     // A token anywhere but the path opens nothing.
     const inQuery = await inject({
@@ -1021,6 +1041,61 @@ describe("D. rate limits and abuse", () => {
         where: { id: personId },
         data: { processingRestrictedAt: null },
       });
+    }
+  });
+
+  it("D6: an issue closed while the delivery waits for the registry lock is not mailed", async () => {
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Stängd medan länken väntar",
+      reporterName: null,
+      reporterEmail: `rl-closed-late-${suffix}@exempel.se`,
+    });
+    const before = sent.length;
+
+    // Holds the registry lock as a restriction's grant would, so the delivery
+    // has issued its link and waits at the lock of its mail transaction.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let locked: () => void = () => undefined;
+    const lockTaken = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const holding = prisma.$transaction(async (tx) => {
+      await lockLegalHoldRegistry(tx);
+      locked();
+      await held;
+    });
+    try {
+      await lockTaken;
+      const delivering = links.deliver(id);
+      await new Promise((done) => setTimeout(done, 500));
+      // The link is issued and not yet mailed: the first transaction is done.
+      expect(
+        await prisma.issueReporterLink.findUnique({
+          where: { issueId: id },
+          select: { mailedAt: true },
+        }),
+      ).toEqual({ mailedAt: null });
+      await prisma.issue.update({
+        where: { id },
+        data: {
+          statusId: publicType.statusIds.DONE,
+          outcome: "FIXED",
+          closedAt: new Date(),
+        },
+      });
+      release();
+      await holding;
+
+      expect(await delivering).toBe(false);
+      expect(sent.length).toBe(before);
+    } finally {
+      release();
+      await holding.catch(() => undefined);
     }
   });
 

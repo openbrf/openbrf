@@ -222,7 +222,9 @@ export class IssueReporterLinkService implements OnModuleInit {
    * restricted address alone, and again under the legal-hold registry lock
    * that the send and the stamp run under, so a restriction granted in
    * between is seen. A restriction granted while the mail server takes the
-   * message waits for it.
+   * message waits for it. Whether the issue is still open, its address still
+   * there and its link not withdrawn is read again in the same place, under
+   * the issue's lock.
    *
    * Answers whether a mail went. Nothing is mailed, and no link issued, for a
    * report that no longer has an address, that already has its link, that a
@@ -346,11 +348,35 @@ export class IssueReporterLinkService implements OnModuleInit {
      * the transaction above would leave a gap in which the mail still goes to
      * an address that was restricted meanwhile. The lock is held as long as
      * the send can take, which the transaction's time limit allows for.
+     *
+     * The issue's lock too, after the registry's and for the same reason: a
+     * close, a withdrawal or the purge of the address between the two
+     * transactions is seen below, and one that comes later waits for the
+     * stamp. Nothing takes the issue's lock and then the registry's, so the
+     * two cannot wait on each other the other way round.
      */
     const mailed = await this.prisma.$transaction(
       async (tx) => {
         await lockLegalHoldRegistry(tx);
+        await lockIssue(tx, issueId);
         if (await this.isRestricted(tx, issued.emailIndex)) {
+          return false;
+        }
+        const still = await tx.issue.findUnique({
+          where: { id: issueId },
+          select: {
+            closedAt: true,
+            reporterEmailIndex: true,
+            reporterLink: { select: { revokedAt: true } },
+          },
+        });
+        if (
+          still === null ||
+          still.closedAt !== null ||
+          still.reporterEmailIndex !== issued.emailIndex ||
+          still.reporterLink === null ||
+          still.reporterLink.revokedAt !== null
+        ) {
           return false;
         }
 

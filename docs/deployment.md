@@ -1163,8 +1163,9 @@ Leave these paths out of the proxy's access log, or cut the path at
 `/arende/`. In nginx, for example, a `location /arende/ { access_log off; ... }`
 block in front of the usual `proxy_pass` does it; in Caddy, a `log_skip` for
 the same path. A proxy log that keeps the full path holds a working link until
-the link ends: 30 days after its issue is closed, or a year after the issue's
-latest message if it stays open, or when a handler withdraws it. Keep such a log
+the link ends, at the first of: 30 days after its issue is closed, a year after
+the issue's latest message (or after the link was mailed, if no message came),
+and a handler withdrawing it. Keep such a log
 for less time than that, or treat it as holding personal data.
 
 The same budget per client address that guards the forms guards these paths

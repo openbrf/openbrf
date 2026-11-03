@@ -112,10 +112,10 @@ at most.
 
 A reporter's link is issued with the first mail to the reporter's address, the
 one that follows their report, and ends at the first of: 30 days after the issue
-is closed, 365 days after the issue's latest message (or the link's issue, if no
-message came), a handler revoking it, and the purge clearing the issue's contact
-details ([ADR 0057](0057-purging-issues-in-two-layers.md)), which also removes
-the link. In the 30 days after closing the page reads and takes no reply, until
+is closed, 365 days after the issue's latest message (or the day the link was
+issued, if no message came), a handler revoking it, and the purge clearing the
+issue's contact details ([ADR 0057](0057-purging-issues-in-two-layers.md)),
+which also removes the link. In the 30 days after closing the page reads and takes no reply, until
 the reopening rule decides what such a reply does (ADR 0054). Both numbers are
 constants in code. This answers question 1 as the threat review of this record
 required (APT-9360, control B4): "until the contact details are purged" can be

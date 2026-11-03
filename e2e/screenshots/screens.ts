@@ -73,15 +73,6 @@ export type Target = Where & {
    */
   readonly first?: true;
   /**
-   * Take the last match: the newest, where the entry opens a row the queue
-   * lists oldest first within a status.
-   *
-   * For a row the entry has just created, on a stack that was already up and
-   * holds older rows the same words opened. Not for the screens a first walk
-   * and a repeated one must photograph alike by any row.
-   */
-  readonly last?: true;
-  /**
    * Look only inside the settings card whose level-2 heading reads exactly this.
    *
    * A section of the settings screen carries several cards on one route, so a
@@ -273,6 +264,17 @@ export type Action =
    * only in the mail.
    */
   | { readonly openMailedLink: string }
+  /**
+   * Open the handling of the issue `reportIssuePublicly` filed from this
+   * address, in the queue on screen.
+   *
+   * The address as `reportIssuePublicly` was given it; the walk adds the same
+   * suffix, and the queue row shows the reporter's address, so the row is this
+   * walk's own. Neither the type, which the handling control names, nor where
+   * the row sits can tell it from older reports earlier walks left on a stack
+   * that was already up: the queue orders by status meaning first.
+   */
+  | { readonly openPubliclyReportedIssue: string }
   /**
    * Install this plugin from the stack's catalog as the board does, and wait
    * until the restart that ends the install has brought its view back.
@@ -2624,15 +2626,10 @@ export const SCREENS: readonly Screen[] = [
     goto: appPath("/board/issues"),
     prepare: [
       { reportIssuePublicly: PUBLIC_REPORT },
-      // The last, which is this walk's report: the queue lists a status
-      // oldest first, and a stack that was already up holds the reports of
-      // earlier walks, which would take this walk's note and answer.
-      {
-        click: {
-          text: new RegExp(`^Hantera ${PUBLIC_REPORT.type}:`),
-          last: true,
-        },
-      },
+      // By the row that carries this walk's address: a stack that was already
+      // up holds the reports of earlier walks, of the same type and words,
+      // which would otherwise take this walk's note and answer.
+      { openPubliclyReportedIssue: PUBLIC_REPORT.email },
       { see: { text: /^Anmälaren har inget konto och läser svaren/ } },
       {
         fill: { label: `${PUBLIC_REPORT.type}: intern anteckning` },
