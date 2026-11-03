@@ -76,6 +76,37 @@ export function issuesHandledWhere(
     : { boardOnly: false, type: { handledBy: "EVERY_HANDLER" } };
 }
 
+/**
+ * Whether a reader who is let into types of this scope handles this issue: the
+ * same rule as {@link issuesHandledWhere}, asked of a row already read.
+ */
+export function scopeHandlesIssue(
+  readerScope: IssueHandledBy,
+  issue: { boardOnly: boolean; type: { handledBy: IssueHandledBy } },
+): boolean {
+  return readerScope === "BOARD" || issueHandledBy(issue) === "EVERY_HANDLER";
+}
+
+/**
+ * The scope of issues this person handles: `BOARD` when the board-only rule
+ * lets them in, `EVERY_HANDLER` otherwise.
+ *
+ * Asked of the database, never of the request's roles, so a read on the
+ * screen, through an action, from the feed or the media route, and a write
+ * inside a transaction all get one answer. Says nothing about whether the
+ * person handles issues at all: the caller has asked that of `issues:handle`
+ * first, and a person in neither scope answers `EVERY_HANDLER`, the narrower.
+ */
+export async function issueReaderScope(
+  db: FeedDbClient,
+  personId: string,
+  now: Date,
+): Promise<IssueHandledBy> {
+  return (await handlesIssues(db, personId, "BOARD", now))
+    ? "BOARD"
+    : "EVERY_HANDLER";
+}
+
 /** The types a reader who is let into types of this scope handles. */
 export function typesHandledWhere(
   readerScope: IssueHandledBy,

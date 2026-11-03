@@ -24,8 +24,12 @@ Issues can be assigned, prioritised, given a target date and kept to the board
   alone. The board is a board member with a seat or an administrator. A single
   issue can be closed to all but the board. The property manager is not shown an
   issue or a type the board keeps to itself, in the queue or through the
-  actions. Handing a type to the board, or closing an issue to it, unassigns a
-  property manager who was its assignee.
+  actions. They are not served its photographs, even from an address they
+  opened before, and a post in the feed does not show them its status. Their
+  counts of a type's issues leave such issues out, and the types they are
+  offered to report under leave out a type the board keeps to itself. Handing a
+  type to the board, or closing an issue to it, unassigns a property manager who
+  was its assignee.
 - **Issues a handler opens.** A handler opens an issue for a named resident, who
   is then its reporter and sees it among their own reports, or opens an internal
   issue with no reporter. The issue shows which handler entered it. A resident
@@ -36,7 +40,7 @@ Issues can be assigned, prioritised, given a target date and kept to the board
   the audit log. A handler with protected personal data is never named on it.
 
 A new instance's starting types include an insurance type that the board handles
-alone and no reporter is offered. Upgrading leaves every existing type handled by
+alone and offers to no reporter outside the board. Upgrading leaves every existing type handled by
 every handler, filed at normal priority with no default assignee, and every
 existing issue unassigned at normal priority with no target date.
 

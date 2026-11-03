@@ -3682,7 +3682,7 @@
       "saving": "Sparar...",
       "boardOnly": "Bara styrelsen hanterar ärendet",
       "boardOnlyNamed": "{{type}}: bara styrelsen hanterar ärendet",
-      "boardOnlyHint": "Stänger ärendet för förvaltaren. Den som inte sitter i styrelsen kan stänga ett ärende men inte öppna det igen, och ser det inte längre när det är stängt.",
+      "boardOnlyHint": "Stänger ärendet för förvaltaren. En förvaltare kan stänga ett ärende så men inte öppna det igen, och ser det inte längre när det är stängt. Styrelsen och en administratör kan öppna det igen.",
       "typeBoardOnly": "Bara styrelsen hanterar ärenden av den här typen.",
       "readFailed": "Ansvariga eller tidslinjen gick inte att läsa just nu. Stäng och öppna ärendet igen.",
       "errors": {
@@ -3707,7 +3707,7 @@
       "unassigned": "Lämnat utan ansvarig",
       "priority": "Prioritet satt till {{priority}}",
       "priorityChanged": "Prioriteten ändrades",
-      "targetDate": "Senast klart satt till {{date}}",
+      "targetDate": "Senast klart satt till <data>{{date}}</data>",
       "targetDateRemoved": "Senast klart borttaget",
       "boardOnly": "Stängt för alla utom styrelsen",
       "everyHandler": "Öppnat igen för alla som hanterar typen"

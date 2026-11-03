@@ -36,6 +36,7 @@ import { residencyHeldOn } from "../registers/held-on";
 import {
   handlesIssues,
   issueHandledBy,
+  issueReaderScope,
   issuesHandledWhere,
   readIssueHandlers,
   typesHandledWhere,
@@ -609,22 +610,6 @@ export class IssueService {
       throw new IssueError("No such apartment.", "apartment-not-found");
     }
 
-    const scope = await this.readerScope(this.prisma, principal.personId, now);
-    const type = await this.prisma.issueType.findFirst({
-      where: { id: input.typeId, active: true, ...typesHandledWhere(scope) },
-      select: {
-        id: true,
-        statuses: {
-          where: { meaning: "NEW", isDefault: true },
-          select: { id: true },
-        },
-      },
-    });
-    const newStatus = type?.statuses[0];
-    if (type === null || newStatus === undefined) {
-      throw new IssueError("No such issue type.", "type-not-found");
-    }
-
     if (reporterPersonId !== null) {
       const resident = await this.prisma.residency.findFirst({
         where: {
@@ -643,6 +628,30 @@ export class IssueService {
         : await this.requireOwnApartment(reporterPersonId, input.apartmentId);
 
     const issue = await this.prisma.$transaction(async (tx) => {
+      /*
+       * The type, whether this handler handles it and its NEW status, all read
+       * under the type's lock, which a change to who handles the type takes
+       * too (`IssueTypeService.update`). Read before the lock, a type handed to
+       * the board in between would take an issue from a handler it now shuts
+       * out, and the handler would be told it failed when it had been filed.
+       */
+      await lockIssueType(tx, input.typeId);
+      const scope = await this.readerScope(tx, principal.personId, new Date());
+      const type = await tx.issueType.findFirst({
+        where: { id: input.typeId, active: true, ...typesHandledWhere(scope) },
+        select: {
+          id: true,
+          statuses: {
+            where: { meaning: "NEW", isDefault: true },
+            select: { id: true },
+          },
+        },
+      });
+      const newStatus = type?.statuses[0];
+      if (type === null || newStatus === undefined) {
+        throw new IssueError("No such issue type.", "type-not-found");
+      }
+
       const filed = await this.file(tx, {
         typeId: type.id,
         statusId: newStatus.id,
@@ -675,7 +684,7 @@ export class IssueService {
       return filed;
     });
 
-    this.logger.log(`Opened issue ${issue.id} under type ${type.id}`);
+    this.logger.log(`Opened issue ${issue.id} under type ${input.typeId}`);
     return this.handledView(principal.personId, issue.id);
   }
 
@@ -694,7 +703,8 @@ export class IssueService {
    * The types this reader handles, active or not, with their statuses: what
    * the queue moves issues between and what a handler opens an issue under.
    * Reached with issues:handle. A type the board keeps to itself is left out
-   * for a reader the board-only rule does not let in, as its issues are.
+   * for a reader the board-only rule does not let in, as its issues are, and
+   * a type's counts are of the issues the reader handles.
    */
   async handledTypes(readerPersonId: string): Promise<IssueTypeView[]> {
     const scope = await this.readerScope(
@@ -702,7 +712,7 @@ export class IssueService {
       readerPersonId,
       new Date(),
     );
-    return this.types.list(typesHandledWhere(scope));
+    return this.types.list(typesHandledWhere(scope), issuesHandledWhere(scope));
   }
 
   /**
@@ -1258,11 +1268,11 @@ export class IssueService {
    * origin. It is recorded INTERNAL, which means no session, no file.
    *
    * It is narrowed to `issues:handle`, which the database requires of every
-   * INTERNAL file: whoever handles issues reads it with that capability, and
-   * the reporter, who holds none, reads it through the issue that links it
-   * (MediaService.open). What keeps a photo private beyond that is that nothing
-   * hands out its identifier: it is reachable only through an issue payload,
-   * and those are filtered to the reporter and to whoever handles issues.
+   * INTERNAL file. The media route reads it by the issue that links it
+   * (`issuePhotoAccess`): whoever handles that issue under the board-only rule,
+   * and the reporter, who holds no capability. An address handed out while the
+   * issue was open to a handler stops working for them when the board keeps
+   * the issue or its type to itself.
    */
   async attachPhoto(input: {
     issueId: string;
@@ -1430,23 +1440,16 @@ export class IssueService {
   }
 
   /**
-   * The scope of issues this person handles: `BOARD` when the board-only rule
-   * lets them in, `EVERY_HANDLER` otherwise.
-   *
-   * Asked of the database by the rule in `issue-handlers.ts`, never of the
-   * request's roles, so a read on the screen, through an action, and a write
-   * inside a transaction all get one answer. The caller holds issues:handle -
-   * every route here is under it - so a person in neither scope does not reach
-   * this.
+   * The scope of issues this person handles (`issueReaderScope`). The caller
+   * holds issues:handle - every route here is under it - so a person in
+   * neither scope does not reach this.
    */
   private async readerScope(
     db: Prisma.TransactionClient | PrismaService,
     personId: string,
     now: Date,
   ): Promise<IssueHandledBy> {
-    return (await handlesIssues(db, personId, "BOARD", now))
-      ? "BOARD"
-      : "EVERY_HANDLER";
+    return issueReaderScope(db, personId, now);
   }
 
   /**

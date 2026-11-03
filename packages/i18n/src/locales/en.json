@@ -3682,7 +3682,7 @@
       "saving": "Saving...",
       "boardOnly": "Only the board handles this issue",
       "boardOnlyNamed": "{{type}}: only the board handles this issue",
-      "boardOnlyHint": "Closes the issue to the property manager. Whoever is not on the board can close an issue but not open it again, and loses sight of it once it is closed.",
+      "boardOnlyHint": "Closes the issue to the property manager. A property manager can close an issue this way but not open it again, and loses sight of it once it is closed. The board and an administrator can open it again.",
       "typeBoardOnly": "Only the board handles issues of this type.",
       "readFailed": "The assignees or the timeline could not be read just now. Close and open the issue again.",
       "errors": {
@@ -3707,7 +3707,7 @@
       "unassigned": "Left unassigned",
       "priority": "Priority set to {{priority}}",
       "priorityChanged": "The priority was changed",
-      "targetDate": "Target date set to {{date}}",
+      "targetDate": "Target date set to <data>{{date}}</data>",
       "targetDateRemoved": "Target date removed",
       "boardOnly": "Closed to all but the board",
       "everyHandler": "Opened again to every handler of its type"

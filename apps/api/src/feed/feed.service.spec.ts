@@ -126,6 +126,9 @@ interface IssueFixture {
   /** The status as the feed reads it: its meaning alone. */
   status: { meaning: IssueStatusMeaning };
   reporterPersonId: string | null;
+  /** Who handles it, for the board-only rule (ADR 0054). */
+  boardOnly: boolean;
+  type: { handledBy: "EVERY_HANDLER" | "BOARD" };
 }
 
 /** An earlier version of a post, kept when its author edited it. */
@@ -3770,6 +3773,8 @@ describe("what a reader may do with a post", () => {
           id: "issue-1",
           status: { meaning: "IN_PROGRESS" as const },
           reporterPersonId: SEATED.id,
+          boardOnly: false,
+          type: { handledBy: "EVERY_HANDLER" as const },
         },
       ],
     );

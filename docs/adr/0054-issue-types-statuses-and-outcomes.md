@@ -72,7 +72,10 @@ only" is enforced inside `IssueService`, on every read and every write, by the
 same function for the screen, the actions, the counts, search and the mail and
 reminder recipients. That is where the masking of a protected reporter already
 happens, and for the same reason: a filter applied higher up is one a later
-route can step past.
+route can step past. The two reads of a case outside `IssueService`, a
+photograph on it through the media route and its status on a post in the feed,
+ask the same function on every request, so an address a handler kept stops
+working when the board keeps the case to itself.
 
 ### Four meanings, and the board's own labels
 
@@ -249,10 +252,11 @@ wrote this record:
 7. **_target date_ for senast klart**, in place of the plan's _due date_, for the
    reason above.
 
-### Defaults taken while questions 4 and 6 are open
+### Interim answers while questions 4 and 6 wait for the owner
 
-The change that built handling had to answer both to be built at all. It took
-the narrower answer to each, and the owner may change either:
+The change that built handling had to answer both to be built at all. Neither
+answer below is a decision of this record. Both are put to the owner, and the
+change that applies the owner's answers replaces this section:
 
 - **Question 4.** An administrator without a seat is let into a type the board
   handles alone. They hold `issues:configure`, so leaving them out would protect

@@ -328,10 +328,10 @@ locally the application runs from source beside the PostgreSQL that
       caller with no session with the website form's types alone; the form itself
       is part of the public forms below
 - [x] Handling an issue: a handler gives it to an assignee, any handler the
-      issue lets in, sets its priority - Akut, Normal or Låg - and the day it
+      issue lets in, sets its priority - urgent, normal or low - and the day it
       is meant to be done by, and an issue past that day stands out in the
       queue. No timer runs from either. A type files its issues with a default
-      priority and a default assignee, so a water leak lands as Akut with
+      priority and a default assignee, so a water leak lands as urgent with
       whoever the board chose, and a type with none lands unassigned. A type is
       handled by every handler or by the board alone, and one issue can be
       closed to all but the board; the property manager is shown neither, by

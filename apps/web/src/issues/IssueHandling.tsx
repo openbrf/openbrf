@@ -1,6 +1,6 @@
 import { ISSUE_PRIORITIES, type IssuePriority } from "@openbrf/shared";
 import { useEffect, useState, type ReactElement } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 
 import type { ApiResult } from "../api/client";
 import {
@@ -23,6 +23,7 @@ import {
   LABEL,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { DATA_TAGS } from "../ui/data-tags";
 import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -514,9 +515,15 @@ function TimelineSentence({
     case "targetDate":
       return (
         <>
-          {step.to === null
-            ? t("issues.timeline.targetDateRemoved")
-            : t("issues.timeline.targetDate", { date: step.to })}
+          {step.to === null ? (
+            t("issues.timeline.targetDateRemoved")
+          ) : (
+            <Trans
+              i18nKey="issues.timeline.targetDate"
+              values={{ date: step.to }}
+              components={DATA_TAGS}
+            />
+          )}
         </>
       );
     case "access":

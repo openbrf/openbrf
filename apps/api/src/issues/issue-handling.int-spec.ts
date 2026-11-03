@@ -9,12 +9,16 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { pngBytes } from "../media/testing/image-fixtures";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
+import { waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import { backendPid, waitersBehind } from "../testing/lock-waiters";
 import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
+import { lockIssueType } from "./issue-lock";
 import { IssueService } from "./issue.service";
 
 /**
@@ -50,12 +54,22 @@ function person(key: string, firstName: string, lastName: string) {
 const board = person("board", "Bea", "Styrelse");
 const admin = person("admin", "Ada", "Administrator");
 const manager = person("manager", "Frida", "Forvaltare");
+/** The property manager who also lives in the house, so reads the feed. */
+const tenantManager = person("tenant-manager", "Tove", "Forvaltare");
 const resident = person("resident", "Rune", "Boende");
 /** A resident with protected personal data, as a reporter. */
 const shielded = person("shielded", "Sara", "Skyddad");
 /** A board member with protected personal data, as a handler. */
 const shieldedBoard = person("shielded-board", "Sven", "Skyddad");
-const people = [board, admin, manager, resident, shielded, shieldedBoard];
+const people = [
+  board,
+  admin,
+  manager,
+  tenantManager,
+  resident,
+  shielded,
+  shieldedBoard,
+];
 const personIds = people.map((entry) => entry.personId);
 
 const addressId = `ih-address-${suffix}`;
@@ -67,6 +81,9 @@ const typeIds = {
   plain: `ih-type-plain-${suffix}`,
   boardOnly: `ih-type-board-${suffix}`,
   turning: `ih-type-turning-${suffix}`,
+  counted: `ih-type-counted-${suffix}`,
+  photoTurning: `ih-type-photo-turning-${suffix}`,
+  racing: `ih-type-racing-${suffix}`,
 };
 let routed: IssueTypeFixture;
 let plain: IssueTypeFixture;
@@ -255,6 +272,7 @@ beforeAll(async () => {
     data: [
       { personId: admin.personId, role: "ADMIN" as const },
       { personId: manager.personId, role: "PROPERTY_MANAGER" as const },
+      { personId: tenantManager.personId, role: "PROPERTY_MANAGER" as const },
     ],
   });
   await prisma.residency.createMany({
@@ -268,6 +286,12 @@ beforeAll(async () => {
       {
         personId: shielded.personId,
         apartmentId: shieldedApartmentId,
+        role: "MEMBER" as const,
+        movedInOn: new Date("2024-01-01"),
+      },
+      {
+        personId: tenantManager.personId,
+        apartmentId,
         role: "MEMBER" as const,
         movedInOn: new Date("2024-01-01"),
       },
@@ -293,14 +317,27 @@ beforeAll(async () => {
     handledBy: "BOARD",
   });
 
-  for (const entry of [board, admin, manager, resident, shielded]) {
+  for (const entry of [
+    board,
+    admin,
+    manager,
+    tenantManager,
+    resident,
+    shielded,
+  ]) {
     cookies[entry.personId] = await signIn(entry.email);
   }
 }, 180_000);
 
 afterAll(async () => {
+  await prisma.post.deleteMany({
+    where: { authorPersonId: { in: personIds } },
+  });
   await prisma.issue.deleteMany({
     where: { typeId: { in: Object.values(typeIds) } },
+  });
+  await prisma.mediaFile.deleteMany({
+    where: { uploadedByPersonId: { in: personIds } },
   });
   await prisma.issueType.deleteMany({
     where: { id: { in: Object.values(typeIds) } },
@@ -719,12 +756,17 @@ describe("who handles a type and an issue", () => {
           personId: manager.personId,
           name: `${manager.firstName} ${manager.lastName}`,
         },
+        {
+          kind: "person",
+          personId: tenantManager.personId,
+          name: `${tenantManager.firstName} ${tenantManager.lastName}`,
+        },
         // A protected handler can be chosen, by identifier, and is named to
         // nobody.
         { kind: "protected", personId: shieldedBoard.personId },
       ]),
     );
-    expect(handlers).toHaveLength(4);
+    expect(handlers).toHaveLength(5);
     // Names only: never an address, a telephone or an apartment.
     expect(response.body).not.toContain("@exempel.se");
     expect(response.body).not.toContain(shieldedBoard.lastName);
@@ -738,6 +780,235 @@ describe("who handles a type and an issue", () => {
     expect(
       board_.json<HandlerView[]>().map((handler) => handler.personId),
     ).not.toContain(manager.personId);
+  });
+});
+
+describe("what the board-only rule keeps beyond the queue", () => {
+  /** A photograph the resident attached to their own report. */
+  async function photographed(issueId: string): Promise<string> {
+    const photo = await app.get(IssueService).attachPhoto({
+      issueId,
+      reporterPersonId: resident.personId,
+      bytes: pngBytes(24, 24),
+      fileName: "skada.png",
+    });
+    return photo.url;
+  }
+
+  function download(url: string, reader: { personId: string }) {
+    return inject({ method: "GET", url, cookie: cookies[reader.personId] });
+  }
+
+  async function accessesBy(url: string, reader: { personId: string }) {
+    return prisma.auditLogEntry.count({
+      where: {
+        action: "MEDIA_ACCESSED",
+        targetId: url.slice("/api/media/".length),
+        actorPersonId: reader.personId,
+      },
+    });
+  }
+
+  it("stops serving a photograph to the property manager once the issue is kept to the board, and keeps serving the board and the reporter", async () => {
+    const id = await filed(plain, "photo-tightened");
+    const url = await photographed(id);
+
+    // An address the property manager was handed while the issue was theirs.
+    expect((await download(url, manager)).statusCode).toBe(200);
+    expect(await accessesBy(url, manager)).toBe(1);
+
+    const tightened = await act(cookies[board.personId] ?? "", id, "access", {
+      boardOnly: true,
+    });
+    expect(tightened.statusCode).toBe(201);
+
+    const refused = await download(url, manager);
+    expect(refused.statusCode).toBe(404);
+    // Refused before anything was served, so nothing more is recorded.
+    expect(await accessesBy(url, manager)).toBe(1);
+
+    expect((await download(url, board)).statusCode).toBe(200);
+    expect(await accessesBy(url, board)).toBe(1);
+    expect((await download(url, admin)).statusCode).toBe(200);
+    // The reporter reads their own photograph, and is not recorded doing so.
+    expect((await download(url, resident)).statusCode).toBe(200);
+    expect(await accessesBy(url, resident)).toBe(0);
+  });
+
+  it("stops serving a photograph to the property manager once its type is handed to the board", async () => {
+    const turning = await createIssueTypeFixture(prisma, {
+      id: typeIds.photoTurning,
+      name: `Skador ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    const id = await filed(turning, "photo-turning");
+    const url = await photographed(id);
+    expect((await download(url, manager)).statusCode).toBe(200);
+
+    const changed = await inject({
+      method: "PUT",
+      url: `/api/issue-types/${turning.id}`,
+      payload: {
+        name: `Skador ${suffix}`,
+        reporters: ["RESIDENTS"],
+        handledBy: "BOARD",
+      },
+      cookie: cookies[board.personId],
+    });
+    expect(changed.statusCode).toBe(200);
+
+    expect((await download(url, manager)).statusCode).toBe(404);
+    expect((await download(url, board)).statusCode).toBe(200);
+    expect((await download(url, resident)).statusCode).toBe(200);
+  });
+
+  it("shows a post's issue to a property manager who lives here only while they handle it, and always to its reporter", async () => {
+    const audiences = await inject({
+      method: "GET",
+      url: "/api/feed/audiences",
+      cookie: cookies[resident.personId],
+    });
+    const allAudienceId =
+      audiences
+        .json<{ audiences: { id: string; kind: string }[] }>()
+        .audiences.find((audience) => audience.kind === "ALL")?.id ?? "";
+    const written = await inject({
+      method: "POST",
+      url: "/api/feed/posts",
+      payload: {
+        audienceId: allAudienceId,
+        body: `Läcka i källaren ${suffix}`,
+      },
+      cookie: cookies[resident.personId],
+    });
+    expect(written.statusCode, written.body).toBe(201);
+    const postId = written.json<{ id: string }>().id;
+
+    const id = await filed(plain, "post-linked");
+    await prisma.post.update({ where: { id: postId }, data: { issueId: id } });
+
+    const issueOnPost = async (reader: { personId: string }) => {
+      const read = await inject({
+        method: "GET",
+        url: `/api/feed/posts/${postId}`,
+        cookie: cookies[reader.personId],
+      });
+      expect(read.statusCode, read.body).toBe(200);
+      return read.json<{ issue: unknown }>().issue;
+    };
+
+    expect(await issueOnPost(tenantManager)).toEqual({
+      id,
+      meaning: "NEW",
+      reportedByReader: false,
+    });
+
+    // Kept to the board one issue at a time.
+    await prisma.issue.update({ where: { id }, data: { boardOnly: true } });
+    expect(await issueOnPost(tenantManager)).toBeNull();
+    expect(await issueOnPost(resident)).toEqual({
+      id,
+      meaning: "NEW",
+      reportedByReader: true,
+    });
+
+    // And by its type.
+    await prisma.issue.update({
+      where: { id },
+      data: {
+        boardOnly: false,
+        typeId: boardOnly.id,
+        statusId: boardOnly.statusIds.NEW,
+      },
+    });
+    expect(await issueOnPost(tenantManager)).toBeNull();
+    expect(await issueOnPost(resident)).toMatchObject({
+      reportedByReader: true,
+    });
+  });
+
+  it("counts a type's issues for the property manager without those kept to the board", async () => {
+    const counted = await createIssueTypeFixture(prisma, {
+      id: typeIds.counted,
+      name: `Räknade ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    await filed(counted, "counted-open");
+    await filed(counted, "counted-kept", { boardOnly: true });
+
+    const countsFor = async (reader: { personId: string }) => {
+      const response = await inject({
+        method: "GET",
+        url: "/api/issue-queue/types",
+        cookie: cookies[reader.personId],
+      });
+      expect(response.statusCode).toBe(200);
+      const type = response
+        .json<
+          {
+            id: string;
+            reportCount: number;
+            statuses: { meaning: string; issueCount: number }[];
+          }[]
+        >()
+        .find((candidate) => candidate.id === counted.id);
+      return {
+        reportCount: type?.reportCount,
+        newCount: type?.statuses.find((status) => status.meaning === "NEW")
+          ?.issueCount,
+      };
+    };
+
+    expect(await countsFor(manager)).toEqual({ reportCount: 1, newCount: 1 });
+    expect(await countsFor(board)).toEqual({ reportCount: 2, newCount: 2 });
+
+    // The board's configuration screen counts every issue, for the reason it
+    // counts them at all: why a type cannot be deleted.
+    const configured = await inject({
+      method: "GET",
+      url: "/api/issue-types",
+      cookie: cookies[board.personId],
+    });
+    expect(
+      configured
+        .json<{ id: string; reportCount: number }[]>()
+        .find((type) => type.id === counted.id)?.reportCount,
+    ).toBe(2);
+  });
+
+  it("does not offer a property manager who lives here a type the board keeps to itself, as a type to report under", async () => {
+    const offered = async (reader: { personId: string }) => {
+      const response = await inject({
+        method: "GET",
+        url: "/api/issues/types",
+        cookie: cookies[reader.personId],
+      });
+      expect(response.statusCode).toBe(200);
+      return response.json<{ id: string }[]>().map((type) => type.id);
+    };
+
+    const toManager = await offered(tenantManager);
+    expect(toManager).not.toContain(boardOnly.id);
+    // A resident's type is still theirs, as a resident.
+    expect(toManager).toContain(plain.id);
+    expect(await offered(board)).toContain(boardOnly.id);
+
+    const refused = await inject({
+      method: "POST",
+      url: "/api/issues",
+      payload: { typeId: boardOnly.id, description: "Försäkringsärende" },
+      cookie: cookies[tenantManager.personId],
+    });
+    expect(refused.statusCode).toBe(404);
+    expect(refused.json<{ reason: string }>().reason).toBe("type-not-found");
+    expect(
+      await prisma.issue.count({
+        where: {
+          typeId: boardOnly.id,
+          reporterPersonId: tenantManager.personId,
+        },
+      }),
+    ).toBe(0);
   });
 });
 
@@ -848,6 +1119,56 @@ describe("issues a handler opens", () => {
       cookie: cookies[manager.personId],
     });
     expect(kept.statusCode).toBe(404);
+  });
+
+  it("refuses an issue the property manager opens under a type handed to the board while they wait for it, and files nothing", async () => {
+    const racing = await createIssueTypeFixture(prisma, {
+      id: typeIds.racing,
+      name: `Kapplöpning ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+
+    let reached: (pid: number) => void = () => undefined;
+    const holding = new Promise<number>((resolve) => {
+      reached = resolve;
+    });
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    // The board's change, holding the type's lock as `IssueTypeService.update`
+    // does, and committing only once the opening waits behind it.
+    const change = prisma.$transaction(
+      async (tx) => {
+        await lockIssueType(tx, racing.id);
+        await tx.issueType.update({
+          where: { id: racing.id },
+          data: { handledBy: "BOARD" },
+        });
+        reached(await backendPid(tx));
+        await gate;
+      },
+      { timeout: 30_000 },
+    );
+    const holder = await holding;
+    const opening = inject({
+      method: "POST",
+      url: "/api/issue-queue",
+      payload: { typeId: racing.id, description: "Medan styrelsen ändrar" },
+      cookie: cookies[manager.personId],
+    });
+    try {
+      await waitFor(async () => (await waitersBehind(prisma, holder)) > 0);
+    } finally {
+      release();
+      await change;
+    }
+
+    const answer = await opening;
+    expect(answer.statusCode).toBe(404);
+    expect(answer.json<{ reason: string }>().reason).toBe("type-not-found");
+    expect(await prisma.issue.count({ where: { typeId: racing.id } })).toBe(0);
   });
 
   it("refuses an apartment that is not the named resident's, and a person who does not live here", async () => {

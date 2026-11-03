@@ -7,6 +7,7 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { type PersonOption, PersonSearch } from "../moves/PersonSearch";
 import {
   FIELD,
+  FIELD_DATA,
   FIELD_MULTILINE,
   HINT,
   LABEL,
@@ -196,7 +197,7 @@ export function OpenIssuePanel({
                   onChange={(event) => {
                     change({ apartmentId: event.target.value });
                   }}
-                  className={FIELD}
+                  className={FIELD_DATA}
                 >
                   <option value="">{t("issues.report.apartmentNone")}</option>
                   {apartments.map((apartment) => (

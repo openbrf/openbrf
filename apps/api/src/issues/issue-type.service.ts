@@ -20,7 +20,9 @@ import { I18nService } from "../i18n/i18n.service";
 import {
   handlesIssues,
   issueHandlersWhere,
+  issueReaderScope,
   readIssueHandlers,
+  typesHandledWhere,
 } from "./issue-handlers";
 import { reporterGroupsOf } from "./issue-reporter-groups";
 import { lockIssueType } from "./issue-lock";
@@ -129,7 +131,9 @@ export interface IssueStatusChange {
  *
  * A water leak files at Akut, the plan's own example of a default priority
  * (decision 11). The insurance type is the board's own, handled by the board
- * only and offered to no reporter (decisions 2 and 13). Störningar, the other
+ * only and offered on no form but the board's own (decisions 2 and 13): the
+ * handlers' group, which `listReportable` narrows to the handlers of the type,
+ * so the property manager is not offered it. Störningar, the other
  * board-only type the plan names, comes with its ring-fence (decision 32):
  * seeding it before that would offer it on forms that do not yet carry its
  * warning and hold it to a clock that is not yet its own.
@@ -185,15 +189,23 @@ export class IssueTypeService {
    * Reached with issues:handle on the queue and through `issue_type_list` (ADR
    * 0040), each narrowed to the types the reader handles by `IssueService`,
    * which is where that rule is read (ADR 0054).
+   *
+   * The counts are of `issues` alone, the issues the reader handles: a type
+   * open to every handler can hold issues kept to the board one by one, and
+   * how many there are, and in which status, is something about them the
+   * board-only rule keeps from whoever it shuts out.
    */
-  async list(where: Prisma.IssueTypeWhereInput): Promise<IssueTypeView[]> {
-    const types = await this.prisma.issueType.findMany({
-      where,
+  async list(
+    types: Prisma.IssueTypeWhereInput,
+    issues: Prisma.IssueWhereInput,
+  ): Promise<IssueTypeView[]> {
+    const rows = await this.prisma.issueType.findMany({
+      where: types,
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      include: TYPE_INCLUDE,
+      include: countedTypeInclude(issues),
     });
 
-    return types.map(toView);
+    return rows.map(toView);
   }
 
   /**
@@ -249,13 +261,48 @@ export class IssueTypeService {
     }
 
     return this.prisma.issueType.findMany({
-      where: {
-        active: true,
-        reporters: { hasSome: [...reporterGroupsOf(principal)] },
-      },
+      where: { active: true, ...(await this.reportableWhere(principal)) },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: { id: true, name: true, reporters: true },
     });
+  }
+
+  /**
+   * The reporter groups' filter, with the handlers' group narrowed to the
+   * types the principal handles.
+   *
+   * A handler is offered the types written for handlers because they handle
+   * them. A type the board keeps to itself is not one the property manager
+   * handles, so it is not offered to them as a handler either: its name is
+   * the board's, and an issue they filed under it would be one they could
+   * never see in the queue (ADR 0054). A type the board also offers residents
+   * or the public is still offered to them on that ground: the board chose to.
+   */
+  private async reportableWhere(
+    principal: Principal | null,
+  ): Promise<Prisma.IssueTypeWhereInput> {
+    const groups = reporterGroupsOf(principal);
+    if (
+      principal === null ||
+      !groups.includes("HANDLERS") ||
+      (await issueReaderScope(this.prisma, principal.personId, new Date())) ===
+        "BOARD"
+    ) {
+      return { reporters: { hasSome: [...groups] } };
+    }
+    return {
+      OR: [
+        {
+          reporters: {
+            hasSome: groups.filter((group) => group !== "HANDLERS"),
+          },
+        },
+        {
+          reporters: { has: "HANDLERS" },
+          ...typesHandledWhere("EVERY_HANDLER"),
+        },
+      ],
+    };
   }
 
   /**
@@ -801,6 +848,17 @@ const TYPE_INCLUDE = {
     include: { _count: { select: { issues: true } } },
   },
 } as const satisfies Prisma.IssueTypeInclude;
+
+/** {@link TYPE_INCLUDE}, its counts narrowed to these issues. */
+function countedTypeInclude(issues: Prisma.IssueWhereInput) {
+  return {
+    _count: { select: { issues: { where: issues } } },
+    statuses: {
+      ...TYPE_INCLUDE.statuses,
+      include: { _count: { select: { issues: { where: issues } } } },
+    },
+  } satisfies Prisma.IssueTypeInclude;
+}
 
 type TypeRecord = Prisma.IssueTypeGetPayload<{ include: typeof TYPE_INCLUDE }>;
 
