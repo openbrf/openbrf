@@ -327,6 +327,16 @@ describe("the responsibility guide", () => {
       (screen.getByLabelText("Rad 1: anmärkning") as HTMLInputElement).value,
     ).toBe("ny");
 
+    // Editing clears the refused save, but the failed read stays unanswered
+    // until the table is read again, so the control to do so stays too.
+    await session.type(screen.getByLabelText("Rad 1: anmärkning"), "t");
+    expect(
+      screen.getByText(/Den aktuella tabellen gick inte att läsa/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Läs den aktuella tabellen" }),
+    ).toBeTruthy();
+
     fetchResponsibilityGuide.mockResolvedValueOnce({
       ok: true,
       value: {

@@ -541,8 +541,9 @@ function GuideForm({
           {t("settings.responsibilityGuide.reloadFailed")}
         </Notice>
       ) : null}
-      {save.state.kind === "failed" &&
-      save.state.failure.reason === "changed-since-read" ? (
+      {reloadFailed ||
+      (save.state.kind === "failed" &&
+        save.state.failure.reason === "changed-since-read") ? (
         <div>
           <button type="button" className={SECONDARY_BUTTON} onClick={onReload}>
             {t("settings.responsibilityGuide.reload")}
