@@ -83,8 +83,8 @@ export function renderIssueLinkPage(
 
       {renderNotice(chrome, notice)}
 
-      <section aria-labelledby="site-issue-thread">
-        <h2 id="site-issue-thread">{t("site.issueLink.conversation")}</h2>
+      <section aria-labelledby="site-issue-conversation">
+        <h2 id="site-issue-conversation">{t("site.issueLink.conversation")}</h2>
         {view.messages.length === 0 ? (
           <p>{t("site.issueLink.empty")}</p>
         ) : (

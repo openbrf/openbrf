@@ -163,7 +163,7 @@ export function IssueConversation({
       onStale();
     }
   };
-  // A reporter with an account reads the thread signed in. One who left an
+  // A reporter with an account reads the conversation signed in. One who left an
   // address on the website's form reads it through the private link mailed to
   // them, while it opens the issue (ADR 0055). Nothing mails a message
   // (decision 21).

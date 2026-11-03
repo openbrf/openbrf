@@ -194,7 +194,7 @@ export class IssueConversationService {
    *
    * Refused on an issue nobody can read the answer on (`no-reporter`), rather
    * than stored as a message to nobody. A reporter with an account reads the
-   * thread signed in; one who left an email address on the website's form
+   * conversation signed in; one who left an email address on the website's form
    * reads it through the private link mailed to them, while that link opens
    * the issue (ADR 0055). A report with no address, one whose link was never
    * mailed, withdrawn or has ended, and one whose reporter was purged have
@@ -215,7 +215,7 @@ export class IssueConversationService {
       await lockErasureEligibility(tx, handlerPersonId);
       await lockIssueForHandling(tx, issueId);
       const issue = await this.requireHandled(tx, issueId, handlerPersonId);
-      // A person with no sign-in account cannot open the thread either.
+      // A person with no sign-in account cannot open the conversation either.
       const reporterAccount =
         issue.reporterPersonId === null
           ? null
