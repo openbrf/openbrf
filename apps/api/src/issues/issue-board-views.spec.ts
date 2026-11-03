@@ -1,7 +1,12 @@
 import { dateColumnOf, parseLocalDay } from "@openbrf/shared";
 import { describe, expect, it } from "vite-plus/test";
 
-import { meaningsInView, searchTermsOf, viewWhere } from "./issue.service";
+import {
+  meaningsInView,
+  searchTermsOf,
+  unicodeFormsOf,
+  viewWhere,
+} from "./issue.service";
 
 /**
  * The conditions the board's views of the queue are read and counted by
@@ -85,6 +90,11 @@ describe("the words of a search", () => {
 
   it("composes a letter typed with a combining mark", () => {
     expect(searchTermsOf("la\u0308cka")).toEqual(["läcka"]);
+  });
+
+  it("matches a word in both Unicode forms, once when they are the same", () => {
+    expect(unicodeFormsOf("läcka")).toEqual(["läcka", "la\u0308cka"]);
+    expect(unicodeFormsOf("tak")).toEqual(["tak"]);
   });
 
   it("reads at most six words of at most a hundred characters", () => {

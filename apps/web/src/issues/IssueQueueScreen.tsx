@@ -53,13 +53,19 @@ interface Filter {
 
 const NO_FILTER: Filter = { status: "OPEN", typeId: "", priority: "" };
 
-/** Everything one load produces, applied to the screen in one step. */
+/** Everything one read of the queue produces, applied in one step. */
 interface Loaded {
   /**
    * The request this answers, so an answer to an earlier one is never read as
    * this one's.
    */
   key: string | null;
+  /**
+   * Which read under that request this answers (`readCount`), so the list is
+   * marked busy while a save's or a retry's read is out as well, not only
+   * while the view or the filter changes.
+   */
+  readCount: number;
   /**
    * The filter the counts answer, which is the request without its view: the
    * numbers stay on the views while the handler moves between them.
@@ -72,23 +78,26 @@ interface Loaded {
    * drawn without numbers rather than with numbers nobody read.
    */
   counts: IssueQueueCounts | null;
-  /**
-   * The types with their statuses, which an issue is moved between, or null
-   * when they could not be read. A failure here leaves the queue readable and
-   * the panel says that nothing can be moved.
-   */
-  types: readonly IssueTypeView[] | null;
   loadFailed: boolean;
 }
 
 const EMPTY: Loaded = {
   key: null,
+  readCount: -1,
   filterKey: null,
   queue: [],
   counts: null,
-  types: null,
   loadFailed: false,
 };
+
+/**
+ * The types with their statuses, which an issue is moved between and opened
+ * under: undefined until they are first read, null when they could not be.
+ * Read apart from the queue, so a slow answer here never holds the list and
+ * its numbers back. A failure leaves the queue readable, and the panel says
+ * that nothing can be moved.
+ */
+type Types = readonly IssueTypeView[] | null | undefined;
 
 /** The status filter's words for each choice. */
 const STATUS_CHOICE_LABEL: Readonly<Record<StatusChoice, TranslationKey>> = {
@@ -132,6 +141,7 @@ export function IssueQueueScreen({
   const [typed, setTyped] = useState("");
   const [search, setSearch] = useState("");
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
+  const [types, setTypes] = useState<Types>(undefined);
   /*
    * Bumped to read the queue again under whatever view and filter are current
    * then: a save, an issue opened or a retry asks for it. A save started under
@@ -187,33 +197,53 @@ export function IssueQueueScreen({
       view: IssueQueueView;
       filter: IssueQueueFilter;
     };
-    // Read together and applied together, so a row is never drawn against
-    // the statuses of an earlier read. The list and the numbers on the views
-    // are one answer, read by the server at one moment.
-    void Promise.all([
-      fetchIssueQueueSnapshot({ view: asked, ...counted }),
-      fetchHandlerIssueTypes(),
-    ]).then(([snapshot, types]) => {
-      if (current) {
-        setLoaded({
-          key,
-          filterKey: JSON.stringify(counted),
-          queue: snapshot.ok ? snapshot.value.issues : [],
-          counts: snapshot.ok ? snapshot.value.counts : null,
-          types: types.ok ? types.value : null,
-          loadFailed: !snapshot.ok,
-        });
-      }
-    });
+    // The list and the numbers on the views are one answer, read by the
+    // server at one moment.
+    void fetchIssueQueueSnapshot({ view: asked, ...counted }).then(
+      (snapshot) => {
+        if (current) {
+          setLoaded({
+            key,
+            readCount,
+            filterKey: JSON.stringify(counted),
+            queue: snapshot.ok ? snapshot.value.issues : [],
+            counts: snapshot.ok ? snapshot.value.counts : null,
+            loadFailed: !snapshot.ok,
+          });
+        }
+      },
+    );
     return () => {
       current = false;
     };
   }, [canHandle, key, readCount]);
 
+  /*
+   * The types, read again whenever the queue is read again for a save, an
+   * issue opened or a retry, but not for each change of view or filter. A
+   * status switched off since they were read is refused by the server, and
+   * the panel reads the queue again on that refusal.
+   */
+  useEffect(() => {
+    if (!canHandle) {
+      return;
+    }
+    let current = true;
+    void fetchHandlerIssueTypes().then((read) => {
+      if (current) {
+        setTypes(read.ok ? read.value : null);
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [canHandle, readCount]);
+
   const ready = loaded.key !== null;
-  // The list on screen answers an earlier filter until this one's answer lands.
-  const reading = loaded.key !== key;
-  const { queue, counts, types, loadFailed } = loaded;
+  // The list on screen answers an earlier filter, or an earlier read under
+  // this one, until this read's answer lands.
+  const reading = loaded.key !== key || loaded.readCount !== readCount;
+  const { queue, counts, loadFailed } = loaded;
   const narrowed =
     filter.status !== NO_FILTER.status ||
     filter.typeId !== "" ||
@@ -226,9 +256,13 @@ export function IssueQueueScreen({
       audience="issueHandling"
       offered={canHandle}
     >
-      {ready && !loadFailed && types !== null ? (
+      {/*
+       * Opening an issue needs the types and not the queue, so a queue that
+       * could not be read leaves the form in place.
+       */}
+      {types === undefined || types === null ? null : (
         <OpenIssuePanel types={types} onOpened={reload} />
-      ) : null}
+      )}
 
       <ViewNav
         view={view}
@@ -350,7 +384,9 @@ export function IssueQueueScreen({
               narrowed ? t("issues.views.noMatch") : t(VIEW_EMPTY[view])
             }
             issues={queue}
-            types={types}
+            // No forms yet while the types are still on their way, and no
+            // notice that they failed either.
+            types={types === undefined ? [] : types}
             onChanged={reload}
           />
         </div>

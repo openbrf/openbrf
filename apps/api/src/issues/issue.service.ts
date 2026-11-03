@@ -778,7 +778,7 @@ export class IssueService {
     if (meanings.length === 0) {
       return [];
     }
-    const narrowed = await this.boardWhere(readerPersonId, filter, now);
+    const narrowed = this.boardWhere(readerPersonId, filter, now);
     const inView = viewWhere(view, readerPersonId, localDayOf(now));
     const issues = await this.readQueue(
       async (tx) => ({ AND: [await narrowed(tx), inView] }),
@@ -806,7 +806,7 @@ export class IssueService {
   ): Promise<IssueQueueCounts> {
     const now = new Date();
     const today = localDayOf(now);
-    const narrowed = await this.boardWhere(readerPersonId, filter, now);
+    const narrowed = this.boardWhere(readerPersonId, filter, now);
 
     return this.prisma.$transaction(
       async (tx) =>
@@ -838,7 +838,7 @@ export class IssueService {
   ): Promise<IssueQueueSnapshot> {
     const now = new Date();
     const today = localDayOf(now);
-    const narrowed = await this.boardWhere(readerPersonId, filter, now);
+    const narrowed = this.boardWhere(readerPersonId, filter, now);
     const meanings = meaningsInView(view, filter.meaning);
 
     const { rows, counts } = await this.prisma.$transaction(
@@ -1581,23 +1581,21 @@ export class IssueService {
   /**
    * The issues a view of the board's screen is read from: those the reader
    * handles, narrowed by the filter. A function of the transaction the read
-   * runs in, because a search reads who has protected personal data, and
-   * that has to be read at the moment the issues are.
+   * runs in, because which issues the reader handles and who has protected
+   * personal data have to be read at the moment the issues are: a board seat
+   * that ends just before the read does not still show the board's own
+   * issues.
    */
-  private async boardWhere(
+  private boardWhere(
     readerPersonId: string,
     filter: IssueBoardFilter,
     now: Date,
-  ): Promise<
-    (db: Prisma.TransactionClient) => Promise<Prisma.IssueWhereInput>
-  > {
-    const handled = issuesHandledWhere(
-      await this.readerScope(this.prisma, readerPersonId, now),
-    );
+  ): (db: Prisma.TransactionClient) => Promise<Prisma.IssueWhereInput> {
     const terms = searchTermsOf(filter.search ?? "");
     return async (db) => ({
       AND: [
-        handled,
+        // One after another: a transaction runs one statement at a time.
+        issuesHandledWhere(await this.readerScope(db, readerPersonId, now)),
         filter.typeId === undefined ? {} : { typeId: filter.typeId },
         filter.priority === undefined ? {} : { priority: filter.priority },
         terms.length === 0 ? {} : await this.searchWhere(db, terms),
@@ -1609,7 +1607,8 @@ export class IssueService {
    * What a search of the queue matches: each of its words (`searchTermsOf`:
    * the first `ISSUE_SEARCH_LIMITS.terms` different ones; any after those are
    * not read) somewhere in the issue's description, its place, its type's
-   * name, its apartment's designation or its reporter's name, case aside.
+   * name, its apartment's designation or its reporter's name, case aside and
+   * whichever Unicode form the text was stored in.
    *
    * Never what the reader is not shown. A reporter with protected personal data
    * is shown without their name or apartment (`IssueReporterView`), so neither
@@ -1634,20 +1633,28 @@ export class IssueService {
     const each: Prisma.IssueWhereInput[] = [];
     // One word after another: a transaction runs one statement at a time.
     for (const term of terms) {
-      const matches = { contains: term, mode: "insensitive" } as const;
+      // The word in either Unicode form (`unicodeFormsOf`), case aside.
+      const forms = unicodeFormsOf(term).map(
+        (form) => ({ contains: form, mode: "insensitive" }) as const,
+      );
       const reporters = await db.person.findMany({
         where: {
           protectedPersonalData: false,
-          OR: [{ firstName: matches }, { lastName: matches }],
+          OR: forms.flatMap((matches) => [
+            { firstName: matches },
+            { lastName: matches },
+          ]),
         },
         select: { id: true },
       });
       each.push({
         OR: [
-          { description: matches },
-          { location: matches },
-          { type: { name: matches } },
-          { AND: [{ apartment: { number: matches } }, notProtected] },
+          ...forms.flatMap((matches) => [
+            { description: matches },
+            { location: matches },
+            { type: { name: matches } },
+            { AND: [{ apartment: { number: matches } }, notProtected] },
+          ]),
           ...(reporters.length === 0
             ? []
             : [
@@ -2153,11 +2160,11 @@ async function countQueueIn(
  * white space, each once, at most `ISSUE_SEARCH_LIMITS.terms` of them. Blank
  * is no words, which is no search.
  *
- * Composed (NFC), as a browser sends the text the search is matched against,
- * so an "ä" typed as "a" and a combining mark still finds "ä". Invisible
- * format characters (a zero-width space pasted with a word) are dropped, so
- * they neither make a word of their own nor keep the word they cling to from
- * matching.
+ * Composed (NFC), so an "ä" typed as "a" and a combining mark is one word with
+ * an "ä" typed as one character; `unicodeFormsOf` then matches it against
+ * stored text in either form. Invisible format characters (a zero-width space
+ * pasted with a word) are dropped, so they neither make a word of their own
+ * nor keep the word they cling to from matching.
  */
 export function searchTermsOf(search: string): string[] {
   const words = search
@@ -2167,6 +2174,17 @@ export function searchTermsOf(search: string): string[] {
     .split(/\s+/u)
     .filter((word) => word !== "");
   return [...new Set(words)].slice(0, ISSUE_SEARCH_LIMITS.terms);
+}
+
+/**
+ * A search word composed (NFC) and decomposed (NFD), once each when they
+ * differ. Text is stored as it was sent, and the database compares it
+ * character by character, so "läcka" written with a combining mark is found
+ * only by the decomposed word and written as one character only by the
+ * composed one.
+ */
+export function unicodeFormsOf(term: string): string[] {
+  return [...new Set([term.normalize("NFC"), term.normalize("NFD")])];
 }
 
 function queueWhere(filter: IssueQueueFilter): Prisma.IssueWhereInput {

@@ -3746,9 +3746,9 @@
       "ALL": "All",
       "empty": {
         "MINE": "No open issue has you as its assignee.",
-        "UNASSIGNED": "Every open issue has an assignee.",
-        "OVERDUE": "No open issue is past its target date.",
-        "ALL": "No issues are open."
+        "UNASSIGNED": "Every open issue you can see has an assignee.",
+        "OVERDUE": "No open issue you can see is past its target date.",
+        "ALL": "No issue you can see is open."
       },
       "noMatch": "No issues match the search and the filter."
     },

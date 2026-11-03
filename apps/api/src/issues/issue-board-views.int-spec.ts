@@ -421,7 +421,9 @@ beforeAll(async () => {
   });
   filed.internal = await issue(searched, "internal", {
     reporter: null,
-    description: `Ingen anmälare alls takränna${suffix}`,
+    // "fläkt" decomposed: an "a" and a combining diaeresis, as some
+    // keyboards and pasted text send it.
+    description: `Ingen anmälare alls fla\u0308kt takränna${suffix}`,
   });
 
   for (const entry of [board, colleague, manager, resident]) {
@@ -800,8 +802,20 @@ describe("the search", () => {
     ]);
   });
 
+  it("matches text stored in either Unicode form, whichever form is typed", async () => {
+    // Stored decomposed, typed composed.
+    expect(await search(board, `FLÄKT takränna${suffix}`)).toEqual([
+      filed.internal,
+    ]);
+    // Stored composed, typed decomposed.
+    expect(await search(board, `bla\u030Aslampa${suffix}`)).toEqual([
+      filed.leak,
+    ]);
+  });
+
   it("never matches a protected reporter by name or apartment, and masks the row a description matches", async () => {
     expect(await search(board, shielded.lastName)).toEqual([]);
+    expect(await search(board, shielded.firstName)).toEqual([]);
     expect(await search(board, `Sara ${shielded.lastName}`)).toEqual([]);
     expect(await search(board, shieldedApartment.number)).toEqual([]);
 

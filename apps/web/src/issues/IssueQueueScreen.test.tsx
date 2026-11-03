@@ -249,6 +249,27 @@ describe("a read that fails", () => {
     });
     expect(screen.queryByText("Ingenting har anmälts.")).toBeNull();
     expect(screen.queryByText("Ärendekön")).toBeNull();
+    // Opening an issue needs the types, not the queue.
+    expect(screen.getByText("Lägg upp ett ärende")).toBeTruthy();
+  });
+
+  it("does not hold the list and its numbers behind a slow read of the types", async () => {
+    fetchHandlerIssueTypes.mockReset().mockReturnValue(new Promise(() => {}));
+
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+    expect(
+      within(screen.getByRole("navigation", { name: "Vyer" }))
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Mina 1", "Ej tilldelade 2", "Försenade 0", "Alla 5"]);
+    expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
+    // Nothing to move an issue between yet, and nothing said to have failed.
+    expect(
+      screen.queryByLabelText("Vatten anmält 2026-08-20: status"),
+    ).toBeNull();
+    expect(screen.queryByText("Lägg upp ett ärende")).toBeNull();
   });
 });
 
@@ -460,6 +481,33 @@ describe("a save that finishes under another view or filter", () => {
     within(views())
       .getAllByRole("link")
       .map((link) => link.textContent);
+
+  it("marks the list busy while the read after a save is out", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+    const finish = await startSave();
+
+    let answerReread: (value: unknown) => void = () => undefined;
+    fetchIssueQueueSnapshot.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answerReread = resolve;
+        }),
+    );
+    finish({ ok: true, value: issue() });
+
+    expect(await screen.findByText("Hämtar ärendena...")).toBeTruthy();
+    const list = screen
+      .getByText("Det droppar i taket.")
+      .closest("[aria-busy]");
+    expect(list?.getAttribute("aria-busy")).toBe("true");
+
+    answerReread(answer([issue()]));
+    await waitFor(() => {
+      expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
+    });
+    expect(list?.getAttribute("aria-busy")).toBe("false");
+  });
 
   it("reads the view the handler moved to, not the one the save began in", async () => {
     const { rerender } = render(

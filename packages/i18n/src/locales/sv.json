@@ -3746,9 +3746,9 @@
       "ALL": "Alla",
       "empty": {
         "MINE": "Inga öppna ärenden har dig som ansvarig.",
-        "UNASSIGNED": "Alla öppna ärenden har en ansvarig.",
-        "OVERDUE": "Inget öppet ärende är försenat.",
-        "ALL": "Inga ärenden är öppna."
+        "UNASSIGNED": "Alla öppna ärenden du kan se har en ansvarig.",
+        "OVERDUE": "Inget öppet ärende du kan se är försenat.",
+        "ALL": "Inget ärende du kan se är öppet."
       },
       "noMatch": "Inga ärenden stämmer med sökningen och filtret."
     },
