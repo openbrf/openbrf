@@ -655,12 +655,14 @@ describe("completing setup", () => {
   });
 
   it("still completes when the starting places cannot be written", async () => {
-    const { service, issuePlaces } = build();
+    const { service, issuePlaces, dataProtection } = build();
     issuePlaces.seedDefaults.mockRejectedValue(new Error("no database"));
 
     await expect(service.complete("person-1")).resolves.toMatchObject({
       completedAt: expect.any(Date) as Date,
     });
+    // And what comes after it still happens.
+    expect(dataProtection.seedIfConfigured).toHaveBeenCalledTimes(1);
   });
 
   it("still completes when the issue types cannot be written", async () => {
