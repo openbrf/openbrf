@@ -132,7 +132,12 @@ export function IssuesScreen({
     };
   }, [fromPostId, canReport, t]);
 
-  const read = useCallback(async (): Promise<Loaded> => {
+  /**
+   * One read of the three lists and the guide. A list that could not be read
+   * comes back `null`, so a re-read that fails on one of them leaves what the
+   * screen already shows in place instead of replacing it with an empty list.
+   */
+  const read = useCallback(async () => {
     const [types, apartments, own, guide] = await Promise.all([
       canReport ? fetchReportableTypes() : null,
       canReport ? fetchOwnApartments() : null,
@@ -141,13 +146,15 @@ export function IssuesScreen({
     ]);
 
     return {
-      ready: true,
-      types: types?.ok === true ? types.value : [],
-      apartments: apartments?.ok === true ? apartments.value : [],
-      own: own?.ok === true ? own.value : [],
+      types: types?.ok === true ? types.value : null,
+      apartments: apartments?.ok === true ? apartments.value : null,
+      own: own?.ok === true ? own.value : null,
+      /** Not a failed load either way: a report is filed without the guide. */
       guide: guide?.ok === true ? guide.value.guide : null,
       loadFailed:
         types?.ok === false || apartments?.ok === false || own?.ok === false,
+      /** Nothing was asked for: a viewer who cannot report has no lists. */
+      asked: canReport,
     };
   }, [canReport]);
 
@@ -165,7 +172,15 @@ export function IssuesScreen({
     const version = ++currentRead.current;
     void read().then((next) => {
       if (version === currentRead.current) {
-        setLoaded(next);
+        setLoaded((previous) => ({
+          ready: true,
+          types: next.types ?? (next.asked ? previous.types : []),
+          apartments:
+            next.apartments ?? (next.asked ? previous.apartments : []),
+          own: next.own ?? (next.asked ? previous.own : []),
+          guide: next.guide,
+          loadFailed: next.loadFailed,
+        }));
       }
     });
   }, [read]);
@@ -240,7 +255,7 @@ export function IssuesScreen({
               reload();
             }}
           />
-          <OwnIssuesPanel issues={own} />
+          <OwnIssuesPanel issues={own} onClosed={reload} />
         </>
       ) : null}
     </div>

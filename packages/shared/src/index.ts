@@ -84,6 +84,12 @@ export { MAX_ADDRESS_BOOK_SEARCH_LENGTH } from "./address-book-limits.ts";
 export { MAX_WITHHELD_IDS } from "./withheld-from-devices-limits.ts";
 export { ISSUE_REPORT_LIMITS } from "./issue-report-limits.ts";
 export {
+  ISSUE_CONVERSATION_LIMITS,
+  ISSUE_MESSAGE_SIDES,
+  ISSUE_SIGNATURES,
+} from "./issue-conversation.ts";
+export type { IssueMessageSide, IssueSignature } from "./issue-conversation.ts";
+export {
   ISSUE_CLOSING_OUTCOMES,
   ISSUE_HANDLED_BY,
   ISSUE_OUTCOMES,

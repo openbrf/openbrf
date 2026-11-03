@@ -816,6 +816,8 @@
           "ISSUE_ACCESS_CHANGED": "Vilka som hanterar ett ärende ändrades",
           "ISSUE_COST_RESPONSIBILITY_CHANGED": "Vem som betalar för ett ärende angavs",
           "ISSUE_RESIDENTS_LISTED": "Någon som hanterar ärenden visades vilka som bor i en lägenhet, för att lägga upp ett ärende",
+          "ISSUE_MESSAGE_SENT": "Ett meddelande skrevs i ett ärende",
+          "ISSUE_NOTE_ADDED": "En intern anteckning skrevs i ett ärende",
           "MOVE_IN_RECORDED": "En inflyttning registrerades",
           "MOVE_OUT_RECORDED": "En utflyttning registrerades",
           "PLUGIN_ENABLED": "Ett tillägg slogs på",
@@ -1698,6 +1700,30 @@
       "noDefaultAssignee": "Ingen: meddela alla som hanterar",
       "handledByBoardHint": "Styrelsen och en administratör hanterar de här ärendena, också en administratör utan plats i styrelsen. Förvaltaren ser dem inte. När en typ blir styrelsens tas förvaltaren bort som ansvarig på dess ärenden.",
       "handledByEveryHandlerHint": "Alla som hanterar ärenden ser de här ärendena, förvaltaren också. Ett ärende utan ansvarig meddelas till alla."
+    },
+    "issueSavedReplies": {
+      "title": "Sparade svar",
+      "description": "Texter som den som hanterar ett ärende kan börja ett meddelande till anmälaren med. Att välja ett fyller i meddelandefältet och skickar ingenting. Anpassa dem efter era egna stadgar.",
+      "loading": "Läser de sparade svaren...",
+      "loadFailed": "De sparade svaren gick inte att läsa just nu.",
+      "empty": "Inga sparade svar.",
+      "titleLabel": "Namn",
+      "titleNamed": "{{title}}: namn",
+      "bodyLabel": "Text",
+      "bodyNamed": "{{title}}: text",
+      "bodyHint": "Skickas till anmälaren undertecknat Styrelsen eller Förvaltaren. Skriv inga personnummer.",
+      "addTitle": "Nytt sparat svar",
+      "add": "Lägg till",
+      "save": "Spara",
+      "saving": "Sparar...",
+      "remove": "Ta bort",
+      "removeNamed": "Ta bort {{title}}",
+      "errors": {
+        "notFound": "Det sparade svaret finns inte längre. Listan har lästs in igen.",
+        "tooMany": "Föreningen har redan så många sparade svar som den får ha.",
+        "personalIdentityNumber": "Texten innehåller ett personnummer. Ta bort det och spara igen.",
+        "unknown": "De sparade svaren gick inte att ändra just nu. Försök igen."
+      }
     },
     "issueReporting": {
       "title": "Felanmälan från webbplatsen",
@@ -3607,6 +3633,16 @@
       "other": "Övrigt",
       "insurance": "Försäkringsärende"
     },
+    "seededSavedReplies": {
+      "received": {
+        "title": "Vi har tagit emot ärendet",
+        "body": "Tack för att du hörde av dig. Vi har tagit emot ärendet och skriver här när vi vet mer."
+      },
+      "bylaws": {
+        "title": "Ditt ansvar enligt stadgarna",
+        "body": "Tack för din anmälan. Enligt föreningens stadgar och lagen avgörs det om det är du som bostadsrättshavare eller föreningen som ansvarar för underhållet av det du beskriver. Om stadgarna och lagen lägger ansvaret på dig ordnar och bekostar du åtgärden. Skriv här om du har frågor."
+      }
+    },
     "report": {
       "title": "Gör en felanmälan",
       "description": "Styrelsen och förvaltaren läser det här. Ingenting av det publiceras.",
@@ -3720,7 +3756,7 @@
     },
     "handling": {
       "__after__": "queue",
-      "open": "Hantera {{type}}: ansvarig, prioritet, senast klart och tidslinje",
+      "open": "Hantera {{type}}: ansvarig, prioritet, senast klart, tidslinje och meddelanden",
       "assignee": "Ansvarig",
       "assigneeNamed": "{{type}}: ansvarig",
       "unassigned": "Ej tilldelat",
@@ -3824,6 +3860,66 @@
       "loading": "Läser debiteringarna...",
       "loadFailed": "Debiteringarna gick inte att läsa just nu.",
       "amount": "<data>{{amount}}</data> kr"
+    },
+    "conversation": {
+      "title": "Meddelanden med anmälaren",
+      "openOwn": "Meddelanden om {{type}}",
+      "loading": "Läser meddelandena...",
+      "readFailed": "Meddelandena gick inte att läsa just nu. Stäng och öppna dem igen.",
+      "readFailedHandler": "Meddelandena, anteckningarna eller filerna gick inte att läsa just nu. Stäng och öppna ärendet igen.",
+      "savedRepliesReadFailed": "Sparade svar gick inte att läsa just nu, så inget kan infogas. Stäng och öppna ärendet igen.",
+      "empty": "Inga meddelanden än.",
+      "emptyOwn": "Inga meddelanden än. Styrelsen eller förvaltaren svarar här.",
+      "you": "Du",
+      "reporter": "Anmälaren",
+      "signature": {
+        "BOARD": "Styrelsen",
+        "PROPERTY_MANAGER": "Förvaltaren"
+      },
+      "signedAs": "till anmälaren som {{role}}",
+      "message": "Meddelande",
+      "messageNamed": "{{type}}: ditt meddelande",
+      "toReporterNamed": "{{type}}: meddelande till anmälaren",
+      "ownHint": "Bara du och den som hanterar ärenden läser det här. Skriv inga personnummer.",
+      "toReporterHint": "Anmälaren läser det här undertecknat Styrelsen eller Förvaltaren, aldrig med ditt namn.",
+      "send": "Skicka",
+      "sending": "Skickar...",
+      "closedOwn": "Anmälan är avslutad och tar inte emot fler meddelanden.",
+      "noReporter": "Ingen kan läsa ett svar på det här ärendet: anmälaren har inget konto att läsa det på, eller så saknas anmälare.",
+      "savedReply": "Sparat svar",
+      "savedReplyPick": "Infoga ett sparat svar...",
+      "savedReplyTooLong": "Det sparade svaret ryms inte: meddelandet skulle bli längre än {{max}} tecken. Korta först ner det du har skrivit.",
+      "errors": {
+        "issueNotFound": "Anmälan finns inte längre. Läs in sidan igen.",
+        "issueNotFoundHandler": "Ärendet finns inte längre, eller hanteras inte längre av dig. Kön har lästs in igen.",
+        "issueClosed": "Anmälan avslutades medan du skrev. Ditt meddelande skickades inte.",
+        "noReporter": "Ingen kan läsa ett svar på det här ärendet.",
+        "personalIdentityNumber": "Texten innehåller ett personnummer. Ta bort det och skicka igen.",
+        "unknown": "Det gick inte att skicka just nu. Försök igen."
+      }
+    },
+    "notes": {
+      "title": "Interna anteckningar",
+      "hint": "Bara de som hanterar ärendet läser dessa. Anmälaren gör det aldrig.",
+      "empty": "Inga anteckningar än.",
+      "label": "Anteckning",
+      "labelNamed": "{{type}}: intern anteckning",
+      "add": "Lägg till anteckning",
+      "adding": "Lägger till..."
+    },
+    "attachments": {
+      "title": "Filer för dem som hanterar ärendet",
+      "hint": "En bild eller en pdf, som en offert eller ett protokoll. Anmälaren ser dem aldrig.",
+      "empty": "Inga filer än.",
+      "add": "Bifoga en fil",
+      "addNamed": "{{type}}: bifoga en fil",
+      "adding": "Laddar upp...",
+      "errors": {
+        "tooMany": "Ärendet har redan så många filer som det får ha.",
+        "tooLarge": "Filen är större än vad som tillåts.",
+        "unsupported": "Bara en bild (PNG, JPEG, WebP, GIF) eller en pdf kan bifogas.",
+        "unknown": "Filen gick inte att bifoga just nu. Försök igen."
+      }
     }
   },
   "boardMailbox": {

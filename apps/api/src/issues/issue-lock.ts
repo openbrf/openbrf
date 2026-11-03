@@ -67,3 +67,41 @@ export async function lockResponsibilityGuide(
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"responsibility-guide"}))`;
 }
+
+/**
+ * The locks a write takes before it decides whether its actor handles an
+ * issue: the issue's type's, then the issue's own.
+ *
+ * Who handles an issue turns on its type's handlers and its own board-only
+ * flag, and both can change while the write decides. The type's settings
+ * change under the type's lock, so a write that holds it reads a setting
+ * nobody is changing. The type is read first, unlocked: nothing moves an
+ * issue to another type. Always the type before the issue, so two writes never
+ * wait on each other in the opposite order. An issue that does not exist takes
+ * its own key alone, and the write then finds nothing.
+ */
+export async function lockIssueForHandling(
+  tx: Prisma.TransactionClient,
+  issueId: string,
+): Promise<void> {
+  const issue = await tx.issue.findUnique({
+    where: { id: issueId },
+    select: { typeId: true },
+  });
+  if (issue !== null) {
+    await lockIssueType(tx, issue.typeId);
+  }
+  await lockIssue(tx, issueId);
+}
+
+/**
+ * The lock a transaction takes before it adds to the association's saved
+ * replies, or seeds them: the bound on how many there are is a count followed
+ * by an insert, and a new instance's seed writes only into an empty list. One
+ * key for the whole list, which is the association's one list.
+ */
+export async function lockIssueSavedReplies(
+  tx: Prisma.TransactionClient,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"issue-saved-replies"}))`;
+}

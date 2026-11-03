@@ -496,6 +496,10 @@ rule does not let in - the property manager - and so is a type the board
 handles alone, and `issue_type_list` counts a type's issues without the ones
 left out, by the same omission inside `IssueService` that leaves out a
 protected reporter's issue ([ADR 0054](adr/0054-issue-types-statuses-and-outcomes.md)).
+None of them carries the conversation on an issue: no action reads or writes an
+issue message, an internal note, a file the handlers attached or a saved reply
+([ADR 0056](adr/0056-issue-handling-on-mcp-and-ai.md)), and one that did would
+need a decision of its own.
 
 **A withheld value is a different shape in a published output document, never an
 empty one.** Publish it as a `z.discriminatedUnion` over `z.strictObject`

@@ -31,6 +31,9 @@ import { IssuesScreen } from "./IssuesScreen";
 const fetchPost = vi.fn();
 const reportIssue = vi.fn();
 const attachIssuePhoto = vi.fn();
+const fetchOwnIssues = vi.fn();
+const fetchOwnIssueMessages = vi.fn();
+const sendOwnIssueMessage = vi.fn();
 
 vi.mock("../api/feed", () => ({
   fetchPost: (input: unknown) => fetchPost(input),
@@ -43,8 +46,10 @@ vi.mock("../api/issues", async (importOriginal) => ({
       ok([{ id: "type-lift", name: "Hiss", reporters: ["RESIDENTS"] }]),
     ),
   fetchOwnApartments: () => Promise.resolve(ok([])),
-  fetchOwnIssues: () => Promise.resolve(ok([])),
   fetchReporterResponsibilityGuide: () => Promise.resolve(ok({ guide: null })),
+  fetchOwnIssues: () => fetchOwnIssues(),
+  fetchOwnIssueMessages: (id: string) => fetchOwnIssueMessages(id),
+  sendOwnIssueMessage: (input: unknown) => sendOwnIssueMessage(input),
   fetchIssueQueue: () => Promise.resolve(ok([])),
   reportIssue: (input: unknown) => reportIssue(input),
   attachIssuePhoto: (issueId: string, file: File) =>
@@ -87,6 +92,7 @@ const READER = viewer(["issues:report"]);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  fetchOwnIssues.mockResolvedValue(ok([]));
   reportIssue.mockResolvedValue(ok({ id: "issue-1" }));
   attachIssuePhoto.mockResolvedValue(
     ok({
@@ -168,5 +174,83 @@ describe("a report made from a post", () => {
       expect(screen.queryByRole("status")).toBeNull();
     });
     expect(fetchPost).not.toHaveBeenCalled();
+  });
+
+  it("keeps the reports on show when the list cannot be read again after a reply finds one closed", async () => {
+    fetchOwnIssues.mockResolvedValueOnce(
+      ok([
+        {
+          id: "issue-1",
+          meaning: "IN_PROGRESS",
+          typeId: "type-lift",
+          typeName: "Hiss",
+          location: null,
+          description: "Hissen står still.",
+          apartment: null,
+          photos: [],
+          enteredByHandler: false,
+          createdAt: "2026-08-20T08:00:00.000Z",
+          updatedAt: "2026-08-20T08:00:00.000Z",
+        },
+      ]),
+    );
+    fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    sendOwnIssueMessage.mockResolvedValue(refused(409, "issue-closed"));
+    const session = userEvent.setup();
+    render(<IssuesScreen viewer={READER} />);
+
+    expect(await screen.findByText("Hissen står still.")).toBeTruthy();
+    // The re-read that the closed answer asks for fails.
+    fetchOwnIssues.mockResolvedValue(refused(500, "unknown"));
+    await session.click(screen.getByText("Meddelanden om Hiss"));
+    await session.type(
+      await screen.findByLabelText("Hiss: ditt meddelande"),
+      "Hallå",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    await waitFor(() => {
+      expect(fetchOwnIssues).toHaveBeenCalledTimes(2);
+    });
+    await screen.findByText("Ärendena kunde inte läsas just nu.");
+    expect(screen.getByText("Hissen står still.")).toBeTruthy();
+  });
+
+  it("hides the composer once the list is read again and shows the report closed", async () => {
+    const report = {
+      id: "issue-1",
+      meaning: "IN_PROGRESS" as const,
+      typeId: "type-lift",
+      typeName: "Hiss",
+      location: null,
+      description: "Hissen står still.",
+      apartment: null,
+      photos: [],
+      enteredByHandler: false,
+      createdAt: "2026-08-20T08:00:00.000Z",
+      updatedAt: "2026-08-20T08:00:00.000Z",
+    };
+    fetchOwnIssues.mockResolvedValueOnce(ok([report]));
+    fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    sendOwnIssueMessage.mockResolvedValue(refused(409, "issue-closed"));
+    const session = userEvent.setup();
+    render(<IssuesScreen viewer={READER} />);
+
+    expect(await screen.findByText("Hissen står still.")).toBeTruthy();
+    fetchOwnIssues.mockResolvedValue(ok([{ ...report, meaning: "DONE" }]));
+    await session.click(screen.getByText("Meddelanden om Hiss"));
+    await session.type(
+      await screen.findByLabelText("Hiss: ditt meddelande"),
+      "Hallå",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    await waitFor(() => {
+      expect(fetchOwnIssues).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Hiss: ditt meddelande")).toBeNull();
+    });
+    expect(screen.getByText("Hissen står still.")).toBeTruthy();
   });
 });
