@@ -810,10 +810,14 @@ const MEMBER_CAPABILITIES: readonly GrantableCapability[] = [
  * What issue handling means is restated by ADR 0054, on the owner's decisions
  * 13 and 14 of the issue module plan. It covers the issue types the board opens
  * to every handler and never one it keeps to the board, and it includes opening
- * an issue for a named resident or with no reporter, which is filing under
- * another name. The people an issue can be assigned to are named to the
- * property manager by a names-only read of its own, never by the address book.
- * Anything beyond that is still a breach of the promise above.
+ * an issue, which is filing without being a resident. The people an issue can
+ * be assigned to are named to the property manager by a names-only read of its
+ * own, never by the address book. Naming a resident on an issue they open would
+ * need a read of the register, so until the owner decides how (ADR 0054,
+ * question 6) the property manager opens internal issues with no reporter, and
+ * `IssueService.open` refuses a resident named by anybody who does not read
+ * the address book. Anything beyond that is still a breach of the promise
+ * above.
  */
 const PROPERTY_MANAGER_CAPABILITIES: readonly GrantableCapability[] = [
   "issues:handle",

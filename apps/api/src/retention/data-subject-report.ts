@@ -561,6 +561,27 @@ export interface ReportIssue {
   photographs: number;
 }
 
+/**
+ * An issue this person is assigned, or an issue type that names them as its
+ * default assignee (ADR 0057).
+ *
+ * Somebody else chose them, so the audit log, which answers for what a person
+ * did, does not answer for this: the section does. The case number, its type,
+ * the meaning it stands in and its dates, and never its description, location,
+ * reporter or conversation - the case is somebody else's report, and art.
+ * 15(4) keeps another person's data out of this one's copy.
+ */
+export type ReportIssueAssignment =
+  | {
+      kind: "issue";
+      issueId: string;
+      typeName: string;
+      meaning: IssueStatusMeaning;
+      reportedAt: string;
+      closedAt: string | null;
+    }
+  | { kind: "typeDefault"; typeId: string; typeName: string };
+
 /** A document this person put into the association's archive. */
 export interface ReportDocument {
   documentId: string;
@@ -1727,6 +1748,7 @@ export interface DataSubjectReport {
     releaseReason: string | null;
   }[];
   issues: ReportIssue[];
+  issueAssignments: ReportIssueAssignment[];
   documents: ReportDocument[];
   apartmentDocuments: ReportApartmentDocument[];
   bookings: ReportBooking[];

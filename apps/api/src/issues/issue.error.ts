@@ -32,6 +32,15 @@ import { DomainError } from "../http/domain-error";
  * `default-status-required` is an attempt to switch off or demote the one
  * status of a meaning an issue goes to when none is named, and
  * `too-many-statuses` a type already carrying as many as it may.
+ *
+ * The handling reasons. `assignee-not-a-handler` is somebody who does not
+ * handle the issue now, a person the list never offered or one who stopped
+ * handling since it was read; a person who does not exist gets the same
+ * answer, so the route names nobody. `target-date-invalid` is a date the
+ * calendar does not have. `reporter-not-nameable` is a handler who does not
+ * read the address book naming a resident on an issue they open (ADR 0054,
+ * question 6), and `resident-not-found` a resident who does not live here
+ * today, or nobody at all, answered alike for the reason an apartment is.
  */
 export type IssueReason =
   | "type-not-found"
@@ -48,7 +57,11 @@ export type IssueReason =
   | "outcome-required"
   | "status-detail-not-applicable"
   | "default-status-required"
-  | "too-many-statuses";
+  | "too-many-statuses"
+  | "assignee-not-a-handler"
+  | "target-date-invalid"
+  | "reporter-not-nameable"
+  | "resident-not-found";
 
 export class IssueError extends DomainError {
   readonly status: number;
@@ -65,12 +78,15 @@ export class IssueError extends DomainError {
       reason === "default-status-required" ||
       reason === "too-many-statuses"
         ? HttpStatus.CONFLICT
-        : reason === "public-reporting-disabled"
+        : reason === "public-reporting-disabled" ||
+            reason === "reporter-not-nameable"
           ? HttpStatus.FORBIDDEN
           : reason === "post-not-reportable" ||
               reason === "waiting-reason-required" ||
               reason === "outcome-required" ||
-              reason === "status-detail-not-applicable"
+              reason === "status-detail-not-applicable" ||
+              reason === "assignee-not-a-handler" ||
+              reason === "target-date-invalid"
             ? HttpStatus.UNPROCESSABLE_ENTITY
             : HttpStatus.NOT_FOUND;
   }

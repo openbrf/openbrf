@@ -86,6 +86,33 @@ export const ISSUE_REPORTER_GROUPS = [
 
 export type IssueReporterGroup = (typeof ISSUE_REPORTER_GROUPS)[number];
 
+/**
+ * How urgent a handler judges an issue (prioritet), most urgent first.
+ *
+ * Set by handlers, from a default per type, and never by a reporter (decision
+ * 11 of the issue module plan). No timer runs from it: an urgent issue mails
+ * every handler of its type, and nothing counts time against a volunteer.
+ */
+export const ISSUE_PRIORITIES = ["URGENT", "NORMAL", "LOW"] as const;
+
+export type IssuePriority = (typeof ISSUE_PRIORITIES)[number];
+
+/**
+ * Who handles the issues of a type (ADR 0054, decision 13).
+ *
+ * - `EVERY_HANDLER`: everybody holding `issues:handle`, the property manager
+ *   included.
+ * - `BOARD`: the board only: a board member with a seat, and an administrator,
+ *   who holds `issues:configure` and could open the type to every handler in
+ *   any case.
+ *
+ * A single issue can be tightened to the board on its own; it is never loosened
+ * past its type.
+ */
+export const ISSUE_HANDLED_BY = ["EVERY_HANDLER", "BOARD"] as const;
+
+export type IssueHandledBy = (typeof ISSUE_HANDLED_BY)[number];
+
 /** How much a board may write and add to one issue type's statuses. */
 export const ISSUE_STATUS_LIMITS = {
   /** A status's label, such as "Väntar på styrelsebeslut". */

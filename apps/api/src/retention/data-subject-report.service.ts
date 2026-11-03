@@ -696,6 +696,25 @@ export class DataSubjectReportService {
       },
     });
 
+    // The issues and types that name this person as their assignee, which
+    // somebody else chose (ADR 0057): never the issue's text or its reporter.
+    const assignedIssues = await tx.issue.findMany({
+      where: { assigneePersonId: personId },
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      select: {
+        id: true,
+        status: { select: { meaning: true } },
+        createdAt: true,
+        closedAt: true,
+        type: { select: { name: true } },
+      },
+    });
+    const defaultForTypes = await tx.issueType.findMany({
+      where: { defaultAssigneePersonId: personId },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: { id: true, name: true },
+    });
+
     const documents = await tx.document.findMany({
       where: { uploadedByPersonId: personId },
       orderBy: [{ createdAt: "desc" }],
@@ -1682,6 +1701,21 @@ export class DataSubjectReportService {
         reportedAt: issue.createdAt.toISOString(),
         photographs: issue._count.photos,
       })),
+      issueAssignments: [
+        ...assignedIssues.map((issue) => ({
+          kind: "issue" as const,
+          issueId: issue.id,
+          typeName: issue.type.name,
+          meaning: issue.status.meaning,
+          reportedAt: issue.createdAt.toISOString(),
+          closedAt: issue.closedAt?.toISOString() ?? null,
+        })),
+        ...defaultForTypes.map((type) => ({
+          kind: "typeDefault" as const,
+          typeId: type.id,
+          typeName: type.name,
+        })),
+      ],
       documents: documents.map((document) => ({
         documentId: document.id,
         title: document.title,

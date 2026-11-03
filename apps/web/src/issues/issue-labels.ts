@@ -1,5 +1,7 @@
 import type {
+  IssueHandledBy,
   IssueOutcome,
+  IssuePriority,
   IssueReporterGroup,
   IssueStatusMeaning,
   IssueWaitingReason,
@@ -42,3 +44,16 @@ export const ISSUE_REPORTER_GROUP_LABEL = {
   RESIDENTS: "issues.reporters.RESIDENTS",
   HANDLERS: "issues.reporters.HANDLERS",
 } as const satisfies Readonly<Record<IssueReporterGroup, TranslationKey>>;
+
+/** Each priority (prioritet): Akut, Normal, Låg. */
+export const ISSUE_PRIORITY_LABEL = {
+  URGENT: "issues.priority.URGENT",
+  NORMAL: "issues.priority.NORMAL",
+  LOW: "issues.priority.LOW",
+} as const satisfies Readonly<Record<IssuePriority, TranslationKey>>;
+
+/** Who handles a type's issues: every handler, or the board only. */
+export const ISSUE_HANDLED_BY_LABEL = {
+  EVERY_HANDLER: "issues.handledBy.EVERY_HANDLER",
+  BOARD: "issues.handledBy.BOARD",
+} as const satisfies Readonly<Record<IssueHandledBy, TranslationKey>>;

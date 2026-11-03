@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { I18nService } from "../i18n/i18n.service";
 import { IssueTypeService } from "./issue-type.service";
@@ -27,7 +28,11 @@ function build(existingTypes: number) {
       work(tx),
     ),
   } as unknown as PrismaService;
-  const service = new IssueTypeService(prisma, {} as I18nService);
+  const service = new IssueTypeService(
+    prisma,
+    {} as I18nService,
+    {} as AuditLogService,
+  );
   return { service, tx, created };
 }
 
@@ -47,6 +52,7 @@ describe("the issue types a new instance starts with", () => {
       name: string;
       reporters: string[];
       sortOrder: number;
+      handledBy?: string;
       statuses: {
         create: { meaning: string; label: string; isDefault: boolean }[];
       };
@@ -74,9 +80,24 @@ describe("the issue types a new instance starts with", () => {
         },
         { meaning: "DONE", label: "[issues.status.DONE]", isDefault: true },
       ]);
-      // Never a type kept for the handlers: the board-only types come with
-      // the change that holds a type to the board.
-      expect(type.reporters).not.toContain("HANDLERS");
+    }
+    // A water leak files at Akut (decision 11).
+    expect(types[0]).toMatchObject({ defaultPriority: "URGENT" });
+    // The one type kept for the handlers is the board's own, handled by the
+    // board only (decision 13); every other type is offered to a reporter and
+    // handled by every handler.
+    const internal = types.filter((type) =>
+      type.reporters.includes("HANDLERS"),
+    );
+    expect(internal).toEqual([
+      expect.objectContaining({
+        name: "[issues.seededTypes.insurance]",
+        reporters: ["HANDLERS"],
+        handledBy: "BOARD",
+      }),
+    ]);
+    for (const type of types.filter((entry) => !internal.includes(entry))) {
+      expect(type).not.toHaveProperty("handledBy");
     }
     // The website's form has something to offer from the first day.
     expect(types.some((type) => type.reporters.includes("PUBLIC"))).toBe(true);

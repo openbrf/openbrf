@@ -327,6 +327,20 @@ locally the application runs from source beside the PostgreSQL that
       anyone is a setting, on by default, and the server already answers a
       caller with no session with the website form's types alone; the form itself
       is part of the public forms below
+- [x] Handling an issue: a handler gives it to an assignee, any handler the
+      issue lets in, sets its priority - Akut, Normal or Låg - and the day it
+      is meant to be done by, and an issue past that day stands out in the
+      queue. No timer runs from either. A type files its issues with a default
+      priority and a default assignee, so a water leak lands as Akut with
+      whoever the board chose, and a type with none lands unassigned. A type is
+      handled by every handler or by the board alone, and one issue can be
+      closed to all but the board; the property manager is shown neither, by
+      the same rule inside the service on every read and write. A handler opens
+      an issue for a named resident or as an internal one with no reporter,
+      and the issue shows that a handler entered it. Each issue has a timeline
+      of who did what and when, read from the audit log. The people an issue
+      can be assigned to are named and nothing more, so the property manager is
+      never shown the address book (ADR 0054)
 - [x] One page, one audience: the board's work on its own pages under the
       Styrelsen section, each signed on its own heading, the overview as the
       house's notice board with one line for whoever works a queue, and a phone

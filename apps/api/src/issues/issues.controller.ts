@@ -12,6 +12,8 @@ import {
 } from "@nestjs/common";
 import {
   ISSUE_CLOSING_OUTCOMES,
+  ISSUE_HANDLED_BY,
+  ISSUE_PRIORITIES,
   ISSUE_REPORT_LIMITS,
   ISSUE_REPORTER_GROUPS,
   ISSUE_STATUS_LIMITS,
@@ -28,14 +30,18 @@ import { isTooLarge, readSingleFile } from "../http/multipart";
 import { MediaError } from "../media/media.service";
 import { actingPersonId } from "../registers/acting-person";
 import {
+  type ConfiguredIssueTypeView,
+  type IssueHandlerChoice,
   type IssueTypeView,
   IssueTypeService,
   type ReportableIssueTypeView,
 } from "./issue-type.service";
 import {
   type IssueApartmentView,
+  type IssueHandlerView,
   type IssuePhotoView,
   IssueService,
+  type IssueTimelineStep,
   type OwnIssueView,
   type QueuedIssueView,
 } from "./issue.service";
@@ -60,11 +66,39 @@ const statusMoveSchema = z.object({
   outcome: z.enum(ISSUE_CLOSING_OUTCOMES).optional(),
 });
 
+/** A handler's opening of an issue (decision 14). */
+const openSchema = z.object({
+  typeId: z.string().min(1).max(64),
+  reporterPersonId: z.string().min(1).max(64).nullish(),
+  apartmentId: z.string().min(1).max(64).nullish(),
+  location: z.string().max(ISSUE_REPORT_LIMITS.location).nullish(),
+  description: z.string().trim().min(1).max(ISSUE_REPORT_LIMITS.description),
+});
+
+const assignSchema = z.object({
+  assigneePersonId: z.string().min(1).max(64).nullable(),
+});
+
+const prioritySchema = z.object({ priority: z.enum(ISSUE_PRIORITIES) });
+
+/** A calendar date, or null for none; the service reads it as one. */
+const targetDateSchema = z.object({
+  targetDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
+});
+
+const accessSchema = z.object({ boardOnly: z.boolean() });
+
 const typeSchema = z.object({
   name: z.string().trim().min(1).max(ISSUE_TYPE_LIMITS.name),
   reporters: z.array(z.enum(ISSUE_REPORTER_GROUPS)).max(3),
   active: z.boolean().optional(),
   sortOrder: z.coerce.number().int().min(0).max(999).optional(),
+  handledBy: z.enum(ISSUE_HANDLED_BY).optional(),
+  defaultPriority: z.enum(ISSUE_PRIORITIES).optional(),
+  defaultAssigneePersonId: z.string().min(1).max(64).nullable().optional(),
 });
 
 /** A status's label: the board's own text, and never only whitespace. */
@@ -214,25 +248,112 @@ export class IssueQueueController {
   ) {}
 
   /**
-   * Every type with its statuses, which is what a handler moves an issue
-   * between.
+   * Every type the reader handles, with its statuses, which is what a handler
+   * moves an issue between and opens one under.
    *
    * Under issues:handle rather than the catalogue's issues:configure, because
    * moving an issue needs its type's statuses and the property manager, who
    * handles issues, does not configure them. It reads what `issue_type_list`
    * already gives the same holder (ADR 0040): the board's names for its
-   * categories and their statuses, and counts.
+   * categories and their statuses, and counts. A type the board keeps to
+   * itself is left out for the property manager (ADR 0054).
    */
   @Get("types")
-  async listTypes(): Promise<IssueTypeView[]> {
-    return this.types.listAll();
+  async listTypes(
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssueTypeView[]> {
+    return this.issues.handledTypes(actingPersonId(request));
   }
 
   /** The queue, or the part of it whose status has one meaning. */
   @Get()
-  async list(@Query("meaning") meaning?: string): Promise<QueuedIssueView[]> {
+  async list(
+    @Req() request: RequestWithPrincipal,
+    @Query("meaning") meaning?: string,
+  ): Promise<QueuedIssueView[]> {
     const filter = z.enum(ISSUE_STATUS_MEANINGS).optional().parse(meaning);
-    return this.issues.listQueue({ meaning: filter });
+    return this.issues.listQueue(actingPersonId(request), { meaning: filter });
+  }
+
+  /** Opens an issue for a named resident, or with no reporter (decision 14). */
+  @Post()
+  @HttpCode(201)
+  async open(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<QueuedIssueView> {
+    return this.issues.open(requirePrincipal(request), openSchema.parse(body));
+  }
+
+  /** Who the issue may be assigned to: names, and nothing else. */
+  @Get(":id/handlers")
+  async handlers(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssueHandlerView[]> {
+    return this.issues.handlers(actingPersonId(request), id);
+  }
+
+  /** Who did what to the issue, and when (decision 16). */
+  @Get(":id/timeline")
+  async timeline(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssueTimelineStep[]> {
+    return this.issues.timeline(actingPersonId(request), id);
+  }
+
+  @Post(":id/assignee")
+  async assign(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.issues.assign(
+      id,
+      assignSchema.parse(body).assigneePersonId,
+      actingPersonId(request),
+    );
+  }
+
+  @Post(":id/priority")
+  async setPriority(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.issues.setPriority(
+      id,
+      prioritySchema.parse(body).priority,
+      actingPersonId(request),
+    );
+  }
+
+  @Post(":id/target-date")
+  async setTargetDate(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.issues.setTargetDate(
+      id,
+      targetDateSchema.parse(body).targetDate,
+      actingPersonId(request),
+    );
+  }
+
+  /** Closes the issue to all but the board, or opens it again (decision 13). */
+  @Post(":id/access")
+  async setAccess(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.issues.setBoardOnly(
+      id,
+      accessSchema.parse(body).boardOnly,
+      actingPersonId(request),
+    );
   }
 
   @Post(":id/status")
@@ -262,13 +383,23 @@ export class IssueTypeAdminController {
   constructor(private readonly types: IssueTypeService) {}
 
   @Get()
-  async list(): Promise<IssueTypeView[]> {
-    return this.types.listAll();
+  async list(): Promise<ConfiguredIssueTypeView[]> {
+    return this.types.listConfigured();
+  }
+
+  /**
+   * Who a type's issues may be given to by default: every handler, by name
+   * and nothing else, each marked with whether the board keeps them on a type
+   * handled by the board only.
+   */
+  @Get("handlers")
+  async handlers(): Promise<IssueHandlerChoice[]> {
+    return this.types.handlerChoices();
   }
 
   @Post()
   @HttpCode(201)
-  async create(@Body() body: unknown): Promise<IssueTypeView> {
+  async create(@Body() body: unknown): Promise<ConfiguredIssueTypeView> {
     return this.types.create(typeSchema.parse(body));
   }
 
@@ -276,8 +407,13 @@ export class IssueTypeAdminController {
   async update(
     @Param("id") id: string,
     @Body() body: unknown,
-  ): Promise<IssueTypeView> {
-    return this.types.update(id, typeSchema.parse(body));
+    @Req() request: RequestWithPrincipal,
+  ): Promise<ConfiguredIssueTypeView> {
+    return this.types.update(
+      id,
+      typeSchema.parse(body),
+      actingPersonId(request),
+    );
   }
 
   @Delete(":id")
@@ -292,7 +428,7 @@ export class IssueTypeAdminController {
   async addStatus(
     @Param("id") id: string,
     @Body() body: unknown,
-  ): Promise<IssueTypeView> {
+  ): Promise<ConfiguredIssueTypeView> {
     return this.types.addStatus(id, addStatusSchema.parse(body));
   }
 
@@ -306,7 +442,7 @@ export class IssueTypeAdminController {
     @Param("id") id: string,
     @Param("statusId") statusId: string,
     @Body() body: unknown,
-  ): Promise<IssueTypeView> {
+  ): Promise<ConfiguredIssueTypeView> {
     return this.types.updateStatus(
       id,
       statusId,

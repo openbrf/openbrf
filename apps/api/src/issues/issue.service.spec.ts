@@ -43,9 +43,15 @@ function issueRow(id: string, filed: string, reporterPersonId: string) {
       id: "type-1",
       name: "Laundry",
       reporters: ["HANDLERS" as const],
+      handledBy: "EVERY_HANDLER" as const,
     },
     apartment: null,
     photos: [],
+    priority: "NORMAL" as const,
+    targetDate: null,
+    boardOnly: false,
+    assigneePersonId: null,
+    enteredByPersonId: null,
     reporterPersonId,
     reporterNameCipher: null,
     reporterEmailCipher: null,
@@ -108,7 +114,13 @@ function build(issueReads: (typeof PROTECTED_ISSUE)[][], protectedFrom = 2) {
 
   const client = {
     issue: { findMany: issueFindMany },
-    person: { findMany: personFindMany },
+    // The reader is a board member, whom every issue lets in: what the board
+    // only rule leaves out is shown against a real database in
+    // `issues.int-spec.ts`.
+    person: {
+      findMany: personFindMany,
+      findFirst: vi.fn(async () => ({ id: "person-board" })),
+    },
   };
   // The meanings of one read share a transaction; the fake runs it on itself.
   const prisma = {
@@ -133,7 +145,11 @@ describe("a page of the queue read while a reporter's data becomes protected", (
       [PROTECTED_ISSUE, ORDINARY_ISSUE],
     ]);
 
-    const page = await service.pageOfQueue({ limit: 1 }, "omit");
+    const page = await service.pageOfQueue(
+      "person-board",
+      { limit: 1 },
+      "omit",
+    );
 
     expect(page.issues.map((issue) => issue.id)).toEqual([ORDINARY_ISSUE.id]);
     expect(page.nextCursor).toBeNull();
@@ -167,7 +183,11 @@ describe("a page of the queue read while a reporter's data becomes protected", (
       [LATER_ISSUE],
     ]);
 
-    const page = await service.pageOfQueue({ limit: 1 }, "omit");
+    const page = await service.pageOfQueue(
+      "person-board",
+      { limit: 1 },
+      "omit",
+    );
 
     expect(JSON.parse(JSON.stringify(page))).toEqual({
       issues: [
@@ -183,11 +203,19 @@ describe("a page of the queue read while a reporter's data becomes protected", (
           description: "Description of ordinary-issue-id",
           apartment: null,
           photos: [],
+          enteredByHandler: false,
           createdAt: "2026-03-02T08:00:00.000Z",
           updatedAt: "2026-03-02T08:00:00.000Z",
           typeReporters: ["HANDLERS"],
+          typeHandledBy: "EVERY_HANDLER",
           reporter: { kind: "resident", personId: RESIDENT, name: "Bo Boende" },
           closedAt: null,
+          priority: "NORMAL",
+          targetDate: null,
+          overdue: false,
+          assignee: null,
+          enteredBy: null,
+          boardOnly: false,
         },
       ],
       nextCursor: "NEW.0|2026-03-02T08:00:00.000Z|ordinary-issue-id",
@@ -200,7 +228,11 @@ describe("a page of the queue read while a reporter's data becomes protected", (
       [ORDINARY_ISSUE, LATER_ISSUE],
     ]);
 
-    const page = await service.pageOfQueue({ limit: 1 }, "omit");
+    const page = await service.pageOfQueue(
+      "person-board",
+      { limit: 1 },
+      "omit",
+    );
 
     expect(page.issues.map((issue) => issue.id)).toEqual([ORDINARY_ISSUE.id]);
     expect(page.nextCursor).toBe(
@@ -215,7 +247,11 @@ describe("a page of the queue read while a reporter's data becomes protected", (
       1,
     );
 
-    const page = await service.pageOfQueue({ limit: 1 }, "show");
+    const page = await service.pageOfQueue(
+      "person-board",
+      { limit: 1 },
+      "show",
+    );
 
     expect(page.issues.map((issue) => issue.id)).toEqual([PROTECTED_ISSUE.id]);
     expect(page.issues[0]?.reporter).toEqual({ kind: "protected" });

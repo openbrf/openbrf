@@ -2338,6 +2338,32 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { heading: "Ärendekön" },
     capture: "page",
   },
+  {
+    /*
+     * Handling one issue (ADR 0054): the administrator opens an internal issue
+     * under one of the types a new instance starts with, and opens its
+     * handling under the row - the assignee, the priority, the target date,
+     * the board-only switch and the timeline. The text is the building's and
+     * nobody's, as everything a capture photographs is published.
+     */
+    name: "board-issues-handling",
+    as: "administrator",
+    goto: appPath("/board/issues"),
+    prepare: [
+      { see: { heading: "Lägg upp ett ärende" } },
+      { select: { combobox: "Vad gäller det" }, option: "Hiss" },
+      {
+        fill: { label: "Vad har hänt" },
+        value: "Hissen i port B stannar mellan våning två och tre.",
+      },
+      { click: { button: "Lägg upp ärendet" } },
+      { see: { text: "Ärendet är upplagt och ligger i kön." } },
+      { click: { text: /^Hantera Hiss:/, first: true } },
+    ],
+    // The timeline's first step, which is there only once its read is back.
+    waitFor: { text: "Upplagt som internt ärende" },
+    capture: "page",
+  },
 
   // --- motions ---------------------------------------------------------------
   // Three screens in one order, because each photographs what the one above it

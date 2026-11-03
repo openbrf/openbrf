@@ -1,6 +1,9 @@
 import type {
+  AuthorView,
   IssueClosingOutcome,
+  IssueHandledBy,
   IssueOutcome,
+  IssuePriority,
   IssueReporterGroup,
   IssueStatusMeaning,
   IssueWaitingReason,
@@ -51,9 +54,32 @@ export interface IssueTypeView {
   reporters: IssueReporterGroup[];
   active: boolean;
   sortOrder: number;
+  /** Who handles its issues: every handler, or the board only. */
+  handledBy: IssueHandledBy;
+  /** The priority its issues are filed with. */
+  defaultPriority: IssuePriority;
   reportCount: number;
   /** By meaning, then in the board's order within it. */
   statuses: IssueStatusView[];
+}
+
+/**
+ * A handler as an issue names them: by name, or by identifier alone where the
+ * name is withheld (protected personal data), or unknown once purged. The
+ * feed's `AuthorView`, which the server builds by the feed's one mapping.
+ */
+export type IssueHandler = AuthorView;
+
+/** A type on the board's configuration screen, with its default assignee. */
+export type ConfiguredIssueType = IssueTypeView & {
+  defaultAssignee: IssueHandler | null;
+};
+
+/** Somebody a type's issues may be given to by default. */
+export interface IssueHandlerChoice {
+  handler: IssueHandler;
+  /** Kept on a type the board handles alone. */
+  board: boolean;
 }
 
 /** A type as this account is offered it. */
@@ -90,6 +116,8 @@ export interface OwnIssue {
   description: string;
   apartment: IssueApartment | null;
   photos: IssuePhoto[];
+  /** Whether a handler opened it on the reporter's behalf; never which one. */
+  enteredByHandler: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -117,7 +145,18 @@ export type QueuedIssue = OwnIssue & {
   /** Null while open, and on an issue closed before outcomes existed. */
   outcome: IssueOutcome | null;
   typeReporters: IssueReporterGroup[];
+  typeHandledBy: IssueHandledBy;
   closedAt: string | null;
+  priority: IssuePriority;
+  /** `YYYY-MM-DD`, or null. */
+  targetDate: string | null;
+  /** Past its target date and not done, on the association's calendar. */
+  overdue: boolean;
+  assignee: IssueHandler | null;
+  /** The handler who opened it, or null when its reporter filed it. */
+  enteredBy: IssueHandler | null;
+  /** Closed to every handler but the board on its own. */
+  boardOnly: boolean;
 } & (
     | { reporter: Exclude<IssueReporter, { kind: "protected" }> }
     | {
@@ -145,7 +184,47 @@ export interface IssueTypeInput {
   reporters: readonly IssueReporterGroup[];
   active?: boolean;
   sortOrder?: number;
+  handledBy?: IssueHandledBy;
+  defaultPriority?: IssuePriority;
+  /** Null for none; absent leaves it as it is. */
+  defaultAssigneePersonId?: string | null;
 }
+
+/** An issue a handler opens: for a named resident, or with no reporter. */
+export interface OpenIssueInput {
+  typeId: string;
+  /** Only a handler who reads the address book names a resident. */
+  reporterPersonId?: string;
+  apartmentId?: string;
+  location?: string;
+  description: string;
+}
+
+/**
+ * One step of an issue's timeline: who did what, and when. Never a reporter's
+ * name, and never text anybody wrote.
+ */
+export type IssueTimelineStep = {
+  at: string;
+  /** Null where nobody acted by hand: the type's default assigned it. */
+  actor: IssueHandler | null;
+} & (
+  | { kind: "reported" }
+  | { kind: "opened"; internal: boolean }
+  | {
+      kind: "status";
+      fromMeaning: IssueStatusMeaning | null;
+      toMeaning: IssueStatusMeaning | null;
+      fromStatusId: string | null;
+      toStatusId: string | null;
+      waitingReason: IssueWaitingReason | null;
+      outcome: IssueOutcome | null;
+    }
+  | { kind: "assigned"; assignee: IssueHandler | null; byTypeDefault: boolean }
+  | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
+  | { kind: "targetDate"; from: string | null; to: string | null }
+  | { kind: "access"; boardOnly: boolean }
+);
 
 /** A move to another status, with what its meaning requires. */
 export interface IssueStatusMoveInput {
@@ -243,20 +322,98 @@ export function setIssueStatus(
   );
 }
 
-export function fetchIssueTypes(): Promise<ApiResult<IssueTypeView[]>> {
+/** Opens an issue as a handler (decision 14). */
+export function openIssue(
+  input: OpenIssueInput,
+): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest("POST", "/api/issue-queue", input);
+}
+
+/** Who the issue may be assigned to: names, and nothing else. */
+export function fetchIssueHandlers(
+  issueId: string,
+): Promise<ApiResult<IssueHandler[]>> {
+  return apiRequest(
+    "GET",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/handlers`,
+  );
+}
+
+export function fetchIssueTimeline(
+  issueId: string,
+): Promise<ApiResult<IssueTimelineStep[]>> {
+  return apiRequest(
+    "GET",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/timeline`,
+  );
+}
+
+export function assignIssue(input: {
+  issueId: string;
+  assigneePersonId: string | null;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/assignee`,
+    { assigneePersonId: input.assigneePersonId },
+  );
+}
+
+export function setIssuePriority(input: {
+  issueId: string;
+  priority: IssuePriority;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/priority`,
+    { priority: input.priority },
+  );
+}
+
+export function setIssueTargetDate(input: {
+  issueId: string;
+  targetDate: string | null;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/target-date`,
+    { targetDate: input.targetDate },
+  );
+}
+
+/** Closes the issue to all but the board, or opens it again. */
+export function setIssueBoardOnly(input: {
+  issueId: string;
+  boardOnly: boolean;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/access`,
+    { boardOnly: input.boardOnly },
+  );
+}
+
+export function fetchIssueTypes(): Promise<ApiResult<ConfiguredIssueType[]>> {
   return apiRequest("GET", "/api/issue-types");
+}
+
+/** Who a type's issues may be given to by default. */
+export function fetchIssueTypeHandlers(): Promise<
+  ApiResult<IssueHandlerChoice[]>
+> {
+  return apiRequest("GET", "/api/issue-types/handlers");
 }
 
 export function createIssueType(
   input: IssueTypeInput,
-): Promise<ApiResult<IssueTypeView>> {
+): Promise<ApiResult<ConfiguredIssueType>> {
   return apiRequest("POST", "/api/issue-types", input);
 }
 
 export function updateIssueType(input: {
   id: string;
   values: IssueTypeInput;
-}): Promise<ApiResult<IssueTypeView>> {
+}): Promise<ApiResult<ConfiguredIssueType>> {
   return apiRequest(
     "PUT",
     `/api/issue-types/${encodeURIComponent(input.id)}`,
@@ -273,7 +430,7 @@ export function addIssueStatus(input: {
   typeId: string;
   meaning: IssueStatusMeaning;
   label: string;
-}): Promise<ApiResult<IssueTypeView>> {
+}): Promise<ApiResult<ConfiguredIssueType>> {
   return apiRequest(
     "POST",
     `/api/issue-types/${encodeURIComponent(input.typeId)}/statuses`,
@@ -289,7 +446,7 @@ export function changeIssueStatus(input: {
   typeId: string;
   statusId: string;
   values: IssueStatusChangeInput;
-}): Promise<ApiResult<IssueTypeView>> {
+}): Promise<ApiResult<ConfiguredIssueType>> {
   return apiRequest(
     "PUT",
     `/api/issue-types/${encodeURIComponent(input.typeId)}/statuses/${encodeURIComponent(input.statusId)}`,

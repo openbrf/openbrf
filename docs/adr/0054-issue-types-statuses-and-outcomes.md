@@ -249,6 +249,20 @@ wrote this record:
 7. **_target date_ for senast klart**, in place of the plan's _due date_, for the
    reason above.
 
+### Defaults taken while questions 4 and 6 are open
+
+The change that built handling had to answer both to be built at all. It took
+the narrower answer to each, and the owner may change either:
+
+- **Question 4.** An administrator without a seat is let into a type the board
+  handles alone. They hold `issues:configure`, so leaving them out would protect
+  nothing: they could open the type to every handler and read it.
+- **Question 6.** The property manager opens internal issues with no reporter
+  and names no resident. A resident is named from the address book, and the
+  service refuses a resident named by anybody who does not read it, so nothing
+  reaches the register through the form that decision 11 of the product
+  decision log keeps the property manager out of.
+
 ## Consequences
 
 - `IssueStatus` and `IssueAudience` give way to status rows with a meaning, and

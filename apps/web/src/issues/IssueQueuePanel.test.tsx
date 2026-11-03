@@ -25,10 +25,22 @@ import { IssueQueuePanel } from "./IssueQueuePanel";
  */
 
 const setIssueStatus = vi.fn();
+const fetchIssueHandlers = vi.fn();
+const fetchIssueTimeline = vi.fn();
+const assignIssue = vi.fn();
+const setIssuePriority = vi.fn();
+const setIssueTargetDate = vi.fn();
+const setIssueBoardOnly = vi.fn();
 
 vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
   setIssueStatus: (input: unknown) => setIssueStatus(input),
+  fetchIssueHandlers: (id: string) => fetchIssueHandlers(id),
+  fetchIssueTimeline: (id: string) => fetchIssueTimeline(id),
+  assignIssue: (input: unknown) => assignIssue(input),
+  setIssuePriority: (input: unknown) => setIssuePriority(input),
+  setIssueTargetDate: (input: unknown) => setIssueTargetDate(input),
+  setIssueBoardOnly: (input: unknown) => setIssueBoardOnly(input),
 }));
 
 function status(
@@ -52,6 +64,8 @@ const TYPES: readonly IssueTypeView[] = [
     reporters: ["RESIDENTS"],
     active: true,
     sortOrder: 0,
+    handledBy: "EVERY_HANDLER",
+    defaultPriority: "NORMAL",
     reportCount: 1,
     statuses: [
       status({ id: "s-new", meaning: "NEW", label: "Ny" }),
@@ -101,6 +115,14 @@ function issue(
     reporter: { kind: "resident", personId: "p-1", name: "Rune Boende" },
     createdAt: "2026-08-20T08:00:00.000Z",
     updatedAt: "2026-08-20T08:00:00.000Z",
+    enteredByHandler: false,
+    typeHandledBy: "EVERY_HANDLER",
+    priority: "NORMAL",
+    targetDate: null,
+    overdue: false,
+    assignee: null,
+    enteredBy: null,
+    boardOnly: false,
     ...overrides,
   } as QueuedIssue;
 }
@@ -116,6 +138,23 @@ function saveButton(): HTMLElement {
 
 beforeEach(() => {
   setIssueStatus.mockReset().mockResolvedValue({ ok: true, value: issue() });
+  fetchIssueHandlers.mockReset().mockResolvedValue({
+    ok: true,
+    value: [
+      { kind: "person", personId: "p-board", name: "Bea Styrelse" },
+      { kind: "protected", personId: "p-shielded" },
+      { kind: "person", personId: "p-manager", name: "Frida Förvaltare" },
+    ],
+  });
+  fetchIssueTimeline.mockReset().mockResolvedValue({ ok: true, value: [] });
+  for (const write of [
+    assignIssue,
+    setIssuePriority,
+    setIssueTargetDate,
+    setIssueBoardOnly,
+  ]) {
+    write.mockReset().mockResolvedValue({ ok: true, value: issue() });
+  }
 });
 
 describe("who reported it", () => {
@@ -431,5 +470,200 @@ describe("the status of a report", () => {
     );
 
     expect(screen.getByText("Väntar på: Reservdelar")).toBeTruthy();
+  });
+});
+
+describe("handling an issue", () => {
+  function show(queued: QueuedIssue = issue(), onChanged = vi.fn()) {
+    render(
+      <IssueQueuePanel issues={[queued]} types={TYPES} onChanged={onChanged} />,
+    );
+    return onChanged;
+  }
+
+  async function openHandling(session: ReturnType<typeof userEvent.setup>) {
+    await session.click(
+      screen.getByText(
+        "Hantera Vatten: ansvarig, prioritet, senast klart och tidslinje",
+      ),
+    );
+  }
+
+  it("says who it is given to, how urgent it is and when it is overdue", () => {
+    show(
+      issue({
+        assignee: { kind: "protected", personId: "p-shielded" },
+        priority: "URGENT",
+        targetDate: "2026-08-25",
+        overdue: true,
+        boardOnly: true,
+        enteredBy: {
+          kind: "person",
+          personId: "p-board",
+          name: "Bea Styrelse",
+        },
+      }),
+    );
+
+    expect(
+      screen.getByText("Namnet visas inte (skyddade personuppgifter)"),
+    ).toBeTruthy();
+    expect(screen.getByText("Akut")).toBeTruthy();
+    expect(screen.getByText("Försenat")).toBeTruthy();
+    expect(screen.getByText("Bara styrelsen")).toBeTruthy();
+    expect(screen.getByText("Bea Styrelse")).toBeTruthy();
+  });
+
+  it("reads the handlers and the timeline only once the issue is opened", async () => {
+    const session = userEvent.setup();
+    show();
+
+    expect(fetchIssueHandlers).not.toHaveBeenCalled();
+    await openHandling(session);
+
+    await waitFor(() => {
+      expect(fetchIssueHandlers).toHaveBeenCalledWith("issue-1");
+    });
+    expect(fetchIssueTimeline).toHaveBeenCalledWith("issue-1");
+  });
+
+  it("assigns it to a handler from the names-only list, and reads the queue again", async () => {
+    const session = userEvent.setup();
+    const onChanged = show();
+    await openHandling(session);
+
+    const select = await screen.findByLabelText("Vatten: ansvarig");
+    await waitFor(() => {
+      expect((select as HTMLSelectElement).disabled).toBe(false);
+    });
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual([
+      "Ej tilldelat",
+      "Bea Styrelse",
+      "Namnet visas inte (skyddade personuppgifter)",
+      "Frida Förvaltare",
+    ]);
+    await session.selectOptions(select, "p-manager");
+    const [save] = screen.getAllByRole("button", { name: "Spara" });
+    await session.click(save as HTMLElement);
+
+    await waitFor(() => {
+      expect(assignIssue).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        assigneePersonId: "p-manager",
+      });
+    });
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("sets the priority and the target date", async () => {
+    const session = userEvent.setup();
+    show();
+    await openHandling(session);
+
+    await session.selectOptions(
+      await screen.findByLabelText("Vatten: prioritet"),
+      "LOW",
+    );
+    const buttons = screen.getAllByRole("button", { name: "Spara" });
+    await session.click(buttons[1] as HTMLElement);
+    await waitFor(() => {
+      expect(setIssuePriority).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        priority: "LOW",
+      });
+    });
+
+    const date = screen.getByLabelText("Vatten: senast klart");
+    await session.type(date, "2026-09-01");
+    await session.click(
+      screen.getAllByRole("button", { name: "Spara" })[2] as HTMLElement,
+    );
+    await waitFor(() => {
+      expect(setIssueTargetDate).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        targetDate: "2026-09-01",
+      });
+    });
+  });
+
+  it("closes an issue to the board", async () => {
+    const session = userEvent.setup();
+    show();
+    await openHandling(session);
+
+    await session.click(
+      await screen.findByLabelText("Vatten: bara styrelsen hanterar ärendet"),
+    );
+    await waitFor(() => {
+      expect(setIssueBoardOnly).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        boardOnly: true,
+      });
+    });
+  });
+
+  it("offers no access switch on a type the board handles alone", async () => {
+    const session = userEvent.setup();
+    show(issue({ typeHandledBy: "BOARD" }));
+    await openHandling(session);
+
+    expect(
+      await screen.findByText(
+        "Bara styrelsen hanterar ärenden av den här typen.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByLabelText("Vatten: bara styrelsen hanterar ärendet"),
+    ).toBeNull();
+  });
+
+  it("says what each step of the timeline was, and by whom", async () => {
+    fetchIssueTimeline.mockResolvedValue({
+      ok: true,
+      value: [
+        { kind: "reported", at: "2026-08-20T08:00:00.000Z", actor: null },
+        {
+          kind: "assigned",
+          at: "2026-08-20T09:00:00.000Z",
+          actor: null,
+          assignee: {
+            kind: "person",
+            personId: "p-manager",
+            name: "Frida Förvaltare",
+          },
+          byTypeDefault: true,
+        },
+        {
+          kind: "status",
+          at: "2026-08-21T09:00:00.000Z",
+          actor: { kind: "protected", personId: "p-shielded" },
+          fromMeaning: "NEW",
+          toMeaning: "WAITING",
+          fromStatusId: "s-new",
+          toStatusId: "s-contractor",
+          waitingReason: "CONTRACTOR",
+          outcome: null,
+        },
+      ],
+    });
+    const session = userEvent.setup();
+    show();
+    await openHandling(session);
+
+    const timeline = (await screen.findByText("Anmält")).closest("ol");
+    expect(timeline).not.toBeNull();
+    const steps = within(timeline as HTMLElement)
+      .getAllByRole("listitem")
+      .map((step) => step.textContent);
+    expect(steps[1]).toContain(
+      "Tilldelat enligt typens standard Frida Förvaltare",
+    );
+    // The board's own name for the status, from the type.
+    expect(steps[2]).toContain("Flyttat till Hos rörmokaren");
+    expect(steps[2]).toContain("Namnet visas inte (skyddade personuppgifter)");
   });
 });

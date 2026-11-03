@@ -1,27 +1,47 @@
 import { Injectable, Logger } from "@nestjs/common";
 import {
+  type AuthorView,
+  compareLocalDays,
+  dateColumnOf,
+  formatDateColumn,
+  ISSUE_OUTCOMES,
+  ISSUE_PRIORITIES,
   ISSUE_STATUS_LIMITS,
   ISSUE_STATUS_MEANINGS,
+  ISSUE_WAITING_REASONS,
   type IssueClosingOutcome,
+  type IssueHandledBy,
   type IssueOutcome,
+  type IssuePriority,
   type IssueReporterGroup,
   type IssueStatusMeaning,
   type IssueWaitingReason,
   isIssueStatusMeaning,
+  type LocalDay,
   localDayOf,
+  localDayOfColumn,
+  parseLocalDay,
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
-import type { Principal } from "../authorization/capabilities";
+import { type Principal, principalCan } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { readAuthors } from "../feed/feed-author";
 import { type IssueLinkOutcome, linkIssueToPost } from "../feed/feed-issue";
-import { Prisma } from "../generated/prisma/client";
+import { type AuditAction, Prisma } from "../generated/prisma/client";
 import { failureName } from "../logging/failure";
 import { mediaUrl, MediaService } from "../media/media.service";
 import { residencyHeldOn } from "../registers/held-on";
-import { IssueTypeService } from "./issue-type.service";
-import { lockIssue } from "./issue-lock";
+import {
+  handlesIssues,
+  issueHandledBy,
+  issuesHandledWhere,
+  readIssueHandlers,
+  typesHandledWhere,
+} from "./issue-handlers";
+import { type IssueTypeView, IssueTypeService } from "./issue-type.service";
+import { lockIssue, lockIssueType } from "./issue-lock";
 import { IssueError } from "./issue.error";
 
 /**
@@ -97,9 +117,28 @@ export interface OwnIssueView {
   description: string;
   apartment: IssueApartmentView | null;
   photos: IssuePhotoView[];
+  /**
+   * Whether a handler opened it on the reporter's behalf (decision 14). The
+   * reporter is told that much and never which handler: who works an issue is
+   * internal (ADR 0054).
+   */
+  enteredByHandler: boolean;
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * A handler as an issue names them: its assignee, the handler who entered it,
+ * the one who acted on its timeline.
+ *
+ * The feed's `AuthorView`, built by the feed's one mapping (`readAuthors`), so
+ * there is no further spelling of the protected-person rule: a handler with
+ * protected personal data is named to nobody and keeps their identifier, so an
+ * issue can still be assigned to them (ADR 0056). Unlike a protected reporter's
+ * row, the identifier stays: a handler is chosen from a list, and a list of
+ * people whose names are withheld is only usable by identifier.
+ */
+export type IssueHandlerView = AuthorView;
 
 /**
  * An issue as whoever handles it reads it.
@@ -128,8 +167,24 @@ export type QueuedIssueView = OwnIssueView & {
   outcome: IssueOutcome | null;
   /** Who may report an issue of its type. */
   typeReporters: IssueReporterGroup[];
+  /** Who handles an issue of its type. */
+  typeHandledBy: IssueHandledBy;
   /** When it last moved into DONE, or null while it is open. */
   closedAt: string | null;
+  priority: IssuePriority;
+  /** The day it is meant to be done by, `YYYY-MM-DD`, or null. */
+  targetDate: string | null;
+  /**
+   * Whether its target date has passed, on the association's calendar, while
+   * it is not done. Computed when the row is read, never stored.
+   */
+  overdue: boolean;
+  /** Its assignee, or null while it is unassigned. */
+  assignee: IssueHandlerView | null;
+  /** The handler who opened it, or null when its reporter filed it. */
+  enteredBy: IssueHandlerView | null;
+  /** Whether it is closed to every handler but the board on its own. */
+  boardOnly: boolean;
 } & (
     | { reporter: Exclude<IssueReporterView, { kind: "protected" }> }
     | {
@@ -178,6 +233,66 @@ export interface IssueStatusMove {
    */
   outcome?: IssueClosingOutcome;
 }
+
+/**
+ * An issue a handler opens (decision 14): for a named resident, who is then
+ * its reporter with every rule about a reporter, masking included, or as an
+ * internal issue with no reporter at all.
+ */
+export interface OpenIssueInput {
+  typeId: string;
+  /**
+   * The resident it is opened for, chosen from the address book. Absent or
+   * null opens an internal issue. Only a handler who reads the address book
+   * names one (see `IssueService.open`).
+   */
+  reporterPersonId?: string | null;
+  /** One of the named resident's own apartments, when it is in one. */
+  apartmentId?: string | null;
+  location?: string | null;
+  description: string;
+}
+
+/**
+ * One step in an issue's timeline (decision 16): who did what, and when.
+ *
+ * Read from the audit log, which is the record of every act on an issue and is
+ * append-only, so the timeline cannot be rewritten by the acts it records. Each
+ * step carries the facts its entry holds and never a text a person wrote:
+ * statuses by identifier and meaning, which the screen names from the type,
+ * people by `IssueHandlerView`.
+ *
+ * `actor` is null on a step nobody took by hand - an assignment the type's
+ * default made on filing - and on an entry whose actor was purged it is
+ * `unknown`. A reporter is never named here: the queue row says who reported
+ * the issue, masked as a reporter is, and a second spelling of them would be a
+ * second place for a protected reporter's name to escape.
+ */
+export type IssueTimelineStep = {
+  at: string;
+  actor: IssueHandlerView | null;
+} & (
+  | { kind: "reported" }
+  | { kind: "opened"; internal: boolean }
+  | {
+      kind: "status";
+      fromMeaning: IssueStatusMeaning | null;
+      toMeaning: IssueStatusMeaning | null;
+      fromStatusId: string | null;
+      toStatusId: string | null;
+      waitingReason: IssueWaitingReason | null;
+      outcome: IssueOutcome | null;
+    }
+  | {
+      kind: "assigned";
+      assignee: IssueHandlerView | null;
+      /** Set from the type's default when the issue was filed. */
+      byTypeDefault: boolean;
+    }
+  | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
+  | { kind: "targetDate"; from: string | null; to: string | null }
+  | { kind: "access"; boardOnly: boolean }
+);
 
 /**
  * How many issues one page of the queue answers with.
@@ -379,26 +494,15 @@ export class IssueService {
     };
     const postId = input.postId ?? null;
 
-    const issue =
-      postId === null
-        ? await this.prisma.issue
-            .create({ data, select: { id: true } })
-            .catch(typeRemoved)
-        : await this.prisma.$transaction(async (tx) => {
-            const filed = await tx.issue
-              .create({ data, select: { id: true } })
-              .catch(typeRemoved);
-            refuseUnlinked(
-              await linkIssueToPost(
-                tx,
-                principal,
-                postId,
-                filed.id,
-                new Date(),
-              ),
-            );
-            return filed;
-          });
+    const issue = await this.prisma.$transaction(async (tx) => {
+      const filed = await this.file(tx, data);
+      if (postId !== null) {
+        refuseUnlinked(
+          await linkIssueToPost(tx, principal, postId, filed.id, new Date()),
+        );
+      }
+      return filed;
+    });
 
     // The identifiers only. The description is the resident's own account of
     // their home, and the type's name is the board's text; neither has any
@@ -439,8 +543,8 @@ export class IssueService {
             input.reporterEmail,
           );
 
-    const filing = this.prisma.issue.create({
-      data: {
+    const issue = await this.prisma.$transaction((tx) =>
+      this.file(tx, {
         typeId: type.id,
         statusId: type.newStatusId,
         // No account behind it. The reporter reference stays null and the
@@ -458,15 +562,121 @@ export class IssueService {
             ? null
             : input.location,
         description: input.description,
-      },
-      select: { id: true },
-    });
-    const issue = await filing.catch(typeRemoved);
+      }),
+    );
 
     // The identifier and the type. What a passer-by wrote about the building,
     // and who they said they were, has no business in a log line.
     this.logger.log(`Reported issue ${issue.id} from the public form`);
     return issue;
+  }
+
+  /**
+   * Opens an issue as a handler (decision 14), for a named resident or as an
+   * internal issue with no reporter. Reached with issues:handle, the property
+   * manager's included (ADR 0054).
+   *
+   * Under any switched-on type the handler handles, whoever its reporters are:
+   * the handler files it, so the reporter groups, which say whom a form offers
+   * a type to, do not decide it. The issue records which handler entered it,
+   * and is filed with the type's default priority and assignee as a report is.
+   *
+   * A named resident is chosen from the address book, so only a handler who
+   * reads it names one, and the resident is a current resident; the apartment
+   * is then one of theirs, as a resident's own report is held to theirs. ADR
+   * 0054 leaves open how the property manager names a resident (its question
+   * 6), and the product decision log's decision 11 keeps the property manager
+   * out of the address book: until that is decided, the property manager opens
+   * internal issues and refers a resident's matter to the board, rather than
+   * reaching the register through this form.
+   */
+  async open(
+    principal: Principal,
+    input: OpenIssueInput,
+  ): Promise<QueuedIssueView> {
+    const now = new Date();
+    const reporterPersonId = input.reporterPersonId ?? null;
+    if (
+      (reporterPersonId !== null || input.apartmentId != null) &&
+      !principalCan(principal, "addressBook:read")
+    ) {
+      throw new IssueError(
+        "Only a handler who reads the address book opens an issue for a named resident.",
+        "reporter-not-nameable",
+      );
+    }
+    if (reporterPersonId === null && input.apartmentId != null) {
+      throw new IssueError("No such apartment.", "apartment-not-found");
+    }
+
+    const scope = await this.readerScope(this.prisma, principal.personId, now);
+    const type = await this.prisma.issueType.findFirst({
+      where: { id: input.typeId, active: true, ...typesHandledWhere(scope) },
+      select: {
+        id: true,
+        statuses: {
+          where: { meaning: "NEW", isDefault: true },
+          select: { id: true },
+        },
+      },
+    });
+    const newStatus = type?.statuses[0];
+    if (type === null || newStatus === undefined) {
+      throw new IssueError("No such issue type.", "type-not-found");
+    }
+
+    if (reporterPersonId !== null) {
+      const resident = await this.prisma.residency.findFirst({
+        where: {
+          personId: reporterPersonId,
+          ...residencyHeldOn(localDayOf(now)),
+        },
+        select: { personId: true },
+      });
+      if (resident === null) {
+        throw new IssueError("No such resident.", "resident-not-found");
+      }
+    }
+    const apartmentId =
+      reporterPersonId === null || input.apartmentId == null
+        ? null
+        : await this.requireOwnApartment(reporterPersonId, input.apartmentId);
+
+    const issue = await this.prisma.$transaction(async (tx) => {
+      const filed = await this.file(tx, {
+        typeId: type.id,
+        statusId: newStatus.id,
+        reporterPersonId,
+        enteredByPersonId: principal.personId,
+        apartmentId,
+        location:
+          input.location == null || input.location.trim() === ""
+            ? null
+            : input.location,
+        description: input.description,
+      });
+      /*
+       * The handler as the actor and the resident as the target, so the
+       * opening is on both of their access reports; the type by identifier,
+       * because its name is the board's text. Never the description.
+       */
+      await this.audit.record(
+        {
+          action: "ISSUE_OPENED",
+          channel: "WEB",
+          actorPersonId: principal.personId,
+          targetPersonId: reporterPersonId,
+          targetKind: "issue",
+          targetId: filed.id,
+          context: { typeId: type.id, internal: reporterPersonId === null },
+        },
+        tx,
+      );
+      return filed;
+    });
+
+    this.logger.log(`Opened issue ${issue.id} under type ${type.id}`);
+    return this.handledView(principal.personId, issue.id);
   }
 
   /** The reporter's own issues, newest first. */
@@ -481,18 +691,43 @@ export class IssueService {
   }
 
   /**
+   * The types this reader handles, active or not, with their statuses: what
+   * the queue moves issues between and what a handler opens an issue under.
+   * Reached with issues:handle. A type the board keeps to itself is left out
+   * for a reader the board-only rule does not let in, as its issues are.
+   */
+  async handledTypes(readerPersonId: string): Promise<IssueTypeView[]> {
+    const scope = await this.readerScope(
+      this.prisma,
+      readerPersonId,
+      new Date(),
+    );
+    return this.types.list(typesHandledWhere(scope));
+  }
+
+  /**
    * The triage queue. Reached with issues:handle.
    *
    * By the meaning of each issue's status - new, in progress, waiting, done -
    * then by the board's order of the statuses within a meaning, and oldest
    * first, because the queue is worked from the top and the thing that has been
    * waiting longest is the thing to look at.
+   *
+   * The issues the reader handles and no others: a reader the board-only rule
+   * does not let in is not shown an issue its type or the issue itself keeps to
+   * the board, here or by any read below (ADR 0054).
    */
-  async listQueue(filter?: {
-    meaning?: IssueStatusMeaning;
-  }): Promise<QueuedIssueView[]> {
+  async listQueue(
+    readerPersonId: string,
+    filter?: { meaning?: IssueStatusMeaning },
+  ): Promise<QueuedIssueView[]> {
+    const scope = await this.readerScope(
+      this.prisma,
+      readerPersonId,
+      new Date(),
+    );
     const issues = await this.readQueue(
-      {},
+      issuesHandledWhere(scope),
       meaningsOf(filter?.meaning),
       null,
       undefined,
@@ -521,6 +756,7 @@ export class IssueService {
    * moment it was filed to a caller the issue itself is withheld from.
    */
   async pageOfQueue(
+    readerPersonId: string,
     filter: IssueQueueFilter & {
       /** At most {@link ISSUES_PER_PAGE}; absent takes the whole page. */
       limit?: number;
@@ -530,6 +766,9 @@ export class IssueService {
   ): Promise<IssueQueuePage> {
     const limit = Math.min(filter.limit ?? ISSUES_PER_PAGE, ISSUES_PER_PAGE);
     let readFrom = filter.after ?? null;
+    const handled = issuesHandledWhere(
+      await this.readerScope(this.prisma, readerPersonId, new Date()),
+    );
 
     /*
      * Each read either keeps a row or moves past the rows it read, and a read
@@ -545,6 +784,7 @@ export class IssueService {
       const rows = await this.readQueue(
         {
           AND: [
+            handled,
             queueWhere(filter),
             protectedReporters === "omit"
               ? await this.notReportedByProtectedPersons()
@@ -591,11 +831,19 @@ export class IssueService {
    * the same sentence, so the answer does not say that there is one.
    */
   async queuedIssue(
+    readerPersonId: string,
     issueId: string,
     protectedReporters: ProtectedReporters,
   ): Promise<QueuedIssueView> {
-    const issue = await this.prisma.issue.findUnique({
-      where: { id: issueId },
+    const scope = await this.readerScope(
+      this.prisma,
+      readerPersonId,
+      new Date(),
+    );
+    // An issue the reader does not handle is answered as one that does not
+    // exist, so the answer does not say that there is one.
+    const issue = await this.prisma.issue.findFirst({
+      where: { id: issueId, ...issuesHandledWhere(scope) },
       include: ISSUE_INCLUDE,
     });
     const [view] =
@@ -633,8 +881,9 @@ export class IssueService {
     const issue = await this.prisma.$transaction(async (tx) => {
       await lockIssue(tx, issueId);
 
-      const existing = await tx.issue.findUnique({
-        where: { id: issueId },
+      const scope = await this.readerScope(tx, actorPersonId, new Date());
+      const existing = await tx.issue.findFirst({
+        where: { id: issueId, ...issuesHandledWhere(scope) },
         select: {
           id: true,
           typeId: true,
@@ -704,28 +953,301 @@ export class IssueService {
     });
 
     this.logger.log(`Issue ${issue.id} moved to ${issue.status.meaning}`);
+    return this.viewOf(issue);
+  }
 
-    const reporterId = issue.reporterPersonId;
-    const persons =
-      reporterId === null
-        ? []
-        : await this.prisma.person.findMany({
-            where: { id: reporterId },
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              protectedPersonalData: true,
-            },
-          });
+  /**
+   * Gives an issue to an assignee, to another, or to nobody. Reached with
+   * issues:handle.
+   *
+   * The assignee is somebody who handles this issue now: its type's handlers,
+   * narrowed to the board when the issue is closed to everybody else, read by
+   * `issueHandlersWhere` - the rule `handlers` names them by. Anybody else is
+   * refused, a person who stopped handling since the list was read included,
+   * so an issue is never given to somebody who cannot open it.
+   *
+   * The entry names the actor, the new assignee as its target - so the
+   * assignment is on their access report, where `issueAssignments` also lists
+   * it - and the previous assignee in its context, as the board mailbox records
+   * a thread changing hands. Nothing on a request that changes nothing.
+   */
+  async assign(
+    issueId: string,
+    assigneePersonId: string | null,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    const issue = await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      await this.lockForAssignment(tx, issueId);
+      const existing = await this.requireHandled(tx, issueId, actorPersonId);
 
-    return toQueuedView(
-      issue,
-      await this.reporterOf(
-        issue,
-        new Map(persons.map((person) => [person.id, person])),
-      ),
+      if (
+        assigneePersonId !== null &&
+        !(await handlesIssues(
+          tx,
+          assigneePersonId,
+          issueHandledBy(existing),
+          now,
+        ))
+      ) {
+        throw new IssueError(
+          "That person does not handle this issue.",
+          "assignee-not-a-handler",
+        );
+      }
+
+      if (existing.assigneePersonId !== assigneePersonId) {
+        await this.recordAssignment(tx, {
+          issueId,
+          actorPersonId,
+          assigneePersonId,
+          previousAssigneePersonId: existing.assigneePersonId,
+        });
+      }
+
+      return tx.issue.update({
+        where: { id: issueId },
+        data: { assigneePersonId },
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} assignment changed`);
+    return this.viewOf(issue);
+  }
+
+  /**
+   * Sets an issue's priority (decision 11). Reached with issues:handle; a
+   * reporter never sets it. The entry carries the priority either side.
+   */
+  async setPriority(
+    issueId: string,
+    priority: IssuePriority,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    const issue = await this.prisma.$transaction(async (tx) => {
+      await lockIssue(tx, issueId);
+      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      if (existing.priority !== priority) {
+        await this.audit.record(
+          {
+            action: "ISSUE_PRIORITY_CHANGED",
+            channel: "WEB",
+            actorPersonId,
+            targetKind: "issue",
+            targetId: issueId,
+            context: { from: existing.priority, to: priority },
+          },
+          tx,
+        );
+      }
+      return tx.issue.update({
+        where: { id: issueId },
+        data: { priority },
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} priority set to ${issue.priority}`);
+    return this.viewOf(issue);
+  }
+
+  /**
+   * Sets, moves or removes an issue's target date (senast klart, decision 10).
+   * Reached with issues:handle. A calendar date and nothing more: nothing
+   * counts time from it, and a date in the past is allowed, since a handler
+   * recording a plan that has already slipped is telling the truth. The entry
+   * carries the date either side.
+   */
+  async setTargetDate(
+    issueId: string,
+    targetDate: string | null,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    const day = targetDate === null ? null : parseLocalDay(targetDate);
+    if (targetDate !== null && day === null) {
+      throw new IssueError("That is not a date.", "target-date-invalid");
+    }
+    const column = day === null ? null : dateColumnOf(day);
+
+    const issue = await this.prisma.$transaction(async (tx) => {
+      await lockIssue(tx, issueId);
+      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      const from = formatDateColumn(existing.targetDate);
+      const to = formatDateColumn(column);
+      if (from !== to) {
+        await this.audit.record(
+          {
+            action: "ISSUE_TARGET_DATE_CHANGED",
+            channel: "WEB",
+            actorPersonId,
+            targetKind: "issue",
+            targetId: issueId,
+            context: { from, to },
+          },
+          tx,
+        );
+      }
+      return tx.issue.update({
+        where: { id: issueId },
+        data: { targetDate: column },
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} target date changed`);
+    return this.viewOf(issue);
+  }
+
+  /**
+   * Closes an issue to every handler but the board, or opens it again to every
+   * handler its type lets in (decision 13). Reached with issues:handle.
+   *
+   * Any handler of the issue may tighten it, the property manager included,
+   * who then no longer reads it. Only the board loosens it, which follows from
+   * the rule rather than from a check of its own: an issue closed to all but
+   * the board is not found by anybody else. It is never loosened past its type,
+   * because who handles it is its type's handlers narrowed by this flag.
+   *
+   * An assignee whom the tightened issue no longer lets in is unassigned in the
+   * same transaction, with an entry of its own, so an issue is never left with
+   * an assignee who cannot open it.
+   */
+  async setBoardOnly(
+    issueId: string,
+    boardOnly: boolean,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    const issue = await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      await this.lockForAssignment(tx, issueId);
+      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      if (existing.boardOnly === boardOnly) {
+        return tx.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          include: ISSUE_INCLUDE,
+        });
+      }
+
+      await this.audit.record(
+        {
+          action: "ISSUE_ACCESS_CHANGED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "issue",
+          targetId: issueId,
+          context: { boardOnly },
+        },
+        tx,
+      );
+
+      const assigneePersonId =
+        existing.assigneePersonId !== null &&
+        !(await handlesIssues(
+          tx,
+          existing.assigneePersonId,
+          issueHandledBy({ boardOnly, type: existing.type }),
+          now,
+        ))
+          ? null
+          : existing.assigneePersonId;
+      if (assigneePersonId !== existing.assigneePersonId) {
+        await this.recordAssignment(tx, {
+          issueId,
+          actorPersonId,
+          assigneePersonId,
+          previousAssigneePersonId: existing.assigneePersonId,
+        });
+      }
+
+      return tx.issue.update({
+        where: { id: issueId },
+        data: { boardOnly, assigneePersonId },
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} access changed`);
+    return this.viewOf(issue);
+  }
+
+  /**
+   * The people an issue may be assigned to, by name and nothing else. Reached
+   * with issues:handle.
+   *
+   * A read of its own rather than the address book, which the property manager
+   * never reads (decision 11 of the product decision log): names, with a
+   * protected handler's withheld, and no address, telephone or apartment.
+   * Read by `issueHandlersWhere`, the rule `assign` holds an assignee to, so
+   * the list and the write cannot disagree about who is offered.
+   */
+  async handlers(
+    readerPersonId: string,
+    issueId: string,
+  ): Promise<IssueHandlerView[]> {
+    const now = new Date();
+    const issue = await this.requireHandled(
+      this.prisma,
+      issueId,
+      readerPersonId,
     );
+    return readIssueHandlers(this.prisma, issueHandledBy(issue), now);
+  }
+
+  /**
+   * One issue's timeline: who did what, and when (decision 16). Reached with
+   * issues:handle, for an issue the reader handles.
+   *
+   * The filing itself first, from the issue's own row - a report, or a
+   * handler's opening - and then every act the audit log holds on the issue,
+   * oldest first. See `IssueTimelineStep` for what a step carries.
+   */
+  async timeline(
+    readerPersonId: string,
+    issueId: string,
+  ): Promise<IssueTimelineStep[]> {
+    const issue = await this.requireHandled(
+      this.prisma,
+      issueId,
+      readerPersonId,
+    );
+    const entries = await this.prisma.auditLogEntry.findMany({
+      where: {
+        targetKind: "issue",
+        targetId: issueId,
+        action: { in: [...TIMELINE_ACTIONS] },
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: {
+        action: true,
+        actorPersonId: true,
+        targetPersonId: true,
+        context: true,
+        createdAt: true,
+      },
+    });
+
+    const viewOf = await readAuthors(this.prisma, [
+      ...entries.map((entry) => entry.actorPersonId),
+      ...entries
+        .filter((entry) => entry.action === "ISSUE_ASSIGNED")
+        .map((entry) => entry.targetPersonId),
+    ]);
+    const person = (id: string | null): IssueHandlerView | null =>
+      id === null ? null : viewOf(id);
+
+    const filed: IssueTimelineStep[] = entries.some(
+      (entry) => entry.action === "ISSUE_OPENED",
+    )
+      ? []
+      : [{ kind: "reported", at: issue.createdAt.toISOString(), actor: null }];
+
+    return [
+      ...filed,
+      ...entries.map((entry) =>
+        timelineStep(entry, person(entry.actorPersonId), person),
+      ),
+    ];
   }
 
   /**
@@ -838,6 +1360,191 @@ export class IssueService {
       width: file.width,
       height: file.height,
     };
+  }
+
+  /**
+   * Files an issue with its type's defaults (decision 12): the type's default
+   * priority, and its default assignee while that person still handles the
+   * type. A type with no default assignee, or one whose default no longer
+   * handles it, files the issue unassigned, which is the case the type's
+   * handlers are told of.
+   *
+   * An assignment made here has no actor and is on the system's channel:
+   * nobody chose it, the type's setting did, and its entry says so.
+   */
+  private async file(
+    tx: Prisma.TransactionClient,
+    data: Omit<
+      Prisma.IssueUncheckedCreateInput,
+      "priority" | "assigneePersonId"
+    >,
+  ): Promise<{ id: string }> {
+    // Under the type's lock, which a change to who handles the type takes too
+    // (`IssueTypeService.update`): a default assignee the change shuts out is
+    // never given an issue filed while it commits.
+    await lockIssueType(tx, data.typeId);
+    const type = await tx.issueType.findUnique({
+      where: { id: data.typeId },
+      select: {
+        handledBy: true,
+        defaultPriority: true,
+        defaultAssigneePersonId: true,
+      },
+    });
+    if (type === null) {
+      throw new IssueError("No such issue type.", "type-not-found");
+    }
+    const assigneePersonId =
+      type.defaultAssigneePersonId !== null &&
+      (await handlesIssues(
+        tx,
+        type.defaultAssigneePersonId,
+        type.handledBy,
+        new Date(),
+      ))
+        ? type.defaultAssigneePersonId
+        : null;
+
+    const filed = await tx.issue
+      .create({
+        data: { ...data, priority: type.defaultPriority, assigneePersonId },
+        select: { id: true },
+      })
+      .catch(typeRemoved);
+
+    if (assigneePersonId !== null) {
+      await this.audit.record(
+        {
+          action: "ISSUE_ASSIGNED",
+          channel: "SYSTEM",
+          actorPersonId: null,
+          targetPersonId: assigneePersonId,
+          targetKind: "issue",
+          targetId: filed.id,
+          context: { byTypeDefault: true },
+        },
+        tx,
+      );
+    }
+    return filed;
+  }
+
+  /**
+   * The scope of issues this person handles: `BOARD` when the board-only rule
+   * lets them in, `EVERY_HANDLER` otherwise.
+   *
+   * Asked of the database by the rule in `issue-handlers.ts`, never of the
+   * request's roles, so a read on the screen, through an action, and a write
+   * inside a transaction all get one answer. The caller holds issues:handle -
+   * every route here is under it - so a person in neither scope does not reach
+   * this.
+   */
+  private async readerScope(
+    db: Prisma.TransactionClient | PrismaService,
+    personId: string,
+    now: Date,
+  ): Promise<IssueHandledBy> {
+    return (await handlesIssues(db, personId, "BOARD", now))
+      ? "BOARD"
+      : "EVERY_HANDLER";
+  }
+
+  /**
+   * An issue this person handles, or the refusal that answers an issue that
+   * does not exist: one the reader may not open is not one they may learn of.
+   */
+  private async requireHandled(
+    db: Prisma.TransactionClient | PrismaService,
+    issueId: string,
+    readerPersonId: string,
+  ) {
+    const scope = await this.readerScope(db, readerPersonId, new Date());
+    const issue = await db.issue.findFirst({
+      where: { id: issueId, ...issuesHandledWhere(scope) },
+      select: {
+        id: true,
+        typeId: true,
+        boardOnly: true,
+        assigneePersonId: true,
+        priority: true,
+        targetDate: true,
+        createdAt: true,
+        type: { select: { handledBy: true } },
+      },
+    });
+    if (issue === null) {
+      throw new IssueError("No such issue.", "issue-not-found");
+    }
+    return issue;
+  }
+
+  /**
+   * The locks a write takes before it decides who may be assigned an issue:
+   * its type's, then its own.
+   *
+   * Who may be assigned turns on the type's handlers and the issue's own
+   * board-only flag, and both can change while the write decides. The type's
+   * settings change under the type's lock, which also unassigns whoever the
+   * new setting shuts out (`IssueTypeService.update`), so a write that holds
+   * it reads a setting nobody is changing. The type is read first, unlocked:
+   * nothing moves an issue to another type. Always the type before the issue,
+   * so two writes never wait on each other in the opposite order.
+   */
+  private async lockForAssignment(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+  ): Promise<void> {
+    const issue = await tx.issue.findUnique({
+      where: { id: issueId },
+      select: { typeId: true },
+    });
+    if (issue !== null) {
+      await lockIssueType(tx, issue.typeId);
+    }
+    await lockIssue(tx, issueId);
+  }
+
+  /** The entry for an assignment changing, by hand or by an access change. */
+  private async recordAssignment(
+    tx: Prisma.TransactionClient,
+    act: {
+      issueId: string;
+      actorPersonId: string;
+      assigneePersonId: string | null;
+      previousAssigneePersonId: string | null;
+    },
+  ): Promise<void> {
+    await this.audit.record(
+      {
+        action: "ISSUE_ASSIGNED",
+        channel: "WEB",
+        actorPersonId: act.actorPersonId,
+        targetPersonId: act.assigneePersonId,
+        targetKind: "issue",
+        targetId: act.issueId,
+        // Facts about the act: the previous assignee, so a board can see an
+        // issue changing hands, as the board mailbox records a thread's.
+        context: { previousAssigneePersonId: act.previousAssigneePersonId },
+      },
+      tx,
+    );
+  }
+
+  /** One issue as the reader handles it, read afresh. */
+  private async handledView(
+    readerPersonId: string,
+    issueId: string,
+  ): Promise<QueuedIssueView> {
+    return this.queuedIssue(readerPersonId, issueId, "show");
+  }
+
+  /** The queue's row for one issue just written. */
+  private async viewOf(issue: QueueRecord): Promise<QueuedIssueView> {
+    const [view] = await this.queuedViews([issue], "show");
+    if (view === undefined) {
+      throw new Error(`Issue ${issue.id} could not be viewed.`);
+    }
+    return view;
   }
 
   /**
@@ -971,10 +1678,32 @@ export class IssueService {
       },
     });
     const byId = new Map(persons.map((person) => [person.id, person]));
+    const handler = await readAuthors(
+      this.prisma,
+      issues.flatMap((issue) => [
+        issue.assigneePersonId,
+        issue.enteredByPersonId,
+      ]),
+    );
+    const today = localDayOf(new Date());
 
     const views = await Promise.all(
       issues.map(async (issue) =>
-        toQueuedView(issue, await this.reporterOf(issue, byId)),
+        toQueuedView(
+          issue,
+          await this.reporterOf(issue, byId),
+          {
+            assignee:
+              issue.assigneePersonId === null
+                ? null
+                : handler(issue.assigneePersonId),
+            enteredBy:
+              issue.enteredByPersonId === null
+                ? null
+                : handler(issue.enteredByPersonId),
+          },
+          today,
+        ),
       ),
     );
     return protectedReporters === "omit"
@@ -1073,7 +1802,7 @@ const APARTMENT_SELECT = {
 } as const;
 
 const ISSUE_INCLUDE = {
-  type: { select: { id: true, name: true, reporters: true } },
+  type: { select: { id: true, name: true, reporters: true, handledBy: true } },
   status: {
     select: { id: true, label: true, meaning: true, sortOrder: true },
   },
@@ -1268,6 +1997,11 @@ function typeRemoved(cause: unknown): never {
 
 interface IssueRecord {
   id: string;
+  priority: IssuePriority;
+  targetDate: Date | null;
+  boardOnly: boolean;
+  assigneePersonId: string | null;
+  enteredByPersonId: string | null;
   status: {
     id: string;
     label: string;
@@ -1281,7 +2015,12 @@ interface IssueRecord {
   closedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
-  type: { id: string; name: string; reporters: IssueReporterGroup[] };
+  type: {
+    id: string;
+    name: string;
+    reporters: IssueReporterGroup[];
+    handledBy: IssueHandledBy;
+  };
   apartment: ApartmentRecord | null;
   photos: {
     id: string;
@@ -1301,14 +2040,30 @@ interface IssueRecord {
 function toQueuedView(
   issue: IssueRecord,
   reporter: IssueReporterView,
+  handlers: {
+    assignee: IssueHandlerView | null;
+    enteredBy: IssueHandlerView | null;
+  },
+  today: LocalDay,
 ): QueuedIssueView {
+  const targetDate = formatDateColumn(issue.targetDate);
   const queued = {
     ...toOwnView(issue),
     status: { id: issue.status.id, label: issue.status.label },
     waitingReason: issue.waitingReason,
     outcome: issue.outcome,
     typeReporters: issue.type.reporters,
+    typeHandledBy: issue.type.handledBy,
     closedAt: issue.closedAt?.toISOString() ?? null,
+    priority: issue.priority,
+    targetDate,
+    overdue:
+      issue.targetDate !== null &&
+      issue.status.meaning !== "DONE" &&
+      compareLocalDays(localDayOfColumn(issue.targetDate), today) < 0,
+    assignee: handlers.assignee,
+    enteredBy: handlers.enteredBy,
+    boardOnly: issue.boardOnly,
   };
   if (reporter.kind === "protected") {
     return { ...queued, apartment: null, reporter };
@@ -1326,6 +2081,7 @@ function toOwnView(issue: IssueRecord): OwnIssueView {
     description: issue.description,
     apartment:
       issue.apartment === null ? null : toApartmentView(issue.apartment),
+    enteredByHandler: issue.enteredByPersonId !== null,
     photos: issue.photos.map((photo) => ({
       id: photo.id,
       url: mediaUrl(photo.file.id),
@@ -1336,4 +2092,103 @@ function toOwnView(issue: IssueRecord): OwnIssueView {
     createdAt: issue.createdAt.toISOString(),
     updatedAt: issue.updatedAt.toISOString(),
   };
+}
+
+/** The audit actions an issue's timeline is read from. */
+const TIMELINE_ACTIONS = [
+  "ISSUE_OPENED",
+  "ISSUE_STATUS_CHANGED",
+  "ISSUE_ASSIGNED",
+  "ISSUE_PRIORITY_CHANGED",
+  "ISSUE_TARGET_DATE_CHANGED",
+  "ISSUE_ACCESS_CHANGED",
+] as const satisfies readonly AuditAction[];
+
+/**
+ * One audit entry as a step of the timeline.
+ *
+ * The context is read defensively, because an entry is never rewritten: one
+ * written before a field existed lacks it - a status change recorded before
+ * statuses were rows names only the two meanings - and the step then says it
+ * does not know rather than guessing.
+ */
+function timelineStep(
+  entry: {
+    action: (typeof TIMELINE_ACTIONS)[number] | AuditAction;
+    targetPersonId: string | null;
+    context: Prisma.JsonValue;
+    createdAt: Date;
+  },
+  actor: IssueHandlerView | null,
+  person: (id: string | null) => IssueHandlerView | null,
+): IssueTimelineStep {
+  const context =
+    entry.context !== null &&
+    typeof entry.context === "object" &&
+    !Array.isArray(entry.context)
+      ? entry.context
+      : {};
+  const text = (key: string): string | null => {
+    const value = context[key];
+    return typeof value === "string" ? value : null;
+  };
+  const at = entry.createdAt.toISOString();
+
+  switch (entry.action) {
+    case "ISSUE_OPENED":
+      return { kind: "opened", at, actor, internal: context.internal === true };
+    case "ISSUE_ASSIGNED":
+      return {
+        kind: "assigned",
+        at,
+        actor,
+        assignee: person(entry.targetPersonId),
+        byTypeDefault: context.byTypeDefault === true,
+      };
+    case "ISSUE_PRIORITY_CHANGED":
+      return {
+        kind: "priority",
+        at,
+        actor,
+        from: oneOf(text("from"), ISSUE_PRIORITIES),
+        to: oneOf(text("to"), ISSUE_PRIORITIES),
+      };
+    case "ISSUE_TARGET_DATE_CHANGED":
+      return {
+        kind: "targetDate",
+        at,
+        actor,
+        from: text("from"),
+        to: text("to"),
+      };
+    case "ISSUE_ACCESS_CHANGED":
+      return {
+        kind: "access",
+        at,
+        actor,
+        boardOnly: context.boardOnly === true,
+      };
+    default:
+      return {
+        kind: "status",
+        at,
+        actor,
+        fromMeaning: oneOf(text("from"), ISSUE_STATUS_MEANINGS),
+        toMeaning: oneOf(text("to"), ISSUE_STATUS_MEANINGS),
+        fromStatusId: text("fromStatusId"),
+        toStatusId: text("toStatusId"),
+        waitingReason: oneOf(text("waitingReason"), ISSUE_WAITING_REASONS),
+        outcome: oneOf(text("outcome"), ISSUE_OUTCOMES),
+      };
+  }
+}
+
+/** A value of a fixed list, or null when the entry held something else. */
+function oneOf<T extends string>(
+  value: string | null,
+  values: readonly T[],
+): T | null {
+  return (values as readonly (string | null)[]).includes(value)
+    ? (value as T)
+    : null;
 }

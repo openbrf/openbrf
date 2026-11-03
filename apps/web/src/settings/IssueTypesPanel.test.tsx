@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
-import type { IssueStatusView, IssueTypeView } from "../api/issues";
+import type { ConfiguredIssueType, IssueStatusView } from "../api/issues";
 import { IssueTypesPanel } from "./IssueTypesPanel";
 
 /**
@@ -30,6 +30,7 @@ const updateIssueType = vi.fn();
 const removeIssueType = vi.fn();
 const addIssueStatus = vi.fn();
 const changeIssueStatus = vi.fn();
+const fetchIssueTypeHandlers = vi.fn();
 
 vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
@@ -39,7 +40,28 @@ vi.mock("../api/issues", async (importOriginal) => ({
   removeIssueType: (id: string) => removeIssueType(id),
   addIssueStatus: (input: unknown) => addIssueStatus(input),
   changeIssueStatus: (input: unknown) => changeIssueStatus(input),
+  fetchIssueTypeHandlers: () => fetchIssueTypeHandlers(),
 }));
+
+/** A board member, an administrator and the property manager. */
+const HANDLERS = [
+  {
+    handler: { kind: "person", personId: "p-board", name: "Bea Styrelse" },
+    board: true,
+  },
+  {
+    handler: { kind: "protected", personId: "p-shielded" },
+    board: true,
+  },
+  {
+    handler: {
+      kind: "person",
+      personId: "p-manager",
+      name: "Frida Förvaltare",
+    },
+    board: false,
+  },
+];
 
 function status(
   overrides: Partial<IssueStatusView> & Pick<IssueStatusView, "id">,
@@ -62,13 +84,18 @@ const DEFAULT_STATUSES: IssueStatusView[] = [
   status({ id: "s-done", meaning: "DONE", label: "Klar" }),
 ];
 
-function type(overrides: Partial<IssueTypeView> = {}): IssueTypeView {
+function type(
+  overrides: Partial<ConfiguredIssueType> = {},
+): ConfiguredIssueType {
   return {
     id: "type-water",
     name: "Vatten",
     reporters: ["RESIDENTS"],
     active: true,
     sortOrder: 0,
+    handledBy: "EVERY_HANDLER",
+    defaultPriority: "NORMAL",
+    defaultAssignee: null,
     reportCount: 0,
     statuses: DEFAULT_STATUSES,
     ...overrides,
@@ -76,6 +103,9 @@ function type(overrides: Partial<IssueTypeView> = {}): IssueTypeView {
 }
 
 beforeEach(() => {
+  fetchIssueTypeHandlers
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: HANDLERS });
   fetchIssueTypes.mockReset().mockResolvedValue({ ok: true, value: [type()] });
   createIssueType.mockReset().mockResolvedValue({ ok: true, value: type() });
   updateIssueType.mockReset().mockResolvedValue({ ok: true, value: type() });
@@ -600,4 +630,97 @@ describe("while a type is being added", () => {
       });
     },
   );
+});
+
+describe("who handles a type, and what it is filed with", () => {
+  it("hands a type to the board, saving the rest of its settings as they are", async () => {
+    updateIssueType.mockResolvedValue({ ok: true, value: type() });
+    const user = userEvent.setup();
+    render(<IssueTypesPanel />);
+
+    await user.selectOptions(
+      await screen.findByLabelText("Vatten: vem hanterar"),
+      "BOARD",
+    );
+
+    expect(updateIssueType).toHaveBeenCalledWith({
+      id: "type-water",
+      values: {
+        name: "Vatten",
+        reporters: ["RESIDENTS"],
+        active: true,
+        sortOrder: 0,
+        handledBy: "BOARD",
+      },
+    });
+  });
+
+  it("files a type at the priority the board chooses", async () => {
+    updateIssueType.mockResolvedValue({ ok: true, value: type() });
+    const user = userEvent.setup();
+    render(<IssueTypesPanel />);
+
+    await user.selectOptions(
+      await screen.findByLabelText("Vatten: prioritet när det anmäls"),
+      "URGENT",
+    );
+
+    expect(updateIssueType).toHaveBeenCalledWith(
+      expect.objectContaining({
+        values: expect.objectContaining({ defaultPriority: "URGENT" }),
+      }),
+    );
+  });
+
+  it("offers every handler as the default assignee, a protected one without a name", async () => {
+    const user = userEvent.setup();
+    updateIssueType.mockResolvedValue({ ok: true, value: type() });
+    render(<IssueTypesPanel />);
+
+    const select = await screen.findByLabelText(
+      "Vatten: ansvarig när det anmäls",
+    );
+    await waitFor(() => {
+      expect((select as HTMLSelectElement).disabled).toBe(false);
+    });
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual([
+      "Ingen: meddela alla som hanterar",
+      "Bea Styrelse",
+      "Namnet visas inte (skyddade personuppgifter)",
+      "Frida Förvaltare",
+    ]);
+
+    await user.selectOptions(select, "p-manager");
+    expect(updateIssueType).toHaveBeenCalledWith(
+      expect.objectContaining({
+        values: expect.objectContaining({
+          defaultAssigneePersonId: "p-manager",
+        }),
+      }),
+    );
+  });
+
+  it("offers only the board on a type the board handles alone", async () => {
+    fetchIssueTypes.mockResolvedValue({
+      ok: true,
+      value: [type({ handledBy: "BOARD" })],
+    });
+    render(<IssueTypesPanel />);
+
+    const select = await screen.findByLabelText(
+      "Vatten: ansvarig när det anmäls",
+    );
+    await waitFor(() => {
+      expect((select as HTMLSelectElement).disabled).toBe(false);
+    });
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((option) => option.getAttribute("value")),
+    ).toEqual(["", "p-board", "p-shielded"]);
+  });
 });

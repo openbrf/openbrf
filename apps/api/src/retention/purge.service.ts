@@ -644,17 +644,38 @@ export class PurgeService implements OnModuleInit {
   /**
    * Everybody named by a row this job detaches rather than erases.
    *
-   * Four distinct scans rather than a join: reporterPersonId,
+   * Distinct scans rather than a join: reporterPersonId, assigneePersonId and
+   * enteredByPersonId on an issue, defaultAssigneePersonId on an issue type,
    * uploadedByPersonId on a document and the same column on a media file, and
    * filedByPersonId on an apartment binder entry, are plain columns with an
    * index each, and asking each of them for its distinct values is one index
    * scan apiece.
    */
   private async referencedPersonIds(): Promise<string[]> {
-    const [issues, documents, media, binderEntries] = await Promise.all([
+    const [
+      issues,
+      assignees,
+      enteredBy,
+      typeDefaults,
+      documents,
+      media,
+      binderEntries,
+    ] = await Promise.all([
       this.prisma.issue.groupBy({
         by: ["reporterPersonId"],
         where: { reporterPersonId: { not: null } },
+      }),
+      this.prisma.issue.groupBy({
+        by: ["assigneePersonId"],
+        where: { assigneePersonId: { not: null } },
+      }),
+      this.prisma.issue.groupBy({
+        by: ["enteredByPersonId"],
+        where: { enteredByPersonId: { not: null } },
+      }),
+      this.prisma.issueType.groupBy({
+        by: ["defaultAssigneePersonId"],
+        where: { defaultAssigneePersonId: { not: null } },
       }),
       this.prisma.document.groupBy({
         by: ["uploadedByPersonId"],
@@ -674,6 +695,21 @@ export class PurgeService implements OnModuleInit {
     for (const row of issues) {
       if (row.reporterPersonId !== null) {
         ids.add(row.reporterPersonId);
+      }
+    }
+    for (const row of assignees) {
+      if (row.assigneePersonId !== null) {
+        ids.add(row.assigneePersonId);
+      }
+    }
+    for (const row of enteredBy) {
+      if (row.enteredByPersonId !== null) {
+        ids.add(row.enteredByPersonId);
+      }
+    }
+    for (const row of typeDefaults) {
+      if (row.defaultAssigneePersonId !== null) {
+        ids.add(row.defaultAssigneePersonId);
       }
     }
     for (const row of [...documents, ...media]) {
@@ -893,6 +929,26 @@ export class PurgeService implements OnModuleInit {
         },
       });
 
+      /*
+       * The handler's part in an issue: as its assignee, as the handler who
+       * entered it, and as a type's default assignee. Each is a reference to
+       * the person and nothing more, so it goes; the issue, and the audit
+       * entries that say who did what to it, stay. An issue so detached is
+       * unassigned, and lands with its type's handlers like any other.
+       */
+      const { count: issuesUnassignedFromPerson } = await tx.issue.updateMany({
+        where: { assigneePersonId: personId },
+        data: { assigneePersonId: null },
+      });
+      const { count: issuesNoLongerEnteredBy } = await tx.issue.updateMany({
+        where: { enteredByPersonId: personId },
+        data: { enteredByPersonId: null },
+      });
+      const { count: typesNoLongerDefaulting } = await tx.issueType.updateMany({
+        where: { defaultAssigneePersonId: personId },
+        data: { defaultAssigneePersonId: null },
+      });
+
       const { count: documentsDetachedFromPerson } =
         await tx.document.updateMany({
           where: { uploadedByPersonId: personId },
@@ -927,6 +983,14 @@ export class PurgeService implements OnModuleInit {
 
       if (issuesDetachedFromPerson > 0) {
         cleared.push("issues");
+      }
+      if (
+        issuesUnassignedFromPerson +
+          issuesNoLongerEnteredBy +
+          typesNoLongerDefaulting >
+        0
+      ) {
+        cleared.push("issueAssignments");
       }
       if (documentsDetachedFromPerson > 0) {
         cleared.push("documents");

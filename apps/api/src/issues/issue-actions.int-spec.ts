@@ -838,8 +838,9 @@ describe("what the queue carries beyond the instance", () => {
       (queue: IssueService) => Promise<{ id: string; meaning: string }[]>
     > = {
       page: async (queue) =>
-        (await queue.pageOfQueue({ typeId: type.id }, "show")).issues,
-      list: (queue) => queue.listQueue(),
+        (await queue.pageOfQueue(board.personId, { typeId: type.id }, "show"))
+          .issues,
+      list: (queue) => queue.listQueue(board.personId),
     };
     try {
       for (const [name, read] of Object.entries(reads)) {

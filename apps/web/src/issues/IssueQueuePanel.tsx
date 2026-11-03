@@ -27,6 +27,9 @@ import {
   ISSUE_OUTCOME_LABEL,
   ISSUE_WAITING_REASON_LABEL,
 } from "./issue-labels";
+import { IssueHandlerName } from "./IssueHandlerName";
+import { IssueHandling } from "./IssueHandling";
+import { IssuePriorityChip } from "./IssuePriorityChip";
 import { IssueStatusChip } from "./IssueStatusChip";
 
 const QUEUE_FAILURES: Readonly<Record<string, TranslationKey>> = {
@@ -69,6 +72,10 @@ export interface IssueQueuePanelProps {
  * waiting asks whom or what for, and closing asks how the issue ended: both are
  * required by the server, and the form asks for them before it lets the save
  * go rather than after a refusal.
+ *
+ * Each row says who the issue is given to, how urgent it is and the day it is
+ * meant to be done by, and stands out once that day has passed (decision 10);
+ * the handling itself, and the timeline, open under the row.
  *
  * A reporter with protected personal data is rendered without their name or
  * their apartment. The board's own address book prints both because a statutory
@@ -141,6 +148,12 @@ export function IssueQueuePanel({
                     meaning={issue.meaning}
                     label={issue.status.label}
                   />
+                  <IssuePriorityChip priority={issue.priority} />
+                  {issue.boardOnly || issue.typeHandledBy === "BOARD" ? (
+                    <span className="text-small text-ink-muted">
+                      {t("issues.queue.boardOnly")}
+                    </span>
+                  ) : null}
                   <StatusDetail issue={issue} />
                   <span className="ml-auto font-data text-data text-ink-muted">
                     {localDayOfInstant(issue.createdAt)}
@@ -176,6 +189,43 @@ export function IssueQueuePanel({
                       issue.location
                     )}
                   </span>
+                </p>
+
+                <p className="flex flex-wrap gap-4 text-small text-ink-muted">
+                  <span>
+                    {t("issues.queue.assignee")}{" "}
+                    {issue.assignee === null ? (
+                      <span className="text-ink">
+                        {t("issues.handling.unassigned")}
+                      </span>
+                    ) : (
+                      <span className="text-ink">
+                        <IssueHandlerName handler={issue.assignee} />
+                      </span>
+                    )}
+                  </span>
+                  {issue.targetDate === null ? null : (
+                    <span>
+                      {t("issues.queue.targetDate")}{" "}
+                      <span
+                        className={`font-data text-data ${issue.overdue ? "font-semibold text-danger" : "text-ink"}`}
+                      >
+                        {issue.targetDate}
+                      </span>
+                      {issue.overdue ? (
+                        <span className="font-semibold text-danger">
+                          {" "}
+                          {t("issues.queue.overdue")}
+                        </span>
+                      ) : null}
+                    </span>
+                  )}
+                  {issue.enteredBy === null ? null : (
+                    <span>
+                      {t("issues.queue.enteredBy")}{" "}
+                      <IssueHandlerName handler={issue.enteredBy} />
+                    </span>
+                  )}
                 </p>
 
                 {issue.photos.length === 0 ? null : (
@@ -215,12 +265,53 @@ export function IssueQueuePanel({
                     }}
                   />
                 )}
+
+                <HandlingDisclosure
+                  issue={issue}
+                  type={type}
+                  onChanged={onChanged}
+                />
               </li>
             );
           })}
         </ul>
       )}
     </Panel>
+  );
+}
+
+/**
+ * The handling of one issue and its timeline, under a disclosure: read only
+ * while it is open, because each open issue reads its handlers and its
+ * timeline, and a queue of fifty would otherwise read a hundred times on load.
+ */
+function HandlingDisclosure({
+  issue,
+  type,
+  onChanged,
+}: {
+  issue: QueuedIssue;
+  type: IssueTypeView | undefined;
+  onChanged: () => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="flex flex-col gap-3"
+      onToggle={(event) => {
+        setOpen(event.currentTarget.open);
+      }}
+    >
+      <summary className="flex min-h-11 cursor-pointer items-center text-small font-semibold">
+        {t("issues.handling.open", { type: issue.typeName })}
+      </summary>
+      {open ? (
+        <div className="pt-2">
+          <IssueHandling issue={issue} type={type} onChanged={onChanged} />
+        </div>
+      ) : null}
+    </details>
   );
 }
 

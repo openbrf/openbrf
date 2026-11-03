@@ -122,6 +122,7 @@ const EMPTY_REPORT: Report = {
   publicationConsents: [],
   legalHolds: [],
   issues: [],
+  issueAssignments: [],
   documents: [],
   apartmentDocuments: [],
   bookings: [],
@@ -375,6 +376,17 @@ const FULL_REPORT: Report = {
       reportedAt: "2026-01-05T08:00:00.000Z",
       photographs: 2,
     },
+  ],
+  issueAssignments: [
+    {
+      kind: "issue",
+      issueId: "issue-7",
+      typeName: "Hiss",
+      meaning: "IN_PROGRESS",
+      reportedAt: "2026-01-06T08:00:00.000Z",
+      closedAt: null,
+    },
+    { kind: "typeDefault", typeId: "type-1", typeName: "Hiss" },
   ],
   bookings: [
     {

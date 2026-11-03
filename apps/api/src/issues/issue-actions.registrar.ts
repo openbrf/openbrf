@@ -11,7 +11,6 @@ import { cursorPattern } from "../actions/action-cursor";
 import { ISSUE_ACTION_ERRORS } from "../actions/action-errors";
 import { CoreActionRegistrar } from "../actions/action-registrar";
 import { typedAction } from "../actions/typed-action";
-import { IssueTypeService } from "./issue-type.service";
 import {
   ISSUE_QUEUE_CURSOR_STATES,
   IssueService,
@@ -304,7 +303,6 @@ function published(issue: QueuedIssueView) {
 export class IssueActionsRegistrar implements OnModuleInit {
   constructor(
     private readonly issues: IssueService,
-    private readonly types: IssueTypeService,
     private readonly registrar: CoreActionRegistrar,
   ) {}
 
@@ -359,8 +357,9 @@ export class IssueActionsRegistrar implements OnModuleInit {
               "Send this back as after to read the page behind this one, or null at the end of the queue. An issue whose status changed between two calls can appear on both: merge pages by id and keep the later copy.",
             ),
         }),
-        handler: async (input, _context) => {
+        handler: async (input, context) => {
           const page = await this.issues.pageOfQueue(
+            context.principal.personId,
             {
               meaning: input.meaning,
               typeId: input.typeId,
@@ -386,8 +385,14 @@ export class IssueActionsRegistrar implements OnModuleInit {
           id: idSchema.describe("The issue to read, by its id."),
         }),
         output: issueSchema,
-        handler: async (input, _context) =>
-          published(await this.issues.queuedIssue(input.id, "omit")),
+        handler: async (input, context) =>
+          published(
+            await this.issues.queuedIssue(
+              context.principal.personId,
+              input.id,
+              "omit",
+            ),
+          ),
       }),
 
       typedAction({
@@ -401,11 +406,13 @@ export class IssueActionsRegistrar implements OnModuleInit {
           types: z
             .array(issueTypeSchema)
             .describe(
-              "Every issue type, active or not, in the order the board gave them.",
+              "Every issue type the caller handles, active or not, in the order the board gave them.",
             ),
         }),
-        handler: async (_input, _context) => ({
-          types: (await this.types.listAll()).map((type) => ({
+        handler: async (_input, context) => ({
+          types: (
+            await this.issues.handledTypes(context.principal.personId)
+          ).map((type) => ({
             id: type.id,
             title: type.name,
             reporters: type.reporters,
