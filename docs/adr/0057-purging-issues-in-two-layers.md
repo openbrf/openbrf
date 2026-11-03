@@ -86,7 +86,11 @@ index, so the purge that removes its contact details after 365 days keeps that
 index while a work order's text stands, and the transaction that erases the last
 text clears it: a hold or a restriction placed later on the person who wrote in
 still reaches the text (see [Erasure and the closing job](#erasure-and-the-closing-job):
-no case whose text stands may lose its selector).
+no case whose text stands may lose its selector). A case reported by a person
+in the register keeps its reporter column the same way: the person purge does
+not detach it while a work order's text stands, and detaches it on a later run
+once the text is gone. For a person whose erasure request has been executed,
+whom no later run selects, the transaction that erases the last text clears it.
 
 A case reopened before its date stops the clock, because reopening clears
 `closedAt`. The 30 days in which a reply reopens a case (ADR 0054) are inside the

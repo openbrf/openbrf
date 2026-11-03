@@ -58,7 +58,10 @@ a preview, and the issue keeps the record of it (ADR 0055).
   the text of a work order about it stands, the address is kept in a coded
   form that cannot be read back, and goes when the last text is erased: a
   legal hold or a restriction of processing placed later on the person who
-  wrote in still keeps that text. The work order mail is written in the
+  wrote in still keeps that text. In the same way, an issue reported by
+  somebody in the register keeps its link to them while the text of a work
+  order about it stands, and the purge of that person's data detaches it once
+  the text is erased. The work order mail is written in the
   association's default language.
 - **Ring-fenced types.** The board ring-fences an issue type in the settings,
   and each change is recorded in the audit log. A work order on an issue whose

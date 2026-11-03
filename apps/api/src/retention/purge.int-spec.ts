@@ -17,6 +17,8 @@ import {
 } from "../testing/integration-env";
 import type { Prisma } from "../generated/prisma/client";
 import { lockIssue } from "../issues/issue-lock";
+import { IssuePurgeService } from "../issues/issue-purge.service";
+import { WORK_ORDER_BODY_RETENTION_DAYS } from "../issues/issue-retention";
 import { waitFor } from "../testing/advisory-locks";
 import { backendPid, waitersBehind } from "../testing/lock-waiters";
 import { lockLegalHold } from "./legal-hold-lock";
@@ -1901,6 +1903,232 @@ describe("what a run says about the erasures it did not finish", () => {
 
     expect(unfinished?.status).toBe("incomplete");
     expect(unfinished?.because).toBe("motions: 1 not erased yet");
+  });
+});
+
+describe("an issue a work order's text still stands on", () => {
+  /*
+   * The reporter column is what ties the text to the person who reported the
+   * issue, and the work-order purge reads a hold or a restriction placed on
+   * them only through it (ADR 0057: no case whose text stands may lose its
+   * selector). Detached with the rest of the person's links, a hold placed a
+   * year later would reach nothing and the text would go at its ten years.
+   */
+  const reporter = `purge-wo-reporter-${suffix}`;
+  const requester = `purge-wo-requester-${suffix}`;
+  const woPersonIds = [reporter, requester];
+  const woApartmentId = apartmentId("work-order");
+  const reportedId = `purge-wo-issue-${suffix}`;
+  const requestedId = `purge-wo-issue-requested-${suffix}`;
+  const WORK_ORDER_TEXT = "Byt packningen i koket hos grannen i 1202.";
+  let issuePurge: IssuePurgeService;
+
+  /** An issue the person reported, closed today, with a work order sent. */
+  async function reportedWithWorkOrder(
+    id: string,
+    personId: string,
+  ): Promise<void> {
+    const done = await prisma.issueStatus.findFirstOrThrow({
+      where: { typeId: issueTypeId, meaning: "DONE" },
+      select: { id: true },
+    });
+    await prisma.issue.create({
+      data: {
+        id,
+        typeId: issueTypeId,
+        reporterPersonId: personId,
+        description: "Droppande kran i koket",
+        statusId: done.id,
+        closedAt: new Date(),
+        outcome: "FIXED",
+      },
+    });
+    await prisma.workOrder.create({
+      data: {
+        issueId: id,
+        recipientName: `Rormokare ${suffix}`,
+        recipientEmailCipher: "kept-as-it-was",
+        body: WORK_ORDER_TEXT,
+        deliveryStatus: "SENT",
+      },
+    });
+  }
+
+  /** Winds the closing back past the work order's ten years. */
+  async function pastTheTenYears(id: string): Promise<void> {
+    await prisma.issue.update({
+      where: { id },
+      data: {
+        closedAt: new Date(
+          Date.now() - (WORK_ORDER_BODY_RETENTION_DAYS + 1) * DAY,
+        ),
+      },
+    });
+  }
+
+  async function reporterOf(id: string): Promise<string | null> {
+    return (
+      await prisma.issue.findUniqueOrThrow({
+        where: { id },
+        select: { reporterPersonId: true },
+      })
+    ).reporterPersonId;
+  }
+
+  async function textOn(id: string): Promise<string | null> {
+    return (
+      await prisma.workOrder.findFirstOrThrow({
+        where: { issueId: id },
+        select: { body: true },
+      })
+    ).body;
+  }
+
+  beforeAll(async () => {
+    issuePurge = app.get(IssuePurgeService);
+    await prisma.apartment.create({
+      data: { id: woApartmentId, addressId, number: "3001", floor: 2 },
+    });
+    await seedPerson(reporter, { firstName: "Anmalare" });
+    await moveOut(reporter, woApartmentId);
+    // Never a resident: only a granted request ever selects them.
+    await seedPerson(requester, { firstName: "Begarande" });
+    await prisma.dataSubjectRequest.create({
+      data: {
+        personId: requester,
+        kind: "ERASURE",
+        requestedOn: new Date("2026-01-10T00:00:00.000Z"),
+        ground: "Jag vill inte finnas kvar hos foreningen.",
+        erasureGround: "NO_LONGER_NECESSARY",
+        decision: "GRANTED",
+        erasureException: "NONE",
+        decisionGround: "Inget lagligt krav hindrar radering.",
+        decidedAt: new Date("2026-01-12T00:00:00.000Z"),
+        recordedByPersonId: people.board,
+        decidedByPersonId: people.board,
+      },
+    });
+    await reportedWithWorkOrder(reportedId, reporter);
+    await reportedWithWorkOrder(requestedId, requester);
+  });
+
+  afterAll(async () => {
+    // Before the suite's own clean-up, which removes the issue type these
+    // issues are of. The work orders go with their issue.
+    await cleanUp([
+      () =>
+        prisma.issue.deleteMany({
+          where: { id: { in: [reportedId, requestedId] } },
+        }),
+      () =>
+        prisma.legalHold.deleteMany({
+          where: { personId: { in: woPersonIds } },
+        }),
+      () =>
+        prisma.dataSubjectRequest.deleteMany({
+          where: { personId: { in: woPersonIds } },
+        }),
+      () =>
+        prisma.residency.deleteMany({
+          where: { personId: { in: woPersonIds } },
+        }),
+      () => prisma.person.deleteMany({ where: { id: { in: woPersonIds } } }),
+      () => prisma.apartment.deleteMany({ where: { id: woApartmentId } }),
+    ]);
+  });
+
+  it("keeps its reporter past the person's purge, so a hold placed later keeps the text", async () => {
+    const outcome = await purge.purgePerson(reporter, dueAt, retentionDays);
+
+    // The person's contact details go tonight; the issue keeps its reporter.
+    expect(outcome).not.toBeNull();
+    expect(outcome?.cleared).toContain("email");
+    expect(outcome?.issuesDetachedFromPerson).toBe(0);
+    expect(await reporterOf(reportedId)).toBe(reporter);
+    // And the kept link selects nobody: the person is not purged again every
+    // night the text stands.
+    await expect(purge.eligible(dueAt, retentionDays)).resolves.not.toContain(
+      reporter,
+    );
+
+    // A year on, a hold is placed on them, and then the ten years run out.
+    await holds.place({
+      personId: reporter,
+      reason: "Tvist om vattenskadan",
+      actorPersonId: people.board,
+    });
+    try {
+      await pastTheTenYears(reportedId);
+
+      await expect(
+        issuePurge.eligibleWorkOrderTexts(
+          new Date(),
+          WORK_ORDER_BODY_RETENTION_DAYS,
+        ),
+      ).resolves.not.toContain(reportedId);
+      await expect(issuePurge.purgeWorkOrderTexts(reportedId)).resolves.toBe(
+        false,
+      );
+      expect(await textOn(reportedId)).toBe(WORK_ORDER_TEXT);
+    } finally {
+      await holds.release({
+        personId: reporter,
+        reason: "Tvisten avgjord",
+        actorPersonId: people.board,
+      });
+    }
+
+    // Released, the text goes. The reporter column outlives it until the
+    // person purge's next run, which now selects the person and detaches it.
+    await expect(issuePurge.purgeWorkOrderTexts(reportedId)).resolves.toBe(
+      true,
+    );
+    expect(await textOn(reportedId)).toBeNull();
+    expect(await reporterOf(reportedId)).toBe(reporter);
+
+    await expect(purge.eligible(dueAt, retentionDays)).resolves.toContain(
+      reporter,
+    );
+    const later = await purge.purgePerson(reporter, dueAt, retentionDays);
+    expect(later?.issuesDetachedFromPerson).toBe(1);
+    expect(await reporterOf(reportedId)).toBeNull();
+  });
+
+  it("clears the reporter of an executed erasure request with the last text", async () => {
+    // The request is carried out tonight and closed. The issue keeps its
+    // reporter while the text stands.
+    const outcome = await purge.purgePerson(requester, notDueAt, retentionDays);
+    expect(outcome).not.toBeNull();
+    expect(outcome?.issuesDetachedFromPerson).toBe(0);
+    expect(await reporterOf(requestedId)).toBe(requester);
+    await expect(
+      purge.eligible(notDueAt, retentionDays),
+    ).resolves.not.toContain(requester);
+
+    // No job selects them again, so the transaction that erases the text is
+    // the one that clears the link.
+    await pastTheTenYears(requestedId);
+    await expect(issuePurge.purgeWorkOrderTexts(requestedId)).resolves.toBe(
+      true,
+    );
+    expect(await textOn(requestedId)).toBeNull();
+    expect(await reporterOf(requestedId)).toBeNull();
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "SERVICE_DATA_PURGED",
+        targetKind: "issue",
+        targetId: requestedId,
+      },
+      select: { context: true },
+    });
+    expect(entries.map((entry) => entry.context)).toEqual([
+      {
+        workOrderTexts: 1,
+        retentionDaysAfterClosing: WORK_ORDER_BODY_RETENTION_DAYS,
+        reporterDetached: true,
+      },
+    ]);
   });
 });
 

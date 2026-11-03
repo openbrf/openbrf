@@ -30,6 +30,8 @@
  * symmetrical.
  */
 
+import type { Prisma } from "../generated/prisma/client";
+
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
@@ -53,7 +55,7 @@ export const ISSUE_RETENTION_DAYS = 365;
  *
  * A work order's text is the handler's free text to a firm and may name the
  * reporter or a neighbour, and nothing else ever erases it: the reporter's own
- * purge detaches the reporter from the issue and never reads a work order. So
+ * purge removes the reporter's details and never the work order's words. So
  * the text gets a clock of its own, anchored where the reporter's is, on the
  * day the issue was closed. The row stays, with whom it went to and when,
  * which is the record GDPR art. 15(1)(c) and 19 ask for.
@@ -78,6 +80,21 @@ export const ISSUE_RETENTION_DAYS = 365;
  * tenth anniversary of the closing.
  */
 export const WORK_ORDER_BODY_RETENTION_DAYS = 3653;
+
+/**
+ * An issue on which a work order's text still stands.
+ *
+ * While it does, the issue keeps what ties it to its reporter (ADR 0057: no
+ * case whose text stands may lose its selector): the person purge leaves
+ * `reporterPersonId` and the public-form purge leaves the address index, so a
+ * legal hold or a restriction placed later on that person still reaches the
+ * text. Read from the rows rather than from a flag, so a text erased by any
+ * means releases the selector on the next run without anybody keeping a flag
+ * in step.
+ */
+export const WORK_ORDER_TEXT_STANDING = {
+  workOrders: { some: { body: { not: null } } },
+} as const satisfies Prisma.IssueWhereInput;
 
 /**
  * The date a closed issue's reporter details become erasable.

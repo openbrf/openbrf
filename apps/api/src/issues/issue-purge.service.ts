@@ -19,6 +19,7 @@ import {
   ISSUE_RETENTION_DAYS,
   issuePurgeCutoff,
   WORK_ORDER_BODY_RETENTION_DAYS,
+  WORK_ORDER_TEXT_STANDING,
 } from "./issue-retention";
 
 /** Queue the nightly public-form issue purge runs on. */
@@ -164,6 +165,12 @@ export interface IssuePurgeRunSummary {
  * the key, and only the hold and restriction match ever reads it. A separate
  * person-to-case record, which ADR 0057 also allows, would be a second store
  * of the same thing.
+ *
+ * A report keyed to a person keeps its selector the same way: the person purge
+ * leaves `reporterPersonId` on an issue a work order's text stands on
+ * (`retention/purge.service.ts`), and detaches it on a later run once the text
+ * is gone. A person whose erasure request was carried out is not selected
+ * again, so for them the transaction that erases the last text clears it.
  */
 @Injectable()
 export class IssuePurgeService implements OnModuleInit {
@@ -314,7 +321,7 @@ export class IssuePurgeService implements OnModuleInit {
       where: {
         status: { meaning: "DONE" },
         closedAt: { not: null, lte: cutoff },
-        workOrders: { some: { body: { not: null } } },
+        ...WORK_ORDER_TEXT_STANDING,
         AND: [
           // Conditional, with the null branch beside it, for the reason
           // `eligible` gives: `NOT IN` answers null for a null column.
@@ -421,6 +428,33 @@ export class IssuePurgeService implements OnModuleInit {
         data: { reporterEmailIndex: null },
       });
 
+      /*
+       * The reporter column the person purge kept for these texts' sake goes
+       * with them once that person's erasure request has been carried out: no
+       * job selects the person after that, so nothing else would clear it. A
+       * reporter whose own window ran out is detached by the person purge on
+       * its next run, which selects them again now that no text stands. The
+       * issue's lock, which that purge takes on every issue it detaches,
+       * orders the two.
+       */
+      let reporterDetached = false;
+      if (
+        issue.reporterPersonId !== null &&
+        (await tx.dataSubjectRequest.count({
+          where: {
+            personId: issue.reporterPersonId,
+            kind: "ERASURE",
+            executedAt: { not: null },
+          },
+        })) > 0
+      ) {
+        const { count: detached } = await tx.issue.updateMany({
+          where: { id: issueId, reporterPersonId: issue.reporterPersonId },
+          data: { reporterPersonId: null },
+        });
+        reporterDetached = detached > 0;
+      }
+
       await this.audit.record(
         {
           action: "SERVICE_DATA_PURGED",
@@ -433,6 +467,7 @@ export class IssuePurgeService implements OnModuleInit {
             workOrderTexts: count,
             retentionDaysAfterClosing: retentionDays,
             ...(addressIndexCleared > 0 ? { addressIndexCleared: true } : {}),
+            ...(reporterDetached ? { reporterDetached: true } : {}),
           },
         },
         tx,
@@ -482,7 +517,7 @@ export class IssuePurgeService implements OnModuleInit {
               // then it is kept, and `purgeWorkOrderTexts` clears it.
               {
                 reporterEmailIndex: { not: null },
-                workOrders: { none: { body: { not: null } } },
+                NOT: WORK_ORDER_TEXT_STANDING,
               },
             ],
           },

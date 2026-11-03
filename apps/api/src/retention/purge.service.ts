@@ -8,6 +8,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { lockIssue } from "../issues/issue-lock";
+import { WORK_ORDER_TEXT_STANDING } from "../issues/issue-retention";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import {
@@ -665,9 +666,15 @@ export class PurgeService implements OnModuleInit {
       media,
       binderEntries,
     ] = await Promise.all([
+      // Not where a work order's text stands: that issue keeps its reporter,
+      // so naming them here would select somebody this job then leaves as it
+      // found them, every night for ten years.
       this.prisma.issue.groupBy({
         by: ["reporterPersonId"],
-        where: { reporterPersonId: { not: null } },
+        where: {
+          reporterPersonId: { not: null },
+          NOT: WORK_ORDER_TEXT_STANDING,
+        },
       }),
       this.prisma.issue.groupBy({
         by: ["assigneePersonId"],
@@ -953,8 +960,17 @@ export class PurgeService implements OnModuleInit {
         await lockIssue(tx, reported.id);
       }
 
+      /*
+       * Not from an issue a work order's text still stands on (ADR 0057: no
+       * case whose text stands may lose its selector). The reporter column is
+       * what ties that text to this person, and the work-order purge reads a
+       * legal hold or a restriction placed on them later only through it;
+       * detached tonight, a hold placed next year would reach nothing and the
+       * text would go at its ten years regardless. This job detaches it on a
+       * later run, once the text is gone (`issue-purge.service.ts`).
+       */
       const { count: issuesDetachedFromPerson } = await tx.issue.updateMany({
-        where: { reporterPersonId: personId },
+        where: { reporterPersonId: personId, NOT: WORK_ORDER_TEXT_STANDING },
         data: {
           reporterPersonId: null,
           reporterNameCipher: null,
