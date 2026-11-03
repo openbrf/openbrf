@@ -10,7 +10,16 @@ import {
   type IssueStatusMeaning,
   localDayOf,
 } from "@openbrf/shared";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
@@ -87,9 +96,30 @@ let lift: IssueTypeFixture;
 let insurance: IssueTypeFixture;
 let searched: IssueTypeFixture;
 
+/**
+ * The moment the target dates are counted from. A test whose answer turns on
+ * the day reads the queue at this moment too (`onTheFilingDay`), so a run that
+ * crosses midnight does not make today's target date a passed one.
+ */
+const filedAt = new Date();
+
 /** The association's calendar day, as the service reads a target date. */
 function dayFromToday(days: number): Date {
-  return dateColumnOf(addLocalDays(localDayOf(new Date()), days));
+  return dateColumnOf(addLocalDays(localDayOf(filedAt), days));
+}
+
+/**
+ * Holds the clock at `filedAt` for each test of the enclosing `describe`: the
+ * service reads today from `Date`, and the target dates were set from it.
+ */
+function onTheFilingDay(): void {
+  beforeEach(() => {
+    // Date alone: the database driver's timers keep running on the real clock.
+    vi.useFakeTimers({ toFake: ["Date"], now: filedAt });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 }
 
 let ipCounter = 0;
@@ -604,6 +634,8 @@ describe("Ej tilldelade", () => {
 });
 
 describe("Försenade", () => {
+  onTheFilingDay();
+
   it("is the open issues whose target date has passed, never today's or a closed one", async () => {
     const rows: QueuedRow[] = [];
     for (const typeId of [...viewTypes(), insurance.id]) {
@@ -673,6 +705,8 @@ describe("the filter", () => {
 });
 
 describe("the counts", () => {
+  onTheFilingDay();
+
   it("are the lengths of the lists, view by view, under the same filter", async () => {
     for (const filter of [
       { meaning: "OPEN" },
@@ -733,6 +767,8 @@ describe("the counts", () => {
 });
 
 describe("the snapshot", () => {
+  onTheFilingDay();
+
   it("is the view's list and every view's count, as the two reads answer them", async () => {
     for (const filter of [
       { meaning: "OPEN" },
