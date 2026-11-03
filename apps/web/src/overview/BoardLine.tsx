@@ -3,6 +3,7 @@ import { useCallback, useId, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { audienceOf, waitingIn, type QueueId } from "../board/queues";
+import { VIEW_PARAM } from "../issues/issue-queue-views";
 import { navItemsFor } from "../shell/nav-items";
 import { useNavLabel } from "../shell/use-nav-label";
 import { BoardMark } from "../ui/BoardMark";
@@ -27,7 +28,10 @@ import { useRead } from "./use-read";
  * page, which lists every queue the number counts, where the account has one,
  * and otherwise the one board page it has - for the property manager, the
  * issue queue. Never to the front page of an account that is not offered it,
- * which would be a link to a refusal.
+ * which would be a link to a refusal. The issue queue's number is the issues
+ * nobody is assigned, so a link straight to the queue opens that view: the
+ * queue's own default is the handler's own work, which holds none of the issues
+ * the line counted.
  */
 export function BoardLine({
   capabilities,
@@ -77,7 +81,16 @@ export function BoardLine({
               : t("overview.board.waiting", { count: state.value.count })}
         </span>
       )}
-      {firstBoardPage === undefined ? null : (
+      {firstBoardPage === undefined ? null : firstBoardPage.to ===
+        "/board/issues" ? (
+        <Link
+          to="/board/issues"
+          search={{ view: VIEW_PARAM.UNASSIGNED }}
+          className={`ml-auto text-body font-semibold ${ITEM_LINK}`}
+        >
+          {label(firstBoardPage)}
+        </Link>
+      ) : (
         <Link
           to={firstBoardPage.to}
           className={`ml-auto text-body font-semibold ${ITEM_LINK}`}

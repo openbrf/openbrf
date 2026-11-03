@@ -240,14 +240,23 @@ vi.mock("../api/client", async (importOriginal) => ({
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
     to,
+    search,
     children,
     className,
   }: {
     to: string;
+    search?: Record<string, string>;
     children: ReactNode;
     className?: string;
   }): ReactElement => (
-    <a href={to} className={className}>
+    <a
+      href={
+        search === undefined
+          ? to
+          : `${to}?${new URLSearchParams(search).toString()}`
+      }
+      className={className}
+    >
       {children}
     </a>
   ),
@@ -483,7 +492,24 @@ describe("the overview for a property manager", () => {
       "link",
     );
     expect(link.textContent).toBe("Hantera ärenden");
-    expect(link.getAttribute("href")).toBe("/board/issues");
+    expect(link.getAttribute("href")).toBe("/board/issues?view=unassigned");
+  });
+
+  it("opens the unassigned view when the count is of issues nobody holds and none is the manager's own", async () => {
+    renderFor(PROPERTY_MANAGER, {
+      "/api/issue-queue/counts": ok({
+        mine: 0,
+        unassigned: 1,
+        overdue: 0,
+        all: 4,
+      }),
+    });
+
+    const line = await boardLine("Styrelse och förvaltare");
+    expect(await within(line).findByText("1 sak väntar")).toBeTruthy();
+    expect(within(line).getByRole("link").getAttribute("href")).toBe(
+      "/board/issues?view=unassigned",
+    );
   });
 
   it("says one thing in the singular", async () => {
