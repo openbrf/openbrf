@@ -623,6 +623,26 @@ describe("a work order", () => {
         body: "Fix the tap.",
       });
       expect(rendered.subject).toMatch(/^Work order from /);
+
+      // And the sending, which reads the language again when the worker runs.
+      const issueId = await filed(plain, "english");
+      const sent = (
+        await previewAndSend(as(board), issueId, {
+          contractorId: plumber.id,
+          body: "Fix the tap in the laundry room.",
+        })
+      ).json<WorkOrderRow>();
+      const send = vi
+        .spyOn(mail, "send")
+        .mockResolvedValue({ messageId: null });
+      try {
+        expect(await mailer.send(sent.id)).toBe("sent");
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({ locale: "en" }),
+        );
+      } finally {
+        send.mockRestore();
+      }
     } finally {
       await prisma.association.update({
         where: { id: 1 },

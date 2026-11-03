@@ -151,10 +151,15 @@ describe("the ring-fence", () => {
   });
 
   it("is lifted by clearing the box of a ring-fenced type", async () => {
-    fetchIssueTypes.mockResolvedValue({
-      ok: true,
-      value: [type({ ringFenced: true })],
-    });
+    fetchIssueTypes
+      .mockResolvedValueOnce({
+        ok: true,
+        value: [type({ ringFenced: true })],
+      })
+      .mockResolvedValue({
+        ok: true,
+        value: [type({ ringFenced: false })],
+      });
     const session = userEvent.setup();
     render(<IssueTypesPanel />);
     await shown();
@@ -170,6 +175,15 @@ describe("the ring-fence", () => {
         id: "type-water",
         ringFenced: false,
       });
+    });
+    // The list read again after the save shows the fence lifted.
+    await waitFor(() => {
+      expect(fetchIssueTypes).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText("Vatten: avskärmad, inget når en entreprenör"),
+      ).toHaveProperty("checked", false);
     });
   });
 });
