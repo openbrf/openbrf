@@ -282,6 +282,7 @@ test("refuses a number with letters on one side only, or a separator", async ({
     "Mobil0701234567.",
     "cabcdefghijklmn0701234567PRIVAT",
     "cabcdefghijklmn0701234567å",
+    "a\u0308cabcdefghijklmn0701234567",
     "abc070-123 45 67def",
   ]) {
     await page.setContent(pageShowing(shown));

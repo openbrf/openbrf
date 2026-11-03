@@ -85,11 +85,12 @@ const PHONE_NUMBER =
 const GENERATED_ID = /^c[a-z0-9]{24}$/;
 
 /**
- * Letters of any case and script, so that a label touching an id-shaped run
- * makes the token longer and not an id: "c...0701234567PRIVAT", or one ending
- * in a Swedish letter, "c...0701234567å".
+ * Letters of any case and script, with their combining marks, so that a label
+ * touching an id-shaped run makes the token longer and not an id:
+ * "c...0701234567PRIVAT", or one ending in a Swedish letter, "c...0701234567å",
+ * precomposed or decomposed.
  */
-const IDENTIFIER_CHARACTER = /[\p{L}\p{Nd}]/u;
+const IDENTIFIER_CHARACTER = /[\p{L}\p{M}\p{Nd}]/u;
 
 /** The run of letters and digits that holds `[start, end)`. */
 function tokenAround(text: string, start: number, end: number): string {
