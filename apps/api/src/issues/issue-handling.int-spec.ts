@@ -116,6 +116,9 @@ const typeIds = {
   counted: `ih-type-counted-${suffix}`,
   photoTurning: `ih-type-photo-turning-${suffix}`,
   racing: `ih-type-racing-${suffix}`,
+  racingStatus: `ih-type-racing-status-${suffix}`,
+  racingPriority: `ih-type-racing-priority-${suffix}`,
+  racingTargetDate: `ih-type-racing-target-date-${suffix}`,
 };
 let routed: IssueTypeFixture;
 let plain: IssueTypeFixture;
@@ -196,7 +199,7 @@ async function queue(cookie: string): Promise<QueuedRow[]> {
 async function act(
   cookie: string,
   issueId: string,
-  what: "assignee" | "priority" | "target-date" | "access",
+  what: "assignee" | "priority" | "target-date" | "access" | "status",
   payload: object,
 ) {
   return inject({
@@ -239,6 +242,61 @@ async function entries(issueId: string) {
       context: true,
     },
   });
+}
+
+/**
+ * Plays a request out against the board handing a type to itself, in the order
+ * the type's lock exists for: the board's change holds the lock, as
+ * `IssueTypeService.update` does, the request is sent, and the change commits
+ * only once the database says the request waits behind it.
+ *
+ * A request that does not take the lock is not queued behind the change, so it
+ * decides on the handlers the type had before and answers first. That is the
+ * regression, and it fails here rather than in what the answer says.
+ */
+async function behindHandingToBoard(
+  typeId: string,
+  send: () => ReturnType<typeof inject>,
+): ReturnType<typeof inject> {
+  let reached: (pid: number) => void = () => undefined;
+  const holding = new Promise<number>((resolve) => {
+    reached = resolve;
+  });
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  const change = prisma.$transaction(
+    async (tx) => {
+      await lockIssueType(tx, typeId);
+      await tx.issueType.update({
+        where: { id: typeId },
+        data: { handledBy: "BOARD" },
+      });
+      reached(await backendPid(tx));
+      await gate;
+    },
+    { timeout: 30_000 },
+  );
+  const holder = await holding;
+
+  let answered = false;
+  const request = send().finally(() => {
+    answered = true;
+  });
+  let waited = false;
+  try {
+    await waitFor(
+      async () => answered || (await waitersBehind(prisma, holder)) > 0,
+    );
+    waited = !answered;
+  } finally {
+    release();
+    await change;
+  }
+  expect(waited, "the request waits for the type's lock").toBe(true);
+  return request;
 }
 
 beforeAll(async () => {
@@ -919,6 +977,63 @@ describe("who handles a type and an issue", () => {
       await renamed(shieldedBoard.firstName);
     }
   });
+
+  /*
+   * Each write decides on the actor's scope, so each takes the type's lock
+   * before its own: one that read the scope while the board handed the type to
+   * itself would commit for a property manager the type no longer lets in.
+   */
+  it.each([
+    {
+      what: "status" as const,
+      typeId: typeIds.racingStatus,
+      payload: (type: IssueTypeFixture) => ({
+        statusId: type.statusIds.IN_PROGRESS,
+      }),
+    },
+    {
+      what: "priority" as const,
+      typeId: typeIds.racingPriority,
+      payload: () => ({ priority: "URGENT" }),
+    },
+    {
+      what: "target-date" as const,
+      typeId: typeIds.racingTargetDate,
+      payload: () => ({ targetDate: "2030-01-31" }),
+    },
+  ])(
+    "refuses the property manager's $what change on a type handed to the board while it waits, and changes nothing",
+    async ({ what, typeId, payload }) => {
+      const type = await createIssueTypeFixture(prisma, {
+        id: typeId,
+        name: `Kapplöpning ${what} ${suffix}`,
+        reporters: ["RESIDENTS"],
+      });
+      const id = await filed(type, `racing-${what}`);
+      const fields = {
+        statusId: true,
+        priority: true,
+        targetDate: true,
+        closedAt: true,
+        waitingReason: true,
+        outcome: true,
+      };
+      const before = await prisma.issue.findUniqueOrThrow({
+        where: { id },
+        select: fields,
+      });
+
+      const answer = await behindHandingToBoard(type.id, () =>
+        act(cookies[manager.personId] ?? "", id, what, payload(type)),
+      );
+      expect(answer.statusCode).toBe(404);
+      expect(answer.json<{ reason: string }>().reason).toBe("issue-not-found");
+      expect(
+        await prisma.issue.findUniqueOrThrow({ where: { id }, select: fields }),
+      ).toEqual(before);
+      expect(await entries(id)).toEqual([]);
+    },
+  );
 });
 
 describe("what the board-only rule keeps beyond the queue", () => {
@@ -1301,44 +1416,14 @@ describe("issues a handler opens", () => {
       reporters: ["RESIDENTS"],
     });
 
-    let reached: (pid: number) => void = () => undefined;
-    const holding = new Promise<number>((resolve) => {
-      reached = resolve;
-    });
-    let release: () => void = () => undefined;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-
-    // The board's change, holding the type's lock as `IssueTypeService.update`
-    // does, and committing only once the opening waits behind it.
-    const change = prisma.$transaction(
-      async (tx) => {
-        await lockIssueType(tx, racing.id);
-        await tx.issueType.update({
-          where: { id: racing.id },
-          data: { handledBy: "BOARD" },
-        });
-        reached(await backendPid(tx));
-        await gate;
-      },
-      { timeout: 30_000 },
+    const answer = await behindHandingToBoard(racing.id, () =>
+      inject({
+        method: "POST",
+        url: "/api/issue-queue",
+        payload: { typeId: racing.id, description: "Medan styrelsen ändrar" },
+        cookie: cookies[manager.personId],
+      }),
     );
-    const holder = await holding;
-    const opening = inject({
-      method: "POST",
-      url: "/api/issue-queue",
-      payload: { typeId: racing.id, description: "Medan styrelsen ändrar" },
-      cookie: cookies[manager.personId],
-    });
-    try {
-      await waitFor(async () => (await waitersBehind(prisma, holder)) > 0);
-    } finally {
-      release();
-      await change;
-    }
-
-    const answer = await opening;
     expect(answer.statusCode).toBe(404);
     expect(answer.json<{ reason: string }>().reason).toBe("type-not-found");
     expect(await prisma.issue.count({ where: { typeId: racing.id } })).toBe(0);
