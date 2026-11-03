@@ -76,7 +76,12 @@ import { lockFilingBudget, lockIssue } from "./issue-lock";
  * first notice is delivered would pass that check twice. The notices of an
  * assignment and of a reopening are therefore throttled by person and issue for
  * {@link REPEATED_NOTICE_SECONDS}: the queue creates no second job for the same
- * event in the same slot.
+ * event in the same slot. The slot belongs to a notice that was sent or is
+ * still to be: one the delivery skipped, because what it told of had stopped
+ * being so, or that was given up on, gives it back, so a later assignment or
+ * reopening of the same person is told of. That delivery asks once more after
+ * giving the slot back, under the issue's lock, for an assignment that came
+ * between its look and the release and found the slot taken.
  *
  * ## The overdue reminder
  *
@@ -170,6 +175,16 @@ const HOUR_MS = 60 * 60 * 1000;
 /** The slot within which one person is told of one assignment or reopening once. */
 const REPEATED_NOTICE_SECONDS = 60 * 60;
 
+/**
+ * The throttle key of an assignment or reopening notice, or null for a notice
+ * that is not throttled.
+ */
+function throttleKeyOf(job: IssueNoticeJob): string | null {
+  return job.event === "assigned" || job.event === "reopened"
+    ? `${job.event}:${job.issueId}:${job.personId}`
+    : null;
+}
+
 /** What a delivery tells of: a handler's event, or a reporter's new message. */
 export type IssueNoticeEvent = IssueHandlerNoticeEvent | "reporterMessage";
 
@@ -255,6 +270,9 @@ export class IssueMailer implements OnModuleInit {
         );
         // The reminder for that date was never sent, so it is still owed.
         await this.releaseOverdueClaim(data);
+        // Nor was the assignment or reopening, so the person is still to be
+        // told of the next.
+        await this.releaseNoticeSlot(data);
       },
     );
   }
@@ -566,12 +584,44 @@ export class IssueMailer implements OnModuleInit {
    * other.
    */
   async deliver(job: IssueNoticeJob, now: Date = new Date()): Promise<boolean> {
-    const sent = await this.send(job, now);
+    let sent = await this.send(job, now);
     if (!sent) {
       // A reminder that goes nowhere gives the date it claimed back.
       await this.releaseOverdueClaim(job, now);
+      if (await this.releaseNoticeSlot(job)) {
+        // The slot was taken until just now, so an assignment that came
+        // after the look above may have been dropped for it: look again.
+        sent = await this.send(job, now);
+      }
     }
     return sent;
+  }
+
+  /**
+   * Gives back the slot an assignment or reopening notice holds, because it
+   * was not sent: the queue completes a job that sent nothing, and its slot
+   * would keep the same person from being told for the rest of the hour.
+   *
+   * Under the issue's lock, which every act that queues such a notice holds
+   * until it commits: an act that committed before it has been seen by the
+   * caller's next look, and one that comes after finds the slot free.
+   * Answers whether a slot was given back, which is never for any other
+   * notice.
+   */
+  async releaseNoticeSlot(job: IssueNoticeJob): Promise<boolean> {
+    const key = throttleKeyOf(job);
+    if (key === null) {
+      return false;
+    }
+    return this.prisma.$transaction(async (tx) => {
+      await lockIssue(tx, job.issueId);
+      return (
+        (await this.jobs.releaseSingleton(tx, ISSUE_NOTICE_QUEUE, key, [
+          "active",
+          "failed",
+        ])) > 0
+      );
+    });
   }
 
   /**
@@ -831,17 +881,19 @@ export class IssueMailer implements OnModuleInit {
       if (personId === except) {
         continue;
       }
+      const job: IssueNoticeJob = { issueId, personId, event };
+      const key = throttleKeyOf(job);
       await this.jobs.sendInTransaction<IssueNoticeJob>(
         tx,
         ISSUE_NOTICE_QUEUE,
-        { issueId, personId, event },
-        event === "assigned" || event === "reopened"
-          ? {
+        job,
+        key === null
+          ? NOTICE_JOB_OPTIONS
+          : {
               ...NOTICE_JOB_OPTIONS,
-              singletonKey: `${event}:${issueId}:${personId}`,
+              singletonKey: key,
               singletonSeconds: REPEATED_NOTICE_SECONDS,
-            }
-          : NOTICE_JOB_OPTIONS,
+            },
       );
       queued += 1;
     }

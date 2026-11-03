@@ -195,6 +195,28 @@ async function notices(issueId: string): Promise<IssueNoticeJob[]> {
   return rows.map((row) => row.data);
 }
 
+/**
+ * Moves the notice queued for one person to a state the queue puts it in: a
+ * worker takes it (`active`), and completes it whether or not it sent
+ * anything (`completed`). Integration tests drive the deliveries themselves.
+ */
+async function setNoticeState(
+  issueId: string,
+  personId: string,
+  event: IssueNoticeJob["event"],
+  state: "active" | "completed" | "failed",
+): Promise<void> {
+  const moved = await prisma.$executeRawUnsafe(
+    "UPDATE pgboss.job SET state = $1::pgboss.job_state WHERE name = $2 AND data->>'issueId' = $3 AND data->>'personId' = $4 AND data->>'event' = $5",
+    state,
+    ISSUE_NOTICE_QUEUE,
+    issueId,
+    personId,
+    event,
+  );
+  expect(moved).toBe(1);
+}
+
 /** The overdue jobs queued for one issue, with when each is due. */
 async function overdueJobs(
   issueId: string,
@@ -651,6 +673,135 @@ describe("a handler acts on an issue", () => {
         .slice(before)
         .map((job) => [job.personId, job.event]),
     ).toEqual([[manager.personId, "reopened"]]);
+  });
+
+  it("queues a new assignment notice once the first one was completed unsent, and sends it", async () => {
+    const issueId = await report(unassignedType);
+    const before = (await notices(issueId)).length;
+    const sent = captureSends();
+
+    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, admin.personId, board.personId);
+    // The worker takes the first notice while the issue is somebody else's,
+    // sends nothing, and the queue completes it.
+    const first = {
+      issueId,
+      personId: manager.personId,
+      event: "assigned",
+    } as const;
+    await setNoticeState(issueId, manager.personId, "assigned", "active");
+    expect(await mailer.deliver(first)).toBe(false);
+    await setNoticeState(issueId, manager.personId, "assigned", "completed");
+
+    await issues.assign(issueId, manager.personId, board.personId);
+
+    const queued = (await notices(issueId)).slice(before);
+    expect(queued.map((job) => [job.personId, job.event])).toEqual([
+      [manager.personId, "assigned"],
+      [admin.personId, "assigned"],
+      [manager.personId, "assigned"],
+    ]);
+    expect(await mailer.deliver(queued[2] as IssueNoticeJob)).toBe(true);
+    expect(sent.map((input) => input.to)).toEqual([manager.email]);
+  });
+
+  it("keeps the slot of an assignment notice that was sent", async () => {
+    const issueId = await report(unassignedType);
+    const before = (await notices(issueId)).length;
+    const sent = captureSends();
+
+    await issues.assign(issueId, manager.personId, board.personId);
+    await setNoticeState(issueId, manager.personId, "assigned", "active");
+    expect(
+      await mailer.deliver({
+        issueId,
+        personId: manager.personId,
+        event: "assigned",
+      }),
+    ).toBe(true);
+    await setNoticeState(issueId, manager.personId, "assigned", "completed");
+    expect(sent).toHaveLength(1);
+
+    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, manager.personId, board.personId);
+
+    // The manager was told within the hour, and is not told again.
+    expect(
+      (await notices(issueId))
+        .slice(before)
+        .map((job) => [job.personId, job.event]),
+    ).toEqual([
+      [manager.personId, "assigned"],
+      [admin.personId, "assigned"],
+    ]);
+  });
+
+  it("queues a new assignment notice once the first one was given up on", async () => {
+    const issueId = await report(unassignedType);
+    const before = (await notices(issueId)).length;
+
+    await issues.assign(issueId, manager.personId, board.personId);
+    await setNoticeState(issueId, manager.personId, "assigned", "failed");
+    expect(
+      await mailer.releaseNoticeSlot({
+        issueId,
+        personId: manager.personId,
+        event: "assigned",
+      }),
+    ).toBe(true);
+    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, manager.personId, board.personId);
+
+    expect(
+      (await notices(issueId))
+        .slice(before)
+        .map((job) => [job.personId, job.event]),
+    ).toEqual([
+      [manager.personId, "assigned"],
+      [admin.personId, "assigned"],
+      [manager.personId, "assigned"],
+    ]);
+  });
+
+  it("queues a new reopening notice once the first one was completed unsent, and sends it", async () => {
+    const issueId = await report(assignedType);
+    const close = () =>
+      issues.setStatus(
+        issueId,
+        { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
+        board.personId,
+      );
+    const reopen = () =>
+      issues.setStatus(
+        issueId,
+        { statusId: assignedType.statusIds.IN_PROGRESS },
+        board.personId,
+      );
+    const sent = captureSends();
+    await close();
+    const before = (await notices(issueId)).length;
+
+    await reopen();
+    await close();
+    // The issue is closed again when the worker looks, so nothing is sent.
+    const first = {
+      issueId,
+      personId: manager.personId,
+      event: "reopened",
+    } as const;
+    await setNoticeState(issueId, manager.personId, "reopened", "active");
+    expect(await mailer.deliver(first)).toBe(false);
+    await setNoticeState(issueId, manager.personId, "reopened", "completed");
+
+    await reopen();
+
+    const queued = (await notices(issueId)).slice(before);
+    expect(queued.map((job) => [job.personId, job.event])).toEqual([
+      [manager.personId, "reopened"],
+      [manager.personId, "reopened"],
+    ]);
+    expect(await mailer.deliver(queued[1] as IssueNoticeJob)).toBe(true);
+    expect(sent.map((input) => input.to)).toEqual([manager.email]);
   });
 
   it("does not mail an assignee whose processing is restricted", async () => {

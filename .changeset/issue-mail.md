@@ -14,6 +14,8 @@ number.
   whoever it is assigned to. So is an issue raised to urgent later.
 - **Assigned.** A handler giving an issue to somebody mails that person, once:
   an issue handed to them, away and back within the hour, mails them one time.
+  A mail that was not sent, because the issue had been handed on by the time it
+  went out, does not count: giving the issue to that person again mails them.
 - **Overdue.** The assignee is reminded once, the morning after the target date,
   when the issue is not done. A new target date that passes gives a new
   reminder. A date set again, or moved away from and back to, does not. An issue
@@ -22,7 +24,8 @@ number.
   or the mail could not go out, does not count as sent; the date is owed again.
 - **Reopened.** A done issue that is opened again is mailed to its assignee, or
   to everybody who handles it when it has no assignee. Reopened twice within the
-  hour mails once.
+  hour mails once, unless the first mail was not sent because the issue was
+  closed again by then.
 - Nobody is mailed about their own action. A board-only issue is never mailed to
   the property manager. A person whose processing is restricted (GDPR art. 18)
   is not mailed: the restriction is checked when the mail is queued, when it is

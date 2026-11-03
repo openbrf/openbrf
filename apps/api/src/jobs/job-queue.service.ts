@@ -134,6 +134,10 @@ export interface JobSendOptions {
   singletonSeconds?: number;
 }
 
+/** The states a job is in, as the queue backend names them. */
+export type JobState =
+  "created" | "retry" | "active" | "completed" | "cancelled" | "failed";
+
 /**
  * The part of an open database transaction a job insert needs.
  *
@@ -366,6 +370,36 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
       ...options,
       db: transactionalDb(tx),
     });
+  }
+
+  /**
+   * Frees the slot a throttled job holds, so a job sent with the same
+   * `singletonKey` in the same time slot is created instead of dropped.
+   *
+   * The queue's unique index counts every job but a cancelled one, a job that
+   * finished without doing its work included. A caller whose job found nothing
+   * to do - a notice for an assignment that was undone - gives the slot back
+   * with this, and keeps it for a job that did its work. Only a job in one of
+   * `states` is freed; the job itself is left as it is.
+   *
+   * Answers how many slots were freed.
+   */
+  async releaseSingleton(
+    tx: TransactionalSql,
+    name: string,
+    singletonKey: string,
+    states: readonly JobState[],
+  ): Promise<number> {
+    const freed = await tx.$queryRawUnsafe<unknown[]>(
+      `UPDATE ${JOB_SCHEMA}.job SET singleton_on = NULL
+       WHERE name = $1 AND singleton_key = $2 AND singleton_on IS NOT NULL
+         AND state::text = ANY($3::text[])
+       RETURNING id`,
+      name,
+      singletonKey,
+      [...states],
+    );
+    return freed.length;
   }
 
   /**
