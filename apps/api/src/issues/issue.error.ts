@@ -59,6 +59,8 @@ import { DomainError } from "../http/domain-error";
  * that is itself a duplicate, which would make a chain its reporter follows
  * through somebody else's report; and `merge-has-duplicates` one that others
  * were already merged into, which is merged the other way instead.
+ * `merge-into-closed` is an issue merged into one that is done, which would
+ * leave its reporter following a report nobody is working on.
  * `known-fault-board-only` is a known fault on an issue the board keeps to
  * itself, which never reaches the house. `follow-up-of-open-issue` is a new
  * report filed as the follow-up of one's own issue that is still open, which
@@ -92,6 +94,7 @@ export type IssueReason =
   | "merge-into-itself"
   | "merge-into-duplicate"
   | "merge-has-duplicates"
+  | "merge-into-closed"
   | "known-fault-board-only"
   | "follow-up-of-open-issue";
 
@@ -125,6 +128,7 @@ export class IssueError extends DomainError {
       reason === "too-many-statuses" ||
       reason === "merge-into-duplicate" ||
       reason === "merge-has-duplicates" ||
+      reason === "merge-into-closed" ||
       reason === "known-fault-board-only"
         ? HttpStatus.CONFLICT
         : reason === "public-reporting-disabled"

@@ -354,4 +354,62 @@ describe("known faults and a report that follows up another", () => {
       );
     });
   });
+
+  it("keeps the notice and the failed-photograph warning after a follow-up is filed", async () => {
+    fetchOwnIssues.mockResolvedValue(
+      ok([
+        {
+          id: "issue-old",
+          meaning: "DONE",
+          typeId: "type-lift",
+          typeName: "Hiss",
+          location: null,
+          description: "Hissen stod still i våras.",
+          apartment: null,
+          photos: [],
+          enteredByHandler: false,
+          replyMode: "NEW_REPORT",
+          mergedIntoMeaning: null,
+          createdAt: "2026-03-20T08:00:00.000Z",
+          updatedAt: "2026-04-20T08:00:00.000Z",
+        },
+      ]),
+    );
+    fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    attachIssuePhoto.mockResolvedValue({
+      ok: false,
+      failure: { status: 413, reason: "too-large" },
+    });
+    const session = userEvent.setup();
+    render(<IssuesScreen viewer={READER} />);
+
+    await session.click(await screen.findByText("Meddelanden om Hiss"));
+    await session.click(
+      await screen.findByRole("button", { name: "Gör en ny anmälan om detta" }),
+    );
+    await session.type(
+      screen.getByLabelText("Vad har hänt"),
+      "Hissen står still igen.",
+    );
+    await session.upload(
+      screen.getByLabelText(/lägg till foto/i),
+      new File(["bytes"], "hiss.png", { type: "image/png" }),
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka anmälan" }));
+
+    // The form is not mounted again by the follow-up being cleared, so both
+    // notices outlive the screen reading its lists again.
+    expect(await screen.findByText(/ligger nu i kön/i)).toBeTruthy();
+    expect(await screen.findByText(/kunde inte läggas till/i)).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchOwnIssues.mock.calls.length).toBeGreaterThan(1);
+    });
+    expect(screen.getByText(/ligger nu i kön/i)).toBeTruthy();
+    expect(screen.getByText(/kunde inte läggas till/i)).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Den här anmälan följer upp din tidigare anmälan om Hiss.",
+      ),
+    ).toBeNull();
+  });
 });

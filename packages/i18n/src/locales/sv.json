@@ -3886,6 +3886,7 @@
         "knownFaultBoardOnly": "Styrelsen hanterar ärendet själv, så det kan inte ha något känt fel. Kön har lästs om.",
         "mergeIntoItself": "Ett ärende kan inte slås samman med sig självt.",
         "mergeIntoDuplicate": "Det ärendet är självt en dublett. Slå samman med ärendet det slogs samman med. Kön har lästs om.",
+        "mergeIntoClosed": "Det ärendet är avslutat. Öppna det igen först, eller slå samman med ett som fortfarande hanteras. Kön har lästs om.",
         "mergeHasDuplicates": "Andra ärenden har slagits samman med det här. Slå i stället samman det andra ärendet med det här. Kön har lästs om.",
         "personalIdentityNumber": "Texten innehåller ett personnummer. Ta bort det och försök igen.",
         "noDuplicateReporter": "Ingen kan läsa ett svar i de sammanslagna anmälningarna: anmälarna har inget konto att läsa det i.",

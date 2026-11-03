@@ -217,6 +217,31 @@ describe("the reporter's conversation", () => {
     });
   });
 
+  it("reads the list again after a message sent to a report on screen as open", async () => {
+    // The report may have closed while the screen was open, in which case the
+    // server reopens it on this very send, and the list must say so.
+    const onChanged = vi.fn();
+    const session = userEvent.setup();
+    render(
+      <OwnIssueConversation
+        issue={own({ replyMode: "MESSAGE" })}
+        onChanged={onChanged}
+        onFollowUp={() => undefined}
+      />,
+    );
+    await openConversation(session);
+
+    await session.type(
+      await screen.findByLabelText("Vatten: ditt meddelande"),
+      "Det läcker igen",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    await waitFor(() => {
+      expect(onChanged).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("says when a report closed while the message was written", async () => {
     sendOwnIssueMessage.mockResolvedValue({
       ok: false,

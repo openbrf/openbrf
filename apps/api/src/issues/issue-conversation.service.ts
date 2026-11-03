@@ -205,7 +205,11 @@ export class IssueConversationService {
    * thread, by the rule `replyAsHandler` holds a single message to. Refused
    * with `no-reporter` when there is nobody to read it. Under the lock of the
    * issue merged into, which merging takes too, so the duplicates written to
-   * are the ones it has.
+   * are the ones it has. The duplicates themselves are not locked: a handler
+   * reopening one of them meanwhile (which takes it out of the merge) may
+   * interleave, and its reporter then gets a message that was meant for the
+   * duplicates a moment earlier. It is the same text on their own report,
+   * harmless, and not worth holding a lock on every duplicate for.
    */
   async replyToDuplicates(
     handlerPersonId: string,

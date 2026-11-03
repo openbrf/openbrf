@@ -35,6 +35,7 @@ const LIFECYCLE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "merge-into-itself": "issues.lifecycle.errors.mergeIntoItself",
   "merge-into-duplicate": "issues.lifecycle.errors.mergeIntoDuplicate",
   "merge-has-duplicates": "issues.lifecycle.errors.mergeHasDuplicates",
+  "merge-into-closed": "issues.lifecycle.errors.mergeIntoClosed",
   "personal-identity-number": "issues.lifecycle.errors.personalIdentityNumber",
   "invalid-body": "issues.lifecycle.errors.unknown",
 };
@@ -53,6 +54,7 @@ const STALE_REASONS: ReadonlySet<string> = new Set([
   "issue-closed",
   "merge-into-duplicate",
   "merge-has-duplicates",
+  "merge-into-closed",
   "known-fault-board-only",
 ]);
 
@@ -78,7 +80,18 @@ export function IssueLifecycle({
   const { t } = useTranslation();
   const [links, setLinks] = useState<IssueLinks | null>(null);
   const [readFailed, setReadFailed] = useState(false);
+  const [reads, setReads] = useState(0);
   const revision = `${issue.updatedAt}:${issue.status.id}`;
+  /*
+   * Every change made here may change the links - an issue merged into this
+   * one, a refusal that says it was - and merging another issue into this one
+   * moves nothing of this issue the queue would show, so they are read again
+   * whenever the queue is.
+   */
+  const changed = (): void => {
+    setReads((count) => count + 1);
+    onChanged();
+  };
 
   useEffect(() => {
     let active = true;
@@ -96,7 +109,7 @@ export function IssueLifecycle({
     return () => {
       active = false;
     };
-  }, [issue.id, revision]);
+  }, [issue.id, revision, reads]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -110,7 +123,7 @@ export function IssueLifecycle({
         // Mounted again when the notice changes, so the draft starts from it.
         key={`known:${issue.knownFault?.body ?? ""}`}
         issue={issue}
-        onChanged={onChanged}
+        onChanged={changed}
       />
 
       {links === null ? null : <LinksSection links={links} />}
@@ -143,11 +156,7 @@ export function IssueLifecycle({
       {links !== null &&
       issue.outcome !== "DUPLICATE" &&
       links.duplicates.length === 0 ? (
-        <MergeForm
-          issue={issue}
-          candidates={candidates}
-          onChanged={onChanged}
-        />
+        <MergeForm issue={issue} candidates={candidates} onChanged={changed} />
       ) : null}
     </div>
   );
@@ -366,8 +375,9 @@ function LinksSection({ links }: { links: IssueLinks }): ReactElement | null {
  * because the reporter is told their report is handled elsewhere, and only
  * reopening the duplicate takes that back.
  *
- * Offered only issues on screen that are not themselves duplicates; the
- * server refuses a chain and an issue the handler does not handle either way.
+ * Offered only issues on screen that are not themselves duplicates and not
+ * done; the server refuses a chain, a closed issue and an issue the handler
+ * does not handle either way.
  */
 function MergeForm({
   issue,
@@ -397,7 +407,9 @@ function MergeForm({
   );
   const offered = candidates.filter(
     (candidate) =>
-      candidate.id !== issue.id && candidate.outcome !== "DUPLICATE",
+      candidate.id !== issue.id &&
+      candidate.outcome !== "DUPLICATE" &&
+      candidate.meaning !== "DONE",
   );
   if (offered.length === 0) {
     return null;

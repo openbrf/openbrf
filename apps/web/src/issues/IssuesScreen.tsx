@@ -105,6 +105,12 @@ export function IssuesScreen({
   const [reportedFrom, setReportedFrom] = useState<string | null>(null);
   /** The closed report a new one follows up, while the reporter writes it. */
   const [followUp, setFollowUp] = useState<OwnIssue | null>(null);
+  /*
+   * What the report form is keyed on besides a post: counted up when a
+   * follow-up is chosen or cancelled, never when a report is filed, so the form
+   * stays mounted and keeps the notices its submit left.
+   */
+  const [formEpoch, setFormEpoch] = useState(0);
   const formRef = useRef<HTMLDivElement>(null);
   const fromPost: FromPost =
     fromPostId === null || !canReport
@@ -254,14 +260,13 @@ export function IssuesScreen({
         <>
           <div ref={formRef}>
             <ReportIssuePanel
-              // Mounted again once the post is read, or a follow-up chosen, so
-              // the form opens with it.
+              // Mounted again once the post is read, or a follow-up chosen or
+              // cancelled, so the form opens with it. Not when a report is
+              // filed: its notices belong to the form that filed it.
               key={
                 fromPost.kind === "read"
                   ? fromPost.prefill.postId
-                  : followUp === null
-                    ? "blank"
-                    : `follows-${followUp.id}`
+                  : `form-${String(formEpoch)}`
               }
               types={types}
               apartments={apartments}
@@ -274,10 +279,13 @@ export function IssuesScreen({
                       followUp,
                       onFollowUpCancelled: () => {
                         setFollowUp(null);
+                        setFormEpoch((epoch) => epoch + 1);
                       },
                     })}
               onReported={(postId) => {
                 setReportedFrom(postId);
+                // The form stays mounted, so its notices stay; it files the
+                // next report as a new one.
                 setFollowUp(null);
                 reload();
               }}
@@ -287,6 +295,9 @@ export function IssuesScreen({
             issues={own}
             onChanged={reload}
             onFollowUp={(issue) => {
+              if (followUp?.id !== issue.id) {
+                setFormEpoch((epoch) => epoch + 1);
+              }
               setFollowUp(issue);
               formRef.current?.scrollIntoView({ block: "start" });
             }}

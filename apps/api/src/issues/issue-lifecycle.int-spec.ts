@@ -520,6 +520,10 @@ describe("merging duplicates", () => {
   it("closes the duplicate as one, and its reporter follows the issue it was merged into", async () => {
     const kept = await filed(plain, neighbour);
     const duplicate = await filed(plain, resident);
+    const before = await prisma.issue.findUniqueOrThrow({
+      where: { id: kept },
+      select: { updatedAt: true },
+    });
 
     const merged = await as(
       board,
@@ -530,6 +534,14 @@ describe("merging duplicates", () => {
       },
     );
     expect(merged.statusCode).toBe(201);
+    // The issue merged into moves too, so a panel open on it reads its links.
+    const after = await prisma.issue.findUniqueOrThrow({
+      where: { id: kept },
+      select: { updatedAt: true },
+    });
+    expect(after.updatedAt.getTime()).toBeGreaterThan(
+      before.updatedAt.getTime(),
+    );
     expect(merged.json()).toMatchObject({
       meaning: "DONE",
       outcome: "DUPLICATE",
@@ -687,6 +699,79 @@ describe("merging duplicates", () => {
       outcome: "DUPLICATE",
     });
     expect(chosen.statusCode).toBe(400);
+  });
+
+  it("refuses to merge into an issue that is done, and leaves both as they were", async () => {
+    const closed = await filed(plain, neighbour);
+    const duplicate = await filed(plain, resident);
+    const done = await as(board, "POST", `/api/issue-queue/${closed}/status`, {
+      statusId: plain.statusIds.DONE,
+      outcome: "FIXED",
+    });
+    expect(done.statusCode).toBe(201);
+
+    const refused = await as(
+      board,
+      "POST",
+      `/api/issue-queue/${duplicate}/merge`,
+      { intoIssueId: closed },
+    );
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ reason: "merge-into-closed" });
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: duplicate },
+        select: { mergedIntoIssueId: true, outcome: true, closedAt: true },
+      }),
+    ).toEqual({ mergedIntoIssueId: null, outcome: null, closedAt: null });
+
+    // Reopened, it is a target again.
+    const reopened = await as(
+      board,
+      "POST",
+      `/api/issue-queue/${closed}/status`,
+      { statusId: plain.statusIds.IN_PROGRESS },
+    );
+    expect(reopened.statusCode).toBe(201);
+    const merged = await as(
+      board,
+      "POST",
+      `/api/issue-queue/${duplicate}/merge`,
+      { intoIssueId: closed },
+    );
+    expect(merged.statusCode).toBe(201);
+  });
+
+  it("merges an issue that is done already, which keeps its day of closing and takes the outcome Dublett", async () => {
+    const kept = await filed(plain, neighbour);
+    const duplicate = await filed(plain, resident);
+    const done = await as(
+      board,
+      "POST",
+      `/api/issue-queue/${duplicate}/status`,
+      { statusId: plain.statusIds.DONE, outcome: "FIXED" },
+    );
+    expect(done.statusCode).toBe(201);
+    const closedAt = (
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: duplicate },
+        select: { closedAt: true },
+      })
+    ).closedAt;
+
+    const merged = await as(
+      board,
+      "POST",
+      `/api/issue-queue/${duplicate}/merge`,
+      { intoIssueId: kept },
+    );
+    expect(merged.statusCode).toBe(201);
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: duplicate },
+        select: { mergedIntoIssueId: true, outcome: true, closedAt: true },
+      }),
+    ).toEqual({ mergedIntoIssueId: kept, outcome: "DUPLICATE", closedAt });
   });
 
   it("is answered as no such issue to a handler the board keeps out of either", async () => {

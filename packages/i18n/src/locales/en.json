@@ -3886,6 +3886,7 @@
         "knownFaultBoardOnly": "The board keeps this issue to itself, so it carries no known fault. The queue has been read again.",
         "mergeIntoItself": "An issue cannot be merged into itself.",
         "mergeIntoDuplicate": "That issue is itself a duplicate. Merge into the issue it was merged into. The queue has been read again.",
+        "mergeIntoClosed": "That issue is done. Reopen it first, or merge into one that is still being handled. The queue has been read again.",
         "mergeHasDuplicates": "Other issues were merged into this one. Merge the other issue into this one instead. The queue has been read again.",
         "personalIdentityNumber": "The text carries a personal identity number. Remove it and try again.",
         "noDuplicateReporter": "Nobody can read an answer on the merged reports: their reporters have no account to read it in.",

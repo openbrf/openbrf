@@ -1306,6 +1306,15 @@ export class IssueService {
    * report is copied onto the other, so a protected reporter of either stays
    * masked exactly as before, and neither reporter learns who the other is.
    *
+   * Merged into an issue that is being handled, never one that is done: the
+   * reporter of the duplicate would follow a report nobody works on, and a
+   * handler who wants it there reopens that issue first (`merge-into-closed`).
+   * The issue merged may itself be done already, a report closed and only then
+   * found to be a duplicate: it keeps the day it closed, its outcome becomes
+   * `DUPLICATE` in place of the one it had, and its reporter is told it is
+   * handled with the other issue. The handler has pressed twice for that, and
+   * reopening it undoes it.
+   *
    * One level only. An issue is not merged into a duplicate, which would leave
    * its reporter following a report that follows another, and an issue others
    * were merged into is merged the other way round instead. A duplicate that
@@ -1372,6 +1381,13 @@ export class IssueService {
         });
       }
 
+      if (into.status.meaning === "DONE") {
+        throw new IssueError(
+          "That issue is done; merge into one that is still being handled.",
+          "merge-into-closed",
+        );
+      }
+
       const target = await tx.issueStatus.findFirst({
         where: { typeId: existing.typeId, meaning: "DONE", isDefault: true },
         select: { id: true, meaning: true },
@@ -1399,6 +1415,14 @@ export class IssueService {
         },
         tx,
       );
+
+      // The issue merged into gains a duplicate without a column of its own
+      // changing, and a handler's open panel for it reads its links again only
+      // when its revision moves.
+      await tx.issue.update({
+        where: { id: intoIssueId },
+        data: { updatedAt: new Date() },
+      });
 
       return tx.issue.update({
         where: { id: issueId },

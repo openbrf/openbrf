@@ -18,8 +18,10 @@ What happens to an issue after it closes, merging duplicates, and known faults.
   another, the reply field gives way to a new report linked to the old one.
   The link is the reporter's own closed issue and nobody else's, and it
   survives the old issue being purged. Handlers see both issues linked.
-- **Merging duplicates.** A handler merges an issue into another it handles.
-  The duplicate closes with the outcome Duplicate, which only merging writes.
+- **Merging duplicates.** A handler merges an issue into another it handles
+  that is still being handled: a done issue is refused as the one merged into,
+  and reopened first if it is the one wanted. The issue merged may be done
+  already, and then keeps its closing date. The duplicate closes with the outcome Duplicate, which only merging writes.
   Its reporter keeps their own report and sees where the other issue stands. A
   handler can write one message to every reporter of the merged reports: each
   gets it on their own report, signed by the board or the property manager.

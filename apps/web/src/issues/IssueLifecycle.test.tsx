@@ -178,6 +178,85 @@ describe("merging", () => {
     expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
+  it("offers no issue that is done to merge into", async () => {
+    render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[
+          issue(),
+          OTHER,
+          issue({ id: "issue-3", meaning: "DONE", location: "Port 9" }),
+        ]}
+        onChanged={() => undefined}
+      />,
+    );
+
+    const picker = await screen.findByLabelText(
+      "Hiss: slå samman med ett annat ärende",
+    );
+    const values = [...picker.querySelectorAll("option")].map(
+      (option) => option.value,
+    );
+    expect(values).toEqual(["", "issue-2"]);
+  });
+
+  it("reads the links again when the merge is refused because others were merged into this issue meanwhile", async () => {
+    fetchIssueLinks.mockResolvedValueOnce({ ok: true, value: NO_LINKS });
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: {
+        ...NO_LINKS,
+        duplicates: [
+          {
+            kind: "issue",
+            id: "issue-4",
+            typeName: "Hiss",
+            meaning: "DONE",
+            createdAt: "2026-08-19T08:00:00.000Z",
+          },
+        ],
+      },
+    });
+    mergeIssue.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "merge-has-duplicates" },
+    });
+    const onChanged = vi.fn();
+    const session = userEvent.setup();
+    render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER]}
+        onChanged={onChanged}
+      />,
+    );
+
+    await session.selectOptions(
+      await screen.findByLabelText("Hiss: slå samman med ett annat ärende"),
+      "issue-2",
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Slå samman som dublett" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Ja, avsluta som dublett" }),
+    );
+
+    // The queue is read again, and so are the links, though nothing of this
+    // issue changed: the panel now offers the message to the duplicates and
+    // no longer the merge it just failed.
+    expect(
+      await screen.findByLabelText(
+        "Hiss: meddelande till anmälarna till de sammanslagna anmälningarna",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByLabelText("Hiss: slå samman med ett annat ärende"),
+    ).toBeNull();
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(fetchIssueLinks).toHaveBeenCalledTimes(2);
+  });
+
   it("writes to the duplicates' reporters instead on an issue others were merged into", async () => {
     fetchIssueLinks.mockResolvedValue({
       ok: true,

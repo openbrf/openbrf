@@ -148,7 +148,8 @@ fixed list:
 Fixed, and translated rather than written by the board, because reporting reads
 it and because the second is a statement about BRL 7 kap. that a board should
 not be able to reword into something else. `DUPLICATE` is what merging a case
-into another writes (decision 22).
+into another that is still being handled writes (decision 22); an issue that
+is done already may be merged, and keeps its closing date.
 
 `closedAt` is written when a case moves into the `DONE` meaning from another
 meaning, under `lockIssue`, as it is today, because the wrong value moves the

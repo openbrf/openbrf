@@ -176,10 +176,10 @@ function Thread({
           send={(body) => sendOwnIssueMessage({ issueId: issue.id, body })}
           onSent={() => {
             setReads((count) => count + 1);
-            // The reply reopened it: the list says so once it is read again.
-            if (issue.replyMode === "REOPENS") {
-              onChanged();
-            }
+            // A reply may have reopened the issue, as the screen expected or
+            // because it closed while the screen was open; the list says so
+            // once it is read again.
+            onChanged();
           }}
           onRefused={(reason) => {
             if (reason === "issue-closed") {
