@@ -105,8 +105,11 @@ function sameDraft(a: Draft, b: Draft): boolean {
  */
 export function IssueWorkOrders({
   issue,
+  onSent,
 }: {
   issue: QueuedIssue;
+  /** Told after a work order is accepted, so the issue's timeline reads it. */
+  onSent?: () => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const [data, setData] = useState<IssueWorkOrdersData | null>(null);
@@ -209,6 +212,7 @@ export function IssueWorkOrders({
       setDraft(EMPTY_DRAFT);
       setSentTo(sent.recipientName);
       setReads((count) => count + 1);
+      onSent?.();
     },
     onRefused,
   );

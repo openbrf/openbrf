@@ -150,6 +150,10 @@ export class WorkOrderMailerService implements OnModuleInit {
 
   /** Sends one work order, and says what it did. */
   async send(workOrderId: string): Promise<"sent" | "failed" | "skipped"> {
+    // Read before the claim: a read that fails here fails the job, which is
+    // retried with the work order untouched. After the claim it would land in
+    // the catch below and record a mail server's refusal nobody made.
+    const locale = await this.defaultLocale();
     const order = await this.prisma.$transaction((tx) =>
       this.claim(tx, workOrderId),
     );
@@ -174,7 +178,7 @@ export class WorkOrderMailerService implements OnModuleInit {
         to,
         ...this.workOrderMail(
           { recipientName: order.recipientName, body: order.body },
-          await this.defaultLocale(),
+          locale,
         ),
       });
     } catch (error) {

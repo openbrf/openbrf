@@ -1115,6 +1115,44 @@ describe("the sending", () => {
     });
   });
 
+  it("leaves a work order untouched for the retry when the association's language cannot be read", async () => {
+    const issueId = await filed(plain, "locale-unread");
+    const sent = (
+      await previewAndSend(as(board), issueId, {
+        contractorId: plumber.id,
+        body: "Rensa golvbrunnen i tvättstugan.",
+      })
+    ).json<WorkOrderRow>();
+
+    const read = vi
+      .spyOn(prisma.association, "findUnique")
+      .mockRejectedValueOnce(new Error("connection lost"));
+    const send = vi.spyOn(mail, "send");
+    try {
+      // The job fails, so the queue retries it, and nothing was recorded as
+      // a mail server's refusal.
+      await expect(mailer.send(sent.id)).rejects.toThrow("connection lost");
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      read.mockRestore();
+      send.mockRestore();
+    }
+    expect(
+      await prisma.workOrder.findUniqueOrThrow({
+        where: { id: sent.id },
+        select: {
+          deliveryStatus: true,
+          deliveryFailure: true,
+          claimedAt: true,
+        },
+      }),
+    ).toEqual({
+      deliveryStatus: "PENDING",
+      deliveryFailure: null,
+      claimedAt: null,
+    });
+  });
+
   it("sends nothing to a contractor removed after the worker started and before it claimed the work order", async () => {
     const issueId = await filed(plain, "erased-before-claim");
     const firm = await addContractor({

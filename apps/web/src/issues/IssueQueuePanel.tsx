@@ -106,6 +106,14 @@ export function IssueQueuePanel({
    * in flight before the queue reloads.
    */
   const [actingOn, setActingOn] = useState<string | null>(null);
+  /*
+   * How many work orders each issue has sent while the queue is open. The
+   * work orders and the timeline sit under two disclosures, and a sending in
+   * one is a step the other has to read again.
+   */
+  const [workOrdersSent, setWorkOrdersSent] = useState<
+    Readonly<Record<string, number>>
+  >({});
   const saving = move.state.kind === "saving";
   const typeById = new Map((types ?? []).map((type) => [type.id, type]));
 
@@ -271,10 +279,19 @@ export function IssueQueuePanel({
                 <HandlingDisclosure
                   issue={issue}
                   type={type}
+                  workOrdersSent={workOrdersSent[issue.id] ?? 0}
                   onChanged={onChanged}
                 />
 
-                <WorkOrdersDisclosure issue={issue} />
+                <WorkOrdersDisclosure
+                  issue={issue}
+                  onSent={() => {
+                    setWorkOrdersSent((counts) => ({
+                      ...counts,
+                      [issue.id]: (counts[issue.id] ?? 0) + 1,
+                    }));
+                  }}
+                />
               </li>
             );
           })}
@@ -293,10 +310,12 @@ export function IssueQueuePanel({
 function HandlingDisclosure({
   issue,
   type,
+  workOrdersSent,
   onChanged,
 }: {
   issue: QueuedIssue;
   type: IssueTypeView | undefined;
+  workOrdersSent: number;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -313,7 +332,12 @@ function HandlingDisclosure({
       </summary>
       {open ? (
         <div className="flex flex-col gap-6 pt-2">
-          <IssueHandling issue={issue} type={type} onChanged={onChanged} />
+          <IssueHandling
+            issue={issue}
+            type={type}
+            workOrdersSent={workOrdersSent}
+            onChanged={onChanged}
+          />
           <IssueConversation issue={issue} onStale={onChanged} />
         </div>
       ) : null}
@@ -326,7 +350,13 @@ function HandlingDisclosure({
  * while it is open, as the handling is, and apart from it because a work order
  * is the one act on an issue that leaves the instance.
  */
-function WorkOrdersDisclosure({ issue }: { issue: QueuedIssue }): ReactElement {
+function WorkOrdersDisclosure({
+  issue,
+  onSent,
+}: {
+  issue: QueuedIssue;
+  onSent: () => void;
+}): ReactElement {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
@@ -341,7 +371,7 @@ function WorkOrdersDisclosure({ issue }: { issue: QueuedIssue }): ReactElement {
       </summary>
       {open ? (
         <div className="pt-2">
-          <IssueWorkOrders issue={issue} />
+          <IssueWorkOrders issue={issue} onSent={onSent} />
         </div>
       ) : null}
     </details>

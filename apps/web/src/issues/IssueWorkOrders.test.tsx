@@ -126,7 +126,8 @@ describe("IssueWorkOrders", () => {
       value: { ...SENT, deliveryStatus: "PENDING", deliveryFailure: null },
     });
     const user = userEvent.setup();
-    render(<IssueWorkOrders issue={ISSUE} />);
+    const onSent = vi.fn();
+    render(<IssueWorkOrders issue={ISSUE} onSent={onSent} />);
 
     await writeDraft("Byt packningen.");
     // No send before a preview.
@@ -152,8 +153,10 @@ describe("IssueWorkOrders", () => {
         "Arbetsordern till Rörfirman är sparad och på väg.",
       ),
     ).toBeTruthy();
-    // The record is read again after the send.
+    // The record is read again after the send, and the issue's timeline is
+    // told to read its new step.
     expect(fetchIssueWorkOrders).toHaveBeenCalledTimes(2);
+    expect(onSent).toHaveBeenCalledTimes(1);
   });
 
   it("drops the preview when the draft changes, so nothing unread is sent", async () => {

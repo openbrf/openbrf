@@ -44,7 +44,8 @@ a preview, and the issue keeps the record of it (ADR 0055).
   its sending began is not mailed and is recorded as not sent; one removed
   after that cannot be called back.
   The timeline shows each work order with how its mail stands - on its way,
-  sent, not sent or unconfirmed - and the audit log records that it was queued,
+  sent, not sent or unconfirmed - and an issue left open on the screen shows
+  the mail going out without being reopened. The audit log records that it was queued,
   with the length of the text and none of its words. A reporter's data
   subject access report lists the work orders sent about their issues: to
   whom, when, and whether the mail went out. The text of a work order is erased
