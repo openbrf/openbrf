@@ -56,9 +56,72 @@ export async function freezeScripts(
  * an account - is not cut into a number from its middle. A letter may touch
  * it: a label in an element of its own reads as "Mobil0701234567" in the text,
  * and the picture still shows the number.
+ *
+ * Except inside an identifier. A generated id such as a cuid is lower-case
+ * letters and digits from the clock and a counter, so ten digits starting 07
+ * turn up in one now and then, and the access report prints the ids an audit
+ * entry carries. A number inside a token that is exactly the shape of a cuid is
+ * such an id and not a number: see `findPhoneNumbers`.
  */
 const PHONE_NUMBER =
   /(?<!\d)(?:(?:\+|00)46[\s-]?(?:\(0\)[\s-]?)?|0)7\d(?:[\s-]?\d){7}(?!\d)/g;
+
+/**
+ * The shape of a cuid, which is what the product's ids are (Prisma's
+ * `cuid()`): a `c` and twenty-four lower-case letters and digits, nothing else
+ * around it. The whole token is tested rather than the characters beside the
+ * number, because rendered text joins inline elements without a gap: a label,
+ * a number and another label that the picture shows apart read as
+ * "Mobil0701234567privat", and letters on both sides of a number are no
+ * evidence of an id. A label and a number would have to add up to exactly
+ * twenty-five lower-case characters starting with `c` to pass as one.
+ *
+ * That is a limit of reading text: once the elements are joined, a `c`, ten
+ * digits and fourteen lower-case letters from separate elements cannot be told
+ * from an id. The screens put a label or a number beside the digits, in capitals
+ * or with a separator or a space, and none lays out lower-case runs of that
+ * length flush against a number, which is why the exemption is left this wide.
+ */
+const GENERATED_ID = /^c[a-z0-9]{24}$/;
+
+/**
+ * Letters of any case and script, with their combining marks, so that a label
+ * touching an id-shaped run makes the token longer and not an id:
+ * "c...0701234567PRIVAT", or one ending in a Swedish letter, "c...0701234567å",
+ * precomposed or decomposed, or in a letter outside the Basic Multilingual
+ * Plane. The `u` flag makes the pattern read code points, so that such a letter
+ * is not taken for two lone surrogates that end the run.
+ */
+const IDENTIFIER_RUN_BEFORE = /[\p{L}\p{M}\p{Nd}]*$/u;
+const IDENTIFIER_RUN_AFTER = /^[\p{L}\p{M}\p{Nd}]*/u;
+
+/** The run of letters and digits that holds `[start, end)`. */
+function tokenAround(text: string, start: number, end: number): string {
+  const before = IDENTIFIER_RUN_BEFORE.exec(text.slice(0, start))?.[0] ?? "";
+  const after = IDENTIFIER_RUN_AFTER.exec(text.slice(end))?.[0] ?? "";
+  return before + text.slice(start, end) + after;
+}
+
+/**
+ * What in `text` is shaped like a phone number.
+ *
+ * A match of digits only (no separator, no country code) inside a token that
+ * has the shape of a generated id is part of that id and is left out. A label
+ * touching the number, on one side or both, or a number written with a
+ * separator still counts.
+ */
+export function findPhoneNumbers(text: string): string[] {
+  return [...text.matchAll(PHONE_NUMBER)]
+    .filter((match) => {
+      const insideAnId =
+        /^\d+$/.test(match[0]) &&
+        GENERATED_ID.test(
+          tokenAround(text, match.index, match.index + match[0].length),
+        );
+      return !insideAnId;
+    })
+    .map((match) => match[0]);
+}
 
 const EMAIL_ADDRESS = /\b[\w.%+-]+@[\w-]+(?:\.[\w-]+)+\b/g;
 
@@ -114,9 +177,7 @@ export async function assertSafeToPublish(
     `${name} shows something shaped like a personal identity number. Screenshots are published; seed data that cannot appear in one.`,
   ).toEqual([]);
 
-  const phoneNumbers = [...text.matchAll(PHONE_NUMBER)].map(
-    (match) => match[0],
-  );
+  const phoneNumbers = findPhoneNumbers(text);
   expect(
     phoneNumbers,
     `${name} shows something shaped like a phone number. Screenshots are published; seed data that cannot appear in one.`,
