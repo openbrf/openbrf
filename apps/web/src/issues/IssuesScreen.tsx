@@ -14,10 +14,12 @@ import {
   fetchOwnApartments,
   fetchOwnIssues,
   fetchReportableTypes,
+  fetchReporterResponsibilityGuide,
   type IssueApartment,
   type IssuePlaceChoice,
   type OwnIssue,
   type ReportableIssueType,
+  type ResponsibilityGuide,
 } from "../api/issues";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
@@ -48,6 +50,12 @@ interface Loaded {
   apartments: readonly IssueApartment[];
   places: readonly IssuePlaceChoice[];
   own: readonly OwnIssue[];
+  /**
+   * The responsibility guide the board has adopted, shown before filing, or
+   * null: none adopted, or one that could not be read. Not a failed load
+   * either way - a report is filed without it.
+   */
+  guide: ResponsibilityGuide | null;
   loadFailed: boolean;
 }
 
@@ -57,6 +65,7 @@ const EMPTY: Loaded = {
   apartments: [],
   places: [],
   own: [],
+  guide: null,
   loadFailed: false,
 };
 
@@ -128,20 +137,22 @@ export function IssuesScreen({
   }, [fromPostId, canReport, t]);
 
   /**
-   * One read of the four lists. A list that could not be read comes back
-   * `null`, so a re-read that fails on one of them leaves what the screen
-   * already shows in place instead of replacing it with an empty list.
+   * One read of the three lists, the places and the guide. A list that could
+   * not be read comes back `null`, so a re-read that fails on one of them
+   * leaves what the screen already shows in place instead of replacing it
+   * with an empty list.
    *
    * The places alone do not fail the screen: a place is optional on a report,
    * so without them the form still reports an issue in the apartment, as the
    * queue tolerates a places read that fails.
    */
   const read = useCallback(async () => {
-    const [types, apartments, places, own] = await Promise.all([
+    const [types, apartments, places, own, guide] = await Promise.all([
       canReport ? fetchReportableTypes() : null,
       canReport ? fetchOwnApartments() : null,
       canReport ? fetchIssuePlaces() : null,
       canReport ? fetchOwnIssues() : null,
+      canReport ? fetchReporterResponsibilityGuide() : null,
     ]);
 
     return {
@@ -149,6 +160,12 @@ export function IssuesScreen({
       apartments: apartments?.ok === true ? apartments.value : null,
       places: places?.ok === true ? places.value : null,
       own: own?.ok === true ? own.value : null,
+      /**
+       * Not a failed load either way: a report is filed without the guide.
+       * `undefined` marks a read that failed, so a re-read keeps the guide on
+       * screen as it keeps the lists; `null` is "none adopted" or "not asked".
+       */
+      guide: guide === null ? null : guide.ok ? guide.value.guide : undefined,
       loadFailed:
         types?.ok === false || apartments?.ok === false || own?.ok === false,
       /** Nothing was asked for: a viewer who cannot report has no lists. */
@@ -177,6 +194,7 @@ export function IssuesScreen({
             next.apartments ?? (next.asked ? previous.apartments : []),
           places: next.places ?? (next.asked ? previous.places : []),
           own: next.own ?? (next.asked ? previous.own : []),
+          guide: next.guide === undefined ? previous.guide : next.guide,
           loadFailed: next.loadFailed,
         }));
       }
@@ -247,6 +265,7 @@ export function IssuesScreen({
             types={types}
             apartments={apartments}
             places={places}
+            guide={loaded.guide}
             {...(fromPost.kind === "read" ? { prefill: fromPost.prefill } : {})}
             onReported={(postId) => {
               setReportedFrom(postId);

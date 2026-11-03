@@ -31,6 +31,7 @@ import { IssueReportingPanel } from "./IssueReportingPanel";
 import { IssuePlacesPanel } from "./IssuePlacesPanel";
 import { IssueSavedRepliesPanel } from "./IssueSavedRepliesPanel";
 import { IssueTypesPanel } from "./IssueTypesPanel";
+import { ResponsibilityGuidePanel } from "./ResponsibilityGuidePanel";
 import { MeetingBylawsPanel } from "./MeetingBylawsPanel";
 import { MotionDeadlinePanel } from "./MotionDeadlinePanel";
 import { DataProtectionContactsPanel } from "./DataProtectionContactsPanel";
@@ -424,6 +425,11 @@ export function AssociationSettingsScreen({
            board configures the catalogue; an administrator decides whether
            the public one exists. */
         return <IssueTypesPanel />;
+      case "responsibilityGuide":
+        /* Beside the types it is read with: the board's reading of its own
+           bylaws on who maintains what, shown to the handlers deciding who
+           pays and, once adopted, to residents before they report. */
+        return <ResponsibilityGuidePanel />;
       case "issueSavedReplies":
         /* Beside the catalogue: what a handler answers a reporter with is the
            board's vocabulary as much as the types are. */

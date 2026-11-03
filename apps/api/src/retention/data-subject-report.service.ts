@@ -13,6 +13,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { pluginProcessorKey } from "../data-protection/processor-key";
+import { issuesReportedByProtectedPersons } from "../issues/issue-reporter-protection";
 import { pluginAccessViews } from "../plugin-access/plugin-access";
 import { consentedPersonRecordsOf } from "../plugins/plugin-registry.service";
 import {
@@ -688,6 +689,8 @@ export class DataSubjectReportService {
         // 15(1)(c) and the outcome ADR 0057 keeps after the purge.
         outcome: true,
         waitingReason: true,
+        // Who pays, which a handler decided about the reporter's own matter.
+        costResponsibility: true,
         location: true,
         description: true,
         entryAnswer: true,
@@ -1459,6 +1462,19 @@ export class DataSubjectReportService {
     });
 
     /*
+     * The issues among those the entries name by identifier (a charge made from
+     * an issue records which) whose reporter has protected personal data. The
+     * charge list withholds that link, so an entry's context must not hand it
+     * back: see `subjectScopedContext`.
+     */
+    const withheldIssueIds = await issuesReportedByProtectedPersons(
+      tx,
+      auditEntries
+        .map((entry) => asContext(entry.context)?.[ISSUE_KEY])
+        .filter((id): id is string => typeof id === "string"),
+    );
+
+    /*
      * What this person asked about their own data, and what the board decided.
      * Theirs by definition: art. 15 gives them what the association holds about
      * them, and a decision about their erasure is that.
@@ -1723,6 +1739,7 @@ export class DataSubjectReportService {
         meaning: issue.status.meaning,
         outcome: issue.outcome,
         waitingReason: issue.waitingReason,
+        costResponsibility: issue.costResponsibility,
         location: issue.location,
         description: issue.description,
         entry:
@@ -2230,7 +2247,11 @@ export class DataSubjectReportService {
         pluginId: entry.pluginId,
         targetKind: entry.targetKind,
         targetId: entry.targetId,
-        context: subjectScopedContext(asContext(entry.context), personId),
+        context: subjectScopedContext(
+          asContext(entry.context),
+          personId,
+          withheldIssueIds,
+        ),
       })),
       dataSubjectRequests: dataSubjectRequests.map(
         (request): ReportDataSubjectRequest => ({
@@ -2709,6 +2730,12 @@ const CONTEXT_PERSON_LISTS = ["personIds", "protectedPersonIds"] as const;
  */
 const PREVIOUS_ASSIGNEE_KEY = "previousAssigneePersonId";
 
+/**
+ * The context key of an entry that names the issue a charge was made from, one
+ * identifier.
+ */
+const ISSUE_KEY = "issueId";
+
 /** An audience as the feed section joins it: by kind, and a group by name. */
 interface JoinedAudience {
   kind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
@@ -2908,6 +2935,7 @@ function groupFeed(
 function subjectScopedContext(
   context: Record<string, unknown> | null,
   personId: string,
+  withheldIssueIds: ReadonlySet<string>,
 ): Record<string, unknown> | null {
   if (context === null) {
     return null;
@@ -2933,6 +2961,18 @@ function subjectScopedContext(
   if (typeof previous === "string" && previous !== personId) {
     scoped[PREVIOUS_ASSIGNEE_KEY] = null;
     scoped.hadPreviousAssignee = true;
+  }
+
+  /*
+   * The issue a charge was made from, while its reporter has protected personal
+   * data. The charge list withholds the same link, because an issue identifier
+   * beside the charged person or apartment pairs the report with the identity
+   * the queue withholds. The fact that the charge came from an issue stays.
+   */
+  const issueId = context[ISSUE_KEY];
+  if (typeof issueId === "string" && withheldIssueIds.has(issueId)) {
+    scoped[ISSUE_KEY] = null;
+    scoped.issueWithheld = true;
   }
   return scoped;
 }

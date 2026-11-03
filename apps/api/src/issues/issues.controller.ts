@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import {
   ISSUE_CLOSING_OUTCOMES,
+  ISSUE_COST_RESPONSIBILITIES,
   ISSUE_CONVERSATION_LIMITS,
   ISSUE_ENTRY_ANSWERS,
   ISSUE_FINDING_KINDS,
@@ -24,6 +25,8 @@ import {
   ISSUE_STATUS_MEANINGS,
   ISSUE_TYPE_LIMITS,
   ISSUE_WAITING_REASONS,
+  MAINTENANCE_RESPONSIBILITIES,
+  RESPONSIBILITY_GUIDE_LIMITS,
 } from "@openbrf/shared";
 import { z } from "zod";
 
@@ -72,6 +75,10 @@ import {
   type OwnIssueView,
   type QueuedIssueView,
 } from "./issue.service";
+import {
+  type ResponsibilityGuideView,
+  ResponsibilityGuideService,
+} from "./responsibility-guide.service";
 
 const reportSchema = z.object({
   typeId: z.string().min(1),
@@ -177,6 +184,35 @@ const placeInputSchema = z.strictObject({
   sortOrder: z.coerce.number().int().min(0).max(999).optional(),
 });
 
+/** Who pays, or null to say nothing again (decision 26). Never an amount. */
+const costResponsibilitySchema = z.strictObject({
+  costResponsibility: z.enum(ISSUE_COST_RESPONSIBILITIES).nullable(),
+});
+
+/**
+ * The board's whole responsibility guide (decision 27). The limits are the
+ * shared ones, which the service holds too; the text is trimmed and scanned
+ * there, so a refusal it makes has a reason a screen can put a sentence to.
+ */
+const responsibilityGuideSchema = z.strictObject({
+  items: z
+    .array(
+      z.strictObject({
+        part: z.string().trim().max(RESPONSIBILITY_GUIDE_LIMITS.part),
+        responsibility: z.enum(MAINTENANCE_RESPONSIBILITIES),
+        note: z
+          .string()
+          .trim()
+          .max(RESPONSIBILITY_GUIDE_LIMITS.note)
+          .nullable(),
+      }),
+    )
+    .max(RESPONSIBILITY_GUIDE_LIMITS.items),
+  adopted: z.boolean(),
+  // The version the editor read, or null where it read a guide never saved.
+  version: z.iso.datetime().nullable(),
+});
+
 const typeSchema = z.object({
   name: z.string().trim().min(1).max(ISSUE_TYPE_LIMITS.name),
   reporters: z.array(z.enum(ISSUE_REPORTER_GROUPS)).max(3),
@@ -241,6 +277,7 @@ export class IssueReportController {
   constructor(
     private readonly issues: IssueService,
     private readonly types: IssueTypeService,
+    private readonly guide: ResponsibilityGuideService,
     private readonly conversation: IssueConversationService,
     private readonly fit: IssueFitService,
     private readonly places: IssuePlaceService,
@@ -253,6 +290,19 @@ export class IssueReportController {
   @Get("places")
   async offeredPlaces(): Promise<IssuePlaceChoice[]> {
     return this.places.offered();
+  }
+
+  /**
+   * The association's responsibility guide, shown before filing (decision
+   * 27): the guide the board has adopted, or null while it is an example. A
+   * reporter is never shown the example as if it were the association's
+   * answer.
+   */
+  @Get("responsibility-guide")
+  async responsibilityGuide(): Promise<{
+    guide: ResponsibilityGuideView | null;
+  }> {
+    return { guide: await this.guide.readForReporter() };
   }
 
   /**
@@ -408,6 +458,7 @@ export class IssueQueueController {
     private readonly issues: IssueService,
     private readonly types: IssueTypeService,
     private readonly residents: IssueResidentsService,
+    private readonly guide: ResponsibilityGuideService,
     private readonly conversation: IssueConversationService,
     private readonly savedReplies: IssueSavedReplyService,
     private readonly fit: IssueFitService,
@@ -423,6 +474,15 @@ export class IssueQueueController {
     @Req() request: RequestWithPrincipal,
   ): Promise<IssuePlaceCount[]> {
     return this.places.counts(actingPersonId(request));
+  }
+
+  /**
+   * The responsibility guide as a handler reads it when deciding who pays:
+   * adopted or not, and labelled as an example while it is not (decision 27).
+   */
+  @Get("responsibility-guide")
+  async responsibilityGuide(): Promise<ResponsibilityGuideView> {
+    return this.guide.read();
   }
 
   /**
@@ -723,6 +783,20 @@ export class IssueQueueController {
     return this.fit.removeFinding(actingPersonId(request), id);
   }
 
+  /** Who pays for the issue (decision 26). The value, never an amount. */
+  @Post(":id/cost-responsibility")
+  async setCostResponsibility(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.issues.setCostResponsibility(
+      id,
+      costResponsibilitySchema.parse(body).costResponsibility,
+      actingPersonId(request),
+    );
+  }
+
   @Post(":id/status")
   async setStatus(
     @Param("id") id: string,
@@ -815,6 +889,33 @@ export class IssueTypeAdminController {
       statusId,
       changeStatusSchema.parse(body),
     );
+  }
+}
+
+/**
+ * The board's responsibility guide (ansvarsfördelning, decision 27): which
+ * part of the home the association maintains and which the tenant-owner does,
+ * as the board reads its own bylaws.
+ *
+ * issues:configure, as the type catalogue is: it is the board's account of
+ * its building for the people who report to it. A base path of its own,
+ * because the catalogue's routes take a type's identifier where this would
+ * sit.
+ */
+@Controller("api/responsibility-guide")
+@RequireCapability("issues:configure")
+export class ResponsibilityGuideAdminController {
+  constructor(private readonly guide: ResponsibilityGuideService) {}
+
+  @Get()
+  async read(): Promise<ResponsibilityGuideView> {
+    return this.guide.read();
+  }
+
+  /** Replaces the whole guide, and adopts it or withdraws the adoption. */
+  @Put()
+  async save(@Body() body: unknown): Promise<ResponsibilityGuideView> {
+    return this.guide.save(responsibilityGuideSchema.parse(body));
   }
 }
 

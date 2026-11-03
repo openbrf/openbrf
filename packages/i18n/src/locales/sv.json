@@ -814,6 +814,7 @@
           "ISSUE_PRIORITY_CHANGED": "Prioriteten för ett ärende ändrades",
           "ISSUE_TARGET_DATE_CHANGED": "Senast klart för ett ärende ändrades",
           "ISSUE_ACCESS_CHANGED": "Vilka som hanterar ett ärende ändrades",
+          "ISSUE_COST_RESPONSIBILITY_CHANGED": "Vem som betalar för ett ärende angavs",
           "ISSUE_RESIDENTS_LISTED": "Någon som hanterar ärenden visades vilka som bor i en lägenhet, för att lägga upp ett ärende",
           "ISSUE_MESSAGE_SENT": "Ett meddelande skrevs i ett ärende",
           "ISSUE_NOTE_ADDED": "En intern anteckning skrevs i ett ärende",
@@ -925,6 +926,7 @@
           "issue": "Det här ärendet",
           "typeDefault": "Varje nytt ärende av typen"
         },
+        "issueCostResponsibility": "Vem betalar: {{who}}",
         "issueEntry": "Tillträde: {{answer}}. {{details}}"
       },
       "requests": {
@@ -1941,6 +1943,53 @@
         "alreadyClosed": "Den supportåtkomsten är redan stängd.",
         "reason": "Ange en anledning på högst 500 tecken.",
         "loadFailed": "Supportåtkomsten kunde inte läsas."
+      }
+    },
+    "responsibilityGuide": {
+      "title": "Ansvarsfördelning",
+      "description": "Vem som underhåller vad i lägenheten och huset, enligt föreningens stadgar. De som hanterar ärenden ser den när de bedömer vem som betalar. När styrelsen har antagit den ser den som gör en felanmälan den först, även i felanmälan på den öppna webbplatsen.",
+      "lawNote": "Bostadsrättslagen 7 kap. 12 § låter stadgarna flytta gränsen mellan föreningens och bostadsrättshavarens underhållsansvar, så tabellen måste följa era egna stadgar. Open BRF anger ingen gräns.",
+      "loading": "Läser ansvarsfördelningen...",
+      "loadFailed": "Ansvarsfördelningen gick inte att läsa just nu.",
+      "example": "Exempel, inte avstämt mot föreningens stadgar.",
+      "loadExample": "Fyll i exemplet",
+      "loadExampleHint": "Ett exempel att utgå från. Ändra varje rad så att den följer era stadgar.",
+      "empty": "Tabellen har inga rader.",
+      "partNamed": "Rad {{number}}: vad",
+      "responsibilityNamed": "Rad {{number}}: ansvarar",
+      "noteNamed": "Rad {{number}}: anmärkning",
+      "add": "Lägg till en rad",
+      "remove": "Ta bort",
+      "removeNamed": "Ta bort rad {{number}}",
+      "adopted": "Tabellen följer föreningens stadgar",
+      "adoptedHint": "Först när rutan är ikryssad visas tabellen för den som gör en felanmälan: boende i appen och vem som helst som använder felanmälan på den öppna webbplatsen. Till dess visas den bara för de som hanterar ärenden, och då som ett exempel.",
+      "adoptedOn": "Antagen <data>{{date}}</data>.",
+      "save": "Spara ansvarsfördelningen",
+      "saving": "Sparar...",
+      "saved": "Ansvarsfördelningen är sparad.",
+      "reload": "Läs den aktuella tabellen",
+      "reloadFailed": "Den aktuella tabellen gick inte att läsa just nu. Ditt utkast finns kvar.",
+      "errors": {
+        "personalIdentityNumber": "En rad innehåller ett personnummer. Ta bort det - tabellen visas för alla som gör en felanmälan, även på den öppna webbplatsen.",
+        "partRequired": "Varje rad behöver säga vad den gäller.",
+        "tooManyItems": "Tabellen har fler rader än den rymmer.",
+        "textTooLong": "En rad är längre än tabellen rymmer.",
+        "changedSinceRead": "Ansvarsfördelningen sparades av någon annan efter att du öppnade den, så det här utkastet skulle ersätta deras ändringar. Ditt utkast finns kvar. Läs den aktuella tabellen och gör dina ändringar igen.",
+        "unknown": "Ansvarsfördelningen gick inte att spara just nu. Försök igen."
+      },
+      "template": {
+        "surfaces": "Ytskikt på väggar, golv och tak i lägenheten",
+        "kitchenAndBathroom": "Inredning och utrustning i kök och badrum, som vitvaror, blandare och wc-stol",
+        "floorDrain": "Golvbrunn, rensning",
+        "smokeAlarm": "Brandvarnare",
+        "innerDoors": "Innerdörrar och lägenhetsdörrens insida",
+        "windowsInside": "Fönster och balkongdörr, insidan och glaset",
+        "windowsOutside": "Fönster och balkongdörr, utsidan",
+        "sharedPipes": "Ledningar för vatten, avlopp, värme och el som tjänar fler än en lägenhet",
+        "ventilationDucts": "Ventilationskanaler",
+        "radiators": "Radiatorer",
+        "commonAreas": "Trapphus, tvättstuga och andra gemensamma utrymmen",
+        "buildingShell": "Tak, fasad och yttre underhåll"
       }
     },
     "issuePlaces": {
@@ -3766,7 +3815,11 @@
         "assigneeNotAHandler": "Den personen hanterar inte längre ärendet. Listan har lästs om.",
         "targetDateInvalid": "Det är inget datum. Välj ett i kalendern.",
         "unknown": "Ärendet gick inte att ändra just nu. Försök igen."
-      }
+      },
+      "costResponsibility": "Vem betalar",
+      "costResponsibilityNamed": "{{type}}: vem betalar",
+      "costResponsibilityUnset": "Inte angivet",
+      "notANoticeToRemedy": "Ett svar i ärendet är inte en uppmaning att vidta rättelse (rättelseanmaning) enligt 7 kap. 12 a § bostadsrättslagen. Kräver föreningen rättelse görs det utanför Open BRF, på ett sätt som visar att uppmaningen har kommit fram, till exempel med rekommenderat brev."
     },
     "timeline": {
       "__after__": "handling",
@@ -3787,6 +3840,8 @@
       "targetDateRemoved": "Senast klart borttaget",
       "boardOnly": "Stängt för alla utom styrelsen",
       "everyHandler": "Öppnat igen för alla som hanterar typen",
+      "costResponsibility": "Vem betalar satt till {{who}}",
+      "costResponsibilityRemoved": "Vem betalar togs bort",
       "placeSet": "Gemensamt utrymme angavs",
       "placeRemoved": "Gemensamt utrymme togs bort",
       "entryWithdrawn": "Svaret om tillträde togs tillbaka",
@@ -3820,13 +3875,45 @@
         "unknown": "Ärendet gick inte att lägga upp just nu. Försök igen."
       }
     },
+    "costResponsibility": {
+      "ASSOCIATION": "Föreningen",
+      "TENANT_OWNER": "Bostadsrättshavaren",
+      "UNCLEAR": "Oklart"
+    },
+    "maintenanceResponsibility": {
+      "ASSOCIATION": "Föreningen",
+      "TENANT_OWNER": "Bostadsrättshavaren"
+    },
+    "guide": {
+      "title": "Ansvarsfördelning enligt stadgarna",
+      "part": "Vad",
+      "responsibility": "Ansvarar",
+      "note": "Anmärkning",
+      "example": "Exempel. Styrelsen har inte stämt av tabellen mot föreningens stadgar, så den säger inte vem som ansvarar hos er.",
+      "adopted": "Enligt föreningens stadgar, som styrelsen läser dem. Stadgarna gäller före tabellen.",
+      "empty": "Styrelsen har inte fyllt i ansvarsfördelningen ännu.",
+      "loadFailed": "Ansvarsfördelningen gick inte att läsa just nu.",
+      "reporterTitle": "Vem ansvarar för vad?",
+      "reporterIntro": "Föreningens stadgar delar upp underhållet mellan föreningen och bostadsrättshavaren. Är du osäker på vems ansvaret är, gör en anmälan ändå."
+    },
+    "charges": {
+      "title": "Debiteringar",
+      "hint": "Beloppet står bara på debiteringen. Förvaltaren ser det inte.",
+      "create": "Skapa debitering",
+      "createNamed": "{{type}}: skapa debitering",
+      "none": "Ingen debitering har gjorts från ärendet.",
+      "withheld": "Visas inte: den som anmälde ärendet har skyddade personuppgifter, och en debitering skulle visa vem det är.",
+      "loading": "Läser debiteringarna...",
+      "loadFailed": "Debiteringarna gick inte att läsa just nu.",
+      "amount": "<data>{{amount}}</data> kr"
+    },
     "conversation": {
       "title": "Meddelanden med anmälaren",
       "openOwn": "Meddelanden om {{type}}",
       "loading": "Läser meddelandena...",
       "readFailed": "Meddelandena gick inte att läsa just nu. Stäng och öppna dem igen.",
       "readFailedHandler": "Meddelandena, anteckningarna eller filerna gick inte att läsa just nu. Stäng och öppna ärendet igen.",
-      "savedRepliesReadFailed": "Sparade svar gick inte att läsa just nu, så inget kan infogas. Stäng och öppna ärendet igen.",
+      "savedRepliesReadFailed": "Sparade svar gick inte att läsa just nu. Stäng och öppna ärendet igen.",
       "empty": "Inga meddelanden än.",
       "emptyOwn": "Inga meddelanden än. Styrelsen eller förvaltaren svarar här.",
       "you": "Du",
@@ -6076,7 +6163,11 @@
       "handedHint": "Dagen underlaget skickades över. Det säger ingenting om betalning.",
       "submit": "Registrera debiteringen",
       "saving": "Registrerar",
-      "saved": "Debiteringen är registrerad."
+      "saved": "Debiteringen är registrerad.",
+      "fromIssue": "Debiteringen görs från ärendet {{type}} och kopplas till det. Beloppet står bara här.",
+      "fromIssueReason": "Ärende: {{type}}",
+      "fromIssueFailed": "Ärendet gick inte att läsa, eller är inte ditt att hantera. Formuläret är tomt.",
+      "fromIssueLoading": "Läser ärendet..."
     },
     "correct": {
       "action": "Rätta",
@@ -6109,8 +6200,10 @@
       "handedOverInTheFuture": "Underlaget kan inte ha skickats över en dag som inte har kommit.",
       "rangeInvalid": "Perioden kan inte sluta innan den börjar.",
       "invalidBody": "Något i formuläret kunde inte läsas. Kontrollera beloppet och datumen.",
-      "unknown": "Debiteringen kunde inte sparas just nu."
-    }
+      "unknown": "Debiteringen kunde inte sparas just nu.",
+      "issueNotFound": "Ärendet finns inte längre, eller är inte ditt att hantera. Debiteringen registrerades inte."
+    },
+    "fromIssue": "Från ett ärende"
   },
   "accounting": {
     "basis": {

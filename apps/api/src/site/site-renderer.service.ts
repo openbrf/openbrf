@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 
 import { PrincipalService } from "../authorization/principal.service";
 import { BoardRosterService } from "../board/board-roster.service";
@@ -9,6 +9,7 @@ import {
 } from "../documents/documents.service";
 import { I18nService } from "../i18n/i18n.service";
 import { IssueTypeService } from "../issues/issue-type.service";
+import { ResponsibilityGuideService } from "../issues/responsibility-guide.service";
 import { mediaUrl } from "../media/media.service";
 import { ThemeService } from "../themes/theme.service";
 import { AssociationFactsService } from "./association-facts.service";
@@ -25,7 +26,12 @@ import {
   SiteEventsService,
 } from "./site-events.service";
 import type { BrokerPageInput } from "./site-facts";
-import type { SiteFormKind, SiteFormState, SiteIssueType } from "./site-forms";
+import type {
+  SiteFormKind,
+  SiteFormState,
+  SiteIssueType,
+  SiteResponsibilityGuideLine,
+} from "./site-forms";
 import {
   type NewsTeaser,
   renderNotFound,
@@ -34,6 +40,7 @@ import {
   type SiteControllerContact,
   type SiteDocument,
 } from "./site-html";
+import { failureName } from "../logging/failure";
 import { SiteBlocksService } from "./site-blocks.service";
 import { renderNewsArticle, renderNewsIndex } from "./site-news";
 import {
@@ -134,6 +141,8 @@ export interface SiteVisit extends SiteSubmissionState {
 
 @Injectable()
 export class SiteRenderer {
+  private readonly logger = new Logger(SiteRenderer.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly themes: ThemeService,
@@ -141,6 +150,7 @@ export class SiteRenderer {
     private readonly pages: PagesService,
     private readonly menu: MenuService,
     private readonly issueTypes: IssueTypeService,
+    private readonly responsibilityGuide: ResponsibilityGuideService,
     private readonly news: SiteNewsService,
     private readonly events: SiteEventsService,
     private readonly facts: AssociationFactsService,
@@ -196,6 +206,11 @@ export class SiteRenderer {
    * has public reporting switched off, and the block then renders as nothing -
    * the page survives the switch being turned, which is what lets a board close
    * the form without editing the page it sits on.
+   *
+   * The responsibility guide is read only when that form's fields will be
+   * there, not over the confirmation that replaces them, and only as a
+   * reporter is shown it: the guide the board has adopted, never the
+   * example (decision 27).
    */
   private async formState(
     page: SitePage,
@@ -203,14 +218,49 @@ export class SiteRenderer {
   ): Promise<SiteFormState> {
     const offersIssueForm =
       page.publiclyReadable && hasBlock(page.content, "issueReportForm");
+    const issueTypes = offersIssueForm ? await this.publicIssueTypes() : null;
+    const formShown =
+      issueTypes !== null &&
+      issueTypes.length > 0 &&
+      submission.sent !== "issue";
 
     return {
       pagePath: `/${page.slug}`,
       publiclyReadable: page.publiclyReadable,
       sent: submission.sent ?? null,
       refused: submission.refused ?? null,
-      issueTypes: offersIssueForm ? await this.publicIssueTypes() : null,
+      issueTypes,
+      responsibilityGuide: formShown
+        ? await this.publicResponsibilityGuide()
+        : null,
     };
+  }
+
+  /**
+   * The adopted responsibility guide's lines, or null while there is none.
+   *
+   * Also null where the guide cannot be read: it is advice shown above the
+   * form, and the page and the form are not to fail with it.
+   */
+  private async publicResponsibilityGuide(): Promise<
+    readonly SiteResponsibilityGuideLine[] | null
+  > {
+    let guide;
+    try {
+      guide = await this.responsibilityGuide.readForReporter();
+    } catch (error) {
+      this.logger.warn(
+        `The responsibility guide could not be read for the public report form (${failureName(error)})`,
+      );
+      return null;
+    }
+    return guide === null
+      ? null
+      : guide.items.map((item) => ({
+          part: item.part,
+          responsibility: item.responsibility,
+          note: item.note,
+        }));
   }
 
   /** The types a public report may be filed under, or null while it is shut. */

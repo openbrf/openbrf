@@ -814,6 +814,7 @@
           "ISSUE_PRIORITY_CHANGED": "The priority of an issue was changed",
           "ISSUE_TARGET_DATE_CHANGED": "The target date of an issue was changed",
           "ISSUE_ACCESS_CHANGED": "Who handles an issue was changed",
+          "ISSUE_COST_RESPONSIBILITY_CHANGED": "Who pays for an issue was recorded",
           "ISSUE_RESIDENTS_LISTED": "A handler was shown who lives in an apartment, to open an issue",
           "ISSUE_MESSAGE_SENT": "A message was written on an issue",
           "ISSUE_NOTE_ADDED": "An internal note was written on an issue",
@@ -925,6 +926,7 @@
           "issue": "This issue",
           "typeDefault": "Every new issue of this type"
         },
+        "issueCostResponsibility": "Who pays: {{who}}",
         "issueEntry": "Permission to enter: {{answer}}. {{details}}"
       },
       "requests": {
@@ -1941,6 +1943,53 @@
         "alreadyClosed": "That support access is already closed.",
         "reason": "Give a reason of at most 500 characters.",
         "loadFailed": "Support access could not be read."
+      }
+    },
+    "responsibilityGuide": {
+      "title": "Responsibility guide",
+      "description": "Who maintains what in the apartment and the building, under the association's bylaws. Those who handle issues see it when they decide who pays. Once the board has adopted it, whoever reports a fault sees it first, on the public website's report form too.",
+      "lawNote": "Chapter 7, section 12 of the Tenant-Ownership Act lets the bylaws move the line between the association's and the tenant-owner's maintenance responsibility, so the table has to follow your own bylaws. Open BRF does not state where the line runs.",
+      "loading": "Reading the responsibility guide...",
+      "loadFailed": "The responsibility guide could not be read just now.",
+      "example": "Example, not checked against the association's bylaws.",
+      "loadExample": "Fill in the example",
+      "loadExampleHint": "An example to start from. Change every line so that it follows your bylaws.",
+      "empty": "The table has no lines.",
+      "partNamed": "Line {{number}}: what",
+      "responsibilityNamed": "Line {{number}}: responsible",
+      "noteNamed": "Line {{number}}: note",
+      "add": "Add a line",
+      "remove": "Remove",
+      "removeNamed": "Remove line {{number}}",
+      "adopted": "The table follows the association's bylaws",
+      "adoptedHint": "Only once this is ticked is the table shown to those who report a fault: residents in the app, and anybody using the public website's report form. Until then only those who handle issues see it, and as an example.",
+      "adoptedOn": "Adopted <data>{{date}}</data>.",
+      "save": "Save the responsibility guide",
+      "saving": "Saving...",
+      "saved": "The responsibility guide is saved.",
+      "reload": "Read the current table",
+      "reloadFailed": "The current table could not be read just now. Your draft is still here.",
+      "errors": {
+        "personalIdentityNumber": "A line holds a personal identity number. Remove it - the table is shown to everyone who reports a fault, on the public website too.",
+        "partRequired": "Every line has to say what it is about.",
+        "tooManyItems": "The table has more lines than it holds.",
+        "textTooLong": "A line is longer than the table holds.",
+        "changedSinceRead": "The responsibility guide was saved by somebody else after you opened it, so this draft would replace their changes. Your draft is still here. Read the current table, and make your changes again.",
+        "unknown": "The responsibility guide could not be saved just now. Try again."
+      },
+      "template": {
+        "surfaces": "Surfaces of the walls, floors and ceilings in the apartment",
+        "kitchenAndBathroom": "Fittings and appliances in the kitchen and bathroom, such as white goods, taps and the toilet",
+        "floorDrain": "Floor drain, cleaning",
+        "smokeAlarm": "Smoke alarm",
+        "innerDoors": "Inner doors and the inside of the front door",
+        "windowsInside": "Windows and balcony door, the inside and the glass",
+        "windowsOutside": "Windows and balcony door, the outside",
+        "sharedPipes": "Pipes and wiring for water, drains, heating and electricity that serve more than one apartment",
+        "ventilationDucts": "Ventilation ducts",
+        "radiators": "Radiators",
+        "commonAreas": "Stairwells, the laundry room and other shared spaces",
+        "buildingShell": "Roof, facade and exterior maintenance"
       }
     },
     "issuePlaces": {
@@ -3766,7 +3815,11 @@
         "assigneeNotAHandler": "That person does not handle this issue any more. The list has been read again.",
         "targetDateInvalid": "That is not a date. Choose one from the calendar.",
         "unknown": "The issue could not be changed just now. Please try again."
-      }
+      },
+      "costResponsibility": "Who pays",
+      "costResponsibilityNamed": "{{type}}: who pays",
+      "costResponsibilityUnset": "Not stated",
+      "notANoticeToRemedy": "A reply on the issue is not a notice to remedy (rättelseanmaning) under chapter 7, section 12 a of the Tenant-Ownership Act. If the association requires the tenant-owner to put something right, that is done outside Open BRF, in a way that shows the notice arrived, such as a registered letter."
     },
     "timeline": {
       "__after__": "handling",
@@ -3787,6 +3840,8 @@
       "targetDateRemoved": "Target date removed",
       "boardOnly": "Closed to all but the board",
       "everyHandler": "Opened again to every handler of its type",
+      "costResponsibility": "Who pays set to {{who}}",
+      "costResponsibilityRemoved": "Who pays was removed",
       "placeSet": "Common area set",
       "placeRemoved": "Common area removed",
       "entryWithdrawn": "Answer about entering withdrawn",
@@ -3820,13 +3875,45 @@
         "unknown": "The issue could not be opened just now. Please try again."
       }
     },
+    "costResponsibility": {
+      "ASSOCIATION": "The association",
+      "TENANT_OWNER": "The tenant-owner",
+      "UNCLEAR": "Unclear"
+    },
+    "maintenanceResponsibility": {
+      "ASSOCIATION": "The association",
+      "TENANT_OWNER": "The tenant-owner"
+    },
+    "guide": {
+      "title": "Responsibility guide from the bylaws",
+      "part": "What",
+      "responsibility": "Responsible",
+      "note": "Note",
+      "example": "Example. The board has not checked this table against the association's bylaws, so it does not say who is responsible here.",
+      "adopted": "From the association's bylaws, as the board reads them. The bylaws take precedence over the table.",
+      "empty": "The board has not filled in the responsibility guide yet.",
+      "loadFailed": "The responsibility guide could not be read just now.",
+      "reporterTitle": "Who is responsible for what?",
+      "reporterIntro": "The association's bylaws divide maintenance between the association and the tenant-owner. If you are unsure whose responsibility it is, report it anyway."
+    },
+    "charges": {
+      "title": "Charges",
+      "hint": "The amount is only on the charge. The property manager does not see it.",
+      "create": "Create a charge",
+      "createNamed": "{{type}}: create a charge",
+      "none": "No charge has been made from this issue.",
+      "withheld": "Not shown: the person who reported the issue has protected personal data, and a charge would show who they are.",
+      "loading": "Reading the charges...",
+      "loadFailed": "The charges could not be read just now.",
+      "amount": "<data>{{amount}}</data> kr"
+    },
     "conversation": {
       "title": "Messages with the reporter",
       "openOwn": "Messages about {{type}}",
       "loading": "Reading the messages...",
       "readFailed": "The messages could not be read just now. Close and open them again.",
       "readFailedHandler": "The messages, notes or files could not be read just now. Close and open the issue again.",
-      "savedRepliesReadFailed": "The saved replies could not be read just now, so none can be inserted. Close and open the issue again.",
+      "savedRepliesReadFailed": "The saved replies could not be read just now. Close and open the issue again.",
       "empty": "No messages yet.",
       "emptyOwn": "No messages yet. The board or the property manager answers here.",
       "you": "You",
@@ -6076,7 +6163,11 @@
       "handedHint": "The day the basis was sent over. It says nothing about payment.",
       "submit": "Record the charge",
       "saving": "Recording",
-      "saved": "The charge is recorded."
+      "saved": "The charge is recorded.",
+      "fromIssue": "This charge is made from the issue {{type}} and is linked to it. The amount is only recorded here.",
+      "fromIssueReason": "Issue: {{type}}",
+      "fromIssueFailed": "The issue could not be read, or is not yours to handle. The form is empty.",
+      "fromIssueLoading": "Reading the issue..."
     },
     "correct": {
       "action": "Correct",
@@ -6109,8 +6200,10 @@
       "handedOverInTheFuture": "The basis cannot have been sent over on a day that has not come.",
       "rangeInvalid": "The period cannot end before it begins.",
       "invalidBody": "Something in the form could not be read. Check the amount and the dates.",
-      "unknown": "The charge could not be saved just now."
-    }
+      "unknown": "The charge could not be saved just now.",
+      "issueNotFound": "The issue no longer exists, or is not yours to handle. The charge was not recorded."
+    },
+    "fromIssue": "From an issue"
   },
   "accounting": {
     "basis": {

@@ -408,6 +408,7 @@ describe("a page carrying a calendar block", () => {
     sent: null,
     refused: null,
     issueTypes: null,
+    responsibilityGuide: null,
   };
 
   it("shows the dates it was handed, soonest first", () => {

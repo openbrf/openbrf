@@ -35,6 +35,7 @@ const fetchOwnIssues = vi.fn();
 const fetchOwnIssueMessages = vi.fn();
 const sendOwnIssueMessage = vi.fn();
 const fetchIssuePlaces = vi.fn();
+const fetchGuide = vi.fn();
 
 vi.mock("../api/feed", () => ({
   fetchPost: (input: unknown) => fetchPost(input),
@@ -48,6 +49,7 @@ vi.mock("../api/issues", async (importOriginal) => ({
     ),
   fetchOwnApartments: () => Promise.resolve(ok([])),
   fetchIssuePlaces: () => fetchIssuePlaces(),
+  fetchReporterResponsibilityGuide: () => fetchGuide(),
   fetchOwnIssues: () => fetchOwnIssues(),
   fetchOwnIssueMessages: (id: string) => fetchOwnIssueMessages(id),
   sendOwnIssueMessage: (input: unknown) => sendOwnIssueMessage(input),
@@ -95,6 +97,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   fetchOwnIssues.mockResolvedValue(ok([]));
   fetchIssuePlaces.mockResolvedValue(ok([]));
+  fetchGuide.mockResolvedValue(ok({ guide: null }));
   reportIssue.mockResolvedValue(ok({ id: "issue-1" }));
   attachIssuePhoto.mockResolvedValue(
     ok({
@@ -229,6 +232,86 @@ describe("a report made from a post", () => {
     });
     expect(await screen.findByLabelText(/vad har hänt/iu)).toBeTruthy();
     expect(screen.queryByText("Ärendena kunde inte läsas just nu.")).toBeNull();
+  });
+
+  /*
+   * Opens a report with the adopted guide on show, then has the answer to a
+   * reply say the report is closed, which makes the screen read everything
+   * again. Comes back once that re-read has been applied: the composer is gone
+   * only after the lists have been set, and the guide is set with them.
+   */
+  async function reopenWithAdoptedGuide(
+    guideAfter: ReturnType<typeof ok> | ReturnType<typeof refused>,
+  ): Promise<void> {
+    const guide = {
+      adoptedAt: "2026-08-01T08:00:00.000Z",
+      version: "2026-08-01T08:00:00.000Z",
+      items: [
+        {
+          part: "Golvbrunn",
+          responsibility: "ASSOCIATION" as const,
+          note: null,
+        },
+      ],
+    };
+    fetchGuide.mockResolvedValueOnce(ok({ guide }));
+    fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    const report = {
+      id: "issue-1",
+      meaning: "IN_PROGRESS" as const,
+      typeId: "type-lift",
+      typeName: "Hiss",
+      location: null,
+      place: null,
+      description: "Hissen står still.",
+      apartment: null,
+      entry: null,
+      photos: [],
+      enteredByHandler: false,
+      createdAt: "2026-08-20T08:00:00.000Z",
+      updatedAt: "2026-08-20T08:00:00.000Z",
+    };
+    fetchOwnIssues.mockResolvedValueOnce(ok([report]));
+    sendOwnIssueMessage.mockResolvedValue(refused(409, "issue-closed"));
+    const session = userEvent.setup();
+    render(<IssuesScreen viewer={READER} />);
+
+    expect(
+      await screen.findByText("Vem ansvarar för vad?", { selector: "summary" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Golvbrunn")).toBeTruthy();
+
+    // The re-read that a closed answer asks for.
+    fetchGuide.mockResolvedValue(guideAfter);
+    fetchOwnIssues.mockResolvedValue(ok([{ ...report, meaning: "DONE" }]));
+    await session.click(screen.getByText("Meddelanden om Hiss"));
+    await session.type(
+      await screen.findByLabelText("Hiss: ditt meddelande"),
+      "Hallå",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Hiss: ditt meddelande")).toBeNull();
+    });
+    expect(fetchGuide).toHaveBeenCalledTimes(2);
+  }
+
+  it("keeps the guide on show when it cannot be read again", async () => {
+    await reopenWithAdoptedGuide(refused(500, "unknown"));
+
+    expect(
+      screen.getByText("Vem ansvarar för vad?", { selector: "summary" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Golvbrunn")).toBeTruthy();
+  });
+
+  it("removes the guide when it is read again and has been withdrawn", async () => {
+    await reopenWithAdoptedGuide(ok({ guide: null }));
+
+    expect(
+      screen.queryByText("Vem ansvarar för vad?", { selector: "summary" }),
+    ).toBeNull();
+    expect(screen.queryByText("Golvbrunn")).toBeNull();
   });
 
   it("hides the composer once the list is read again and shows the report closed", async () => {

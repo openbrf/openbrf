@@ -17,6 +17,7 @@ import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
 import {
+  ISSUE_COST_RESPONSIBILITY_LABEL,
   ISSUE_MEANING_LABEL,
   ISSUE_OUTCOME_LABEL,
   ISSUE_WAITING_REASON_LABEL,
@@ -572,6 +573,8 @@ const AUDIT_ACTION_LABEL = {
   ISSUE_TARGET_DATE_CHANGED:
     "register.person.report.action.ISSUE_TARGET_DATE_CHANGED",
   ISSUE_ACCESS_CHANGED: "register.person.report.action.ISSUE_ACCESS_CHANGED",
+  ISSUE_COST_RESPONSIBILITY_CHANGED:
+    "register.person.report.action.ISSUE_COST_RESPONSIBILITY_CHANGED",
   ISSUE_MESSAGE_SENT: "register.person.report.action.ISSUE_MESSAGE_SENT",
   ISSUE_NOTE_ADDED: "register.person.report.action.ISSUE_NOTE_ADDED",
   ISSUE_ENTRY_PERMISSION_SET:
@@ -1633,6 +1636,17 @@ export function DataSubjectReport({
                       {issue.waitingReason !== null && (
                         <span className="block">
                           {t(ISSUE_WAITING_REASON_LABEL[issue.waitingReason])}
+                        </span>
+                      )}
+                      {issue.costResponsibility !== null && (
+                        <span className="block">
+                          {t("register.person.report.issueCostResponsibility", {
+                            who: t(
+                              ISSUE_COST_RESPONSIBILITY_LABEL[
+                                issue.costResponsibility
+                              ],
+                            ),
+                          })}
                         </span>
                       )}
                     </td>

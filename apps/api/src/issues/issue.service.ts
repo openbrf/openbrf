@@ -6,6 +6,7 @@ import {
   formatDateColumn,
   ISSUE_ENTRY_ANSWERS,
   ISSUE_FINDING_KINDS,
+  ISSUE_COST_RESPONSIBILITIES,
   ISSUE_OUTCOMES,
   ISSUE_PRIORITIES,
   ISSUE_STATUS_LIMITS,
@@ -14,6 +15,7 @@ import {
   type IssueClosingOutcome,
   type IssueEntryAnswer,
   type IssueFindingKind,
+  type IssueCostResponsibility,
   type IssueHandledBy,
   type IssueOutcome,
   type IssuePriority,
@@ -216,6 +218,12 @@ export type QueuedIssueView = OwnIssueView & {
   boardOnly: boolean;
   /** The inspection it is a finding of (decision 31), or null. */
   finding: IssueFindingView | null;
+  /**
+   * Who pays for it, or null while nobody has said (decision 26). Never an
+   * amount: a charge made from the issue is read from the charges, by those
+   * who may read charges, and the property manager may not.
+   */
+  costResponsibility: IssueCostResponsibility | null;
 } & (
     | { reporter: Exclude<IssueReporterView, { kind: "protected" }> }
     | {
@@ -346,7 +354,30 @@ export type IssueTimelineStep = {
       kind: "finding";
       findingKind: IssueFindingKind | null;
     }
+  | {
+      kind: "costResponsibility";
+      from: IssueCostResponsibility | null;
+      to: IssueCostResponsibility | null;
+    }
 );
+
+/** What a charge made from an issue starts with: see `chargeBasis`. */
+export interface IssueChargeBasis {
+  issueId: string;
+  typeName: string;
+  costResponsibility: IssueCostResponsibility | null;
+  /**
+   * Whether the reporter's personal data is protected, from the same read as
+   * the party. A null party does not say it: an unprotected reporter who is no
+   * resident has none either.
+   */
+  reporterProtected: boolean;
+  /** Who a charge for it is put on unless the board picks another, or null. */
+  party:
+    | { kind: "apartment"; apartmentId: string }
+    | { kind: "person"; personId: string }
+    | null;
+}
 
 /**
  * How many issues one page of the queue answers with.
@@ -1182,6 +1213,52 @@ export class IssueService {
   }
 
   /**
+   * Records who pays for an issue (decision 26): the association, the
+   * tenant-owner, unclear, or null to say nothing again. Reached with
+   * issues:handle, the property manager included: whose cost a repair is
+   * belongs to handling it, and the value carries no amount.
+   *
+   * What the tenant-owner is charged is not here and never will be. It is a
+   * member charge, recorded on the charges screen from this issue and linked
+   * back to it, which only those holding `memberCharges:manage` read. The
+   * entry carries the value either side.
+   */
+  async setCostResponsibility(
+    issueId: string,
+    costResponsibility: IssueCostResponsibility | null,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    const issue = await this.prisma.$transaction(async (tx) => {
+      await this.lockForAssignment(tx, issueId);
+      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      if (existing.costResponsibility !== costResponsibility) {
+        await this.audit.record(
+          {
+            action: "ISSUE_COST_RESPONSIBILITY_CHANGED",
+            channel: "WEB",
+            actorPersonId,
+            targetKind: "issue",
+            targetId: issueId,
+            context: {
+              from: existing.costResponsibility,
+              to: costResponsibility,
+            },
+          },
+          tx,
+        );
+      }
+      return tx.issue.update({
+        where: { id: issueId },
+        data: { costResponsibility },
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} cost responsibility changed`);
+    return this.viewOf(issue);
+  }
+
+  /**
    * Closes an issue to every handler but the board, or opens it again to every
    * handler its type lets in (decision 13). Reached with issues:handle.
    *
@@ -1344,6 +1421,38 @@ export class IssueService {
         ),
       ),
     ];
+  }
+
+  /**
+   * What a charge made from an issue starts with ("Skapa debitering",
+   * decision 26): the issue, its type's name, and the party a charge for it is
+   * put on unless the board picks another.
+   *
+   * Read through `queuedIssue`, so an issue the reader does not handle is
+   * answered as one that does not exist and a protected reporter is masked as
+   * the queue masks them. The party is the issue's apartment where the queue
+   * shows one - a repair charged on to the flat is what an apartment charge
+   * is - and otherwise the resident who reported it. Nothing the reporter
+   * wrote: the reason on a charge is the board's own words, copied into a file
+   * that leaves the association.
+   */
+  async chargeBasis(
+    readerPersonId: string,
+    issueId: string,
+  ): Promise<IssueChargeBasis> {
+    const issue = await this.queuedIssue(readerPersonId, issueId, "show");
+    return {
+      issueId: issue.id,
+      typeName: issue.typeName,
+      costResponsibility: issue.costResponsibility,
+      reporterProtected: issue.reporter.kind === "protected",
+      party:
+        issue.apartment !== null
+          ? { kind: "apartment", apartmentId: issue.apartment.id }
+          : issue.reporter.kind === "resident"
+            ? { kind: "person", personId: issue.reporter.personId }
+            : null,
+    };
   }
 
   /**
@@ -1562,6 +1671,7 @@ export class IssueService {
       assigneePersonId: true,
       priority: true,
       targetDate: true,
+      costResponsibility: true,
       createdAt: true,
       type: { select: { handledBy: true } },
       finding: { select: { kind: true, inspectedOn: true } },
@@ -2092,6 +2202,7 @@ interface IssueRecord extends EntryColumns {
   priority: IssuePriority;
   targetDate: Date | null;
   boardOnly: boolean;
+  costResponsibility: IssueCostResponsibility | null;
   assigneePersonId: string | null;
   enteredByPersonId: string | null;
   enteredByHandler: boolean;
@@ -2160,6 +2271,7 @@ function toQueuedView(
     enteredBy: handlers.enteredBy,
     boardOnly: issue.boardOnly,
     finding: toFindingView(issue.finding),
+    costResponsibility: issue.costResponsibility,
   };
   if (reporter.kind === "protected") {
     return { ...queued, apartment: null, reporter };
@@ -2205,6 +2317,7 @@ const TIMELINE_ACTIONS = [
   "ISSUE_ENTRY_PERMISSION_REMOVED",
   "ISSUE_FINDING_MARKED",
   "ISSUE_FINDING_REMOVED",
+  "ISSUE_COST_RESPONSIBILITY_CHANGED",
 ] as const satisfies readonly AuditAction[];
 
 /**
@@ -2298,6 +2411,14 @@ function timelineStep(
       };
     case "ISSUE_FINDING_REMOVED":
       return { kind: "finding", at, actor, findingKind: null };
+    case "ISSUE_COST_RESPONSIBILITY_CHANGED":
+      return {
+        kind: "costResponsibility",
+        at,
+        actor,
+        from: oneOf(text("from"), ISSUE_COST_RESPONSIBILITIES),
+        to: oneOf(text("to"), ISSUE_COST_RESPONSIBILITIES),
+      };
     default:
       return {
         kind: "status",
