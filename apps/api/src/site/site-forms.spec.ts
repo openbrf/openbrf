@@ -68,6 +68,7 @@ function state(overrides: Partial<SiteFormState> = {}): SiteFormState {
     sent: null,
     refused: null,
     issueTypes: [{ id: "type-1", name: "Trasig port" }],
+    responsibilityGuide: null,
     ...overrides,
   };
 }
@@ -224,6 +225,92 @@ describe("the issue report form", () => {
     // The contact form on the same page is untouched by it.
     expect(html).toContain('action="/kontakta-oss/kontakt"');
     expect(html.includes('action="/kontakta-oss/felanmalan"')).toBe(false);
+  });
+});
+
+describe("the responsibility guide on the issue report form", () => {
+  const GUIDE = [
+    {
+      part: "Golvbrunn, rensning",
+      responsibility: "TENANT_OWNER" as const,
+      note: null,
+    },
+    {
+      part: "Stammar",
+      responsibility: "ASSOCIATION" as const,
+      note: "Tjänar fler än en lägenhet",
+    },
+  ];
+
+  it("comes folded before the fields, with the bylaws first", () => {
+    const html = renderPage(
+      chrome,
+      page([{ type: "issueReportForm" }]),
+      state({ responsibilityGuide: GUIDE }),
+    );
+
+    const guide = html.indexOf('<details class="site-form-guide">');
+    expect(guide).toBeGreaterThan(-1);
+    // Before the form, so it is read before the report is written.
+    expect(guide).toBeLessThan(html.indexOf("<form"));
+    // Folded: no `open`, so it never stands between somebody and the form.
+    expect(html.includes("<details open")).toBe(false);
+    expect(html).toContain("<summary>Vem ansvarar för vad?</summary>");
+    expect(html).toContain("gör en anmälan ändå");
+    expect(html).toContain("Stadgarna gäller före tabellen.");
+    expect(html).toContain(
+      "<tr><td>Golvbrunn, rensning</td><td>Bostadsrättshavaren</td><td></td></tr>",
+    );
+    expect(html).toContain(
+      "<tr><td>Stammar</td><td>Föreningen</td><td>Tjänar fler än en lägenhet</td></tr>",
+    );
+  });
+
+  it("is absent when the service hands it none", () => {
+    // Null is an example the board has not adopted, or a guide with no lines:
+    // the service decides, and the form shows nothing in its place.
+    const html = renderPage(
+      chrome,
+      page([{ type: "issueReportForm" }]),
+      state({ responsibilityGuide: null }),
+    );
+
+    expect(html).toContain("<form");
+    expect(html.includes('class="site-form-guide"')).toBe(false);
+  });
+
+  it("is absent with the form, and over the confirmation that replaces it", () => {
+    for (const forms of [
+      state({ issueTypes: null, responsibilityGuide: GUIDE }),
+      state({ sent: "issue", responsibilityGuide: GUIDE }),
+    ]) {
+      const html = renderPage(
+        chrome,
+        page([{ type: "issueReportForm" }]),
+        forms,
+      );
+      expect(html.includes('class="site-form-guide"')).toBe(false);
+    }
+  });
+
+  it("escapes the board's own words", () => {
+    const html = renderPage(
+      chrome,
+      page([{ type: "issueReportForm" }]),
+      state({
+        responsibilityGuide: [
+          {
+            part: "<script>alert(1)</script>",
+            responsibility: "ASSOCIATION",
+            note: '"><img src=x>',
+          },
+        ],
+      }),
+    );
+
+    expect(html.includes("<script>alert(1)</script>")).toBe(false);
+    expect(html.includes("<img src=x>")).toBe(false);
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
   });
 });
 

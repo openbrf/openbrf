@@ -270,11 +270,13 @@ the home or the building, who maintains it, and a note. The product ships an
 example the board loads into the form and changes, never a stored default, and
 the guide stays labelled as an example until the board adopts it by saying it
 follows its bylaws. Handlers see it when they decide who pays, labelled either
-way. A resident is shown it before filing only once it is adopted: an example
-shown to a resident as the association's answer is the legal fact this record
-refuses to state. The guide is association records, not personal data, and
-every line is scanned for a personal identity number, because every resident
-may read it.
+way. A reporter is shown it before filing only once it is adopted, a resident
+on the report form in the application and anybody on the public website's issue
+report form: an example shown to a reporter as the association's answer is the
+legal fact this record refuses to state. The guide is association records, not
+personal data, and every line is scanned for a personal identity number,
+because once adopted it is published wherever the association takes issue
+reports, the public website included.
 
 Where a handler records that the cost is the tenant-owner's, and where a case is
 closed as the tenant-owner's responsibility, the screen says that a message on

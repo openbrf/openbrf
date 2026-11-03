@@ -12,7 +12,7 @@ a responsibility guide from its own bylaws (ADR 0054).
   association, by the tenant-owner, or is unclear. Any handler can, the property
   manager included. It is on the issue's timeline and in the audit log, and a
   reporter does not see it. An issue never carries an amount.
-- **A charge made from an issue.** "Skapa debitering" on an issue opens the
+- **A charge made from an issue.** "Create a charge" on an issue opens the
   charges screen with the form filled in: the issue's apartment, or the resident
   who reported it, and a reason naming the issue's type. The board enters the
   amount there, and it is stored only on the charge. The charge names the issue
@@ -25,9 +25,10 @@ a responsibility guide from its own bylaws (ADR 0054).
   of the home and the building, under the association's own bylaws, in the
   settings beside the issue types. It starts from an example the board loads and
   changes, and stays labelled as an example until the board says it follows the
-  bylaws. Handlers see it when they decide who pays. Residents see it before
-  they report a fault only once the board has adopted it. A line holding a
-  personal identity number is refused.
+  bylaws. Handlers see it when they decide who pays. Whoever reports a fault sees
+  it first only once the board has adopted it: a resident on the report form in
+  the application, and anybody on the public website's issue report form. A
+  line holding a personal identity number is refused.
 - **Notice to remedy.** Where a handler records that the cost is the
   tenant-owner's, or closes an issue as the tenant-owner's responsibility, the
   screen says that a message on the issue is not a notice to remedy

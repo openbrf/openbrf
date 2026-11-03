@@ -6,7 +6,7 @@ import {
 } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
+import { Prisma } from "../generated/prisma/client";
 import { lockResponsibilityGuide } from "./issue-lock";
 import {
   ResponsibilityGuideError,
@@ -55,14 +55,28 @@ export interface SaveResponsibilityGuideInput {
  *
  * Who reads it follows from that. A handler deciding who pays reads it either
  * way, with the label. A reporter is shown it before they file only once it is
- * adopted: an example shown to a resident as if it were the association's
- * answer is the legal fact this module refuses to state.
+ * adopted - a signed-in resident on the report form, and anybody on the public
+ * website's report form - because an example shown to a reporter as if it were
+ * the association's answer is the legal fact this module refuses to state.
  *
  * ## Saved whole
  *
  * The board edits the table and saves it, so a save replaces every line in
  * one transaction under a lock of its own: two saves at once would otherwise
  * each delete what the other had not yet written and leave both sets behind.
+ *
+ * ## Read as of one moment
+ *
+ * The adoption and the lines are two tables, and a reader that is shown the
+ * guide only when it is adopted has to read both as they stood together. Read
+ * one after the other, a save that replaces the lines and withdraws the
+ * adoption could commit between them, and a reporter would be handed the new,
+ * unadopted lines under the old adoption date. The save's lock does not stop
+ * that, because a reader does not take it, and should not: a reporter would
+ * then queue behind the board. A `REPEATABLE READ` transaction gives both reads
+ * one snapshot, which `READ COMMITTED` does not, so the guide is read either
+ * wholly before a save or wholly after it. The transaction only reads, so it is
+ * never retried.
  */
 @Injectable()
 export class ResponsibilityGuideService {
@@ -72,7 +86,9 @@ export class ResponsibilityGuideService {
 
   /** The guide as the board and the handlers read it, adopted or not. */
   async read(): Promise<ResponsibilityGuideView> {
-    return readGuide(this.prisma);
+    return this.prisma.$transaction((tx) => readGuide(tx), {
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+    });
   }
 
   /**
@@ -128,19 +144,22 @@ export class ResponsibilityGuideService {
   }
 }
 
+/**
+ * The adoption and the lines, read in a transaction that sees them as of one
+ * moment: a `REPEATABLE READ` one for a reader, and the save's own, under its
+ * lock, for the guide a save answers with.
+ */
 async function readGuide(
-  db: PrismaService | Prisma.TransactionClient,
+  tx: Prisma.TransactionClient,
 ): Promise<ResponsibilityGuideView> {
-  const [guide, items] = await Promise.all([
-    db.responsibilityGuide.findUnique({
-      where: { id: 1 },
-      select: { adoptedAt: true },
-    }),
-    db.responsibilityGuideItem.findMany({
-      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-      select: { part: true, responsibility: true, note: true },
-    }),
-  ]);
+  const guide = await tx.responsibilityGuide.findUnique({
+    where: { id: 1 },
+    select: { adoptedAt: true },
+  });
+  const items = await tx.responsibilityGuideItem.findMany({
+    orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+    select: { part: true, responsibility: true, note: true },
+  });
   return {
     adoptedAt: guide?.adoptedAt?.toISOString() ?? null,
     items,
@@ -188,9 +207,9 @@ function readItems(
   });
 
   /*
-   * The guide is shown to every resident before they file, so a personnummer
-   * pasted into it would be published to the house. The refusal names where,
-   * never what.
+   * The adopted guide is shown to every reporter before they file, on the
+   * public website's report form too, so a personnummer pasted into it would
+   * be published to the street. The refusal names where, never what.
    */
   const locations: ResponsibilityGuideTextLocation[] = read.flatMap(
     (item, index) => [

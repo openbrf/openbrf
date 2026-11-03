@@ -342,14 +342,15 @@ locally the application runs from source beside the PostgreSQL that
       can be assigned to are named and nothing more, so the property manager is
       never shown the address book (ADR 0054)
 - [x] Who pays for an issue: a handler records the association, the
-      tenant-owner or unclear, and never an amount. "Skapa debitering" opens a
+      tenant-owner or unclear, and never an amount. "Create a charge" opens a
       charge filled in from the issue, the amount is entered there and lives
       only there, and the charge names the issue, so removing either leaves the
       other. Whoever may read charges sees the amounts on the issue; the
       property manager does not. The association's responsibility guide, who
       maintains which part of the home under its own bylaws, starts from an
       example labelled as one, is shown to handlers when they decide who pays,
-      and to residents before they report once the board adopts it. Where the
+      and to reporters before they report, on the public website's issue report
+      form too, once the board adopts it. Where the
       cost is the tenant-owner's, the screen says that a message on the issue
       is not a notice to remedy under BRL 7 kap. 12 a § (ADR 0054)
 - [x] One page, one audience: the board's work on its own pages under the

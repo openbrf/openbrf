@@ -26,6 +26,73 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { lockResponsibilityGuide } from "./issue-lock";
+import { ResponsibilityGuideService } from "./responsibility-guide.service";
+
+/**
+ * The client a guide reader is given, which runs `between` to its end after
+ * the reader's first read of the guide's tables and before any further read
+ * of them starts - on the client itself or in a transaction it opens.
+ *
+ * Whatever shape the reader takes, two reads in sequence or two at once, the
+ * second is held until `between` has committed, so a test sees what a reader
+ * makes of a write that lands in the gap.
+ */
+function betweenTheFirstReadAndTheNext(
+  client: PrismaService,
+  between: () => Promise<void>,
+): PrismaService {
+  const tables = new Set(["responsibilityGuide", "responsibilityGuideItem"]);
+  let first: Promise<unknown> | null = null;
+
+  function delegate(target: object): object {
+    return new Proxy(target, {
+      get(table, method) {
+        const query: unknown = Reflect.get(table, method, table);
+        if (typeof query !== "function") {
+          return query;
+        }
+        return async (...args: unknown[]) => {
+          const run = () =>
+            (query as (...a: unknown[]) => unknown).apply(table, args);
+          if (first === null) {
+            first = (async () => {
+              const result = await run();
+              await between();
+              return result;
+            })();
+            return first;
+          }
+          await first;
+          return run();
+        };
+      },
+    });
+  }
+
+  function wrap<T extends object>(target: T): T {
+    return new Proxy(target, {
+      get(db, property) {
+        const value: unknown = Reflect.get(db, property, db);
+        if (property === "$transaction" && typeof value === "function") {
+          return (work: unknown, options?: unknown) =>
+            (value as (w: unknown, o?: unknown) => unknown).call(
+              db,
+              typeof work === "function"
+                ? (tx: object) => (work as (t: object) => unknown)(wrap(tx))
+                : work,
+              options,
+            );
+        }
+        if (typeof property === "string" && tables.has(property)) {
+          return delegate(value as object);
+        }
+        return typeof value === "function" ? value.bind(db) : value;
+      },
+    });
+  }
+
+  return wrap(client);
+}
 
 /**
  * Who pays for an issue, the charge made from it, and the association's
@@ -747,6 +814,50 @@ describe("the responsibility guide", () => {
       ]);
     } finally {
       release();
+      await restore();
+    }
+  });
+
+  it("reads the adoption and the lines as of one moment, so a withdrawal is never read half", async () => {
+    /*
+     * The adoption and the lines are two reads. Here a save that replaces the
+     * lines and withdraws the adoption commits after the reader's first read
+     * and before its second, which is the overlap a reporter's request and a
+     * board's save can have. Read on one snapshot, the reporter gets the
+     * adopted guide as it stood before the save; read each on its own, they
+     * would get the old adoption date over the new lines, and be shown an
+     * example as the association's answer.
+     */
+    const guides = app.get(ResponsibilityGuideService);
+    try {
+      expect((await save(true)).statusCode).toBe(200);
+      const before = await guides.read();
+
+      const replacement = [
+        {
+          part: `Exempelrad ${suffix}`,
+          responsibility: "ASSOCIATION" as const,
+          note: null,
+        },
+      ];
+      let saved = false;
+      const reader = new ResponsibilityGuideService(
+        betweenTheFirstReadAndTheNext(prisma, async () => {
+          await guides.save({ items: replacement, adopted: false });
+          saved = true;
+        }),
+      );
+
+      const shown = await reader.readForReporter();
+
+      expect(saved, "the save committed while the guide was read").toBe(true);
+      expect(shown).toEqual(before);
+      expect(await guides.readForReporter()).toBeNull();
+      expect(await guides.read()).toEqual({
+        adoptedAt: null,
+        items: replacement,
+      });
+    } finally {
       await restore();
     }
   });

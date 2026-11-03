@@ -50,6 +50,6 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueActionsRegistrar,
     ResponsibilityGuideService,
   ],
-  exports: [IssueService, IssueTypeService],
+  exports: [IssueService, IssueTypeService, ResponsibilityGuideService],
 })
 export class IssuesModule {}

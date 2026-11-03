@@ -2197,6 +2197,30 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Var finns tvättstugan?" },
   },
 
+  {
+    /*
+     * The responsibility guide (ansvarsfördelning), filled in from the example
+     * and adopted.
+     *
+     * The example is the product's own lines from the translations, so the
+     * picture shows nothing anybody typed. Adopted, because that is the state
+     * a reporter is shown it in, and the card then carries the date it was
+     * adopted on. The date proves the save was read back, which is what makes
+     * it the marker for the data rather than for the card.
+     */
+    name: "settings-responsibility-guide",
+    as: "administrator",
+    goto: appPath("/board/settings/issues-bookings"),
+    prepare: [
+      { see: { panel: "Ansvarsfördelning" } },
+      { click: { button: "Fyll i exemplet" } },
+      { click: { label: "Tabellen följer föreningens stadgar" } },
+      { click: { button: "Spara ansvarsfördelningen" } },
+    ],
+    waitFor: { text: /^Antagen / },
+    capture: { panel: "Ansvarsfördelning" },
+  },
+
   // --- bookings ---------------------------------------------------------------
   // Three screens in one order, because each photographs what the one above it
   // did: the board names a laundry room, a resident takes an hour in it, and the
