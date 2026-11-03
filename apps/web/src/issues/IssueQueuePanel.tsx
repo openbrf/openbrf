@@ -18,6 +18,7 @@ import {
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, LABEL, SECONDARY_BUTTON } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -63,6 +64,11 @@ export interface IssueQueuePanelProps {
   /** Called after a status change, so the caller can reload the queue. */
   onChanged: () => void;
   /**
+   * Reads the types again. With it, the notice that they could not be read
+   * offers a retry; without it the notice only says so.
+   */
+  onRetryTypes?: () => void;
+  /**
    * What an empty list says: which view is empty, or that nothing matches
    * the filter. The queue as a whole, by default.
    */
@@ -95,6 +101,7 @@ export function IssueQueuePanel({
   issues,
   types,
   onChanged,
+  onRetryTypes,
   emptyMessage,
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
@@ -131,9 +138,16 @@ export function IssueQueuePanel({
             )}
           </Notice>
         ) : types === null ? (
-          <Notice tone="danger" live>
-            {t("issues.queue.statusesUnavailable")}
-          </Notice>
+          onRetryTypes === undefined ? (
+            <Notice tone="danger" live>
+              {t("issues.queue.statusesUnavailable")}
+            </Notice>
+          ) : (
+            <LoadFailure
+              messageKey="issues.queue.statusesUnavailable"
+              onRetry={onRetryTypes}
+            />
+          )
         ) : null
       }
     >

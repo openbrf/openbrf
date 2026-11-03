@@ -3624,7 +3624,7 @@
       "waitingOn": "Waiting for: {{reason}}",
       "closedAs": "Outcome: {{outcome}}",
       "noOutcome": "Closed before outcomes were recorded.",
-      "statusesUnavailable": "The statuses could not be read just now, so issues cannot be moved. Reload the page.",
+      "statusesUnavailable": "The statuses could not be read just now, so issues cannot be moved.",
       "saving": "Saving...",
       "errors": {
         "issueNotFound": "That issue is gone. The queue has been read again.",

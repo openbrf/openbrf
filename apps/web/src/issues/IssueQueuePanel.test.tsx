@@ -450,6 +450,22 @@ describe("moving a report to another status", () => {
     expect(screen.getByText(/statusarna kunde inte läsas/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Spara status" })).toBeNull();
   });
+
+  it("offers a retry of the types when the caller can read them again", async () => {
+    const onRetryTypes = vi.fn();
+    render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={null}
+        onChanged={() => undefined}
+        onRetryTypes={onRetryTypes}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(onRetryTypes).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("the status of a report", () => {

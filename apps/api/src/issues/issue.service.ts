@@ -787,7 +787,7 @@ export class IssueService {
       undefined,
     );
 
-    return this.queuedViews(issues, "show");
+    return this.queuedViews(issues, "show", localDayOf(now));
   }
 
   /**
@@ -869,7 +869,7 @@ export class IssueService {
       { isolationLevel: "RepeatableRead" },
     );
 
-    return { issues: await this.queuedViews(rows, "show"), counts };
+    return { issues: await this.queuedViews(rows, "show", today), counts };
   }
 
   /**
@@ -1857,6 +1857,7 @@ export class IssueService {
       reporterEmailCipher: string | null;
     })[],
     protectedReporters: ProtectedReporters,
+    today: LocalDay = localDayOf(new Date()),
   ): Promise<QueuedIssueView[]> {
     const personIds = [
       ...new Set(
@@ -1882,7 +1883,6 @@ export class IssueService {
         issue.enteredByPersonId,
       ]),
     );
-    const today = localDayOf(new Date());
 
     const views = await Promise.all(
       issues.map(async (issue) =>
@@ -2164,16 +2164,31 @@ async function countQueueIn(
  * an "ä" typed as one character; `unicodeFormsOf` then matches it against
  * stored text in either form. Invisible format characters (a zero-width space
  * pasted with a word) are dropped, so they neither make a word of their own
- * nor keep the word they cling to from matching.
+ * nor keep the word they cling to from matching. The zero-width joiner and
+ * non-joiner stay: they change what a word is in emoji and in some scripts,
+ * and stored text keeps them.
  */
 export function searchTermsOf(search: string): string[] {
   const words = search
     .slice(0, ISSUE_SEARCH_LIMITS.length)
     .normalize("NFC")
-    .replace(/\p{Cf}/gu, "")
+    .replace(/\p{Cf}/gu, (char) =>
+      char === "\u200C" || char === "\u200D" ? char : "",
+    )
     .split(/\s+/u)
     .filter((word) => word !== "");
-  return [...new Set(words)].slice(0, ISSUE_SEARCH_LIMITS.terms);
+  // Each word once whatever its case, because the match ignores case: two
+  // spellings of one word would otherwise use two of the places.
+  const seen = new Set<string>();
+  const different = words.filter((word) => {
+    const key = word.toLowerCase();
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+  return different.slice(0, ISSUE_SEARCH_LIMITS.terms);
 }
 
 /**
@@ -2182,6 +2197,10 @@ export function searchTermsOf(search: string): string[] {
  * character by character, so "läcka" written with a combining mark is found
  * only by the decomposed word and written as one character only by the
  * composed one.
+ *
+ * Only these two uniform forms: a word that mixes a composed and a decomposed
+ * accent within itself is found by neither. Finding that too would take
+ * normalisation in the database or on write, which this does not do.
  */
 export function unicodeFormsOf(term: string): string[] {
   return [...new Set([term.normalize("NFC"), term.normalize("NFD")])];

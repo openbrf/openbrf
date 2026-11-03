@@ -388,6 +388,7 @@ export function IssueQueueScreen({
             // notice that they failed either.
             types={types === undefined ? [] : types}
             onChanged={reload}
+            onRetryTypes={reload}
           />
         </div>
       ) : null}

@@ -3624,7 +3624,7 @@
       "waitingOn": "Väntar på: {{reason}}",
       "closedAs": "Utfall: {{outcome}}",
       "noOutcome": "Stängdes innan utfall registrerades.",
-      "statusesUnavailable": "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas. Ladda om sidan.",
+      "statusesUnavailable": "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.",
       "saving": "Sparar...",
       "errors": {
         "issueNotFound": "Det ärendet finns inte längre. Kön har lästs om.",

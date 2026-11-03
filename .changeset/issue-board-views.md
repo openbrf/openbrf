@@ -19,7 +19,8 @@ counts open, overdue and unassigned issues (ADR 0054).
   six different words somewhere in an issue's description, place, type,
   apartment or reporter's name, and ignores any words after those. Case does
   not matter, and an accented letter matches whether it was written as one
-  character or as a letter with a combining mark. It never
+  character or as a letter with a combining mark (a word that mixes both
+  within itself is not found). It never
   matches a reporter with protected personal data by name or apartment, and it
   never finds an issue the reader does not handle. The counts
   follow the same filter and search, and the queue reads a view's list and the

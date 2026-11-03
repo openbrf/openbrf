@@ -77,6 +77,24 @@ describe("the words of a search", () => {
     ]);
   });
 
+  it("counts two spellings of a word, in different case, as one", () => {
+    expect(searchTermsOf("LEAK leak Leak roof wall fire light door")).toEqual([
+      "LEAK",
+      "roof",
+      "wall",
+      "fire",
+      "light",
+      "door",
+    ]);
+  });
+
+  it("keeps the zero-width joiner and non-joiner", () => {
+    expect(searchTermsOf("a\u200Db\u200Cc \u200Bd")).toEqual([
+      "a\u200Db\u200Cc",
+      "d",
+    ]);
+  });
+
   it("is no words when blank", () => {
     expect(searchTermsOf("   ")).toEqual([]);
     expect(searchTermsOf("")).toEqual([]);
