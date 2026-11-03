@@ -2241,19 +2241,16 @@ export const SCREENS: readonly Screen[] = [
       // guide with lines. The example is offered only while the table has no
       // line, so it is loaded only where there is no first line to remove, and
       // the guide is saved then, also where it was adopted with no lines: the
-      // public form shows a guide only when it has a line. The adoption box is
-      // ticked only while the guide is not adopted, so an adopted guide is
-      // never withdrawn here.
+      // public form shows a guide only when it has a line. Loading the example
+      // always clears the form's adoption box, also where the guide is adopted
+      // (the date beside it comes from the stored table), so the box is ticked
+      // here unconditionally: saving it unticked would withdraw an adopted
+      // guide.
       {
         unlessSeen: { button: "Ta bort rad 1" },
         steps: [
           { click: { button: "Fyll i exemplet" } },
-          {
-            unlessSeen: { text: /^Antagen / },
-            steps: [
-              { click: { label: "Tabellen följer föreningens stadgar" } },
-            ],
-          },
+          { click: { label: "Tabellen följer föreningens stadgar" } },
           { click: { button: "Spara ansvarsfördelningen" } },
           // Waits for the save to be read back. Without it the check below
           // runs before the date is there and ticks the box a second time,
