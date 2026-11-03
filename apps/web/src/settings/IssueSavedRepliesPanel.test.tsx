@@ -94,6 +94,8 @@ describe("the saved replies", () => {
       });
     });
 
+    // The list is read again after the removal, and no longer holds the reply.
+    fetchConfiguredSavedReplies.mockResolvedValue({ ok: true, value: [] });
     await session.click(
       screen.getByRole("button", {
         name: "Ta bort Ditt ansvar enligt stadgarna",
@@ -101,6 +103,11 @@ describe("the saved replies", () => {
     );
     await waitFor(() => {
       expect(removeIssueSavedReply).toHaveBeenCalledWith("r-1");
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByDisplayValue("Ditt ansvar enligt stadgarna"),
+      ).toBeNull();
     });
   });
 

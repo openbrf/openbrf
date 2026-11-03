@@ -74,6 +74,9 @@ const MOVED_IN = new Date("2010-01-01T00:00:00.000Z");
 
 const issueTypeId = `purge-type-${suffix}`;
 const issueId = `purge-issue-${suffix}`;
+/** A note on the same issue by somebody else, which the purge leaves alone. */
+const otherNoteId = `purge-note-other-${suffix}`;
+const OTHER_NOTE = "Besiktning bokad nästa vecka";
 const photoFileId = `purge-photo-${suffix}`;
 const documentFileId = `purge-docfile-${suffix}`;
 const documentId = `purge-doc-${suffix}`;
@@ -481,6 +484,14 @@ beforeAll(async () => {
   });
   await prisma.issueNote.create({
     data: { issueId, authorPersonId: people.referenced, body: ISSUE_MESSAGE },
+  });
+  await prisma.issueNote.create({
+    data: {
+      id: otherNoteId,
+      issueId,
+      authorPersonId: people.board,
+      body: OTHER_NOTE,
+    },
   });
   await prisma.mediaFile.createMany({
     data: [
@@ -1272,11 +1283,18 @@ describe("issues, documents, binder entries and files the person left behind", (
       select: { authorPersonId: true, body: true },
     });
     const note = await prisma.issueNote.findFirstOrThrow({
-      where: { issueId },
+      where: { issueId, body: ISSUE_MESSAGE },
       select: { authorPersonId: true, body: true },
     });
     expect(message).toEqual({ authorPersonId: null, body: ISSUE_MESSAGE });
     expect(note).toEqual({ authorPersonId: null, body: ISSUE_MESSAGE });
+    // Somebody else's note on the same issue keeps its writer.
+    await expect(
+      prisma.issueNote.findUniqueOrThrow({
+        where: { id: otherNoteId },
+        select: { authorPersonId: true, body: true },
+      }),
+    ).resolves.toEqual({ authorPersonId: people.board, body: OTHER_NOTE });
     expect(outcome?.cleared).toContain("issueConversation");
 
     const document = await prisma.document.findUniqueOrThrow({

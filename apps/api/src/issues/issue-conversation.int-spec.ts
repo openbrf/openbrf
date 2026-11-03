@@ -673,6 +673,29 @@ describe("internal notes and the handlers' files", () => {
     ).toBe(200);
   });
 
+  it("keeps a file on an issue the board marked board-only from the property manager, on a type that lets every handler in", async () => {
+    // The type admits the property manager; only the issue's own flag keeps
+    // them out, so removing that check from the file rule fails this.
+    const issueId = await filed(plain, { boardOnly: true });
+    const upload = multipart(pngBytes(24, 24), "forsakring.png", "image/png");
+    const attached = await inject({
+      method: "POST",
+      url: `/api/issue-queue/${issueId}/attachments`,
+      payload: upload.payload,
+      headers: { ...upload.headers, cookie: cookieOf(board) },
+    });
+    expect(attached.statusCode).toBe(201);
+    const { url } = attached.json<{ url: string }>();
+
+    expect((await read(manager, url)).statusCode).toBe(404);
+    expect(
+      (await read(manager, `/api/issue-queue/${issueId}/attachments`))
+        .statusCode,
+    ).toBe(404);
+    expect((await read(board, url)).statusCode).toBe(200);
+    expect((await read(admin, url)).statusCode).toBe(200);
+  });
+
   it("keeps the name of a handler's file out of the audit log, as stored and as removed", async () => {
     const revealing = `Rune Boende medical assessment ${suffix}.pdf`;
     const pdf = Buffer.from(
