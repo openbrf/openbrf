@@ -2412,6 +2412,28 @@ describe("what the document answers for", () => {
     }
   });
 
+  it("prints a row for each issue an assignee holds and each type naming them", async () => {
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const inSwedish = i18n.getFixedT("sv");
+    const assignments = within(
+      sectionOf(inSwedish(SECTION_TITLE.issueAssignments)),
+    );
+    // One for the issue and one for the type, both of the type Hiss.
+    expect(assignments.getAllByText("Hiss")).toHaveLength(2);
+    expect(
+      assignments.getByText(
+        inSwedish("register.person.report.issueAssignment.issue"),
+      ),
+    ).toBeTruthy();
+    expect(
+      assignments.getByText(
+        inSwedish("register.person.report.issueAssignment.typeDefault"),
+      ),
+    ).toBeTruthy();
+  });
+
   it("prints a session's address and browser as they were recorded", async () => {
     /*
      * Art. 15(3) asks for a copy of the data, and a shortened address or a
