@@ -465,7 +465,8 @@ by a job that is handed no person id.
    about the holder, a `pending` offer of the space for those days, carrying
    the ad's key, and the days' records, as any offer does, so of two offers of
    one day on one space only one holds it. It queues the job with the offer's
-   key and the offer record's identity.
+   key, the offer record's identity and the ad's id, an id the plugin makes
+   that names nobody. The job's data names no person.
 2. **The job** reads the offer and, through the key in it, the ad. It goes ahead
    only while the offer is still pending for this reservation, the ad can be
    read and is open, and the days are still the ad's and not covered. It then,
@@ -475,7 +476,10 @@ by a job that is handed no person id.
    round (`expectedRevision: null`, as every first claim on a round is);
    rewrites the days' records about the poster, as a claim does; and marks the
    offer claimed. The claim's subject is the subject of the ad record the job
-   read, never a value from the job's data or the caller.
+   read, never a value from the job's data or the caller. A run that finds
+   neither the offer nor the claim has only the ad's id from the job's data. It
+   takes the reservation's days off the ad's covered days with that id, so days
+   an earlier run covered and did not take off do not stay covered.
 3. **The poster is mailed** by the same job, once the claim stands, at the
    address `residents()` or `nonResidents()` gives for the claim's subject: the
    space label, the days, and the holder's name when the holder ticked it. The
