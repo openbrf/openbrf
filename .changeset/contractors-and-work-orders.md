@@ -42,8 +42,10 @@ a preview, and the issue keeps the record of it (ADR 0055).
   Outside production, a work order sent with no mail server set up is recorded
   as not sent.
   A work order whose contractor was removed, or whose text was erased, before
-  its sending began is not mailed and is recorded as not sent; one removed
-  after that cannot be called back.
+  its sending began is not mailed and is recorded as not sent, as is one whose
+  recipient address cannot be read back; one removed after that cannot be
+  called back. The purge of a handler's data detaches the work orders they
+  sent: the work orders stay, without the sender's name.
   The timeline shows each work order with how its mail stands - on its way,
   sent, not sent or unconfirmed - and an issue left open on the screen shows
   the mail going out without being reopened. The audit log records that it was queued,

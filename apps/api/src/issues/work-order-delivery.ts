@@ -4,10 +4,10 @@
  * Codes, never prose, on the board mailbox reply's rule: a mail server's
  * rejection quotes the envelope back, and the envelope is a contractor's
  * address. The four a reply has, for the same four ways a sending ends
- * without a mail server's acceptance, and three of its own, for a recipient or a
- * text erased, or a type ring-fenced, before the sending; a list of its own
- * rather than theirs, so neither
- * module offers a screen a code the other produces.
+ * without a mail server's acceptance, and four of its own, for a recipient or a
+ * text erased, a type ring-fenced, or an address unreadable, before the
+ * sending; a list of its own rather than theirs, so neither module offers a
+ * screen a code the other produces.
  */
 export const WORK_ORDER_DELIVERY_FAILURES = {
   /**
@@ -33,6 +33,13 @@ export const WORK_ORDER_DELIVERY_FAILURES = {
    * handler told the latter sends the contractor the same job twice.
    */
   unconfirmed: "delivery-unconfirmed",
+
+  /**
+   * The recipient's address could not be read back from its encrypted copy,
+   * which happens before any mail is composed. Nothing was handed to a mail
+   * server, so unlike `send-failed` this is known not to have gone out.
+   */
+  recipientUnreadable: "recipient-unreadable",
 
   /**
    * The contractor was removed from the list, and erased from this work
@@ -62,7 +69,8 @@ export type WorkOrderDeliveryFailure =
 /**
  * The failures after which nothing left this instance: no mail server, a
  * sending given up before any attempt, a recipient or text erased, a type
- * ring-fenced. `send-failed` is not among them: the mail driver says nothing
+ * ring-fenced, an address that could not be read back. `send-failed` is not
+ * among them: the mail driver says nothing
  * of whether the error came before or after the server took the message, so
  * it stays open like `delivery-unconfirmed`.
  */
@@ -70,6 +78,7 @@ const NEVER_LEFT: ReadonlySet<string> = new Set([
   WORK_ORDER_DELIVERY_FAILURES.mailNotConfigured,
   WORK_ORDER_DELIVERY_FAILURES.interrupted,
   WORK_ORDER_DELIVERY_FAILURES.recipientRemoved,
+  WORK_ORDER_DELIVERY_FAILURES.recipientUnreadable,
   WORK_ORDER_DELIVERY_FAILURES.textErased,
   WORK_ORDER_DELIVERY_FAILURES.ringFenced,
 ]);

@@ -37,6 +37,7 @@ export type WorkOrderDeliveryFailure =
   | "sending-interrupted"
   | "delivery-unconfirmed"
   | "recipient-removed"
+  | "recipient-unreadable"
   | "text-erased"
   | "ring-fenced";
 

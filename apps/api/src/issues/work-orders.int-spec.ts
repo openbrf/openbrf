@@ -1210,6 +1210,49 @@ describe("the sending", () => {
     );
   });
 
+  it("records an address that cannot be read back as not sent, and hands nothing to the mail server", async () => {
+    const issueId = await filed(plain, "unreadable");
+    const sent = (
+      await previewAndSend(as(board), issueId, {
+        contractorId: plumber.id,
+        body: "Byt packningen i kranen.",
+      })
+    ).json<WorkOrderRow>();
+
+    const decrypt = vi
+      .spyOn(encryption, "decrypt")
+      .mockRejectedValueOnce(new Error("bad decrypt"));
+    const send = vi.spyOn(mail, "send");
+    try {
+      expect(await mailer.send(sent.id)).toBe("failed");
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      decrypt.mockRestore();
+      send.mockRestore();
+    }
+    expect(
+      await prisma.workOrder.findUniqueOrThrow({
+        where: { id: sent.id },
+        select: { deliveryStatus: true, deliveryFailure: true },
+      }),
+    ).toEqual({
+      deliveryStatus: "FAILED",
+      deliveryFailure: "recipient-unreadable",
+    });
+
+    // Nothing left this instance, so the timeline says it was not sent.
+    const timeline = await inject({
+      method: "GET",
+      url: `/api/issue-queue/${issueId}/timeline`,
+      cookie: as(board),
+    });
+    expect(
+      timeline.json<{ kind: string; delivery?: string }[]>(),
+    ).toContainEqual(
+      expect.objectContaining({ kind: "workOrder", delivery: "failed" }),
+    );
+  });
+
   it("leaves a work order untouched for the retry when the association's language cannot be read", async () => {
     const issueId = await filed(plain, "locale-unread");
     const sent = (

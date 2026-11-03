@@ -4740,8 +4740,10 @@ model WorkOrder {
   body String?
 
   /// The handler who sent it. A plain column, for the reason the issue's
-  /// `reporterPersonId` gives. The person named acted: the audit entry for the
-  /// sending names them as its actor.
+  /// `reporterPersonId` gives. Detached when the person is erased
+  /// (`PurgeService.purgePerson`), as the issue's `enteredByPersonId` is: the
+  /// order stays with its recipient, date and contents, and stops naming the
+  /// sender.
   sentByPersonId String?
 
   deliveryStatus WorkOrderDeliveryStatus @default(PENDING)

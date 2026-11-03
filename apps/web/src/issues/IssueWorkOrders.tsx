@@ -69,6 +69,7 @@ const DELIVERY_FAILURE_LABEL: Readonly<
   "sending-interrupted": "issues.workOrders.failure.sendingInterrupted",
   "delivery-unconfirmed": "issues.workOrders.failure.deliveryUnconfirmed",
   "recipient-removed": "issues.workOrders.failure.recipientRemoved",
+  "recipient-unreadable": "issues.workOrders.failure.recipientUnreadable",
   "text-erased": "issues.workOrders.failure.textErased",
   "ring-fenced": "issues.workOrders.failure.ringFenced",
 };

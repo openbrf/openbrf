@@ -167,13 +167,29 @@ export class WorkOrderMailerService implements OnModuleInit {
       return this.settleUnclaimed(workOrderId);
     }
 
-    let sent: { suppressed?: true };
+    // Apart from the send: an address that cannot be read back fails before
+    // any mail is composed, so nothing left this instance, which `send-failed`
+    // would not say.
+    let to: string;
     try {
-      const to = await this.encryption.decrypt(
+      to = await this.encryption.decrypt(
         "workOrder.recipientEmail",
         order.recipientEmailCipher,
         workOrderId,
       );
+    } catch (error) {
+      await this.fail(
+        workOrderId,
+        WORK_ORDER_DELIVERY_FAILURES.recipientUnreadable,
+      );
+      this.logger.error(
+        `Work order ${workOrderId} failed: ${failureName(error)}`,
+      );
+      return "failed";
+    }
+
+    let sent: { suppressed?: true };
+    try {
       sent = await this.mail.send({
         to,
         ...this.workOrderMail(

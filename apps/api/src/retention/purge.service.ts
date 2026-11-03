@@ -650,7 +650,8 @@ export class PurgeService implements OnModuleInit {
    * enteredByPersonId on an issue, defaultAssigneePersonId on an issue type,
    * authorPersonId on an issue message and on an internal note,
    * uploadedByPersonId on a document and the same column on a media file, and
-   * filedByPersonId on an apartment binder entry, are plain columns with an
+   * filedByPersonId on an apartment binder entry, and sentByPersonId on a work
+   * order, are plain columns with an
    * index each, and asking each of them for its distinct values is one index
    * scan apiece.
    */
@@ -665,6 +666,7 @@ export class PurgeService implements OnModuleInit {
       documents,
       media,
       binderEntries,
+      workOrderSenders,
     ] = await Promise.all([
       // Not where a work order's text stands: that issue keeps its reporter,
       // so naming them here would select somebody this job then leaves as it
@@ -708,6 +710,10 @@ export class PurgeService implements OnModuleInit {
         by: ["filedByPersonId"],
         where: { filedByPersonId: { not: null } },
       }),
+      this.prisma.workOrder.groupBy({
+        by: ["sentByPersonId"],
+        where: { sentByPersonId: { not: null } },
+      }),
     ]);
 
     const ids = new Set<string>();
@@ -744,6 +750,11 @@ export class PurgeService implements OnModuleInit {
     for (const row of binderEntries) {
       if (row.filedByPersonId !== null) {
         ids.add(row.filedByPersonId);
+      }
+    }
+    for (const row of workOrderSenders) {
+      if (row.sentByPersonId !== null) {
+        ids.add(row.sentByPersonId);
       }
     }
     return [...ids];
@@ -996,6 +1007,14 @@ export class PurgeService implements OnModuleInit {
         where: { enteredByPersonId: personId },
         data: { enteredByPersonId: null },
       });
+      // The handler who sent a work order: the order stays, and so does its
+      // audit entry, but the row stops naming the person.
+      const { count: workOrdersNoLongerSentBy } = await tx.workOrder.updateMany(
+        {
+          where: { sentByPersonId: personId },
+          data: { sentByPersonId: null },
+        },
+      );
       const { count: typesNoLongerDefaulting } = await tx.issueType.updateMany({
         where: { defaultAssigneePersonId: personId },
         data: { defaultAssigneePersonId: null },
@@ -1064,6 +1083,9 @@ export class PurgeService implements OnModuleInit {
         0
       ) {
         cleared.push("issueAssignments");
+      }
+      if (workOrdersNoLongerSentBy > 0) {
+        cleared.push("workOrders");
       }
       if (documentsDetachedFromPerson > 0) {
         cleared.push("documents");

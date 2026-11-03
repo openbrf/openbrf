@@ -78,7 +78,7 @@ describe("ContractorsPanel", () => {
     const user = userEvent.setup();
     render(<ContractorsPanel />);
 
-    expect(await screen.findByText("Skickade arbetsorder: 3")).toBeTruthy();
+    expect(await screen.findByText("Skrivna arbetsorder: 3")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Ta bort Rörfirman" }));
     expect(removeContractor).not.toHaveBeenCalled();
     expect(

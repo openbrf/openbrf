@@ -78,6 +78,8 @@ const issueTypeId = `purge-type-${suffix}`;
 const issueId = `purge-issue-${suffix}`;
 /** A note on the same issue by somebody else, which the purge leaves alone. */
 const otherNoteId = `purge-note-other-${suffix}`;
+const workOrderIssueId = `purge-sender-issue-${suffix}`;
+const workOrderId = `purge-sender-order-${suffix}`;
 const OTHER_NOTE = "Besiktning bokad nästa vecka";
 const photoFileId = `purge-photo-${suffix}`;
 const documentFileId = `purge-docfile-${suffix}`;
@@ -495,6 +497,30 @@ beforeAll(async () => {
       body: OTHER_NOTE,
     },
   });
+  // A work order the same person sent, on an issue of its own (a standing text
+  // would keep the reporter of this one): the order stays, the sender goes.
+  await prisma.issue.create({
+    data: {
+      id: workOrderIssueId,
+      typeId: issueTypeId,
+      location: "Tvattstugan",
+      description: "Stopp i avloppet.",
+      statusId: issueType.statusIds.DONE,
+      closedAt: new Date(),
+      outcome: "FIXED",
+    },
+  });
+  await prisma.workOrder.create({
+    data: {
+      id: workOrderId,
+      issueId: workOrderIssueId,
+      recipientName: `Rormokare ${suffix}`,
+      recipientEmailCipher: "kept-as-it-was",
+      body: "Spola avloppet.",
+      sentByPersonId: people.referenced,
+      deliveryStatus: "SENT",
+    },
+  });
   await prisma.mediaFile.createMany({
     data: [
       {
@@ -830,7 +856,10 @@ afterAll(async () => {
          * found by their own ids.
          */
         () => prisma.issuePhoto.deleteMany({ where: { issueId } }),
-        () => prisma.issue.deleteMany({ where: { id: issueId } }),
+        () =>
+          prisma.issue.deleteMany({
+            where: { id: { in: [issueId, workOrderIssueId] } },
+          }),
         () => prisma.issueType.deleteMany({ where: { id: issueTypeId } }),
         () => prisma.document.deleteMany({ where: { id: documentId } }),
         () =>
@@ -1298,6 +1327,20 @@ describe("issues, documents, binder entries and files the person left behind", (
       }),
     ).resolves.toEqual({ authorPersonId: people.board, body: OTHER_NOTE });
     expect(outcome?.cleared).toContain("issueConversation");
+
+    // The work order stays with whom it went to and what it said, and stops
+    // naming the handler who sent it.
+    expect(outcome?.cleared).toContain("workOrders");
+    await expect(
+      prisma.workOrder.findUniqueOrThrow({
+        where: { id: workOrderId },
+        select: { sentByPersonId: true, body: true, recipientName: true },
+      }),
+    ).resolves.toEqual({
+      sentByPersonId: null,
+      body: "Spola avloppet.",
+      recipientName: `Rormokare ${suffix}`,
+    });
 
     const document = await prisma.document.findUniqueOrThrow({
       where: { id: documentId },
