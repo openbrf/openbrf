@@ -3786,7 +3786,7 @@
         "OVERDUE": "Inget öppet ärende du kan se är försenat.",
         "ALL": "Inget ärende du kan se är öppet."
       },
-      "noMatch": "Inga ärenden stämmer med sökningen och filtret."
+      "noMatch": "Inga ärenden stämmer med filtren just nu."
     },
     "filter": {
       "label": "Sök och filtrera ärenden",

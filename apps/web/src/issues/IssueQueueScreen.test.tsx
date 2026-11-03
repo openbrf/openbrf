@@ -389,9 +389,7 @@ describe("the four views", () => {
 
     await userEvent.selectOptions(field("Prioritet"), "URGENT");
     expect(
-      await screen.findByText(
-        "Inga ärenden stämmer med sökningen och filtret.",
-      ),
+      await screen.findByText("Inga ärenden stämmer med filtren just nu."),
     ).toBeTruthy();
   });
 });

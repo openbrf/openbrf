@@ -3786,7 +3786,7 @@
         "OVERDUE": "No open issue you can see is past its target date.",
         "ALL": "No issue you can see is open."
       },
-      "noMatch": "No issues match the search and the filter."
+      "noMatch": "No issues match the current filters."
     },
     "filter": {
       "label": "Search and filter issues",

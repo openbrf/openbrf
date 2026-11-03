@@ -1635,9 +1635,16 @@ export class IssueService {
     const each: Prisma.IssueWhereInput[] = [];
     // One word after another: a transaction runs one statement at a time.
     for (const term of terms) {
-      // The word in either Unicode form (`unicodeFormsOf`), case aside.
+      // The word in either Unicode form (`unicodeFormsOf`), case aside. The
+      // database matches `contains` as a LIKE pattern without escaping it,
+      // so a percent sign or an underscore typed by the handler would match
+      // any text; each is escaped to match itself.
       const forms = unicodeFormsOf(term).map(
-        (form) => ({ contains: form, mode: "insensitive" }) as const,
+        (form) =>
+          ({
+            contains: form.replace(/[\\%_]/g, "\\$&"),
+            mode: "insensitive",
+          }) as const,
       );
       const reporters = await db.person.findMany({
         where: {
