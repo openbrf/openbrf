@@ -80,6 +80,7 @@ const typeIds = {
   insurance: `bv-type-insurance-${suffix}`,
   search: `bv-type-search-${suffix}`,
   snapshot: `bv-type-snapshot-${suffix}`,
+  backslash: `bv-type-backslash-${suffix}`,
 };
 let water: IssueTypeFixture;
 let lift: IssueTypeFixture;
@@ -1005,6 +1006,39 @@ describe("the search", () => {
     expect(await search(board, `_`)).toEqual([]);
     // As LIKE's escape character, `\s` would match a plain `s`.
     expect(await search(board, `blå\\slampa${suffix}`)).toEqual([]);
+  });
+
+  it("finds a description that holds a backslash when it is searched for", async () => {
+    // A type of its own, so no other test's set of issues changes. Were every
+    // backslash refused, the query above would pass and this would not.
+    const type = await createIssueTypeFixture(prisma, {
+      id: typeIds.backslash,
+      name: `Bakstreck ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    const backslashed = await issue(type, "backslashed", {
+      description: `Sökvägen C:\\skrivbord\\kvitto${suffix}`,
+    });
+
+    expect(
+      ids(
+        await list(board, {
+          view: "ALL",
+          typeId: type.id,
+          q: `C:\\skrivbord\\kvitto${suffix}`,
+        }),
+      ),
+    ).toEqual([backslashed]);
+    // The characters either side of the backslash are not stand-ins for it.
+    expect(
+      ids(
+        await list(board, {
+          view: "ALL",
+          typeId: type.id,
+          q: `C:skrivbordkvitto${suffix}`,
+        }),
+      ),
+    ).toEqual([]);
   });
 
   it("drops an invisible character pasted into a word", async () => {

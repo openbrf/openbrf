@@ -125,41 +125,41 @@ function answer(
 /** The external property manager: the queue, and nothing else of the board's. */
 const PROPERTY_MANAGER = ["issues:handle", "self:manage"];
 
+/** The one type the queue's issues are of, with a status to move to. */
+const typeWater = {
+  id: "type-water",
+  name: "Vatten",
+  reporters: ["RESIDENTS"],
+  active: true,
+  sortOrder: 0,
+  reportCount: 1,
+  statuses: [
+    {
+      id: "s-new",
+      meaning: "NEW",
+      label: "Ny",
+      isDefault: true,
+      active: true,
+      sortOrder: 0,
+      issueCount: 1,
+    },
+    {
+      id: "s-doing",
+      meaning: "IN_PROGRESS",
+      label: "Pågår",
+      isDefault: false,
+      active: true,
+      sortOrder: 1,
+      issueCount: 0,
+    },
+  ],
+};
+
 beforeEach(() => {
   fetchIssueQueueSnapshot.mockReset().mockResolvedValue(answer([issue()]));
-  fetchHandlerIssueTypes.mockReset().mockResolvedValue({
-    ok: true,
-    value: [
-      {
-        id: "type-water",
-        name: "Vatten",
-        reporters: ["RESIDENTS"],
-        active: true,
-        sortOrder: 0,
-        reportCount: 1,
-        statuses: [
-          {
-            id: "s-new",
-            meaning: "NEW",
-            label: "Ny",
-            isDefault: true,
-            active: true,
-            sortOrder: 0,
-            issueCount: 1,
-          },
-          {
-            id: "s-doing",
-            meaning: "IN_PROGRESS",
-            label: "Pågår",
-            isDefault: false,
-            active: true,
-            sortOrder: 1,
-            issueCount: 0,
-          },
-        ],
-      },
-    ],
-  });
+  fetchHandlerIssueTypes
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: [typeWater] });
   fetchOwnIssues.mockReset().mockResolvedValue({ ok: true, value: [] });
   setIssueStatus.mockReset().mockResolvedValue({ ok: true, value: issue() });
 });
@@ -292,7 +292,7 @@ describe("a read that fails", () => {
       ok: false,
       failure: { status: 500, reason: "unexpected" },
     });
-    fetchHandlerIssueTypes.mockResolvedValue({ ok: true, value: [] });
+    fetchHandlerIssueTypes.mockResolvedValue({ ok: true, value: [typeWater] });
 
     await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
 
@@ -302,14 +302,17 @@ describe("a read that fails", () => {
     expect(fetchIssueQueueSnapshot).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Det droppar i taket.")).toBeTruthy();
     expect(screen.queryByText("Ärendena kunde inte läsas just nu.")).toBeNull();
-    // The types the retry read are the ones on screen.
-    await waitFor(() => {
-      expect(
-        screen.queryByText(
-          "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.",
-        ),
-      ).toBeNull();
-    });
+    // The types the retry read are the ones on screen: the issue can be moved
+    // to a status of its type, and nothing says the statuses are unavailable.
+    const status = await screen.findByLabelText(
+      "Vatten anmält 2026-08-20: status",
+    );
+    expect(within(status).getByRole("option", { name: "Pågår" })).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.",
+      ),
+    ).toBeNull();
   });
 });
 
