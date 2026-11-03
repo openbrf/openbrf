@@ -1,5 +1,6 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
+import { decodedPathOf, pathOf } from "../http/request-path";
 import { REPORTER_LINK_PATH } from "../issues/issue-reporter-link.service";
 
 /**
@@ -61,12 +62,33 @@ const STRIPPED = [
  */
 export const REPORTER_LINK_BODY_LIMIT = 64 * 1024;
 
-/** Whether a request's path is on a reporter's link. */
+/** Whether a path, or a route's pattern, is on a reporter's link. */
 export function isReporterLinkPath(url: string): boolean {
-  const path = url.split("?", 1)[0] ?? "";
+  const path = pathOf(url);
   return (
     path === REPORTER_LINK_PATH || path.startsWith(`${REPORTER_LINK_PATH}/`)
   );
+}
+
+/**
+ * Whether a request is on a reporter's link, read as the router reads it.
+ *
+ * The router decodes a path before it matches one, so `/%61rende/<token>`
+ * opens the page as `/arende/<token>` does, and the raw URL is not what decides
+ * it. The route the router matched decides, which is the spelling the router
+ * itself settled on: the link's own routes get the headers, and a website
+ * route on an address below /arende does not (the forms of a page that kept
+ * the slug `arende`, which answer as the website). Where no route of its own
+ * made the answer (the router's 404, or the website's catch-all), the decoded
+ * path decides, and decoding more than the router does only widens that.
+ */
+export function isReporterLinkRequest(request: FastifyRequest): boolean {
+  const matched = (request as { routeOptions?: { url?: string } }).routeOptions
+    ?.url;
+  if (matched !== undefined && !matched.includes("*")) {
+    return isReporterLinkPath(matched);
+  }
+  return isReporterLinkPath(decodedPathOf(request.url));
 }
 
 /**
@@ -82,7 +104,7 @@ export function registerReporterLinkHeaders(server: FastifyInstance): void {
   });
 
   server.addHook("onSend", async (request, reply, payload) => {
-    if (isReporterLinkPath(request.url)) {
+    if (isReporterLinkRequest(request)) {
       withLinkHeaders(reply);
     }
     return payload;

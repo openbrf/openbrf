@@ -29,7 +29,8 @@ through a private link (ADR 0055).
 - **Limits.** Thirty page reads and five messages a minute from one address,
   and ten messages an hour and a hundred in all through one link.
 - **Website addresses.** A new page can no longer be given the address
-  `/arende` or `/case`. A page that already has one keeps it.
+  `/arende` or `/case`. A page that already has one keeps it, and its contact
+  and issue report forms keep working.
 - **Operators.** A reverse proxy logs the full path of each request, and the
   link's path is the credential. `docs/deployment.md` says how to keep these
   paths out of the proxy's access log.

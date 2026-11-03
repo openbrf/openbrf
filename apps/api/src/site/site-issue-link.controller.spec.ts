@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
 import { PUBLIC_RATE_LIMIT } from "../http/public-rate-limit.decorator";
+import { REPORTER_LINK_TOKEN_PATTERN } from "../issues/issue-reporter-link-token";
 import {
   LINK_READS_PER_MINUTE,
   LINK_WRITES_PER_MINUTE,
@@ -39,12 +40,30 @@ function routes(): { name: string; method: RequestMethod }[] {
 }
 
 describe("the reporter's link controller", () => {
-  it("has a GET and a POST, and nothing else", () => {
+  it("has the page's GET and POST, the GET of a malformed token, and nothing else", () => {
     expect(
       routes()
         .map((route) => route.method)
         .sort((a, b) => a - b),
-    ).toEqual([RequestMethod.GET, RequestMethod.POST].sort((a, b) => a - b));
+    ).toEqual(
+      [RequestMethod.GET, RequestMethod.GET, RequestMethod.POST].sort(
+        (a, b) => a - b,
+      ),
+    );
+  });
+
+  it("matches the page's routes on the token's form alone", () => {
+    const prototype = SiteIssueLinkController.prototype as unknown as Record<
+      string,
+      object
+    >;
+    for (const name of ["page", "message"]) {
+      const path = Reflect.getMetadata(
+        PATH_METADATA,
+        prototype[name] ?? {},
+      ) as string;
+      expect(path).toBe(`:token(^${REPORTER_LINK_TOKEN_PATTERN}$)`);
+    }
   });
 
   it("puts every route behind a per-address budget", () => {
@@ -63,6 +82,7 @@ describe("the reporter's link controller", () => {
     );
     expect(budgets).toEqual({
       page: LINK_READS_PER_MINUTE,
+      malformed: LINK_READS_PER_MINUTE,
       message: LINK_WRITES_PER_MINUTE,
     });
   });

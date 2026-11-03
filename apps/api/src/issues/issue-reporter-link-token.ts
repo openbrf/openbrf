@@ -21,9 +21,17 @@ export const REPORTER_LINK_TOKEN_BYTES = 32;
 
 /**
  * The whole token's form: the prefix and the 43 characters that 32 bytes make
- * in unpadded base64url. Anchored, so nothing before or after it passes.
+ * in unpadded base64url, as a pattern's source.
+ *
+ * The link's routes are matched on it (`SiteIssueLinkController`), so a path
+ * segment that cannot be a token is left to the website's own routes: the
+ * forms of a page at /arende post to /arende/kontakt, which must reach the
+ * page's form and not the link.
  */
-const TOKEN_FORM = /^obrf_rl_[A-Za-z0-9_-]{43}$/;
+export const REPORTER_LINK_TOKEN_PATTERN = `${REPORTER_LINK_TOKEN_PREFIX}[A-Za-z0-9_-]{43}`;
+
+/** The token's form, anchored, so nothing before or after it passes. */
+const TOKEN_FORM = new RegExp(`^${REPORTER_LINK_TOKEN_PATTERN}$`);
 
 /** A new token: the prefix and 32 random bytes, in base64url. */
 export function mintReporterLinkToken(): string {

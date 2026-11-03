@@ -197,7 +197,7 @@ export class IssueReporterLinkService implements OnModuleInit {
   }
 
   /**
-   * Issues the link of one report and mails it, at most once.
+   * Issues the link of one report and mails it, once.
    *
    * The token is minted here, in the transaction that stores its digest, and
    * leaves this method only in the mail. A delivery that fails before the mail
@@ -205,6 +205,12 @@ export class IssueReporterLinkService implements OnModuleInit {
    * the digest: nobody holds the first one. Once the mail server has it,
    * `mailedAt` is stamped with the audit entry, and the link is never mailed
    * again.
+   *
+   * Not at most once in every failure. If the mail server takes the message
+   * and the call or the stamp then fails, the job tries again, mints a new
+   * token and mails it, and the first mail's link opens nothing: only the
+   * digest is kept, so the first token cannot be sent again. The reporter
+   * then holds two mails, of which the later one works.
    *
    * Answers whether a mail went. Nothing is mailed, and no link issued, for a
    * report that no longer has an address, that already has its link, that a

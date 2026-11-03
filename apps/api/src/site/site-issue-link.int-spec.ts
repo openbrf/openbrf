@@ -764,6 +764,102 @@ describe("C. no enumeration", () => {
   });
 });
 
+describe("the link's path, as the router reads it", () => {
+  it("F1: a percent-encoded spelling of the path opens the page and refuses with the link's headers", async () => {
+    const { token } = await reported();
+    const unknown = await page(`obrf_rl_${"P".repeat(43)}`);
+
+    const read = await inject({ method: "GET", url: `/%61rende/${token}` });
+    expect(read.statusCode).toBe(200);
+    expectLinkHeaders(read.headers);
+
+    for (const url of [
+      `/%61rende/obrf_rl_${"P".repeat(43)}`,
+      "/%61rende/not-a-token",
+    ]) {
+      const refused = await inject({ method: "GET", url });
+      expect(refused.statusCode).toBe(404);
+      expect(refused.body).toBe(unknown.body);
+      expectLinkHeaders(refused.headers);
+    }
+  });
+
+  it("F1: a post below the path that is not a token's carries the link's headers", async () => {
+    const refused = await post("not-a-token", "Hej");
+    expect(refused.statusCode).toBe(404);
+    expectLinkHeaders(refused.headers);
+  });
+
+  it("leaves the forms of a page that kept the slug arende to the website", async () => {
+    // The slug is claimed for a new page, so the row is written directly, as a
+    // page written before the claim would be.
+    const slug = "arende";
+    await prisma.page.create({
+      data: {
+        slug,
+        title: "Ärenden",
+        content: {
+          version: 1,
+          blocks: [
+            { type: "contactForm", intro: [{ text: "Skriv till oss." }] },
+            { type: "issueReportForm" },
+          ],
+        },
+        status: "PUBLIC",
+        publishedAt: new Date(),
+        sortOrder: 951,
+      },
+    });
+    const message = `Till sidan på arende ${suffix}`;
+    const description = `Från sidan på arende ${suffix}`;
+    try {
+      const shown = await inject({ method: "GET", url: `/${slug}` });
+      expect(shown.statusCode).toBe(200);
+      expect(shown.body).toContain(`action="/${slug}/kontakt"`);
+
+      const contacted = await inject({
+        method: "POST",
+        url: `/${slug}/kontakt`,
+        payload: new URLSearchParams({
+          name: "Bo Ek",
+          email: `rl-contact-${suffix}@exempel.se`,
+          message,
+        }).toString(),
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      });
+      expect(contacted.statusCode).toBe(303);
+      expect(contacted.headers.location).toBe(`/${slug}?skickat=kontakt`);
+      // The website's answer, not the link's.
+      expect(contacted.headers["referrer-policy"]).not.toBe("no-referrer");
+      expect(await prisma.contactSubmission.count({ where: { message } })).toBe(
+        1,
+      );
+
+      const reportedThere = await inject({
+        method: "POST",
+        url: `/${slug}/felanmalan`,
+        payload: new URLSearchParams({
+          type: publicType.id,
+          description,
+        }).toString(),
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      });
+      expect(reportedThere.statusCode).toBe(303);
+      expect(reportedThere.headers.location).toBe(
+        `/${slug}?skickat=felanmalan`,
+      );
+      expect(
+        await prisma.issue.count({
+          where: { typeId: publicType.id, description },
+        }),
+      ).toBe(1);
+    } finally {
+      await prisma.contactSubmission.deleteMany({ where: { message } });
+      await prisma.page.deleteMany({ where: { slug } });
+    }
+  });
+});
+
 describe("D. rate limits and abuse", () => {
   it("D2, D3: the 31st read from one address is refused, alike for a live token and an unknown one", async () => {
     const { token } = await reported();

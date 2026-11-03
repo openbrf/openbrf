@@ -140,11 +140,13 @@ const RESERVED_SLUGS: ReadonlySet<string> = new Set([
  * opens.
  *
  * The page a reporter's private link opens sits under /arende (ADR 0055). A
- * page at /arende is reached, because the link's route has a segment more,
- * but a form on it would post to /arende/kontakt, which the link's route
- * answers. So the name is not offered to a page written from now on, and a
- * page written at it before keeps its address. The English spelling is held
- * on the news index's argument.
+ * page written at /arende before keeps its address and its forms: the page is
+ * reached because the link's route has a segment more, and its forms post to
+ * /arende/kontakt and /arende/felanmalan, which the link's routes leave to the
+ * website because they match only a segment shaped like a token. Every other
+ * read below /arende is the link's, so the name is not offered to a page
+ * written from now on. The English spelling is held on the news index's
+ * argument.
  */
 const CLAIMED_BELOW: ReadonlySet<string> = new Set(["arende", "case"]);
 

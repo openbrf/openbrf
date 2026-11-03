@@ -95,8 +95,9 @@ application bundle, no cookie and no third-party request.
   `Cache-Control: no-store` and `X-Robots-Tag: noindex`, so the token leaves in
   no `Referer`, stays in no shared cache and is listed by no search engine. No
   log line records the path of these routes. The headers are set by a hook on
-  the path, so the refusals the rate limit and the exception filters build carry
-  them too, and none of these answers carries an `ETag`, a CORS header or a
+  the route the router matched, or on the decoded path where no route did, so a
+  percent-encoded spelling of the path carries them as well and the refusals the
+  rate limit and the exception filters build carry them too, and none of these answers carries an `ETag`, a CORS header or a
   cookie. Under `no-referrer` a browser posts the page's own form with
   `Origin: null`, so a post is accepted with that origin or the instance's own
   and refused with any other: the token, not the origin, is what stops a forged
@@ -161,7 +162,10 @@ per issue, never sent again, at most three a day to one address, counted in the
 database, and none to an address whose owner restricted processing (GDPR art.
 18). The form answers the same whether a mail goes or not, because the mail is
 sent by a job after the answer. There is no way to ask for a link to be sent
-again.
+again. "Never sent again" has one exception: if the mail server takes the
+message and the stamp that records it then fails, the job's retry mints a new
+token and mails that, and the first mail's link opens nothing. Only the digest
+is kept, so the first token cannot be sent again.
 
 ### The contractor's photographs
 

@@ -25,6 +25,7 @@ import {
   REPORTER_LINK_PATH,
   type ReporterLinkReplyOutcome,
 } from "../issues/issue-reporter-link.service";
+import { REPORTER_LINK_TOKEN_PATTERN } from "../issues/issue-reporter-link-token";
 import {
   ISSUE_LINK_BODY_FIELD,
   ISSUE_LINK_NOTICE_PARAM,
@@ -32,6 +33,7 @@ import {
   issueLinkNotice,
 } from "./site-issue-link";
 import { SiteRenderer } from "./site-renderer.service";
+import { acceptLanguage } from "./site-request";
 
 /**
  * Page reads one client address may make in a minute.
@@ -63,6 +65,17 @@ const messageSchema = z.object({
     .refine((value) => value.length <= ISSUE_CONVERSATION_LIMITS.body),
 });
 
+/**
+ * The token's path segment, matched on the token's form.
+ *
+ * Only a segment shaped like a token is the link's, so the router leaves every
+ * other address below /arende to the website's own routes. A page that had
+ * the slug `arende` before the name was claimed keeps its forms that way: they
+ * post to /arende/kontakt and /arende/felanmalan, which reach the site's form
+ * routes rather than this controller.
+ */
+const TOKEN_SEGMENT = `:token(^${REPORTER_LINK_TOKEN_PATTERN}$)`;
+
 /** What the page is told for each outcome of a message. */
 const NOTICE_FOR: Readonly<
   Record<Exclude<ReporterLinkReplyOutcome, "not-found">, IssueLinkNotice>
@@ -89,7 +102,12 @@ const NOTICE_FOR: Readonly<
  *   anything else the link could be made to reach.
  * - **Every refusal is one document.** A token never issued, malformed,
  *   expired, withdrawn, or of an issue closed long ago is answered with the
- *   same 404, byte for byte, so a caller learns nothing from which it was.
+ *   same 404, byte for byte, so a caller learns nothing from which it was. A
+ *   read of a segment that is not shaped like a token gets it from
+ *   `malformed`. A post to one is not the link's: it falls through to the
+ *   website's routes, so a form on a page at /arende still reaches its page,
+ *   and what no route takes is the router's own 404. Its form is all such a
+ *   post could tell anyone, and the form is public.
  * - **A read writes nothing**, and a GET to the form's address shows the page
  *   and does nothing else. Only a POST writes.
  * - **Every route has a budget per client address**, the GET included, spent
@@ -117,7 +135,7 @@ export class SiteIssueLinkController {
   }
 
   /** The page. Reads, and writes nothing at all. */
-  @Get(":token")
+  @Get(TOKEN_SEGMENT)
   @PublicRateLimit({ perMinute: LINK_READS_PER_MINUTE })
   async page(
     @Param("token") token: string,
@@ -131,7 +149,7 @@ export class SiteIssueLinkController {
       return;
     }
     const html = await this.renderer.issueLink(
-      acceptLanguageOf(request),
+      acceptLanguage(request),
       view,
       issueLinkNotice(notice),
       pagePath(token),
@@ -146,7 +164,7 @@ export class SiteIssueLinkController {
    * sentence and never repeats what was written. A token that opens nothing is
    * answered with the one refusal, whatever the body was.
    */
-  @Post(":token")
+  @Post(TOKEN_SEGMENT)
   @PublicRateLimit({ perMinute: LINK_WRITES_PER_MINUTE })
   async message(
     @Param("token") token: string,
@@ -189,6 +207,25 @@ export class SiteIssueLinkController {
   }
 
   /**
+   * A read of any other one segment below the link's path: the refusal every
+   * token that opens nothing gets, on the same budget, so a value that is not
+   * shaped like a token is answered as one that is (ADR 0055, "No
+   * enumeration").
+   *
+   * A GET only. Nothing on the website reads a page's sub-address, and the
+   * router ranks the token's route above this one; a post is left to the
+   * website's form routes (`TOKEN_SEGMENT`).
+   */
+  @Get(":segment")
+  @PublicRateLimit({ perMinute: LINK_READS_PER_MINUTE })
+  async malformed(
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    await this.notFound(request, reply);
+  }
+
+  /**
    * Whether a post is the page's own form: url-encoded, and sent from this
    * instance's page or with the `null` origin a page under
    * `Referrer-Policy: no-referrer` sends. A post from another origin is
@@ -227,9 +264,7 @@ export class SiteIssueLinkController {
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<void> {
-    const html = await this.renderer.issueLinkNotFound(
-      acceptLanguageOf(request),
-    );
+    const html = await this.renderer.issueLinkNotFound(acceptLanguage(request));
     void reply.code(404).header("content-type", HTML).send(html);
   }
 }
@@ -243,9 +278,4 @@ const FORM_ENCODED = "application/x-www-form-urlencoded";
  */
 function pagePath(token: string): string {
   return `${REPORTER_LINK_PATH}/${token}`;
-}
-
-function acceptLanguageOf(request: FastifyRequest): string | undefined {
-  const value = request.headers["accept-language"];
-  return typeof value === "string" ? value : undefined;
 }
