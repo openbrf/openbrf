@@ -84,6 +84,9 @@ const PHONE_NUMBER =
  */
 const GENERATED_ID = /^c[a-z0-9]{24}$/;
 
+/** How long a token `GENERATED_ID` accepts is, in UTF-16 code units. */
+const GENERATED_ID_LENGTH = 25;
+
 /**
  * Letters of any case and script, with their combining marks, so that a label
  * touching an id-shaped run makes the token longer and not an id:
@@ -95,10 +98,28 @@ const GENERATED_ID = /^c[a-z0-9]{24}$/;
 const IDENTIFIER_RUN_BEFORE = /[\p{L}\p{M}\p{Nd}]*$/u;
 const IDENTIFIER_RUN_AFTER = /^[\p{L}\p{M}\p{Nd}]*/u;
 
-/** The run of letters and digits that holds `[start, end)`. */
+/**
+ * The run of letters and digits that holds `[start, end)`, or as much of it as
+ * decides whether it is an id.
+ *
+ * Each side is read from a window no longer than an id. The pattern before the
+ * number is not anchored at its start, so on the whole of the text before the
+ * number it would try every position from the beginning of the page, and the
+ * page is read once for each number found. Within the window a run that goes
+ * on past the window's edge fills it, and the token is then longer than an id
+ * whatever lies beyond: the window may cut a letter outside the Basic
+ * Multilingual Plane in two, and the half left at the edge ends the run, but
+ * that shortens the run by one code unit only, and an id has none of those
+ * letters anyway.
+ */
 function tokenAround(text: string, start: number, end: number): string {
-  const before = IDENTIFIER_RUN_BEFORE.exec(text.slice(0, start))?.[0] ?? "";
-  const after = IDENTIFIER_RUN_AFTER.exec(text.slice(end))?.[0] ?? "";
+  const windowBefore = text.slice(
+    Math.max(0, start - GENERATED_ID_LENGTH),
+    start,
+  );
+  const windowAfter = text.slice(end, end + GENERATED_ID_LENGTH);
+  const before = IDENTIFIER_RUN_BEFORE.exec(windowBefore)?.[0] ?? "";
+  const after = IDENTIFIER_RUN_AFTER.exec(windowAfter)?.[0] ?? "";
   return before + text.slice(start, end) + after;
 }
 
