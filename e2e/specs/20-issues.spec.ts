@@ -278,14 +278,26 @@ function queueFilter(page: Page): Locator {
 }
 
 /**
+ * One of the queue's selects, by the word that labels it.
+ *
+ * Not `getByLabel`: a select sits inside its label, so the label's text takes in
+ * the names of every option, and a status or type named after another filter
+ * ("Statusar-...") would match that filter's label too. The accessible name
+ * starts with the label's own word, then the chosen option.
+ */
+function queueSelect(page: Page, label: string): Locator {
+  return queueFilter(page).getByRole("combobox", {
+    name: new RegExp(`^${label}(\\s|$)`),
+  });
+}
+
+/**
  * Widens the queue's status filter to closed issues as well. The queue opens
  * on the open ones, so a report closed by an earlier test, or closed in front
  * of the test that closes it, would otherwise leave the list.
  */
 async function showClosedToo(page: Page): Promise<void> {
-  await queueFilter(page)
-    .getByLabel("Status")
-    .selectOption({ label: "Alla, även klara" });
+  await queueSelect(page, "Status").selectOption({ label: "Alla, även klara" });
 }
 
 test("a resident reports an issue with a photograph", async ({
@@ -689,7 +701,7 @@ test("the board works the queue from Mina, Ej tilldelade, Försenade and Alla", 
   );
 
   // Narrowed to this test's type, every number is this test's three issues.
-  await queueFilter(page).getByLabel("Typ").selectOption({ label: typeName });
+  await queueSelect(page, "Typ").selectOption({ label: typeName });
   for (const name of ["Mina 2", "Ej tilldelade 1", "Försenade 1", "Alla 3"]) {
     await expect(views.getByRole("link", { name, exact: true })).toBeVisible();
   }
