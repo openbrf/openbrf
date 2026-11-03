@@ -43,6 +43,12 @@ loadEnvForIntegrationTests();
 let app: NestFastifyApplication;
 let prisma: PrismaService;
 let encryption: FieldEncryptionService;
+/**
+ * The association row is a singleton the other suites on this worker read, and
+ * one of them takes its absence or its organisation number as given. Removed
+ * after the run only when this suite was the one to create it.
+ */
+let associationCreatedHere = false;
 
 const suffix = process.hrtime.bigint().toString(36);
 const PASSWORD = "a-long-enough-password";
@@ -160,6 +166,11 @@ beforeAll(async () => {
   prisma = app.get(PrismaService);
   encryption = app.get(FieldEncryptionService);
 
+  const existing = await prisma.association.findUnique({
+    where: { id: 1 },
+    select: { id: true },
+  });
+  associationCreatedHere = existing === null;
   await prisma.association.upsert({
     where: { id: 1 },
     create: { id: 1, name: "Brf Eksemplet" },
@@ -227,29 +238,40 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(async () => {
-  await prisma.memberCharge.deleteMany({
-    where: { recordedByPersonId: { in: personIds } },
-  });
-  await prisma.issue.deleteMany({ where: { typeId } });
-  await prisma.issueType.deleteMany({ where: { id: typeId } });
-  await prisma.session.deleteMany({
-    where: { user: { personId: { in: personIds } } },
-  });
-  await prisma.account.deleteMany({
-    where: { user: { personId: { in: personIds } } },
-  });
-  await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
-  await prisma.systemRole.deleteMany({
-    where: { personId: { in: personIds } },
-  });
-  await prisma.residency.deleteMany({ where: { personId: { in: personIds } } });
-  await prisma.boardPosition.deleteMany({
-    where: { personId: { in: personIds } },
-  });
-  await prisma.person.deleteMany({ where: { id: { in: personIds } } });
-  await prisma.apartment.deleteMany({ where: { id: apartmentId } });
-  await prisma.address.deleteMany({ where: { id: addressId } });
-  await app.close();
+  try {
+    await prisma.memberCharge.deleteMany({
+      where: { recordedByPersonId: { in: personIds } },
+    });
+    await prisma.issue.deleteMany({ where: { typeId } });
+    await prisma.issueType.deleteMany({ where: { id: typeId } });
+    await prisma.session.deleteMany({
+      where: { user: { personId: { in: personIds } } },
+    });
+    await prisma.account.deleteMany({
+      where: { user: { personId: { in: personIds } } },
+    });
+    await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
+    await prisma.systemRole.deleteMany({
+      where: { personId: { in: personIds } },
+    });
+    await prisma.residency.deleteMany({
+      where: { personId: { in: personIds } },
+    });
+    await prisma.boardPosition.deleteMany({
+      where: { personId: { in: personIds } },
+    });
+    await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+    await prisma.apartment.deleteMany({ where: { id: apartmentId } });
+    await prisma.address.deleteMany({ where: { id: addressId } });
+  } finally {
+    try {
+      if (associationCreatedHere) {
+        await prisma.association.deleteMany({ where: { id: 1 } });
+      }
+    } finally {
+      await app.close();
+    }
+  }
 });
 
 describe("who pays", () => {
