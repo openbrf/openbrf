@@ -1,4 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
@@ -22,6 +24,7 @@ import { IssueQueueScreen } from "./IssueQueueScreen";
  */
 
 const fetchIssueQueue = vi.fn();
+const fetchIssueQueueCounts = vi.fn();
 const fetchHandlerIssueTypes = vi.fn();
 const fetchOwnIssues = vi.fn();
 const setIssueStatus = vi.fn();
@@ -29,9 +32,38 @@ const setIssueStatus = vi.fn();
 vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
   fetchIssueQueue: (input?: unknown) => fetchIssueQueue(input),
+  fetchIssueQueueCounts: (input?: unknown) => fetchIssueQueueCounts(input),
   fetchHandlerIssueTypes: () => fetchHandlerIssueTypes(),
   fetchOwnIssues: () => fetchOwnIssues(),
   setIssueStatus: (input: unknown) => setIssueStatus(input),
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    to,
+    search,
+    children,
+    className,
+    "aria-current": current,
+  }: {
+    to: string;
+    search?: Record<string, string>;
+    children: ReactNode;
+    className?: string;
+    "aria-current"?: "page";
+  }): ReactElement => (
+    <a
+      href={
+        search === undefined
+          ? to
+          : `${to}?${new URLSearchParams(search).toString()}`
+      }
+      aria-current={current}
+      className={className}
+    >
+      {children}
+    </a>
+  ),
 }));
 
 function viewer(capabilities: readonly string[]): Viewer {
@@ -86,6 +118,10 @@ const PROPERTY_MANAGER = ["issues:handle", "self:manage"];
 
 beforeEach(() => {
   fetchIssueQueue.mockReset().mockResolvedValue({ ok: true, value: [issue()] });
+  fetchIssueQueueCounts.mockReset().mockResolvedValue({
+    ok: true,
+    value: { mine: 1, unassigned: 2, overdue: 0, all: 5 },
+  });
   fetchHandlerIssueTypes.mockReset().mockResolvedValue({
     ok: true,
     value: [
@@ -140,6 +176,11 @@ describe("the property manager", () => {
     expect(screen.getByText("Det droppar i taket.")).toBeTruthy();
     expect(screen.getByText("Rune Boende")).toBeTruthy();
     expect(fetchIssueQueue).toHaveBeenCalledTimes(1);
+    // Mina, of the open issues: the handler's own work, first.
+    expect(fetchIssueQueue).toHaveBeenCalledWith({
+      view: "MINE",
+      meaning: "OPEN",
+    });
     // The statuses an issue is moved between, under the queue's own
     // capability: the property manager does not configure types.
     expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(1);
@@ -194,5 +235,189 @@ describe("a read that fails", () => {
     });
     expect(screen.queryByText("Ingenting har anmälts.")).toBeNull();
     expect(screen.queryByText("Ärendekön")).toBeNull();
+  });
+});
+
+/** The views' navigation. */
+const views = () => screen.getByRole("navigation", { name: "Vyer" });
+
+/** One of the filter's fields, by its label. */
+const field = (label: string) =>
+  within(
+    screen.getByRole("search", { name: "Sök och filtrera ärenden" }),
+  ).getByLabelText(label);
+
+describe("the four views", () => {
+  it("opens on Mina, with how many issues each view holds under the same filter", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    const mine = await within(views()).findByRole("link", { name: "Mina 1" });
+    expect(mine.getAttribute("aria-current")).toBe("page");
+    expect(mine.getAttribute("href")).toBe("/board/issues?view=mine");
+    for (const [name, href] of [
+      ["Ej tilldelade 2", "/board/issues?view=unassigned"],
+      ["Försenade 0", "/board/issues?view=overdue"],
+      ["Alla 5", "/board/issues?view=all"],
+    ] as const) {
+      const link = within(views()).getByRole("link", { name });
+      expect(link.getAttribute("href")).toBe(href);
+      expect(link.getAttribute("aria-current")).toBeNull();
+    }
+    // Counted under the filter the list is read by, without the view.
+    expect(fetchIssueQueueCounts).toHaveBeenCalledWith({ meaning: "OPEN" });
+  });
+
+  it("reads the view the address names", async () => {
+    render(
+      <IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} view="OVERDUE" />,
+    );
+
+    const overdue = await within(views()).findByRole("link", {
+      name: "Försenade 0",
+    });
+    expect(overdue.getAttribute("aria-current")).toBe("page");
+    expect(fetchIssueQueue).toHaveBeenCalledWith({
+      view: "OVERDUE",
+      meaning: "OPEN",
+    });
+  });
+
+  it("makes the overdue count stand out while there are overdue issues", async () => {
+    fetchIssueQueueCounts.mockResolvedValue({
+      ok: true,
+      value: { mine: 0, unassigned: 0, overdue: 3, all: 3 },
+    });
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    const overdue = await within(views()).findByRole("link", {
+      name: "Försenade 3",
+    });
+    expect(overdue.querySelector(".text-danger")?.textContent).toBe("3");
+  });
+
+  it("draws the views without numbers when they could not be counted", async () => {
+    fetchIssueQueueCounts.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    await screen.findByText("Det droppar i taket.");
+    expect(
+      within(views())
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Mina", "Ej tilldelade", "Försenade", "Alla"]);
+  });
+
+  it("says which view is empty, and says nothing matches once the filter narrows it", async () => {
+    fetchIssueQueue.mockResolvedValue({ ok: true, value: [] });
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    expect(
+      await screen.findByText("Inga öppna ärenden har dig som ansvarig."),
+    ).toBeTruthy();
+
+    await userEvent.selectOptions(field("Prioritet"), "URGENT");
+    expect(
+      await screen.findByText(
+        "Inga ärenden stämmer med sökningen och filtret.",
+      ),
+    ).toBeTruthy();
+  });
+});
+
+describe("the filter and the search", () => {
+  it("narrows the list and the counts alike by status, type and priority", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} view="ALL" />);
+    await screen.findByText("Det droppar i taket.");
+
+    await userEvent.selectOptions(field("Status"), "DONE");
+    await userEvent.selectOptions(field("Typ"), "type-water");
+    await userEvent.selectOptions(field("Prioritet"), "LOW");
+
+    await waitFor(() => {
+      expect(fetchIssueQueue).toHaveBeenLastCalledWith({
+        view: "ALL",
+        meaning: "DONE",
+        typeId: "type-water",
+        priority: "LOW",
+      });
+    });
+    expect(fetchIssueQueueCounts).toHaveBeenLastCalledWith({
+      meaning: "DONE",
+      typeId: "type-water",
+      priority: "LOW",
+    });
+  });
+
+  it("asks for closed issues too only when the status filter says so", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} view="ALL" />);
+    await screen.findByText("Det droppar i taket.");
+
+    await userEvent.selectOptions(field("Status"), "Alla, även klara");
+
+    await waitFor(() => {
+      expect(fetchIssueQueue).toHaveBeenLastCalledWith({ view: "ALL" });
+    });
+    expect(fetchIssueQueueCounts).toHaveBeenLastCalledWith({});
+  });
+
+  it("searches once the handler stops typing, trimmed, and clears with the filter", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+
+    await userEvent.type(field("Sök"), "  läcka  ");
+    await waitFor(() => {
+      expect(fetchIssueQueue).toHaveBeenLastCalledWith({
+        view: "MINE",
+        meaning: "OPEN",
+        search: "läcka",
+      });
+    });
+    expect(fetchIssueQueueCounts).toHaveBeenLastCalledWith({
+      meaning: "OPEN",
+      search: "läcka",
+    });
+    // Asked for the word, never once per letter on the way to it.
+    expect(
+      fetchIssueQueue.mock.calls.filter(
+        ([input]) => (input as { search?: string }).search !== undefined,
+      ),
+    ).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole("button", { name: "Rensa filter" }));
+    await waitFor(() => {
+      expect(fetchIssueQueue).toHaveBeenLastCalledWith({
+        view: "MINE",
+        meaning: "OPEN",
+      });
+    });
+    expect((field("Sök") as HTMLInputElement).value).toBe("");
+  });
+
+  it("never draws an earlier filter's answer over a later one's", async () => {
+    let answerFirst: (value: unknown) => void = () => undefined;
+    fetchIssueQueue
+      .mockReset()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            answerFirst = resolve;
+          }),
+      )
+      .mockResolvedValue({
+        ok: true,
+        value: [issue({ id: "issue-urgent", description: "Akut läcka." })],
+      });
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    await userEvent.selectOptions(field("Prioritet"), "URGENT");
+    expect(await screen.findByText("Akut läcka.")).toBeTruthy();
+
+    answerFirst({ ok: true, value: [issue()] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText("Akut läcka.")).toBeTruthy();
+    expect(screen.queryByText("Det droppar i taket.")).toBeNull();
   });
 });

@@ -62,6 +62,11 @@ export interface IssueQueuePanelProps {
   types: readonly IssueTypeView[] | null;
   /** Called after a status change, so the caller can reload the queue. */
   onChanged: () => void;
+  /**
+   * What an empty list says: which view is empty, or that nothing matches
+   * the filter. The queue as a whole, by default.
+   */
+  emptyMessage?: string;
 }
 
 /**
@@ -74,8 +79,10 @@ export interface IssueQueuePanelProps {
  * go rather than after a refusal.
  *
  * Each row says who the issue is given to, how urgent it is and the day it is
- * meant to be done by, and stands out once that day has passed (decision 10);
- * the handling itself, and the timeline, open under the row.
+ * meant to be done by, and stands out once that day has passed (decision 10):
+ * a heavy edge in the danger colour, the date in it, and the word overdue, so
+ * neither colour nor shape carries it alone. The handling itself, and the
+ * timeline, open under the row.
  *
  * A reporter with protected personal data is rendered without their name or
  * their apartment. The board's own address book prints both because a statutory
@@ -88,6 +95,7 @@ export function IssueQueuePanel({
   issues,
   types,
   onChanged,
+  emptyMessage,
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
   const move = useSaveAction(setIssueStatus, onChanged, (failure) => {
@@ -130,7 +138,9 @@ export function IssueQueuePanel({
       }
     >
       {issues.length === 0 ? (
-        <p className="text-body text-ink-muted">{t("issues.queue.empty")}</p>
+        <p className="text-body text-ink-muted">
+          {emptyMessage ?? t("issues.queue.empty")}
+        </p>
       ) : (
         <ul className="flex flex-col gap-3">
           {issues.map((issue) => {
@@ -138,7 +148,7 @@ export function IssueQueuePanel({
             return (
               <li
                 key={issue.id}
-                className="flex flex-col gap-2 rounded-control border border-line bg-page px-3 py-3"
+                className={`flex flex-col gap-2 rounded-control border bg-page px-3 py-3 ${issue.overdue ? "border-l-4 border-line border-l-danger" : "border-line"}`}
               >
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-body font-semibold">

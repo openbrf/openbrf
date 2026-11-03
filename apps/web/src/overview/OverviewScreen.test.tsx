@@ -27,7 +27,7 @@ const GUARDS: readonly [path: string, capability: string | null][] = [
   ["/api/bookings/mine", "bookings:book"],
   ["/api/event-signups", "events:attend"],
   ["/api/news-reader", "news:comment"],
-  ["/api/issue-queue", "issues:handle"],
+  ["/api/issue-queue/counts", "issues:handle"],
   ["/api/board-mailbox/threads", "boardMailbox:handle"],
   ["/api/motion-queue", "motions:handle"],
   ["/api/sublet-queue", "sublets:handle"],
@@ -170,7 +170,14 @@ function answers(): Answers {
         }),
       ),
     ),
-    "/api/issue-queue": ok([{ id: "a" }, { id: "b" }, { id: "c" }]),
+    // Three open issues nobody is assigned, which is what the issue queue
+    // adds to the line.
+    "/api/issue-queue/counts": ok({
+      mine: 1,
+      unassigned: 3,
+      overdue: 2,
+      all: 7,
+    }),
     "/api/board-mailbox/threads": ok({
       threads: [
         { id: "1", status: "NEW" },
@@ -355,7 +362,7 @@ describe("the overview for a board member", () => {
     renderFor(BOARD_MEMBER);
 
     const line = await boardLine();
-    // 3 new issues, 2 unanswered threads, no motions, 1 application, 2 key
+    // 3 unassigned issues, 2 unanswered threads, no motions, 1 application, 2 key
     // orders, 4 brokers' update requests, 1 account request and no reported
     // posts.
     expect(await within(line).findByText("13 saker väntar")).toBeTruthy();
@@ -407,7 +414,12 @@ describe("the overview for a board member", () => {
   it("says in words that nothing is waiting, and keeps the line", async () => {
     // A line that vanished would read the same as a capability taken away.
     renderFor(BOARD_MEMBER, {
-      "/api/issue-queue": ok([]),
+      "/api/issue-queue/counts": ok({
+        mine: 0,
+        unassigned: 0,
+        overdue: 0,
+        all: 0,
+      }),
       "/api/board-mailbox/threads": ok({
         threads: [],
         more: false,
@@ -458,7 +470,7 @@ describe("the overview for a property manager", () => {
     expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
 
     expect(requested.toSorted()).toEqual([
-      "/api/issue-queue?meaning=NEW",
+      "/api/issue-queue/counts?meaning=OPEN",
       "/api/me",
     ]);
     expect(refused).toEqual([]);
@@ -475,7 +487,14 @@ describe("the overview for a property manager", () => {
   });
 
   it("says one thing in the singular", async () => {
-    renderFor(PROPERTY_MANAGER, { "/api/issue-queue": ok([{ id: "a" }]) });
+    renderFor(PROPERTY_MANAGER, {
+      "/api/issue-queue/counts": ok({
+        mine: 0,
+        unassigned: 1,
+        overdue: 0,
+        all: 4,
+      }),
+    });
 
     expect(
       await within(await boardLine("Styrelse och förvaltare")).findByText(

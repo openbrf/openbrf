@@ -1,0 +1,715 @@
+import {
+  FastifyAdapter,
+  type NestFastifyApplication,
+} from "@nestjs/platform-fastify";
+import { Test } from "@nestjs/testing";
+import {
+  addLocalDays,
+  dateColumnOf,
+  type IssuePriority,
+  type IssueStatusMeaning,
+  localDayOf,
+} from "@openbrf/shared";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+
+import { AppModule } from "../app.module";
+import { AuthService } from "../auth/auth.service";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { PrismaService } from "../database/prisma.service";
+import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import {
+  createIssueTypeFixture,
+  type IssueTypeFixture,
+} from "../testing/issue-fixtures";
+
+/**
+ * The board's views of the issue queue over HTTP, against a real database
+ * (decision 15 of the issue module plan): Mina, Ej tilldelade, Försenade and
+ * Alla, the filter and the search, and the counts the views and the board's
+ * front page carry.
+ *
+ * The suite shares its worker's database with every other suite that ran there
+ * before it, so each read that could reach their issues is narrowed to this
+ * run's types, or reads a view only this run's people are in (Mina), or
+ * compares a count with a list read at the same moment rather than with a
+ * number of its own.
+ */
+
+// Refuses to run without a configured environment, before anything connects.
+loadEnvForIntegrationTests();
+
+let app: NestFastifyApplication;
+let prisma: PrismaService;
+let encryption: FieldEncryptionService;
+
+const suffix = process.hrtime.bigint().toString(36);
+const PASSWORD = "a-long-enough-password";
+
+function person(key: string, firstName: string, lastName: string) {
+  return {
+    personId: `bv-${key}-${suffix}`,
+    email: `bv-${key}-${suffix}@exempel.se`,
+    firstName,
+    lastName: `${lastName}${suffix}`,
+  };
+}
+
+const board = person("board", "Bea", "Styrelse");
+const colleague = person("colleague", "Carl", "Kollega");
+const manager = person("manager", "Frida", "Forvaltare");
+const resident = person("resident", "Rune", "Boende");
+/** A resident with protected personal data, as a reporter. */
+const shielded = person("shielded", "Sara", "Skyddad");
+const people = [board, colleague, manager, resident, shielded];
+const personIds = people.map((entry) => entry.personId);
+
+const addressId = `bv-address-${suffix}`;
+const apartment = { id: `bv-apartment-${suffix}`, number: `R${suffix}` };
+const shieldedApartment = {
+  id: `bv-apartment-shielded-${suffix}`,
+  number: `S${suffix}`,
+};
+
+const typeIds = {
+  water: `bv-type-water-${suffix}`,
+  lift: `bv-type-lift-${suffix}`,
+  insurance: `bv-type-insurance-${suffix}`,
+  search: `bv-type-search-${suffix}`,
+};
+let water: IssueTypeFixture;
+let lift: IssueTypeFixture;
+let insurance: IssueTypeFixture;
+let searched: IssueTypeFixture;
+
+/** The association's calendar day, as the service reads a target date. */
+function dayFromToday(days: number): Date {
+  return dateColumnOf(addLocalDays(localDayOf(new Date()), days));
+}
+
+let ipCounter = 0;
+function inject(options: {
+  url: string;
+  cookie?: string;
+  method?: "GET" | "POST";
+  payload?: object;
+}) {
+  ipCounter += 1;
+  const host = ipCounter % 254;
+  const subnet = Math.floor(ipCounter / 254) % 254;
+  return app
+    .getHttpAdapter()
+    .getInstance()
+    .inject({
+      method: options.method ?? "GET",
+      url: options.url,
+      ...(options.payload === undefined ? {} : { payload: options.payload }),
+      headers: {
+        // 10.181.0.0/16 is this suite's; the others each hold their own.
+        "x-forwarded-for": `10.181.${String(subnet)}.${String(host + 1)}`,
+        ...(options.cookie === undefined ? {} : { cookie: options.cookie }),
+      },
+    });
+}
+
+async function signIn(email: string): Promise<string> {
+  const response = await inject({
+    method: "POST",
+    url: "/api/auth/sign-in/email",
+    payload: { email, password: PASSWORD },
+  });
+  const setCookie = response.headers["set-cookie"];
+  const cookies = Array.isArray(setCookie)
+    ? setCookie
+    : setCookie === undefined
+      ? []
+      : [setCookie];
+  return cookies.map((value) => value.split(";")[0]).join("; ");
+}
+
+const cookies: Record<string, string> = {};
+
+interface QueuedRow {
+  id: string;
+  overdue: boolean;
+  description: string;
+  reporter: { kind: string; personId?: string; name?: string };
+  apartment: { id: string; number: string } | null;
+  assignee: { kind: string; personId?: string } | null;
+}
+
+type Counts = Record<"mine" | "unassigned" | "overdue" | "all", number>;
+
+function query(params: Record<string, string>): string {
+  const text = new URLSearchParams(params).toString();
+  return text === "" ? "" : `?${text}`;
+}
+
+async function list(
+  who: { personId: string },
+  params: Record<string, string> = {},
+): Promise<QueuedRow[]> {
+  const response = await inject({
+    url: `/api/issue-queue${query(params)}`,
+    cookie: cookies[who.personId],
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  return response.json<QueuedRow[]>();
+}
+
+async function counts(
+  who: { personId: string },
+  params: Record<string, string> = {},
+): Promise<Counts> {
+  const response = await inject({
+    url: `/api/issue-queue/counts${query(params)}`,
+    cookie: cookies[who.personId],
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  return response.json<Counts>();
+}
+
+/** Text in code-unit order, so two lists of identifiers compare as sets. */
+const byText = (first: string, second: string): number =>
+  first < second ? -1 : first > second ? 1 : 0;
+
+const ids = (rows: readonly { id: string }[]) =>
+  rows.map((row) => row.id).toSorted(byText);
+
+/** An issue written directly, as the queue would hold it. */
+async function issue(
+  type: IssueTypeFixture,
+  key: string,
+  extra: {
+    meaning?: IssueStatusMeaning;
+    assignee?: { personId: string } | null;
+    priority?: IssuePriority;
+    targetDate?: Date | null;
+    reporter?: { personId: string } | null;
+    apartmentId?: string | null;
+    location?: string | null;
+    description?: string;
+    boardOnly?: boolean;
+  } = {},
+): Promise<string> {
+  const id = `bv-issue-${key}-${suffix}`;
+  const meaning = extra.meaning ?? "NEW";
+  await prisma.issue.create({
+    data: {
+      id,
+      typeId: type.id,
+      statusId: type.statusIds[meaning],
+      ...(meaning === "WAITING" ? { waitingReason: "PARTS" as const } : {}),
+      ...(meaning === "DONE"
+        ? { outcome: "FIXED" as const, closedAt: new Date() }
+        : {}),
+      reporterPersonId:
+        extra.reporter === null ? null : (extra.reporter ?? resident).personId,
+      assigneePersonId: extra.assignee?.personId ?? null,
+      priority: extra.priority ?? "NORMAL",
+      targetDate: extra.targetDate ?? null,
+      apartmentId: extra.apartmentId ?? null,
+      location: extra.location ?? null,
+      description: extra.description ?? `Beskrivning ${key}`,
+      boardOnly: extra.boardOnly ?? false,
+    },
+  });
+  return id;
+}
+
+/** The issues of the views suite, by what makes each one count. */
+type Filed =
+  | "boardOnly"
+  | "closedToBoard"
+  | "colleagues"
+  | "dueAhead"
+  | "dueToday"
+  | "internal"
+  | "leak"
+  | "mineDone"
+  | "mineNew"
+  | "mineWaiting"
+  | "overdue"
+  | "overdueDone"
+  | "shieldedReport"
+  | "unassigned"
+  | "unassignedDone";
+const filed = {} as Record<Filed, string>;
+
+beforeAll(async () => {
+  const moduleRef = await Test.createTestingModule({
+    imports: [AppModule],
+  }).compile();
+  app = moduleRef.createNestApplication<NestFastifyApplication>(
+    new FastifyAdapter(),
+  );
+  await app.init();
+  await app.getHttpAdapter().getInstance().ready();
+  prisma = app.get(PrismaService);
+  encryption = app.get(FieldEncryptionService);
+
+  await prisma.association.upsert({
+    where: { id: 1 },
+    create: { id: 1, name: "Brf Eksemplet" },
+    update: {},
+  });
+  await prisma.address.create({
+    data: {
+      id: addressId,
+      street: "Vygatan",
+      number: suffix,
+      postalCode: "11122",
+      city: "Stockholm",
+    },
+  });
+  await prisma.apartment.createMany({
+    data: [
+      { id: apartment.id, addressId, number: apartment.number, floor: 2 },
+      {
+        id: shieldedApartment.id,
+        addressId,
+        number: shieldedApartment.number,
+        floor: 3,
+      },
+    ],
+  });
+
+  for (const entry of people) {
+    const email = await encryption.encrypt("person.email", entry.email);
+    await prisma.person.create({
+      data: {
+        id: entry.personId,
+        firstName: entry.firstName,
+        lastName: entry.lastName,
+        emailCipher: email.cipher,
+        emailIndex: email.index,
+        protectedPersonalData: entry === shielded,
+      },
+    });
+    await app.get(AuthService).createAccountForPerson({
+      personId: entry.personId,
+      email: entry.email,
+      name: `${entry.firstName} ${entry.lastName}`,
+      password: PASSWORD,
+    });
+  }
+  await prisma.boardPosition.createMany({
+    data: [board, colleague].map((entry) => ({
+      personId: entry.personId,
+      position: "BOARD_MEMBER" as const,
+      electedOn: new Date("2025-05-15"),
+    })),
+  });
+  await prisma.systemRole.create({
+    data: { personId: manager.personId, role: "PROPERTY_MANAGER" },
+  });
+  await prisma.residency.createMany({
+    data: [
+      {
+        personId: resident.personId,
+        apartmentId: apartment.id,
+        role: "MEMBER" as const,
+        movedInOn: new Date("2024-01-01"),
+      },
+      {
+        personId: shielded.personId,
+        apartmentId: shieldedApartment.id,
+        role: "MEMBER" as const,
+        movedInOn: new Date("2024-01-01"),
+      },
+    ],
+  });
+
+  water = await createIssueTypeFixture(prisma, {
+    id: typeIds.water,
+    name: `Vattenläcka ${suffix}`,
+    reporters: ["RESIDENTS"],
+  });
+  lift = await createIssueTypeFixture(prisma, {
+    id: typeIds.lift,
+    name: `Hiss ${suffix}`,
+    reporters: ["RESIDENTS"],
+  });
+  insurance = await createIssueTypeFixture(prisma, {
+    id: typeIds.insurance,
+    name: `Försäkring ${suffix}`,
+    reporters: ["HANDLERS"],
+    handledBy: "BOARD",
+  });
+  searched = await createIssueTypeFixture(prisma, {
+    id: typeIds.search,
+    name: `Sökbar ${suffix}`,
+    reporters: ["RESIDENTS"],
+  });
+
+  // Mina for the board member: open in each meaning, and one closed.
+  filed.mineNew = await issue(water, "mine-new", { assignee: board });
+  filed.mineWaiting = await issue(lift, "mine-waiting", {
+    assignee: board,
+    meaning: "WAITING",
+    priority: "URGENT",
+  });
+  filed.mineDone = await issue(water, "mine-done", {
+    assignee: board,
+    meaning: "DONE",
+  });
+  // A colleague's, open.
+  filed.colleagues = await issue(water, "colleagues", {
+    assignee: colleague,
+    meaning: "IN_PROGRESS",
+  });
+  // Unassigned: open, and closed.
+  filed.unassigned = await issue(lift, "unassigned", { priority: "LOW" });
+  filed.unassignedDone = await issue(lift, "unassigned-done", {
+    meaning: "DONE",
+  });
+  // Target dates: passed, today, ahead; passed and closed.
+  filed.overdue = await issue(water, "overdue", {
+    assignee: colleague,
+    targetDate: dayFromToday(-1),
+  });
+  filed.dueToday = await issue(water, "due-today", {
+    assignee: colleague,
+    targetDate: dayFromToday(0),
+  });
+  filed.dueAhead = await issue(water, "due-ahead", {
+    targetDate: dayFromToday(7),
+  });
+  filed.overdueDone = await issue(water, "overdue-done", {
+    meaning: "DONE",
+    targetDate: dayFromToday(-3),
+  });
+  // The board's own, overdue and unassigned: never the property manager's.
+  filed.boardOnly = await issue(insurance, "board-only", {
+    targetDate: dayFromToday(-2),
+    reporter: null,
+    description: `Försäkringsärende hemligt${suffix}`,
+  });
+  filed.closedToBoard = await issue(water, "closed-to-board", {
+    boardOnly: true,
+    description: `Stängt för förvaltaren hemligt${suffix}`,
+  });
+
+  // The search's issues.
+  filed.leak = await issue(searched, "leak", {
+    description: `Det droppar från taket i badrummet blåslampa${suffix}`,
+    location: `Källaren gång ${suffix}`,
+    apartmentId: apartment.id,
+  });
+  filed.shieldedReport = await issue(searched, "shielded-report", {
+    reporter: shielded,
+    apartmentId: shieldedApartment.id,
+    description: `Elementet är kallt kylskåp${suffix}`,
+  });
+  filed.internal = await issue(searched, "internal", {
+    reporter: null,
+    description: `Ingen anmälare alls takränna${suffix}`,
+  });
+
+  for (const entry of [board, colleague, manager, resident]) {
+    cookies[entry.personId] = await signIn(entry.email);
+  }
+}, 180_000);
+
+afterAll(async () => {
+  await prisma.issue.deleteMany({
+    where: { typeId: { in: Object.values(typeIds) } },
+  });
+  await prisma.issueType.deleteMany({
+    where: { id: { in: Object.values(typeIds) } },
+  });
+  await prisma.session.deleteMany({
+    where: { user: { personId: { in: personIds } } },
+  });
+  await prisma.account.deleteMany({
+    where: { user: { personId: { in: personIds } } },
+  });
+  await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
+  await prisma.systemRole.deleteMany({
+    where: { personId: { in: personIds } },
+  });
+  await prisma.residency.deleteMany({ where: { personId: { in: personIds } } });
+  await prisma.boardPosition.deleteMany({
+    where: { personId: { in: personIds } },
+  });
+  await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+  await prisma.apartment.deleteMany({
+    where: { id: { in: [apartment.id, shieldedApartment.id] } },
+  });
+  await prisma.address.deleteMany({ where: { id: addressId } });
+  await app.close();
+});
+
+/** This run's water and lift types, which the views below are narrowed to. */
+const viewTypes = () => [water.id, lift.id];
+
+/** One view, read once per type of this run and put together. */
+async function viewOf(
+  who: { personId: string },
+  view: string,
+  params: Record<string, string> = {},
+): Promise<string[]> {
+  const rows: QueuedRow[] = [];
+  for (const typeId of [...viewTypes(), insurance.id]) {
+    rows.push(...(await list(who, { view, typeId, ...params })));
+  }
+  return ids(rows);
+}
+
+describe("Mina", () => {
+  it("is exactly the signed-in handler's open issues", async () => {
+    const rows = await list(board, { view: "MINE", meaning: "OPEN" });
+
+    expect(ids(rows)).toEqual(
+      [filed.mineNew, filed.mineWaiting].toSorted(byText),
+    );
+    for (const row of rows) {
+      expect(row.assignee).toMatchObject({ personId: board.personId });
+    }
+  });
+
+  it("is another handler's own for them", async () => {
+    expect(
+      ids(await list(colleague, { view: "MINE", meaning: "OPEN" })),
+    ).toEqual(
+      [filed.colleagues, filed.overdue, filed.dueToday].toSorted(byText),
+    );
+  });
+
+  it("reaches the handler's closed issues only when the filter asks for them", async () => {
+    expect(ids(await list(board, { view: "MINE", meaning: "DONE" }))).toEqual([
+      filed.mineDone,
+    ]);
+    expect(ids(await list(board, { view: "MINE" }))).toEqual(
+      [filed.mineNew, filed.mineWaiting, filed.mineDone].toSorted(byText),
+    );
+  });
+});
+
+describe("Ej tilldelade", () => {
+  it("is the open issues nobody is assigned", async () => {
+    expect(await viewOf(board, "UNASSIGNED", { meaning: "OPEN" })).toEqual(
+      [
+        filed.unassigned,
+        filed.dueAhead,
+        filed.closedToBoard,
+        filed.boardOnly,
+      ].toSorted(byText),
+    );
+  });
+});
+
+describe("Försenade", () => {
+  it("is the open issues whose target date has passed, never today's or a closed one", async () => {
+    const rows: QueuedRow[] = [];
+    for (const typeId of [...viewTypes(), insurance.id]) {
+      rows.push(...(await list(board, { view: "OVERDUE", typeId })));
+    }
+
+    expect(ids(rows)).toEqual(
+      [filed.overdue, filed.boardOnly].toSorted(byText),
+    );
+    // The list and the mark on each row read the same day the same way.
+    expect(rows.every((row) => row.overdue)).toBe(true);
+  });
+
+  it("holds no closed issue whatever the filter asks", async () => {
+    expect(await viewOf(board, "OVERDUE", { meaning: "DONE" })).toEqual([]);
+  });
+});
+
+describe("Alla", () => {
+  it("is every open issue under the open filter, and every issue without one", async () => {
+    const open = await viewOf(board, "ALL", { meaning: "OPEN" });
+    const every = await viewOf(board, "ALL");
+
+    expect(open).not.toContain(filed.mineDone);
+    expect(open).toContain(filed.closedToBoard);
+    expect(every).toEqual(
+      [
+        ...open,
+        filed.mineDone,
+        filed.unassignedDone,
+        filed.overdueDone,
+      ].toSorted(byText),
+    );
+  });
+});
+
+describe("the filter", () => {
+  it("narrows by type, status and priority together", async () => {
+    expect(
+      ids(
+        await list(board, {
+          view: "ALL",
+          typeId: lift.id,
+          meaning: "WAITING",
+          priority: "URGENT",
+        }),
+      ),
+    ).toEqual([filed.mineWaiting]);
+    expect(
+      ids(await list(board, { view: "ALL", typeId: lift.id, priority: "LOW" })),
+    ).toEqual([filed.unassigned]);
+  });
+
+  it("refuses a parameter it does not read, and a view or meaning that is not one", async () => {
+    for (const url of [
+      "/api/issue-queue?veiw=MINE",
+      "/api/issue-queue?view=MINA",
+      "/api/issue-queue?meaning=CLOSED",
+      "/api/issue-queue?priority=HIGH",
+      "/api/issue-queue/counts?view=MINE",
+      `/api/issue-queue?q=${"a".repeat(101)}`,
+    ]) {
+      const response = await inject({ url, cookie: cookies[board.personId] });
+      expect(response.statusCode, url).toBe(400);
+    }
+  });
+});
+
+describe("the counts", () => {
+  it("are the lengths of the lists, view by view, under the same filter", async () => {
+    for (const filter of [
+      { meaning: "OPEN" },
+      {},
+      { meaning: "DONE" },
+      { priority: "URGENT" },
+      { meaning: "NEW", priority: "NORMAL" },
+    ] as Record<string, string>[]) {
+      for (const typeId of [...viewTypes(), insurance.id]) {
+        const params = { ...filter, typeId };
+        const counted = await counts(board, params);
+        expect(counted, JSON.stringify(params)).toEqual({
+          mine: (await list(board, { view: "MINE", ...params })).length,
+          unassigned: (await list(board, { view: "UNASSIGNED", ...params }))
+            .length,
+          overdue: (await list(board, { view: "OVERDUE", ...params })).length,
+          all: (await list(board, { view: "ALL", ...params })).length,
+        });
+      }
+    }
+  });
+
+  it("are the front page's open, overdue and unassigned, across the whole queue", async () => {
+    // Nothing else writes to this worker's database while the suite runs, so
+    // the whole queue holds still between the reads.
+    for (const who of [board, manager]) {
+      const counted = await counts(who, { meaning: "OPEN" });
+      expect(counted).toEqual({
+        mine: (await list(who, { view: "MINE", meaning: "OPEN" })).length,
+        unassigned: (await list(who, { view: "UNASSIGNED", meaning: "OPEN" }))
+          .length,
+        overdue: (await list(who, { view: "OVERDUE", meaning: "OPEN" })).length,
+        all: (await list(who, { view: "ALL", meaning: "OPEN" })).length,
+      });
+    }
+  });
+
+  it("leave out what the board keeps to itself for the property manager", async () => {
+    const forBoard = await counts(board, { typeId: insurance.id });
+    const forManager = await counts(manager, { typeId: insurance.id });
+
+    expect(forBoard).toEqual({ mine: 0, unassigned: 1, overdue: 1, all: 1 });
+    expect(forManager).toEqual({ mine: 0, unassigned: 0, overdue: 0, all: 0 });
+    expect(
+      (await counts(manager, { typeId: water.id, meaning: "OPEN" })).all,
+    ).toBe(
+      (await counts(board, { typeId: water.id, meaning: "OPEN" })).all - 1,
+    );
+  });
+
+  it("are closed to a resident, as the queue is", async () => {
+    const response = await inject({
+      url: "/api/issue-queue/counts",
+      cookie: cookies[resident.personId],
+    });
+    expect(response.statusCode).toBe(403);
+  });
+});
+
+describe("the search", () => {
+  const search = async (
+    who: { personId: string },
+    q: string,
+    params: Record<string, string> = {},
+  ) => ids(await list(who, { view: "ALL", typeId: searched.id, q, ...params }));
+
+  it("matches the description, the place, the type, the apartment and the reporter's name, case aside", async () => {
+    expect(await search(board, `BLÅSLAMPA${suffix}`)).toEqual([filed.leak]);
+    expect(await search(board, `källaren gång ${suffix}`)).toEqual([
+      filed.leak,
+    ]);
+    expect(await search(board, apartment.number.toLowerCase())).toEqual([
+      filed.leak,
+    ]);
+    expect(await search(board, `Rune ${resident.lastName}`)).toEqual([
+      filed.leak,
+    ]);
+    expect(await search(board, `Sökbar ${suffix}`)).toEqual(
+      [filed.leak, filed.shieldedReport, filed.internal].toSorted(byText),
+    );
+  });
+
+  it("needs every word to match somewhere", async () => {
+    expect(await search(board, `blåslampa${suffix} takränna${suffix}`)).toEqual(
+      [],
+    );
+    expect(await search(board, `badrummet Rune`)).toEqual([filed.leak]);
+  });
+
+  it("drops an invisible character pasted into a word", async () => {
+    expect(await search(board, `blås\u200Blampa${suffix}`)).toEqual([
+      filed.leak,
+    ]);
+  });
+
+  it("never matches a protected reporter by name or apartment, and masks the row a description matches", async () => {
+    expect(await search(board, shielded.lastName)).toEqual([]);
+    expect(await search(board, `Sara ${shielded.lastName}`)).toEqual([]);
+    expect(await search(board, shieldedApartment.number)).toEqual([]);
+
+    const [row] = await list(board, {
+      view: "ALL",
+      typeId: searched.id,
+      q: `kylskåp${suffix}`,
+    });
+    expect(row?.id).toBe(filed.shieldedReport);
+    expect(row?.reporter).toEqual({ kind: "protected" });
+    expect(row?.apartment).toBeNull();
+    expect(JSON.stringify(row)).not.toContain(shielded.lastName);
+    expect(JSON.stringify(row)).not.toContain(shieldedApartment.number);
+  });
+
+  it("counts what it finds as it lists it", async () => {
+    const q = `Sökbar ${suffix}`;
+    expect(await counts(board, { typeId: searched.id, q })).toEqual({
+      mine: 0,
+      unassigned: 3,
+      overdue: 0,
+      all: 3,
+    });
+    expect(
+      await counts(board, { typeId: searched.id, q: shielded.lastName }),
+    ).toEqual({ mine: 0, unassigned: 0, overdue: 0, all: 0 });
+  });
+
+  it("never finds for the property manager what the board keeps to itself", async () => {
+    const q = `hemligt${suffix}`;
+    expect(ids(await list(board, { view: "ALL", q }))).toEqual(
+      [filed.boardOnly, filed.closedToBoard].toSorted(byText),
+    );
+    expect(await list(manager, { view: "ALL", q })).toEqual([]);
+    expect(await counts(manager, { q })).toEqual({
+      mine: 0,
+      unassigned: 0,
+      overdue: 0,
+      all: 0,
+    });
+  });
+
+  it("is no search when blank", async () => {
+    expect(await search(board, "   ")).toEqual(
+      [filed.leak, filed.shieldedReport, filed.internal].toSorted(byText),
+    );
+  });
+});

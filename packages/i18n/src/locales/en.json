@@ -3606,7 +3606,7 @@
     },
     "queue": {
       "title": "The issue queue",
-      "description": "Everything reported: new issues first, then those in progress, waiting and done. Within each, issues follow the order of their statuses, and the oldest comes first within a status.",
+      "description": "New issues first, then those in progress, waiting and done. Within each, issues follow the order of their statuses, and the oldest comes first within a status.",
       "empty": "Nothing has been reported.",
       "reporter": "Reported by",
       "reporterProtected": "Protected personal data: ask the board.",
@@ -3737,6 +3737,32 @@
         "residentNotFound": "That resident no longer lives in the apartment. Choose the apartment again, or leave the resident out.",
         "unknown": "The issue could not be opened just now. Please try again."
       }
+    },
+    "views": {
+      "label": "Views",
+      "MINE": "Mine",
+      "UNASSIGNED": "Unassigned",
+      "OVERDUE": "Overdue",
+      "ALL": "All",
+      "empty": {
+        "MINE": "No open issue has you as its assignee.",
+        "UNASSIGNED": "Every open issue has an assignee.",
+        "OVERDUE": "No open issue is past its target date.",
+        "ALL": "No issues are open."
+      },
+      "noMatch": "No issues match the search and the filter."
+    },
+    "filter": {
+      "label": "Search and filter issues",
+      "search": "Search",
+      "status": "Status",
+      "statusOpen": "Open",
+      "statusAny": "All, closed included",
+      "type": "Type",
+      "typeAny": "All types",
+      "priority": "Priority",
+      "priorityAny": "All priorities",
+      "clear": "Clear filters"
     }
   },
   "boardMailbox": {
@@ -6851,7 +6877,7 @@
       "none": "Nothing waiting",
       "atLeast": "{{count}} or more",
       "queue": {
-        "issues": "New issues",
+        "issues": "Issues",
         "boardMailbox": "Unanswered threads in the board mailbox",
         "motions": "Motions not yet received",
         "sublets": "Subletting applications to decide",
@@ -6860,6 +6886,11 @@
         "accountRequests": "Account requests to decide",
         "chatReports": "Reported posts",
         "importProposals": "Proposed member lists to review"
+      },
+      "issues": {
+        "open": "Open",
+        "overdue": "Overdue",
+        "unassigned": "Unassigned"
       }
     }
   },

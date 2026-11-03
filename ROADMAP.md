@@ -341,6 +341,13 @@ locally the application runs from source beside the PostgreSQL that
       of who did what and when, read from the audit log. The people an issue
       can be assigned to are named and nothing more, so the property manager is
       never shown the address book (ADR 0054)
+- [x] Working the issue queue: four views, Mine, Unassigned, Overdue and All,
+      each with its count, and a filter by status, type and priority with a
+      search, all applied to every view. The views open on open issues. The
+      board's front page shows how many issues are open, how many are overdue
+      and how many have no assignee, and each number opens its view. The search
+      never matches a protected reporter's name or apartment. No dashboards
+      (ADR 0054)
 - [x] One page, one audience: the board's work on its own pages under the
       Styrelsen section, each signed on its own heading, the overview as the
       house's notice board with one line for whoever works a queue, and a phone

@@ -4,15 +4,19 @@ import {
   compareLocalDays,
   dateColumnOf,
   formatDateColumn,
+  ISSUE_OPEN_MEANINGS,
   ISSUE_OUTCOMES,
   ISSUE_PRIORITIES,
+  ISSUE_SEARCH_LIMITS,
   ISSUE_STATUS_LIMITS,
   ISSUE_STATUS_MEANINGS,
   ISSUE_WAITING_REASONS,
   type IssueClosingOutcome,
   type IssueHandledBy,
+  type IssueMeaningFilter,
   type IssueOutcome,
   type IssuePriority,
+  type IssueQueueView,
   type IssueReporterGroup,
   type IssueStatusMeaning,
   type IssueWaitingReason,
@@ -210,6 +214,36 @@ export type QueuedIssueView = OwnIssueView & {
  * satisfy").
  */
 export type ProtectedReporters = "show" | "omit";
+
+/**
+ * What the board's screen narrows a view of the queue to (decision 15): the
+ * status filter, a type, a priority and a search.
+ *
+ * The screen's own, beside `IssueQueueFilter`, which is what the actions
+ * narrow a page to. An action that searched the queue or read a view would be
+ * a new read on `mcp` and `ai`, which ADR 0040 says needs its own decision.
+ */
+export interface IssueBoardFilter {
+  meaning?: IssueMeaningFilter;
+  typeId?: string;
+  priority?: IssuePriority;
+  /**
+   * What the handler typed, matched as `IssueService.searchWhere` says. Blank
+   * is no search.
+   */
+  search?: string;
+}
+
+/**
+ * How many issues each view of the queue holds, under one filter: the numbers
+ * on the screen's views and, unfiltered but for open issues, the three on the
+ * board's front page. Counted by the same conditions the lists are read by, so
+ * a number and its list cannot disagree.
+ */
+export type IssueQueueCounts = Record<
+  "mine" | "unassigned" | "overdue" | "all",
+  number
+>;
 
 /** What a read of the queue may be narrowed to. */
 export interface IssueQueueFilter {
@@ -718,24 +752,79 @@ export class IssueService {
    * The issues the reader handles and no others: a reader the board-only rule
    * does not let in is not shown an issue its type or the issue itself keeps to
    * the board, here or by any read below (ADR 0054).
+   *
+   * One view of it (`IssueQueueView`), narrowed by `IssueBoardFilter`; with
+   * neither, every issue the reader handles, closed ones included. The screen
+   * asks with the open meanings unless the handler chooses otherwise. The same
+   * conditions as `countQueue`, so the screen's numbers are the lengths of
+   * these lists.
    */
   async listQueue(
     readerPersonId: string,
-    filter?: { meaning?: IssueStatusMeaning },
+    view: IssueQueueView = "ALL",
+    filter: IssueBoardFilter = {},
   ): Promise<QueuedIssueView[]> {
-    const scope = await this.readerScope(
-      this.prisma,
-      readerPersonId,
-      new Date(),
-    );
+    const now = new Date();
+    const meanings = meaningsInView(view, filter.meaning);
+    if (meanings.length === 0) {
+      return [];
+    }
+    const narrowed = await this.boardWhere(readerPersonId, filter, now);
+    const inView = viewWhere(view, readerPersonId, localDayOf(now));
     const issues = await this.readQueue(
-      issuesHandledWhere(scope),
-      meaningsOf(filter?.meaning),
+      async (tx) => ({ AND: [await narrowed(tx), inView] }),
+      meanings,
       null,
       undefined,
     );
 
     return this.queuedViews(issues, "show");
+  }
+
+  /**
+   * How many issues each view holds under one filter. Reached with
+   * issues:handle.
+   *
+   * Counted by the conditions `listQueue` reads each view by, in one REPEATABLE
+   * READ transaction, so the four numbers describe the queue at one moment and
+   * an issue taken between two of them is not counted in both views or in
+   * neither. The board's front page asks with `meaning: "OPEN"` and nothing
+   * else: `all` is then the open issues, beside the overdue and the unassigned.
+   */
+  async countQueue(
+    readerPersonId: string,
+    filter: IssueBoardFilter = {},
+  ): Promise<IssueQueueCounts> {
+    const now = new Date();
+    const today = localDayOf(now);
+    const narrowed = await this.boardWhere(readerPersonId, filter, now);
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        const where = await narrowed(tx);
+        const count = async (view: IssueQueueView): Promise<number> => {
+          const meanings = meaningsInView(view, filter.meaning);
+          return meanings.length === 0
+            ? 0
+            : tx.issue.count({
+                where: {
+                  AND: [
+                    where,
+                    viewWhere(view, readerPersonId, today),
+                    { status: { meaning: { in: [...meanings] } } },
+                  ],
+                },
+              });
+        };
+        // One after another: a transaction runs one statement at a time.
+        const mine = await count("MINE");
+        const unassigned = await count("UNASSIGNED");
+        const overdue = await count("OVERDUE");
+        const all = await count("ALL");
+        return { mine, unassigned, overdue, all };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
   }
 
   /**
@@ -1445,6 +1534,90 @@ export class IssueService {
   }
 
   /**
+   * The issues a view of the board's screen is read from: those the reader
+   * handles, narrowed by the filter. A function of the transaction the read
+   * runs in, because a search reads who has protected personal data, and
+   * that has to be read at the moment the issues are.
+   */
+  private async boardWhere(
+    readerPersonId: string,
+    filter: IssueBoardFilter,
+    now: Date,
+  ): Promise<
+    (db: Prisma.TransactionClient) => Promise<Prisma.IssueWhereInput>
+  > {
+    const handled = issuesHandledWhere(
+      await this.readerScope(this.prisma, readerPersonId, now),
+    );
+    const terms = searchTermsOf(filter.search ?? "");
+    return async (db) => ({
+      AND: [
+        handled,
+        filter.typeId === undefined ? {} : { typeId: filter.typeId },
+        filter.priority === undefined ? {} : { priority: filter.priority },
+        terms.length === 0 ? {} : await this.searchWhere(db, terms),
+      ],
+    });
+  }
+
+  /**
+   * What a search of the queue matches: every word somewhere in the issue's
+   * description, its place, its type's name, its apartment's designation or
+   * its reporter's name, case aside.
+   *
+   * Never what the reader is not shown. A reporter with protected personal data
+   * is shown without their name or apartment (`IssueReporterView`), so neither
+   * matches on their reports: a row that came back for a name would say who
+   * filed it, one guess at a time, whatever the row itself withholds. A
+   * reporter who wrote through the website's form is not matched by name or
+   * address at all, because both are stored encrypted. Only the issues the
+   * reader handles are searched, which is the rule for everything a later
+   * change adds to an issue as well: a text the reader may not open, on an
+   * issue they handle or not, is never matched, or the answer tells them it is
+   * there.
+   *
+   * Who has protected personal data is read in the transaction the issues are
+   * read in, so a person whose data became protected after their name was
+   * looked up cannot be matched by it.
+   */
+  private async searchWhere(
+    db: Prisma.TransactionClient,
+    terms: readonly string[],
+  ): Promise<Prisma.IssueWhereInput> {
+    const notProtected = await this.notReportedByProtectedPersons(db);
+    const each: Prisma.IssueWhereInput[] = [];
+    // One word after another: a transaction runs one statement at a time.
+    for (const term of terms) {
+      const matches = { contains: term, mode: "insensitive" } as const;
+      const reporters = await db.person.findMany({
+        where: {
+          protectedPersonalData: false,
+          OR: [{ firstName: matches }, { lastName: matches }],
+        },
+        select: { id: true },
+      });
+      each.push({
+        OR: [
+          { description: matches },
+          { location: matches },
+          { type: { name: matches } },
+          { AND: [{ apartment: { number: matches } }, notProtected] },
+          ...(reporters.length === 0
+            ? []
+            : [
+                {
+                  reporterPersonId: {
+                    in: reporters.map((person) => person.id),
+                  },
+                },
+              ]),
+        ],
+      });
+    }
+    return { AND: each };
+  }
+
+  /**
    * An issue this person handles, or the refusal that answers an issue that
    * does not exist: one the reader may not open is not one they may learn of.
    */
@@ -1592,10 +1765,14 @@ export class IssueService {
    * them sees the queue as it stood at one moment. At READ COMMITTED each
    * statement takes its own snapshot: an issue moved from new to in progress
    * between two of them would be read in both, and one moved the other way in
-   * neither.
+   * neither. A condition that has to be read at that moment as well, such as
+   * who a search may match (`searchWhere`), is given as a function of the
+   * transaction and built inside it.
    */
   private async readQueue(
-    where: Prisma.IssueWhereInput,
+    whereOf:
+      | Prisma.IssueWhereInput
+      | ((tx: Prisma.TransactionClient) => Promise<Prisma.IssueWhereInput>),
     meanings: readonly IssueStatusMeaning[],
     after: IssueQueueCursor | null,
     take: number | undefined,
@@ -1607,6 +1784,8 @@ export class IssueService {
     );
     return this.prisma.$transaction(
       async (tx) => {
+        const where =
+          typeof whereOf === "function" ? await whereOf(tx) : whereOf;
         const rows: QueueRecord[] = [];
         for (const meaning of read) {
           const remaining = take === undefined ? undefined : take - rows.length;
@@ -1709,8 +1888,10 @@ export class IssueService {
    * few in any association. A null reporter is kept explicitly, because `NOT
    * IN` is not true of a null column.
    */
-  private async notReportedByProtectedPersons(): Promise<Prisma.IssueWhereInput> {
-    const persons = await this.prisma.person.findMany({
+  private async notReportedByProtectedPersons(
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<Prisma.IssueWhereInput> {
+    const persons = await db.person.findMany({
       where: { protectedPersonalData: true },
       select: { id: true },
     });
@@ -1824,6 +2005,71 @@ function meaningsOf(
   meaning: IssueStatusMeaning | undefined,
 ): readonly IssueStatusMeaning[] {
   return meaning === undefined ? ISSUE_STATUS_MEANINGS : [meaning];
+}
+
+/**
+ * The meanings a view of the board's screen covers under its status filter,
+ * in the queue's order: the open ones in `OVERDUE`, which a closed issue never
+ * is, every meaning in the other three, and of those the ones the filter asks
+ * for. Empty when the filter asks Försenade for closed issues.
+ */
+export function meaningsInView(
+  view: IssueQueueView,
+  filter: IssueMeaningFilter | undefined,
+): readonly IssueStatusMeaning[] {
+  const inView: readonly IssueStatusMeaning[] =
+    view === "OVERDUE" ? ISSUE_OPEN_MEANINGS : ISSUE_STATUS_MEANINGS;
+  const asked: readonly IssueStatusMeaning[] =
+    filter === undefined
+      ? ISSUE_STATUS_MEANINGS
+      : filter === "OPEN"
+        ? ISSUE_OPEN_MEANINGS
+        : [filter];
+  return inView.filter((meaning) => asked.includes(meaning));
+}
+
+/**
+ * Whose issues, or which, a view holds beside its meanings. Overdue reads the
+ * target date against the association's calendar day exactly as a row's
+ * `overdue` is computed (`toQueuedView`): a date before today, never today
+ * itself, and no date is never overdue.
+ */
+export function viewWhere(
+  view: IssueQueueView,
+  readerPersonId: string,
+  today: LocalDay,
+): Prisma.IssueWhereInput {
+  switch (view) {
+    case "MINE":
+      return { assigneePersonId: readerPersonId };
+    case "UNASSIGNED":
+      return { assigneePersonId: null };
+    case "OVERDUE":
+      return { targetDate: { lt: dateColumnOf(today) } };
+    case "ALL":
+      return {};
+  }
+}
+
+/**
+ * The words of a search, as `IssueService.searchWhere` matches them: split on
+ * white space, each once, at most `ISSUE_SEARCH_LIMITS.terms` of them. Blank
+ * is no words, which is no search.
+ *
+ * Composed (NFC), as a browser sends the text the search is matched against,
+ * so an "ä" typed as "a" and a combining mark still finds "ä". Invisible
+ * format characters (a zero-width space pasted with a word) are dropped, so
+ * they neither make a word of their own nor keep the word they cling to from
+ * matching.
+ */
+export function searchTermsOf(search: string): string[] {
+  const words = search
+    .slice(0, ISSUE_SEARCH_LIMITS.length)
+    .normalize("NFC")
+    .replace(/\p{Cf}/gu, "")
+    .split(/\s+/u)
+    .filter((word) => word !== "");
+  return [...new Set(words)].slice(0, ISSUE_SEARCH_LIMITS.terms);
 }
 
 function queueWhere(filter: IssueQueueFilter): Prisma.IssueWhereInput {

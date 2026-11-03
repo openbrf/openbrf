@@ -180,6 +180,35 @@ has passed and it is not `DONE`. There are no timers: the law asks for repair
 the association set itself. The assignee is internal, and a reporter never sees
 who it is.
 
+### The views, the filter and the front page
+
+The queue has four views (decision 15): **Mine** (Mina), the cases whose
+assignee is the reader; **Unassigned** (Ej tilldelade), the cases with no
+assignee; **Overdue** (Försenade), the open cases whose target date is before
+today on the association's calendar; and **All** (Alla). Overdue never holds a
+closed case, because a closed case is not overdue. A status filter narrows every
+view alike, by meaning and never by a label: every open meaning, one meaning, or
+closed cases as well. The screen opens it on the open cases, so each view starts
+as the work still to do. A filter by type and by priority, and a search, narrow
+the same way. Each view's count is taken under the same conditions as its list
+and in one snapshot, so a count always matches its list. The board's front page
+shows three of those counts under the open filter: open, overdue and unassigned.
+It shows no charts.
+
+The search matches every word somewhere in the case's description, its place,
+its type's name, its apartment's designation or its reporter's name. It searches
+only the cases the reader handles. It never matches what the reader is not
+shown: a protected reporter's name and apartment match nothing, so a search
+cannot reveal one by trial and error. Who is protected is read in the same
+transaction as the cases. The name and email address of a reporter who used the
+website's form are stored encrypted, so the search does not match them. Text
+added to a case later, such as internal notes, is searched under the same rule:
+only where the reader may read it.
+
+The views and the search are the board's screen alone. No action reads a view or
+searches the queue, because a new read on `mcp` or `ai` needs a decision of its
+own (ADR 0040).
+
 ### Cases a handler opens
 
 Any handler, the property manager included, can open a case for a named resident

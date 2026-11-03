@@ -514,6 +514,18 @@ describe("handling an issue", () => {
     expect(screen.getByText("Bea Styrelse")).toBeTruthy();
   });
 
+  it("sets an overdue issue's row apart by its edge as well as its words", () => {
+    show(issue({ targetDate: "2026-08-25", overdue: true }));
+    expect(screen.getByRole("listitem").className).toContain("border-l-danger");
+  });
+
+  it("gives an issue on time no such edge", () => {
+    show(issue({ targetDate: "2026-08-25", overdue: false }));
+    expect(screen.getByRole("listitem").className).not.toContain(
+      "border-l-danger",
+    );
+  });
+
   it("reads the handlers and the timeline only once the issue is opened", async () => {
     const session = userEvent.setup();
     show();

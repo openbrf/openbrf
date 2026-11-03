@@ -3606,7 +3606,7 @@
     },
     "queue": {
       "title": "Ärendekön",
-      "description": "Allt som anmälts: nya ärenden först, sedan de som pågår, väntar och är klara. Inom varje följer ärendena statusarnas ordning, och det äldsta kommer först inom en status.",
+      "description": "Nya ärenden först, sedan de som pågår, väntar och är klara. Inom varje följer ärendena statusarnas ordning, och det äldsta kommer först inom en status.",
       "empty": "Ingenting har anmälts.",
       "reporter": "Anmäld av",
       "reporterProtected": "Skyddade personuppgifter: fråga styrelsen.",
@@ -3737,6 +3737,32 @@
         "residentNotFound": "Den boende bor inte längre i lägenheten. Välj lägenheten igen, eller lämna den boende tom.",
         "unknown": "Ärendet gick inte att lägga upp just nu. Försök igen."
       }
+    },
+    "views": {
+      "label": "Vyer",
+      "MINE": "Mina",
+      "UNASSIGNED": "Ej tilldelade",
+      "OVERDUE": "Försenade",
+      "ALL": "Alla",
+      "empty": {
+        "MINE": "Inga öppna ärenden har dig som ansvarig.",
+        "UNASSIGNED": "Alla öppna ärenden har en ansvarig.",
+        "OVERDUE": "Inget öppet ärende är försenat.",
+        "ALL": "Inga ärenden är öppna."
+      },
+      "noMatch": "Inga ärenden stämmer med sökningen och filtret."
+    },
+    "filter": {
+      "label": "Sök och filtrera ärenden",
+      "search": "Sök",
+      "status": "Status",
+      "statusOpen": "Öppna",
+      "statusAny": "Alla, även klara",
+      "type": "Typ",
+      "typeAny": "Alla typer",
+      "priority": "Prioritet",
+      "priorityAny": "Alla prioriteter",
+      "clear": "Rensa filter"
     }
   },
   "boardMailbox": {
@@ -6851,7 +6877,7 @@
       "none": "Inget väntar",
       "atLeast": "{{count}} eller fler",
       "queue": {
-        "issues": "Nya ärenden",
+        "issues": "Ärenden",
         "boardMailbox": "Obesvarade trådar i styrelsens brevlåda",
         "motions": "Motioner som inte är mottagna",
         "sublets": "Ansökningar om andrahandsupplåtelse att besluta om",
@@ -6860,6 +6886,11 @@
         "accountRequests": "Kontoansökningar att besluta om",
         "chatReports": "Anmälda inlägg",
         "importProposals": "Föreslagna medlemslistor att granska"
+      },
+      "issues": {
+        "open": "Öppna",
+        "overdue": "Försenade",
+        "unassigned": "Ej tilldelade"
       }
     }
   },
