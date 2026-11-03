@@ -65,6 +65,8 @@ export function ConversationComposer<T>({
     send,
     (sent) => {
       setDraft("");
+      // The notice was about the draft that is now gone.
+      setTooLong(false);
       onSent(sent);
     },
     (failure) => onRefused?.(failure.reason),

@@ -211,6 +211,40 @@ describe("the conversation with the reporter", () => {
     expect(field.value).toBe("Hej.");
   });
 
+  it("clears the notice about a refused saved reply once the draft is sent", async () => {
+    const long = "x".repeat(ISSUE_CONVERSATION_LIMITS.body);
+    fetchIssueSavedReplies.mockResolvedValue({
+      ok: true,
+      value: [{ id: "r-long", title: "Långt svar", body: long, sortOrder: 0 }],
+    });
+    const session = userEvent.setup();
+    render(<IssueConversation issue={issue()} onStale={vi.fn()} />);
+
+    const picker = await screen.findByLabelText("Sparat svar");
+    const field = screen.getByLabelText(
+      "Vatten: meddelande till anmälaren",
+    ) as HTMLTextAreaElement;
+
+    await session.selectOptions(picker, "r-long");
+    await session.selectOptions(picker, "r-long");
+    expect(
+      await screen.findByText(/Det sparade svaret ryms inte/),
+    ).toBeTruthy();
+
+    // Sending the unchanged draft succeeds, and the notice about it goes.
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+    await waitFor(() => {
+      expect(sendIssueMessage).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        body: long,
+      });
+    });
+    await waitFor(() => {
+      expect(field.value).toBe("");
+    });
+    expect(screen.queryByText(/Det sparade svaret ryms inte/)).toBeNull();
+  });
+
   it("keeps the words and says why when the server refuses them", async () => {
     sendIssueMessage.mockResolvedValue({
       ok: false,
