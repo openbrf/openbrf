@@ -629,20 +629,21 @@ export class IssueMailer implements OnModuleInit {
       return false;
     }
 
+    const recipientWhere =
+      job.event === "reporterMessage"
+        ? {
+            id: job.personId,
+            emailCipher: { not: null },
+            processingRestrictedAt: null,
+          }
+        : {
+            AND: [
+              { id: job.personId },
+              issueRecipientsWhere(issueHandledBy(issue), now),
+            ],
+          };
     const recipient = await this.prisma.person.findFirst({
-      where:
-        job.event === "reporterMessage"
-          ? {
-              id: job.personId,
-              emailCipher: { not: null },
-              processingRestrictedAt: null,
-            }
-          : {
-              AND: [
-                { id: job.personId },
-                issueRecipientsWhere(issueHandledBy(issue), now),
-              ],
-            },
+      where: recipientWhere,
       select: {
         firstName: true,
         lastName: true,
@@ -659,6 +660,20 @@ export class IssueMailer implements OnModuleInit {
     }
 
     const to = await this.encryption.decrypt("person.email", cipher);
+    // Decrypting took time, and a restriction can have been granted since the
+    // read above: ask again as close to the handoff as the code can. This
+    // narrows the window; the rendering and sender lookup inside the mail
+    // service still sit between this and the driver.
+    const stillRecipient = await this.prisma.person.findFirst({
+      where: recipientWhere,
+      select: { id: true },
+    });
+    if (stillRecipient === null) {
+      this.logger.log(
+        `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
+      );
+      return false;
+    }
     const recipientName = `${recipient.firstName} ${recipient.lastName}`.trim();
     try {
       if (job.event === "reporterMessage") {

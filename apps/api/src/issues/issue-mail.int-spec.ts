@@ -6,6 +6,7 @@ import { Test } from "@nestjs/testing";
 import {
   addLocalDays,
   formatLocalDay,
+  instantAt,
   type LocalDay,
   localDayOf,
   localDayOfColumn,
@@ -118,11 +119,13 @@ const typeIds = {
   assigned: `im-type-assigned-${suffix}`,
   urgent: `im-type-urgent-${suffix}`,
   boardOnly: `im-type-board-${suffix}`,
+  public: `im-type-public-${suffix}`,
 };
 let unassignedType: IssueTypeFixture;
 let assignedType: IssueTypeFixture;
 let urgentType: IssueTypeFixture;
 let boardOnlyType: IssueTypeFixture;
+let publicType: IssueTypeFixture;
 
 const RESIDENT_ROLES: PrincipalRoles = {
   isAdmin: false,
@@ -315,6 +318,11 @@ beforeAll(async () => {
     name: `Störning ${suffix}`,
     reporters: ["RESIDENTS"],
     handledBy: "BOARD",
+  });
+  publicType = await createIssueTypeFixture(prisma, {
+    id: typeIds.public,
+    name: `Utomhus ${suffix}`,
+    reporters: ["PUBLIC"],
   });
   // A status a handler named, so the suite can look for it in the mail.
   await prisma.issueStatus.create({
@@ -528,22 +536,42 @@ describe("a report is filed", () => {
         },
       });
     }
-    const publicIssue = await prisma.issue.create({
-      data: {
-        typeId: unassignedType.id,
-        statusId: unassignedType.statusIds.NEW,
-        description: REPORTER_DESCRIPTION,
-      },
-      select: { id: true },
-    });
-
+    // Through the service the website's form calls, which takes the report
+    // whether or not it may mail.
     await mailer.ensureQueues();
-    const queued = await prisma.$transaction((tx) =>
-      mailer.filedInTransaction(tx, publicIssue.id),
-    );
+    const previous = await prisma.association.findUnique({
+      where: { id: 1 },
+      select: { issueReportingPublic: true },
+    });
+    await prisma.association.upsert({
+      where: { id: 1 },
+      create: { id: 1, name: "Brf Eksemplet", issueReportingPublic: true },
+      update: { issueReportingPublic: true },
+    });
+    let publicIssueId: string;
+    try {
+      ({ id: publicIssueId } = await issues.reportPublicly({
+        typeId: publicType.id,
+        description: REPORTER_DESCRIPTION,
+      }));
+    } finally {
+      if (previous === null) {
+        await prisma.association.deleteMany({ where: { id: 1 } });
+      } else {
+        await prisma.association.update({
+          where: { id: 1 },
+          data: { issueReportingPublic: previous.issueReportingPublic },
+        });
+      }
+    }
 
-    expect(queued).toBe(0);
-    expect(await notices(publicIssue.id)).toEqual([]);
+    expect(
+      await prisma.issue.findUnique({
+        where: { id: publicIssueId },
+        select: { id: true },
+      }),
+    ).toEqual({ id: publicIssueId });
+    expect(await notices(publicIssueId)).toEqual([]);
 
     // Ordinary reports do not spend Akut's budget (decision 12).
     const urgentIssue = await prisma.issue.create({
@@ -738,8 +766,9 @@ describe("the overdue reminder", () => {
 
     const [job] = await overdueJobs(issueId);
     expect(job?.data).toEqual({ issueId, targetDate: formatLocalDay(target) });
-    expect(localDayOf(new Date(job?.start_after ?? 0))).toEqual(
-      addLocalDays(target, 1),
+    // 07:00 local time the day after, not merely that day.
+    expect(new Date(job?.start_after ?? 0).getTime()).toBe(
+      instantAt(addLocalDays(target, 1), 7 * 60)?.getTime(),
     );
   });
 
@@ -1013,6 +1042,40 @@ describe("delivering a mail", () => {
         }),
       ).toBe(false);
     } finally {
+      await prisma.person.update({
+        where: { id: admin.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+    expect(sent).toEqual([]);
+  });
+
+  it("sends nothing to a person whose processing became restricted while the address was decrypted", async () => {
+    const issueId = await report(unassignedType);
+    const sent = captureSends();
+    const encryption = app.get(FieldEncryptionService);
+    const decrypt = encryption.decrypt.bind(encryption);
+    const spy = vi
+      .spyOn(encryption, "decrypt")
+      .mockImplementation(async (...args) => {
+        const plain = await decrypt(...args);
+        // The restriction is granted after the first read found them eligible.
+        await prisma.person.update({
+          where: { id: admin.personId },
+          data: { processingRestrictedAt: new Date() },
+        });
+        return plain;
+      });
+    try {
+      expect(
+        await mailer.deliver({
+          issueId,
+          personId: admin.personId,
+          event: "filed",
+        }),
+      ).toBe(false);
+    } finally {
+      spy.mockRestore();
       await prisma.person.update({
         where: { id: admin.personId },
         data: { processingRestrictedAt: null },
