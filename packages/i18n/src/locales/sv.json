@@ -3780,7 +3780,7 @@
       "loading": "Läser meddelandena...",
       "readFailed": "Meddelandena gick inte att läsa just nu. Stäng och öppna dem igen.",
       "readFailedHandler": "Meddelandena, anteckningarna eller filerna gick inte att läsa just nu. Stäng och öppna ärendet igen.",
-      "savedRepliesReadFailed": "Sparade svar gick inte att läsa just nu, så inget kan infogas. Stäng och öppna ärendet igen.",
+      "savedRepliesReadFailed": "Sparade svar gick inte att läsa just nu. Stäng och öppna ärendet igen.",
       "empty": "Inga meddelanden än.",
       "emptyOwn": "Inga meddelanden än. Styrelsen eller förvaltaren svarar här.",
       "you": "Du",
