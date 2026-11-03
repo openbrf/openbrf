@@ -15,6 +15,10 @@ import { registerMultipart } from "../http/multipart";
 import { pngBytes } from "../media/testing/image-fixtures";
 import { StorageService } from "../storage/storage.service";
 import { waitFor } from "../testing/advisory-locks";
+import type { Prisma } from "../generated/prisma/client";
+import { lockResidencyTransitions } from "../registers/residency-lock";
+import { lockErasureEligibility } from "../retention/erasure-lock";
+import { lockBoardPositions, lockSystemRole } from "../roles/role-lock";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   createIssueTypeFixture,
@@ -32,7 +36,8 @@ import { lockIssueType } from "./issue-lock";
  * never a note, a handler's file or a handler's name; a handler's message
  * reaches them signed with a role. The handlers read names, a protected one
  * withheld. An issue the board keeps to itself keeps its conversation with it.
- * And nothing of it is offered on `mcp` or `ai`.
+ * And nothing of it is offered on `mcp` or `ai`. A handler's write is also
+ * ordered against an erasure and the writers of the ties that refuse one.
  */
 
 const env = loadEnvForIntegrationTests();
@@ -80,11 +85,13 @@ const typeIds = {
   boardOnly: `ic-type-board-${suffix}`,
   turning: `ic-type-turning-${suffix}`,
   turningFile: `ic-type-turning-file-${suffix}`,
+  erasure: `ic-type-erasure-${suffix}`,
 };
 let plain: IssueTypeFixture;
 let boardOnly: IssueTypeFixture;
 let turning: IssueTypeFixture;
 let turningFile: IssueTypeFixture;
+let erasure: IssueTypeFixture;
 
 /** A personal identity number with a valid check digit, as one is pasted. */
 const WITH_A_NUMBER = "Ring Erik, 19811218-9876, om nyckeln.";
@@ -315,6 +322,12 @@ beforeAll(async () => {
   turningFile = await createIssueTypeFixture(prisma, {
     id: typeIds.turningFile,
     name: `Vänder fil ${suffix}`,
+    reporters: ["RESIDENTS"],
+  });
+
+  erasure = await createIssueTypeFixture(prisma, {
+    id: typeIds.erasure,
+    name: `Raderas ${suffix}`,
     reporters: ["RESIDENTS"],
   });
 
@@ -977,6 +990,197 @@ describe("saved replies", () => {
     });
   });
 });
+
+describe("a handler's write against erasure and standing ties", () => {
+  /**
+   * `replyAsHandler` and `addNote` name the handler as the author of the row
+   * they write. What makes a person's authored rows erasable is that nothing
+   * ties them to the association any more - no residency, no board seat, no
+   * system role - and the purge that erases them detaches the rows they wrote
+   * (`lockErasureEligibility`). A write that is decided before that purge reads
+   * and commits after it has detached would leave a row authored by somebody
+   * the purge has judged free to erase. So a write takes the same three keys
+   * the purge and the writers of those ties take, before it reads anything, and
+   * holds them until it commits.
+   *
+   * The write is held where it is in flight: it has taken its keys and waits on
+   * the issue type's lock, which the test holds. A contender is then started
+   * that takes one key, as the writer of that tie or the purge itself does. It
+   * must queue behind the write and, once the write has committed, see its row.
+   * A write that does not take the key lets the contender through while it is
+   * still waiting, and the contender is answered first.
+   */
+  const writes = [
+    {
+      kind: "a message to the reporter",
+      path: "messages",
+      authored: (issueId: string, personId: string) =>
+        prisma.issueMessage.count({
+          where: { issueId, authorPersonId: personId },
+        }),
+    },
+    {
+      kind: "an internal note",
+      path: "notes",
+      authored: (issueId: string, personId: string) =>
+        prisma.issueNote.count({
+          where: { issueId, authorPersonId: personId },
+        }),
+    },
+  ];
+
+  /** A tie's writer, or the erasure, by the key it takes first. */
+  const contenders: {
+    who: string;
+    handler: { personId: string };
+    take: (tx: Prisma.TransactionClient, personId: string) => Promise<void>;
+  }[] = [
+    {
+      who: "the writer's residency changing",
+      handler: manager,
+      take: lockResidencyTransitions,
+    },
+    {
+      who: "the writer's board seat changing",
+      handler: board,
+      take: lockBoardPositions,
+    },
+    {
+      who: "the writer's system role changing",
+      handler: manager,
+      take: (tx) => lockSystemRole(tx, "PROPERTY_MANAGER"),
+    },
+    {
+      who: "the writer's erasure",
+      handler: manager,
+      take: lockErasureEligibility,
+    },
+  ];
+
+  describe.each(writes)("$kind", ({ path, authored }) => {
+    it.each(contenders)(
+      "is decided before $who, and seen by it",
+      async ({ handler, take }) => {
+        const issueId = await filed(erasure);
+        const seen = await queuedBehindWrite({
+          typeId: erasure.id,
+          send: () =>
+            write(handler, `/api/issue-queue/${issueId}/${path}`, "Hej"),
+          contend: async (tx) => {
+            await take(tx, handler.personId);
+            const messages = await tx.issueMessage.count({
+              where: { issueId },
+            });
+            const notes = await tx.issueNote.count({ where: { issueId } });
+            return messages + notes;
+          },
+        });
+
+        expect(seen.answer.statusCode).toBe(201);
+        // The contender took its key after the write committed, so it read
+        // the row the write left.
+        expect(seen.read).toBe(1);
+        expect(await authored(issueId, handler.personId)).toBe(1);
+      },
+    );
+
+    it("leaves no row authored by a person the purge has detached", async () => {
+      const issueId = await filed(erasure);
+      const seen = await queuedBehindWrite({
+        typeId: erasure.id,
+        send: () =>
+          write(manager, `/api/issue-queue/${issueId}/${path}`, "Hej"),
+        // What `PurgeService.purgePerson` does with the rows a person wrote:
+        // takes the keys, then detaches what it finds.
+        contend: async (tx) => {
+          await lockErasureEligibility(tx, manager.personId);
+          const messages = await tx.issueMessage.updateMany({
+            where: { issueId, authorPersonId: manager.personId },
+            data: { authorPersonId: null },
+          });
+          const notes = await tx.issueNote.updateMany({
+            where: { issueId, authorPersonId: manager.personId },
+            data: { authorPersonId: null },
+          });
+          return messages.count + notes.count;
+        },
+      });
+
+      expect(seen.answer.statusCode).toBe(201);
+      // The purge found the row the write committed, and detached it.
+      expect(seen.read).toBe(1);
+      expect(await authored(issueId, manager.personId)).toBe(0);
+    });
+  });
+});
+
+/**
+ * Plays a handler's write out against a contender that takes a key the write
+ * holds.
+ *
+ * The test holds the issue type's lock, which the write takes after the keys of
+ * the erasure, so the write is in flight with them taken. The contender is
+ * started once the database says the write is queued, and released only when it
+ * too is queued, behind the write. A write that holds no such key lets the
+ * contender through at once: it answers before the type's lock is let go, and
+ * the order has not been played out.
+ */
+async function queuedBehindWrite<T>(options: {
+  typeId: string;
+  send: () => ReturnType<typeof inject>;
+  contend: (tx: Prisma.TransactionClient) => Promise<T>;
+}): Promise<{ answer: Awaited<ReturnType<typeof inject>>; read: T }> {
+  let reached: (pid: number) => void = () => undefined;
+  const holding = new Promise<number>((resolve) => {
+    reached = resolve;
+  });
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const holdingType = prisma.$transaction(
+    async (tx) => {
+      await lockIssueType(tx, options.typeId);
+      reached(await backendPid(tx));
+      await gate;
+    },
+    { timeout: 30_000 },
+  );
+  const holder = await holding;
+
+  let answered = false;
+  let contended = false;
+  const request = options.send().finally(() => {
+    answered = true;
+  });
+  let contender: Promise<T> | undefined;
+  let waited = false;
+  try {
+    // The write is queued behind the type's lock, holding its keys.
+    await waitFor(
+      async () => answered || (await waitersBehind(prisma, holder)) > 0,
+    );
+    expect(answered, "the write waits for the type's lock").toBe(false);
+
+    contender = prisma
+      .$transaction((tx) => options.contend(tx), { timeout: 30_000 })
+      .finally(() => {
+        contended = true;
+      });
+    // Queued behind the write, which is itself queued behind the holder.
+    await waitFor(
+      async () => contended || (await waitersBehind(prisma, holder)) > 1,
+    );
+    waited = !contended;
+  } finally {
+    release();
+    await holdingType;
+  }
+  const answer = await request;
+  const read = await (contender ?? Promise.reject(new Error("not started")));
+  expect(waited, "the contender waits for the write's keys").toBe(true);
+  return { answer, read };
+}
 
 /**
  * Plays a request out against the board handing a type to itself, in the order
