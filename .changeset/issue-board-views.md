@@ -21,8 +21,8 @@ counts open, overdue and unassigned issues (ADR 0054).
   notes, and ignores any words after those. Case does
   not matter, and an accented letter matches whether it was written as one
   character or as a letter with a combining mark (a word that mixes both
-  within itself is not found). A percent sign or an underscore in a word
-  matches itself and nothing else. It never
+  within itself is not found). A percent sign, an underscore or a backslash in a
+  word matches itself and nothing else. It never
   matches a reporter with protected personal data by name or apartment, and it
   never finds an issue the reader does not handle. The counts
   follow the same filter and search, and the queue reads a view's list and the

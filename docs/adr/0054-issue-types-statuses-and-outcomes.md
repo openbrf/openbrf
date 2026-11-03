@@ -201,8 +201,8 @@ message in its conversation with the reporter or an internal note on it. It
 reads the first six different words and ignores any after them. Case does not
 matter, and each word is matched in both Unicode forms, composed and decomposed,
 because text is stored as it was sent. A word that mixes the two forms within
-itself is found in neither. A percent sign or an underscore matches itself
-and nothing else. It searches only
+itself is found in neither. A percent sign, an underscore or a backslash matches
+itself and nothing else. It searches only
 the issues the reader handles. It never matches what the reader is not shown: a
 protected reporter's name and apartment match nothing, so a search cannot reveal
 one by trial and error. Who is protected is read in the same transaction as the

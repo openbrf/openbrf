@@ -302,6 +302,14 @@ describe("a read that fails", () => {
     expect(fetchIssueQueueSnapshot).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Det droppar i taket.")).toBeTruthy();
     expect(screen.queryByText("Ärendena kunde inte läsas just nu.")).toBeNull();
+    // The types the retry read are the ones on screen.
+    await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.",
+        ),
+      ).toBeNull();
+    });
   });
 });
 

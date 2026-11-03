@@ -997,12 +997,14 @@ describe("the search", () => {
     expect(await search(board, `badrummet Rune`)).toEqual([filed.leak]);
   });
 
-  it("takes a percent sign and an underscore as the characters they are", async () => {
+  it("takes a percent sign, an underscore and a backslash as the characters they are", async () => {
     // As wildcards, either would match the leak's description.
     expect(await search(board, `blåslamp_${suffix}`)).toEqual([]);
     expect(await search(board, `blå%${suffix}`)).toEqual([]);
     expect(await search(board, `%${suffix}`)).toEqual([]);
     expect(await search(board, `_`)).toEqual([]);
+    // As LIKE's escape character, `\s` would match a plain `s`.
+    expect(await search(board, `blå\\slampa${suffix}`)).toEqual([]);
   });
 
   it("drops an invisible character pasted into a word", async () => {

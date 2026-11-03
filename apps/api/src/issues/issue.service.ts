@@ -1638,7 +1638,8 @@ export class IssueService {
       // The word in either Unicode form (`unicodeFormsOf`), case aside. The
       // database matches `contains` as a LIKE pattern without escaping it,
       // so a percent sign or an underscore typed by the handler would match
-      // any text; each is escaped to match itself.
+      // any text, and a backslash would escape the character after it; each
+      // is escaped to match itself.
       const forms = unicodeFormsOf(term).map(
         (form) =>
           ({
