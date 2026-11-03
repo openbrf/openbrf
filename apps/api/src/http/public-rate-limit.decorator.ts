@@ -22,6 +22,10 @@ export interface PublicRateLimitOptions {
  * account behind it and an audit trail over it, and a GET is a read the
  * interface makes many of - limiting either buys nothing and breaks something.
  *
+ * One exception to the GET: a page whose address is a token, such as a
+ * reporter's private link (ADR 0055). There the GET is the route a guess is
+ * made on, so it gets a budget set for the most a real reader needs.
+ *
  * The budget belongs at the route because only the route knows what an honest
  * caller needs. Set it for the most demanding legitimate use of the form and no
  * tighter: one client address is a household, an office, or a whole building

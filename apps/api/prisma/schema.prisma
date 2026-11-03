@@ -1845,6 +1845,10 @@ enum AuditAction {
   ISSUE_MESSAGE_SENT
   /// A handler wrote an internal note on an issue. The entry names the issue, the note and the handler as its actor, never the text.
   ISSUE_NOTE_ADDED
+  /// A private link was issued to the reporter of an issue who has no account, and mailed to the address they gave (ADR 0055). The entry names the issue and the link, never the address or the token.
+  ISSUE_REPORTER_LINK_ISSUED
+  /// A handler withdrew the private link of an issue's reporter (ADR 0055). The entry names the issue, the link and the handler as its actor.
+  ISSUE_REPORTER_LINK_REVOKED
   /// A person was moved into an apartment.
   MOVE_IN_RECORDED
   /// A residency was given its move-out date.
@@ -2414,6 +2418,11 @@ enum AuditChannel {
   /// session's request is served is on this channel, whatever the call site
   /// passed.
   SUPPORT
+  /// Whoever holds a private link (privat länk, ADR 0055): a reporter without
+  /// an account answering through the link mailed to them. Never a person in
+  /// the register, so an entry on this channel has no actor, and its context
+  /// names the link.
+  LINK
 }
 
 /// Audit log. Writes happen in the same transaction as the access they record.
@@ -4534,6 +4543,10 @@ model Issue {
   notes       IssueNote[]
   attachments IssueAttachment[]
 
+  /// The private link mailed to a reporter without an account (ADR 0055), when
+  /// one was issued.
+  reporterLink IssueReporterLink?
+
   /// The post this issue was reported from, when it was.
   post Post?
 
@@ -4701,6 +4714,50 @@ model IssueAttachment {
 
   @@index([issueId, sortOrder])
   @@map("issue_attachment")
+}
+
+/// The private link (privat länk) mailed to the reporter of an issue who has
+/// no account and left an email address on the website's form (decision 20,
+/// ADR 0055). Whoever holds it reads the issue's conversation on a page of its
+/// own and writes in it, text only, and nothing else of the issue.
+///
+/// One per issue at most, issued with the first mail to the reporter's address
+/// and never again: there is no way to ask for it to be sent once more, so the
+/// website's form cannot be turned into a way to mail somebody.
+///
+/// The token is never stored. `tokenDigest` is its SHA-256 digest
+/// (`hashOpaqueToken`), unique, and the link is looked up by it alone. Whether
+/// it still opens anything is read with it on every request, on the database's
+/// clock: not revoked, not expired, the issue's contact details not purged,
+/// and the issue not closed more than 30 days ago (`issue-reporter-link.ts`).
+model IssueReporterLink {
+  id String @id @default(cuid())
+
+  /// Cascade: a link to an issue that is gone opens nothing.
+  issueId String @unique
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The token's SHA-256 digest, base64url. Replaced only while no mail has
+  /// carried the link yet (`mailedAt` null), when a delivery that failed is
+  /// tried again with a token of its own.
+  tokenDigest String @unique
+
+  /// When the token behind `tokenDigest` was minted.
+  issuedAt DateTime @default(now())
+
+  /// When the mail carrying it was handed to the mail server; null until then.
+  mailedAt DateTime?
+
+  /// The link's own end, 365 days after the latest issue message or its issue,
+  /// whichever is later. An issue that stays open does not keep a link alive
+  /// on its own (ADR 0055).
+  expiresAt DateTime
+
+  /// When a handler withdrew it, or null. A withdrawn link stays withdrawn.
+  revokedAt DateTime?
+
+  @@index([issuedAt])
+  @@map("issue_reporter_link")
 }
 
 /// A reply the association keeps for its handlers to start an issue message

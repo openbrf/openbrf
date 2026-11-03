@@ -1149,6 +1149,28 @@ runs or queues at once, are counted in the memory of the application process, so
 running more than one application container for an instance multiplies every
 one of them by the number of containers.
 
+### Private links in the proxy's access log
+
+A reporter who has no account and left an email address on the website's
+issue report form is mailed a private link to their issue, at
+`/arende/obrf_rl_...` (ADR 0055). The address is the credential: whoever holds
+it reads the issue's conversation and writes in it. The application keeps the
+token out of its own logs and stores only a digest of it, but a reverse proxy
+writes the whole path of every request to its access log, and the application
+cannot stop that.
+
+Leave these paths out of the proxy's access log, or cut the path at
+`/arende/`. In nginx, for example, a `location /arende/ { access_log off; ... }`
+block in front of the usual `proxy_pass` does it; in Caddy, a `log_skip` for
+the same path. A proxy log that keeps the full path holds a working link until
+the link ends: 30 days after its issue is closed, or a year after the issue's
+latest message if it stays open, or when a handler withdraws it. Keep such a log
+for less time than that, or treat it as holding personal data.
+
+The same budget per client address that guards the forms guards these paths
+too, so `TRUSTED_PROXIES` matters here as well: thirty page reads and five
+messages a minute per address.
+
 ## The data volume
 
 `/data` holds the field encryption key, uploaded files, installed plugins and

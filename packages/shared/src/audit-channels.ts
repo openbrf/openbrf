@@ -61,6 +61,12 @@ export const AUDIT_CHANNELS = [
    * the supporter looked, and its context names the support session.
    */
   "SUPPORT",
+  /**
+   * Whoever holds a private link (privat länk): a reporter without an account
+   * answering through the link mailed to them (ADR 0055). Never a person in
+   * the register, so the entry has no actor, and its context names the link.
+   */
+  "LINK",
 ] as const;
 
 export type AuditChannelName = (typeof AUDIT_CHANNELS)[number];

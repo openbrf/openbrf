@@ -13,6 +13,7 @@ import {
   type IssueNote,
   type IssueSavedReply,
   type QueuedIssue,
+  revokeIssueReporterLink,
   sendIssueMessage,
 } from "../api/issues";
 import type { TranslationKey } from "../i18n/translation-key";
@@ -39,6 +40,11 @@ const ATTACH_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "unsupported-type": "issues.attachments.errors.unsupported",
   "empty-file": "issues.attachments.errors.unsupported",
   "no-file": "issues.attachments.errors.unsupported",
+};
+
+const REVOKE_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  "issue-not-found": "issues.conversation.errors.issueNotFoundHandler",
+  "no-reporter-link": "issues.reporterLink.errors.none",
 };
 
 /** What the media layer identifies: an image, or a PDF. */
@@ -157,11 +163,16 @@ export function IssueConversation({
       onStale();
     }
   };
-  // Only a reporter with an account reads the thread. One who left an address
-  // alone, as a report from the website's form may, has no way to see a reply,
-  // and nothing is mailed (decision 21).
+  // A reporter with an account reads the thread signed in. One who left an
+  // address on the website's form reads it through the private link mailed to
+  // them, while it opens the issue (ADR 0055). Nothing mails a message
+  // (decision 21).
+  const throughLink =
+    issue.reporter.kind === "external" && issue.reporter.link === "live";
   const reachable =
-    issue.reporter.kind === "resident" || issue.reporter.kind === "protected";
+    issue.reporter.kind === "resident" ||
+    issue.reporter.kind === "protected" ||
+    throughLink;
   const named = { type: issue.typeName };
 
   return (
@@ -182,6 +193,15 @@ export function IssueConversation({
           {t("issues.conversation.title")}
         </h3>
         <MessageList messages={read.messages} failed={read.failed} />
+        {issue.reporter.kind === "external" ? (
+          <ReporterLink
+            issue={issue}
+            live={throughLink}
+            // The queue is read again, which brings the link's new state.
+            onRevoked={onStale}
+            onRefused={refused}
+          />
+        ) : null}
         {reachable ? (
           <ConversationComposer
             label={t("issues.conversation.message")}
@@ -227,6 +247,80 @@ export function IssueConversation({
         onAttached={reread}
         onRefused={refused}
       />
+    </div>
+  );
+}
+
+/**
+ * The private link of a reporter without an account (ADR 0055): whether it
+ * still opens the issue, and the act that withdraws it. A withdrawn link opens
+ * nothing from the next request on, and the reporter is not told.
+ */
+function ReporterLink({
+  issue,
+  live,
+  onRevoked,
+  onRefused,
+}: {
+  issue: QueuedIssue;
+  live: boolean;
+  onRevoked: () => void;
+  onRefused: (reason: string) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const revoke = useSaveAction(
+    () => revokeIssueReporterLink(issue.id),
+    onRevoked,
+    (failure) => {
+      onRefused(failure.reason);
+    },
+  );
+  const link =
+    issue.reporter.kind === "external" ? issue.reporter.link : "none";
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className={HINT}>
+        {t(
+          link === "live"
+            ? "issues.reporterLink.live"
+            : link === "ended"
+              ? "issues.reporterLink.ended"
+              : "issues.reporterLink.none",
+        )}
+      </p>
+      {revoke.state.kind === "failed" ? (
+        <Notice tone="danger" live>
+          {t(
+            failureMessageKey(
+              revoke.state.failure,
+              REVOKE_FAILURES,
+              "issues.reporterLink.errors.unknown",
+            ),
+          )}
+        </Notice>
+      ) : null}
+      {live ? (
+        <div>
+          <button
+            type="button"
+            className={SECONDARY_BUTTON}
+            disabled={revoke.pending}
+            aria-label={t("issues.reporterLink.revokeNamed", {
+              type: issue.typeName,
+            })}
+            onClick={() => {
+              if (!revoke.pending) {
+                void revoke.submit();
+              }
+            }}
+          >
+            {revoke.pending
+              ? t("issues.reporterLink.revoking")
+              : t("issues.reporterLink.revoke")}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { MediaModule } from "../media/media.module";
 import { IssueActionsRegistrar } from "./issue-actions.registrar";
 import { IssueConversationService } from "./issue-conversation.service";
 import { IssuePurgeService } from "./issue-purge.service";
+import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import { IssueResidentsService } from "./issue-residents.service";
 import { IssueSavedReplyService } from "./issue-saved-reply.service";
 import { IssueTypeService } from "./issue-type.service";
@@ -30,7 +31,8 @@ import {
  *
  * The services are exported because the association's public website renders
  * the report form itself, in process, rather than calling this API over HTTP,
- * and the saved replies because the setup wizard seeds them.
+ * the saved replies because the setup wizard seeds them, and the reporter's
+ * private link because its page is the website's too (ADR 0055).
  *
  * IssuePurgeService is a provider and not exported: it is a scheduled job with
  * nobody to call it, and the integration suite reaches it through the module
@@ -51,8 +53,14 @@ import {
     IssueResidentsService,
     IssueConversationService,
     IssueSavedReplyService,
+    IssueReporterLinkService,
     IssueActionsRegistrar,
   ],
-  exports: [IssueService, IssueTypeService, IssueSavedReplyService],
+  exports: [
+    IssueService,
+    IssueTypeService,
+    IssueSavedReplyService,
+    IssueReporterLinkService,
+  ],
 })
 export class IssuesModule {}

@@ -4,6 +4,7 @@ import type { AuditLogService } from "../audit/audit-log.service";
 import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { MediaService } from "../media/media.service";
+import type { IssueReporterLinkService } from "./issue-reporter-link.service";
 import type { IssueTypeService } from "./issue-type.service";
 import { IssueService } from "./issue.service";
 
@@ -136,6 +137,7 @@ function build(issueReads: (typeof PROTECTED_ISSUE)[][], protectedFrom = 2) {
     {} as MediaService,
     {} as FieldEncryptionService,
     {} as AuditLogService,
+    {} as IssueReporterLinkService,
   );
   return { service, issueFindMany };
 }

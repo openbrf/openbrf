@@ -45,8 +45,9 @@ import { DomainError } from "../http/domain-error";
  * that is done; what a reply to a closed issue does is the reopening rule's to
  * decide (ADR 0054). `no-reporter` is a handler writing to the reporter of an
  * issue nobody can read the answer on: an internal issue, a report from the
- * website's form, whose reporter has no account to read a thread in, and one
- * whose reporter was purged.
+ * website's form whose reporter has no live private link (none mailed,
+ * withdrawn or ended), and one whose reporter was purged. `no-reporter-link` is a handler withdrawing the
+ * private link of a reporter who was never mailed one (ADR 0055).
  * `personal-identity-number` is text the board writes back, a message, a note
  * or a saved reply, carrying a personal identity number, refused with where it
  * sits and never the value. `too-many-attachments` and `too-many-saved-replies`
@@ -77,7 +78,8 @@ export type IssueReason =
   | "personal-identity-number"
   | "too-many-attachments"
   | "saved-reply-not-found"
-  | "too-many-saved-replies";
+  | "too-many-saved-replies"
+  | "no-reporter-link";
 
 /**
  * Where in a message, a note or a saved reply a refused value sits: a part and
@@ -104,6 +106,7 @@ export class IssueError extends DomainError {
       reason === "too-many-saved-replies" ||
       reason === "issue-closed" ||
       reason === "no-reporter" ||
+      reason === "no-reporter-link" ||
       reason === "post-already-reported" ||
       reason === "default-status-required" ||
       reason === "too-many-statuses"

@@ -18,6 +18,8 @@ export { brokerUpdateRequestNoticeMail } from "./broker-update-request-notice.te
 export type { BrokerUpdateRequestNoticeMailProps } from "./broker-update-request-notice.template";
 export { contactSubmissionMail } from "./contact-submission.template";
 export type { ContactSubmissionMailProps } from "./contact-submission.template";
+export { issueReporterLinkMail } from "./issue-reporter-link.template";
+export type { IssueReporterLinkMailProps } from "./issue-reporter-link.template";
 export { invitationMail } from "./invitation.template";
 export type { InvitationMailProps } from "./invitation.template";
 export { magicLinkRefusedMail } from "./magic-link-refused.template";

@@ -246,6 +246,7 @@ describe("who reported it", () => {
               kind: "external",
               name: "Grannen",
               email: "granne@exempel.se",
+              link: "none",
             },
           }),
         ]}
