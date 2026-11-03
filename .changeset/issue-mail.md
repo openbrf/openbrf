@@ -26,8 +26,9 @@ number.
   wrote, where in the building the issue is, or who reported it. That text does
   not pass through the mail provider.
 - **Issue number.** Every issue has a number, shown in the issue queue, on the
-  reporter's own list and in every mail. Existing issues are numbered in the
-  order they were filed.
+  reporter's own list and in every mail, and returned by the `issue_list` and
+  `issue_get` actions. Existing issues are numbered in the order they were
+  filed.
 - **Reports from the website's form.** Handlers get mail about at most ten of
   these an hour. Past that, a report is still filed and shown in the queue, but
   nobody is mailed about it.

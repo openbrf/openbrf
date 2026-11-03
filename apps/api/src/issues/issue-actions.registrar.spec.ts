@@ -378,6 +378,7 @@ describe("issue_get", () => {
     );
     expect(issue).toEqual({
       id: "issue-1",
+      number: 1,
       status: { id: "status-water-new", meaning: "NEW", label: "Ny" },
       waitingReason: null,
       outcome: null,
