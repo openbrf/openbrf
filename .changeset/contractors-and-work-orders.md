@@ -50,7 +50,12 @@ a preview, and the issue keeps the record of it (ADR 0055).
   whom, when, and whether the mail went out. The text of a work order is erased
   ten years after its issue was closed, when a claim about the work it ordered
   becomes time-barred; when it was sent stays, and whom it went to stays while
-  the contractor is on the list. The work order mail is written in the
+  the contractor is on the list. A report from the public form still loses
+  its reporter's name and email address a year after it is closed, but while
+  the text of a work order about it stands, the address is kept in a coded
+  form that cannot be read back, and goes when the last text is erased: a
+  legal hold or a restriction of processing placed later on the person who
+  wrote in still keeps that text. The work order mail is written in the
   association's default language.
 - **Ring-fenced types.** The board ring-fences an issue type in the settings,
   and each change is recorded in the audit log. A work order on an issue whose

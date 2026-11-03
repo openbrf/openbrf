@@ -935,4 +935,142 @@ describe("the text of a work order", () => {
       await prisma.legalHold.delete({ where: { id: hold.id } });
     }
   });
+
+  describe("on a public-form report", () => {
+    async function purgeEntries(issueId: string) {
+      return prisma.auditLogEntry.findMany({
+        where: {
+          action: "SERVICE_DATA_PURGED",
+          targetKind: "issue",
+          targetId: issueId,
+        },
+        orderBy: { createdAt: "asc" },
+        select: { context: true },
+      });
+    }
+
+    async function restrict(restricted: boolean): Promise<void> {
+      await prisma.person.update({
+        where: { id: withheld.personId },
+        data: { processingRestrictedAt: restricted ? new Date() : null },
+      });
+    }
+
+    it("keeps the address index past the year, so a restriction placed later still keeps the text", async () => {
+      /*
+       * The index is all a hold or a restriction can reach a public-form
+       * reporter by (ADR 0057). Cleared with the name a year after closing, a
+       * restriction placed in year three would match nothing and the text
+       * would go at year ten regardless.
+       */
+      const issueId = await reportPublicly(
+        "Mogel bakom kylskapet.",
+        withheld.email,
+      );
+      await close(issueId);
+      await closedDaysAgo(issueId, ISSUE_RETENTION_DAYS + 1);
+      const orderId = await workOrderOn(issueId, "Sanera bakom kylskapet.");
+
+      try {
+        // The year passes with nobody withheld: name and address go, the
+        // index stays.
+        await purge.run();
+        const afterYear = await read(issueId);
+        expect(afterYear.reporterNameCipher).toBeNull();
+        expect(afterYear.reporterEmailCipher).toBeNull();
+        expect(afterYear.reporterEmailIndex).not.toBeNull();
+        expect((await purgeEntries(issueId)).map((e) => e.context)).toEqual([
+          {
+            retentionDaysAfterClosing: ISSUE_RETENTION_DAYS,
+            addressIndexKept: true,
+          },
+        ]);
+
+        // A report left with only its kept index is not selected again, and
+        // asked directly it detaches nothing and writes nothing.
+        expect(
+          await purge.eligible(new Date(), ISSUE_RETENTION_DAYS),
+        ).not.toContain(issueId);
+        await expect(purge.purgeIssue(issueId)).resolves.toBe(false);
+        await purge.run();
+        expect(await purgeEntries(issueId)).toHaveLength(1);
+
+        // Years later the person who wrote in is restricted, and then the
+        // work order's ten years run out.
+        await restrict(true);
+        await closedDaysAgo(issueId, WORK_ORDER_BODY_RETENTION_DAYS + 1);
+
+        expect(
+          await purge.eligibleWorkOrderTexts(
+            new Date(),
+            WORK_ORDER_BODY_RETENTION_DAYS,
+          ),
+        ).not.toContain(issueId);
+        await expect(purge.purgeWorkOrderTexts(issueId)).resolves.toBe(false);
+        await purge.run();
+        expect((await readOrder(orderId)).body).toBe("Sanera bakom kylskapet.");
+        expect((await read(issueId)).reporterEmailIndex).not.toBeNull();
+        expect(await purgeEntries(issueId)).toHaveLength(1);
+      } finally {
+        await restrict(false);
+      }
+
+      // Lifted, the text goes and the index with it, in one entry.
+      await purge.run();
+      expect((await readOrder(orderId)).body).toBeNull();
+      expect((await read(issueId)).reporterEmailIndex).toBeNull();
+      expect((await purgeEntries(issueId)).map((e) => e.context)).toEqual([
+        {
+          retentionDaysAfterClosing: ISSUE_RETENTION_DAYS,
+          addressIndexKept: true,
+        },
+        {
+          workOrderTexts: 1,
+          retentionDaysAfterClosing: WORK_ORDER_BODY_RETENTION_DAYS,
+          addressIndexCleared: true,
+        },
+      ]);
+
+      // And nothing is left for either purge to select.
+      expect(
+        await purge.eligible(new Date(), ISSUE_RETENTION_DAYS),
+      ).not.toContain(issueId);
+      expect(
+        await purge.eligibleWorkOrderTexts(
+          new Date(),
+          WORK_ORDER_BODY_RETENTION_DAYS,
+        ),
+      ).not.toContain(issueId);
+    });
+
+    it("clears a kept index once no text stands, however the text went", async () => {
+      // Erased by something other than the clock, the text no longer needs
+      // the index, and the year's purge takes it on its next run.
+      const issueId = await reportPublicly("Trasig ruta i entren.");
+      await close(issueId);
+      await closedDaysAgo(issueId, ISSUE_RETENTION_DAYS + 1);
+      const orderId = await workOrderOn(issueId, "Byt rutan i entren.");
+
+      await purge.run();
+      expect((await read(issueId)).reporterEmailIndex).not.toBeNull();
+
+      await prisma.workOrder.update({
+        where: { id: orderId },
+        data: { body: null },
+      });
+      expect(await purge.eligible(new Date(), ISSUE_RETENTION_DAYS)).toContain(
+        issueId,
+      );
+      await purge.run();
+
+      expect((await read(issueId)).reporterEmailIndex).toBeNull();
+      expect((await purgeEntries(issueId)).map((e) => e.context)).toEqual([
+        {
+          retentionDaysAfterClosing: ISSUE_RETENTION_DAYS,
+          addressIndexKept: true,
+        },
+        { retentionDaysAfterClosing: ISSUE_RETENTION_DAYS },
+      ]);
+    });
+  });
 });

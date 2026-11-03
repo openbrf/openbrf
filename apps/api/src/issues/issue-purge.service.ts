@@ -73,7 +73,9 @@ export interface IssuePurgeRunSummary {
  *
  * ## What it detaches, and what it keeps
  *
- * The three reporter columns and nothing else. The issue, its description and
+ * The three reporter columns and nothing else, the address index excepted on a
+ * report a work order's text still stands on (see Work-order text, below). The
+ * issue, its description and
  * its photographs stay: they are the association's own record of a problem with
  * its building, and the person who reported it having gone does not make the
  * damp patch less real. This is the same detachment the residency purge
@@ -149,6 +151,19 @@ export interface IssuePurgeRunSummary {
  * disclosure. A legal hold or a restriction against the issue's reporter keeps
  * the text, as it keeps the reporter's details, read again under the registry
  * key inside the transaction that erases it.
+ *
+ * On a public-form report the reporter is reached only through the address
+ * index, so that index has to outlive the contact details for as long as a
+ * work order's text stands: a hold or a restriction placed in year three on
+ * the person who wrote in would otherwise match nothing, and the text would go
+ * at year ten regardless (ADR 0057: no case whose text stands may lose its
+ * selector). The year's purge therefore detaches the name and the address and
+ * keeps the index while any work order on the report still has its text, and
+ * the transaction that erases the last text clears it. The index is a keyed
+ * hash of the address, which tells nobody anything without the address and
+ * the key, and only the hold and restriction match ever reads it. A separate
+ * person-to-case record, which ADR 0057 also allows, would be a second store
+ * of the same thing.
  */
 @Injectable()
 export class IssuePurgeService implements OnModuleInit {
@@ -389,6 +404,23 @@ export class IssuePurgeService implements OnModuleInit {
         return false;
       }
 
+      /*
+       * The address index a public-form report kept past its contact details
+       * for these texts' sake (see `purgeIssue`) goes with the last of them.
+       * Only once the name and the address themselves are gone: while they
+       * stand the index is theirs, and `purgeIssue` clears all three together.
+       */
+      const { count: addressIndexCleared } = await tx.issue.updateMany({
+        where: {
+          id: issueId,
+          reporterPersonId: null,
+          reporterNameCipher: null,
+          reporterEmailCipher: null,
+          reporterEmailIndex: { not: null },
+        },
+        data: { reporterEmailIndex: null },
+      });
+
       await this.audit.record(
         {
           action: "SERVICE_DATA_PURGED",
@@ -400,6 +432,7 @@ export class IssuePurgeService implements OnModuleInit {
           context: {
             workOrderTexts: count,
             retentionDaysAfterClosing: retentionDays,
+            ...(addressIndexCleared > 0 ? { addressIndexCleared: true } : {}),
           },
         },
         tx,
@@ -419,7 +452,9 @@ export class IssuePurgeService implements OnModuleInit {
    *
    * A report with all three columns already null is not selected. It has
    * nothing left to detach, and selecting it would spend the run's bound and
-   * write an entry a night for ever in a table nobody can tidy.
+   * write an entry a night for ever in a table nobody can tidy. Nor, for the
+   * same reason, is one left with only the address index while a work order's
+   * text stands: that index is kept on purpose (see the class comment).
    *
    * Nor is a report whose address is a withheld person's, and it is excluded by
    * the query rather than dropped from its answer: the bound is applied by the
@@ -443,7 +478,12 @@ export class IssuePurgeService implements OnModuleInit {
             OR: [
               { reporterNameCipher: { not: null } },
               { reporterEmailCipher: { not: null } },
-              { reporterEmailIndex: { not: null } },
+              // An index alone only once no work order's text stands: until
+              // then it is kept, and `purgeWorkOrderTexts` clears it.
+              {
+                reporterEmailIndex: { not: null },
+                workOrders: { none: { body: { not: null } } },
+              },
             ],
           },
           /*
@@ -506,8 +546,11 @@ export class IssuePurgeService implements OnModuleInit {
       }
       // A report that left no address matches nobody, whatever holds stand, so
       // there is nothing to order against a placement. The address is written
-      // when the report is filed and cleared only here, so it cannot appear
-      // between this read and the update.
+      // when the report is filed and never again, so it cannot appear between
+      // this read and the update. It can go, if `purgeWorkOrderTexts` clears an
+      // index this job kept, but only once the name and the address are gone,
+      // and the update below then finds nothing to detach.
+      let keepsAddressIndex = false;
       if (issue.reporterEmailIndex !== null) {
         // Before anything is read about holds, and taken whether or not this
         // report turns out to be withheld: in the ordinary case the address is
@@ -516,6 +559,15 @@ export class IssuePurgeService implements OnModuleInit {
         if ((await this.withheldAddresses(tx)).has(issue.reporterEmailIndex)) {
           return false;
         }
+        // The issue's own lock, which sending a work order takes
+        // (`work-order.service.ts`), so the texts counted here are all there
+        // are until this transaction ends. Taken after the registry key, in
+        // the order `purgeWorkOrderTexts` takes them.
+        await lockIssue(tx, issueId);
+        keepsAddressIndex =
+          (await tx.workOrder.count({
+            where: { issueId, body: { not: null } },
+          })) > 0;
       }
 
       const { count } = await tx.issue.updateMany({
@@ -524,11 +576,20 @@ export class IssuePurgeService implements OnModuleInit {
           reporterPersonId: null,
           status: { meaning: "DONE" },
           closedAt: { not: null, lte: cutoff },
+          // Something left to detach, so a report kept only by its index
+          // writes no entry for detaching nothing.
+          OR: [
+            { reporterNameCipher: { not: null } },
+            { reporterEmailCipher: { not: null } },
+            ...(keepsAddressIndex
+              ? []
+              : [{ reporterEmailIndex: { not: null } }]),
+          ],
         },
         data: {
           reporterNameCipher: null,
           reporterEmailCipher: null,
-          reporterEmailIndex: null,
+          ...(keepsAddressIndex ? {} : { reporterEmailIndex: null }),
         },
       });
       if (count === 0) {
@@ -557,7 +618,10 @@ export class IssuePurgeService implements OnModuleInit {
            * would be a permanent copy of exactly what the entry says was
            * removed.
            */
-          context: { retentionDaysAfterClosing: retentionDays },
+          context: {
+            retentionDaysAfterClosing: retentionDays,
+            ...(keepsAddressIndex ? { addressIndexKept: true } : {}),
+          },
         },
         tx,
       );

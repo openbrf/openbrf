@@ -81,6 +81,12 @@ long as the law allows, and ten years is where the general limitation period
 for a claim about the work ends (preskriptionslagen (1981:130) 2 §); the reasons
 are in [ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md#the-mailed-work-order).
 The nightly issue purge already erases it on that clock (`WORK_ORDER_BODY_RETENTION_DAYS`).
+A report from the website's form is tied to its reporter only by the address
+index, so the purge that removes its contact details after 365 days keeps that
+index while a work order's text stands, and the transaction that erases the last
+text clears it: a hold or a restriction placed later on the person who wrote in
+still reaches the text (see [Erasure and the closing job](#erasure-and-the-closing-job):
+no case whose text stands may lose its selector).
 
 A case reopened before its date stops the clock, because reopening clears
 `closedAt`. The 30 days in which a reply reopens a case (ADR 0054) are inside the
