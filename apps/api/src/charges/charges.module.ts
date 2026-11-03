@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 
 import { FinanceEventsModule } from "../finance-events/finance-events.module";
+import { IssuesModule } from "../issues/issues.module";
 import { MemberChargePurgeService } from "./member-charge-purge.service";
 import { MemberChargeService } from "./member-charge.service";
 import { MemberChargesController } from "./member-charges.controller";
@@ -27,12 +28,17 @@ import { MemberChargesController } from "./member-charges.controller";
  * The database, the audit log, the job queue and the principal the controller
  * reads all come from global modules, which is why nothing is imported here.
  *
+ * IssuesModule is imported for the issue a charge is made from ("Skapa
+ * debitering"): the queue's own read decides whether the board member may see
+ * it, so the charges screen cannot tell anybody about an issue the queue would
+ * not.
+ *
  * The service is exported for the data subject access report, which has a
  * section of its own for charges and reads the retention window from the same
  * place this purge does.
  */
 @Module({
-  imports: [FinanceEventsModule],
+  imports: [FinanceEventsModule, IssuesModule],
   controllers: [MemberChargesController],
   providers: [MemberChargeService, MemberChargePurgeService],
   exports: [MemberChargeService],

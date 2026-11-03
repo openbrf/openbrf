@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -24,6 +24,7 @@ import { Notice } from "../ui/Notice";
 export function ChargesRoute(): ReactElement {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { issue } = useSearch({ from: "/board/charges" });
   const [viewer, setViewer] = useState<Viewer | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -77,7 +78,7 @@ export function ChargesRoute(): ReactElement {
           {t("charges.loading")}
         </p>
       ) : isOffered(viewer.capabilities, "/board/charges") ? (
-        <ChargesScreen />
+        <ChargesScreen fromIssueId={issue ?? null} />
       ) : (
         <BoardPageRefused />
       )}

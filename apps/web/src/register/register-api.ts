@@ -18,6 +18,7 @@
 /** A sign on a row (skylt-chip). The label is an i18n key, never the API's. */
 import type {
   AuditChannelName,
+  IssueCostResponsibility,
   IssueOutcome,
   IssueStatusMeaning,
   IssueWaitingReason,
@@ -508,6 +509,7 @@ export type ReportAuditAction =
   | "ISSUE_PRIORITY_CHANGED"
   | "ISSUE_TARGET_DATE_CHANGED"
   | "ISSUE_ACCESS_CHANGED"
+  | "ISSUE_COST_RESPONSIBILITY_CHANGED"
   | "ISSUE_MESSAGE_SENT"
   | "ISSUE_NOTE_ADDED"
   | "ISSUE_REDACTED"
@@ -823,6 +825,8 @@ export interface DataSubjectReport {
     outcome: IssueOutcome | null;
     /** Whom the issue awaits, while WAITING (ADR 0054). Null otherwise. */
     waitingReason: IssueWaitingReason | null;
+    /** Who a handler recorded as paying for it, or null. Never an amount. */
+    costResponsibility: IssueCostResponsibility | null;
     location: string | null;
     description: string;
     /** When a handler removed the description or the location (ADR 0057). */

@@ -65,6 +65,7 @@ vi.mock("@tanstack/react-router", () => ({
     <a href={to}>{children}</a>
   ),
   useNavigate: () => vi.fn(),
+  useSearch: () => ({}),
 }));
 
 const { ApartmentRegisterRoute } = await import("./ApartmentRegisterRoute");

@@ -65,6 +65,11 @@ export interface IssueQueuePanelProps {
   types: readonly IssueTypeView[] | null;
   /** Called after a status change, so the caller can reload the queue. */
   onChanged: () => void;
+  /**
+   * Whether the reader holds `memberCharges:manage`, so an open issue shows
+   * the charges made from it. Courtesy only: the API refuses the read without.
+   */
+  canManageCharges?: boolean;
 }
 
 /**
@@ -91,6 +96,7 @@ export function IssueQueuePanel({
   issues,
   types,
   onChanged,
+  canManageCharges = false,
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
   const move = useSaveAction(setIssueStatus, onChanged, (failure) => {
@@ -270,6 +276,7 @@ export function IssueQueuePanel({
                 <HandlingDisclosure
                   issue={issue}
                   type={type}
+                  canManageCharges={canManageCharges}
                   onChanged={onChanged}
                 />
               </li>
@@ -290,10 +297,12 @@ export function IssueQueuePanel({
 function HandlingDisclosure({
   issue,
   type,
+  canManageCharges,
   onChanged,
 }: {
   issue: QueuedIssue;
   type: IssueTypeView | undefined;
+  canManageCharges: boolean;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -311,7 +320,12 @@ function HandlingDisclosure({
       </summary>
       {open ? (
         <div className="flex flex-col gap-6 pt-2">
-          <IssueHandling issue={issue} type={type} onChanged={onChanged} />
+          <IssueHandling
+            issue={issue}
+            type={type}
+            canManageCharges={canManageCharges}
+            onChanged={onChanged}
+          />
           <IssueFreeTextSection issue={issue} control={redaction} />
           <IssueConversation
             issue={issue}
@@ -499,6 +513,17 @@ function StatusForm({
       >
         {saving ? t("issues.queue.saving") : t("issues.queue.move")}
       </button>
+
+      {/*
+        Closing an issue as the tenant-owner's responsibility is the formal
+        step decision 27 names: a reply on the issue after it is not how the
+        association asks for something to be put right under BRL 7 kap. 12 a §.
+      */}
+      {asksOutcome && outcome === "TENANT_OWNER_RESPONSIBILITY" ? (
+        <div className="basis-full">
+          <Notice tone="info">{t("issues.handling.notANoticeToRemedy")}</Notice>
+        </div>
+      ) : null}
     </form>
   );
 }

@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
@@ -31,6 +32,9 @@ const assignIssue = vi.fn();
 const setIssuePriority = vi.fn();
 const setIssueTargetDate = vi.fn();
 const setIssueBoardOnly = vi.fn();
+const setIssueCostResponsibility = vi.fn();
+const fetchHandlerResponsibilityGuide = vi.fn();
+const fetchIssueCharges = vi.fn();
 /** The conversation beside the handling, read when an issue is opened. */
 const conversationReads = {
   fetchIssueMessages: vi.fn(),
@@ -53,6 +57,38 @@ vi.mock("../api/issues", async (importOriginal) => ({
   fetchIssueAttachments: (id: string) =>
     conversationReads.fetchIssueAttachments(id),
   fetchIssueSavedReplies: () => conversationReads.fetchIssueSavedReplies(),
+  setIssueCostResponsibility: (input: unknown) =>
+    setIssueCostResponsibility(input),
+  fetchHandlerResponsibilityGuide: () => fetchHandlerResponsibilityGuide(),
+}));
+
+vi.mock("../charges/charges-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../charges/charges-api")>()),
+  fetchIssueCharges: (id: string) => fetchIssueCharges(id),
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    to,
+    search,
+    children,
+    className,
+    "aria-label": label,
+  }: {
+    to: string;
+    search?: { issue?: string };
+    children: ReactNode;
+    className?: string;
+    "aria-label"?: string;
+  }): ReactElement => (
+    <a
+      href={search?.issue === undefined ? to : `${to}?issue=${search.issue}`}
+      aria-label={label}
+      className={className}
+    >
+      {children}
+    </a>
+  ),
 }));
 
 function status(
@@ -139,6 +175,7 @@ function issue(
     enteredBy: null,
     boardOnly: false,
     legalHoldAt: null,
+    costResponsibility: null,
     ...overrides,
   } as QueuedIssue;
 }
@@ -163,6 +200,48 @@ beforeEach(() => {
     ],
   });
   fetchIssueTimeline.mockReset().mockResolvedValue({ ok: true, value: [] });
+  fetchHandlerResponsibilityGuide.mockReset().mockResolvedValue({
+    ok: true,
+    value: {
+      adoptedAt: null,
+      items: [
+        {
+          part: "Golvbrunn, rensning",
+          responsibility: "TENANT_OWNER",
+          note: null,
+        },
+      ],
+    },
+  });
+  fetchIssueCharges.mockReset().mockResolvedValue({
+    ok: true,
+    value: {
+      issue: {
+        issueId: "issue-1",
+        typeName: "Vatten",
+        costResponsibility: "TENANT_OWNER",
+        party: { kind: "apartment", apartmentId: "a-1" },
+      },
+      charges: [
+        {
+          chargeId: "charge-1",
+          chargedOn: "2026-08-28",
+          chargedTo: {
+            kind: "apartment",
+            apartmentId: "a-1",
+            apartment: { state: "visible", label: "Storgatan 12 1401" },
+          },
+          amount: "1250.00",
+          vatTreatment: "EXEMPT",
+          vatRatePercent: null,
+          reason: "Ärende: Vatten",
+          handedToManagerOn: null,
+          deliveries: [],
+          issueId: "issue-1",
+        },
+      ],
+    },
+  });
   for (const read of Object.values(conversationReads)) {
     read.mockReset().mockResolvedValue({ ok: true, value: [] });
   }
@@ -171,6 +250,7 @@ beforeEach(() => {
     setIssuePriority,
     setIssueTargetDate,
     setIssueBoardOnly,
+    setIssueCostResponsibility,
   ]) {
     write.mockReset().mockResolvedValue({ ok: true, value: issue() });
   }
@@ -351,6 +431,19 @@ describe("moving a report to another status", () => {
         outcome: "TENANT_OWNER_RESPONSIBILITY",
       });
     });
+  });
+
+  it("says a reply is not a notice to remedy when closing it as the tenant-owner's", async () => {
+    const session = userEvent.setup();
+    show();
+
+    await session.selectOptions(statusSelect(), "s-done");
+    const outcome = screen.getByLabelText("Vatten anmält 2026-08-20: utfall");
+    await session.selectOptions(outcome, "FIXED");
+    expect(screen.queryByText(/rättelseanmaning/)).toBeNull();
+
+    await session.selectOptions(outcome, "TENANT_OWNER_RESPONSIBILITY");
+    expect(screen.getByText(/7 kap\. 12 a §/)).toBeTruthy();
   });
 
   it("reopens a closed issue without asking for an outcome", async () => {
@@ -651,6 +744,219 @@ describe("handling an issue", () => {
         boardOnly: true,
       });
     });
+  });
+
+  it("records who pays, and says a reply is not a notice to remedy once it is the tenant-owner's", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await openHandling(session);
+
+    const select = await screen.findByLabelText("Vatten: vem betalar");
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Inte angivet", "Föreningen", "Bostadsrättshavaren", "Oklart"]);
+    expect(screen.queryByText(/rättelseanmaning/)).toBeNull();
+
+    await session.selectOptions(select, "TENANT_OWNER");
+    await session.click(
+      screen.getAllByRole("button", { name: "Spara" })[3] as HTMLElement,
+    );
+    await waitFor(() => {
+      expect(setIssueCostResponsibility).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        costResponsibility: "TENANT_OWNER",
+      });
+    });
+
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue({ costResponsibility: "TENANT_OWNER" })]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    expect(await screen.findByText(/7 kap\. 12 a §/)).toBeTruthy();
+  });
+
+  it("keeps saying a reply is not a notice to remedy on an issue closed as the tenant-owner's", async () => {
+    const session = userEvent.setup();
+    show(
+      issue({
+        meaning: "DONE",
+        status: { id: "s-done", label: "Klar" },
+        outcome: "TENANT_OWNER_RESPONSIBILITY",
+        closedAt: "2026-08-22T08:00:00.000Z",
+      }),
+    );
+    await openHandling(session);
+
+    expect(await screen.findByText(/7 kap\. 12 a §/)).toBeTruthy();
+  });
+
+  it("does not say it on an issue closed with another outcome", async () => {
+    const session = userEvent.setup();
+    show(
+      issue({
+        meaning: "DONE",
+        status: { id: "s-done", label: "Klar" },
+        outcome: "FIXED",
+        closedAt: "2026-08-22T08:00:00.000Z",
+      }),
+    );
+    await openHandling(session);
+    await screen.findByLabelText("Vatten: vem betalar");
+
+    expect(screen.queryByText(/7 kap\. 12 a §/)).toBeNull();
+  });
+
+  it("shows the responsibility guide labelled as an example until the board adopts it", async () => {
+    const session = userEvent.setup();
+    show();
+    await openHandling(session);
+
+    await session.click(
+      await screen.findByText("Ansvarsfördelning enligt stadgarna", {
+        selector: "summary",
+      }),
+    );
+    expect(await screen.findByText("Golvbrunn, rensning")).toBeTruthy();
+    expect(screen.getByText(/^Exempel\./)).toBeTruthy();
+  });
+
+  it("reads no charges and shows no amount to a handler who may not read charges", async () => {
+    const session = userEvent.setup();
+    show();
+    await openHandling(session);
+    await screen.findByLabelText("Vatten: vem betalar");
+
+    expect(fetchIssueCharges).not.toHaveBeenCalled();
+    expect(screen.queryByText("Debiteringar")).toBeNull();
+    expect(screen.queryByText(/1250\.00/)).toBeNull();
+    expect(screen.queryByText("Skapa debitering")).toBeNull();
+  });
+
+  it("shows the charges made from it, with the amount, and the way to make one", async () => {
+    const session = userEvent.setup();
+    render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    expect(fetchIssueCharges).toHaveBeenCalledWith("issue-1");
+    expect(
+      screen
+        .getByRole("link", { name: "Vatten: skapa debitering" })
+        .getAttribute("href"),
+    ).toBe("/board/charges?issue=issue-1");
+  });
+
+  it("says the charges are withheld, not that there are none, where the API withholds them", async () => {
+    fetchIssueCharges.mockResolvedValue({
+      ok: true,
+      value: {
+        issue: {
+          issueId: "issue-1",
+          typeName: "Vatten",
+          costResponsibility: "TENANT_OWNER",
+          party: null,
+        },
+        charges: null,
+      },
+    });
+    const session = userEvent.setup();
+    render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+
+    expect(
+      await screen.findByText(
+        "Visas inte: den som anmälde ärendet har skyddade personuppgifter, och en debitering skulle visa vem det är.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Ingen debitering har gjorts från ärendet."),
+    ).toBeNull();
+  });
+
+  it("reads the charges and the guide again when the queue brings the issue again, so an open panel does not keep an earlier answer", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    const charges = fetchIssueCharges.mock.calls.length;
+    const guides = fetchHandlerResponsibilityGuide.mock.calls.length;
+
+    // The reporter has become protected since: the same read now withholds.
+    // Held, so that the window while the newer read is pending is seen.
+    let releaseRefresh: () => void = () => undefined;
+    fetchIssueCharges.mockReturnValueOnce(
+      new Promise((resolve) => {
+        releaseRefresh = () => {
+          resolve({
+            ok: true,
+            value: {
+              issue: {
+                issueId: "issue-1",
+                typeName: "Vatten",
+                costResponsibility: "TENANT_OWNER",
+                party: null,
+              },
+              charges: null,
+            },
+          });
+        };
+      }),
+    );
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    // The last answer for this issue stays while the newer read is pending.
+    await waitFor(() => {
+      expect(fetchIssueCharges.mock.calls.length).toBeGreaterThan(charges);
+    });
+    expect(screen.getByText("1250.00")).toBeTruthy();
+    releaseRefresh();
+    expect(
+      await screen.findByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeTruthy();
+    expect(screen.queryByText("1250.00")).toBeNull();
+    expect(fetchIssueCharges.mock.calls.length).toBeGreaterThan(charges);
+    expect(fetchHandlerResponsibilityGuide.mock.calls.length).toBeGreaterThan(
+      guides,
+    );
   });
 
   it("offers no access switch on a type the board handles alone", async () => {

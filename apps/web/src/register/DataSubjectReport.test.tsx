@@ -372,6 +372,7 @@ const FULL_REPORT: Report = {
       meaning: "IN_PROGRESS",
       outcome: null,
       waitingReason: null,
+      costResponsibility: null,
       location: "Storgatan 12, entren",
       description: ISSUE_DESCRIPTION,
       descriptionRedactedAt: null,
@@ -1768,6 +1769,7 @@ describe("what the document prints", () => {
           issueId: "issue-waiting",
           meaning: "WAITING",
           waitingReason: "CONTRACTOR",
+          costResponsibility: "TENANT_OWNER",
           description: "Droppar fran taket",
         },
         {
@@ -1775,6 +1777,7 @@ describe("what the document prints", () => {
           issueId: "issue-done",
           meaning: "DONE",
           outcome: "FIXED",
+          costResponsibility: "TENANT_OWNER",
           description: "Lampan blinkar",
         },
       ],
@@ -1792,6 +1795,16 @@ describe("what the document prints", () => {
     expect(within(waiting as HTMLElement).queryByText("Åtgärdat")).toBeNull();
     expect(within(done as HTMLElement).getByText("Åtgärdat")).toBeTruthy();
     expect(within(done as HTMLElement).queryByText("Entreprenör")).toBeNull();
+    // Who pays, which a handler decided about the reporter's own matter.
+    expect(
+      within(waiting as HTMLElement).getByText(
+        "Vem betalar: Bostadsrättshavaren",
+      ),
+    ).toBeTruthy();
+    // A closed issue keeps the payer it was closed with.
+    expect(
+      within(done as HTMLElement).getByText("Vem betalar: Bostadsrättshavaren"),
+    ).toBeTruthy();
   });
 
   it("says an issue's text was removed instead of printing it blank", async () => {

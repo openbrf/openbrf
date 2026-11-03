@@ -63,6 +63,7 @@ const QUEUED: QueuedIssueView = {
   enteredBy: null,
   boardOnly: false,
   legalHoldAt: null,
+  costResponsibility: null,
 };
 
 const EXTERNAL: QueuedIssueView = {

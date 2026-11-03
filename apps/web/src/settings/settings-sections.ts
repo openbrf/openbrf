@@ -130,6 +130,7 @@ export type SettingsPanelId =
   | "brokerUpdateRequests"
   | "issueReporting"
   | "issueTypes"
+  | "responsibilityGuide"
   | "issueSavedReplies"
   | "issueRetention"
   | "bookableResources"
@@ -264,6 +265,12 @@ export const SETTINGS_PANELS: readonly SettingsPanel[] = [
   },
   {
     id: "issueTypes",
+    section: "issues-bookings",
+    needs: "settings",
+    shownTo: (access) => access.canRead && access.canConfigureIssues,
+  },
+  {
+    id: "responsibilityGuide",
     section: "issues-bookings",
     needs: "settings",
     shownTo: (access) => access.canRead && access.canConfigureIssues,

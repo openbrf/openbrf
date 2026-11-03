@@ -95,7 +95,8 @@ export type MemberChargeReason =
   | "vat-rate-out-of-range"
   | "handed-over-before-charge"
   | "handed-over-in-the-future"
-  | "range-invalid";
+  | "range-invalid"
+  | "issue-not-found";
 
 /** What the meetings module refuses with. */
 export type MeetingReason =
