@@ -40,12 +40,14 @@ import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
+import { IssueConversationService } from "./issue-conversation.service";
 import {
   ISSUE_NOTICE_QUEUE,
   ISSUE_OVERDUE_QUEUE,
   IssueMailer,
   type IssueNoticeJob,
   type IssueOverdueJob,
+  NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR,
   NOTIFIED_PUBLIC_REPORTS_PER_HOUR,
   NOTIFIED_REPORTS_PER_REPORTER_PER_HOUR,
 } from "./issue-mailer.service";
@@ -236,10 +238,11 @@ async function lastNotice(issueId: string): Promise<IssueNoticeJob> {
 }
 
 /**
- * Waits until a transaction is waiting for the issue's lock, which another one
- * holds: the advisory lock `lockIssue` takes, by its key's two halves.
+ * Waits until a transaction is waiting for an advisory lock another one holds,
+ * by its key's two halves. The key is this run's own, an issue's or a person's,
+ * so no other suite's waiter is counted.
  */
-async function untilWaitingForIssueLock(issueId: string): Promise<void> {
+async function untilWaitingForLock(key: string, what: string): Promise<void> {
   const deadline = Date.now() + 10_000;
   for (;;) {
     const [row] = await prisma.$queryRawUnsafe<{ waiting: number }[]>(
@@ -247,16 +250,21 @@ async function untilWaitingForIssueLock(issueId: string): Promise<void> {
        WHERE locktype = 'advisory' AND NOT granted AND objsubid = 1
          AND classid = ((hashtext($1)::bigint >> 32) & 4294967295)::oid
          AND objid = (hashtext($1)::bigint & 4294967295)::oid`,
-      `issue:${issueId}`,
+      key,
     );
     if ((row?.waiting ?? 0) > 0) {
       return;
     }
     if (Date.now() > deadline) {
-      throw new Error("Nothing waited for the issue's lock.");
+      throw new Error(`Nothing waited for ${what}.`);
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
+}
+
+/** Waits until a transaction is waiting for the issue's lock (`lockIssue`). */
+function untilWaitingForIssueLock(issueId: string): Promise<void> {
+  return untilWaitingForLock(`issue:${issueId}`, "the issue's lock");
 }
 
 /** The overdue jobs queued for one issue, with when each is due. */
@@ -1125,6 +1133,118 @@ describe("an issue message", () => {
       { issueId, personId: manager.personId, event: "message" },
       { issueId, personId: resident.personId, event: "reporterMessage" },
     ]);
+  });
+
+  it("from one reporter is mailed about up to their hour's budget across their issues, written at once or not, and stored past it", async () => {
+    const conversation = app.get(IssueConversationService);
+    const first = await report(assignedType);
+    const second = await report(assignedType);
+    const { id: theirs } = await issues.report(neighbourPrincipal, {
+      typeId: unassignedType.id,
+      description: REPORTER_DESCRIPTION,
+    });
+    await outOfTheHour([theirs]);
+    const mine = [first, second];
+    let count = 0;
+    const write = (issueId: string) => {
+      count += 1;
+      return conversation.replyAsReporter(
+        resident.personId,
+        issueId,
+        `${REPORTER_DESCRIPTION} (${count})`,
+      );
+    };
+    /** The message notices queued for the resident's issues. */
+    const toldOfMessages = async (): Promise<IssueNoticeJob[]> =>
+      (await Promise.all(mine.map((issueId) => notices(issueId))))
+        .flat()
+        .filter((job) => job.event === "message");
+
+    try {
+      // All but the last of the budget one after the other, on both issues.
+      for (
+        let index = 0;
+        index < NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR - 1;
+        index += 1
+      ) {
+        await write(mine[index % 2] as string);
+      }
+
+      // The last of the budget is stored and counted on the first issue, and
+      // its transaction is kept open while a message on the second issue
+      // counts. That one has to wait for the reporter's budget lock: counting
+      // without it, it would not see the first and be mailed about too.
+      let racing: Promise<unknown> | undefined;
+      await mailer.ensureQueues();
+      await prisma.$transaction(async (tx) => {
+        count += 1;
+        await tx.issueMessage.create({
+          data: {
+            issueId: first,
+            side: "REPORTER",
+            authorPersonId: resident.personId,
+            body: `${REPORTER_DESCRIPTION} (${count})`,
+          },
+        });
+        expect(
+          await mailer.messageInTransaction(tx, first, { kind: "reporter" }),
+        ).toBe(1);
+        racing = write(second);
+        await untilWaitingForLock(
+          `issue-message-budget:person:${resident.personId}`,
+          "the reporter's message budget lock",
+        );
+      });
+      await racing;
+
+      // Four more at once, two on each issue, all past the budget.
+      await Promise.all(
+        Array.from({ length: 4 }, (_, index) =>
+          write(mine[index % 2] as string),
+        ),
+      );
+
+      const told = await toldOfMessages();
+      expect(told).toHaveLength(NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR);
+      expect(new Set(told.map((job) => job.personId))).toEqual(
+        new Set([manager.personId]),
+      );
+      // Every message is stored and in the conversation all the same.
+      const threads = await Promise.all(
+        mine.map((issueId) =>
+          conversation.reporterThread(resident.personId, issueId),
+        ),
+      );
+      expect(threads.flat()).toHaveLength(count);
+      expect(count).toBe(NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR + 5);
+
+      // Another reporter's budget is their own.
+      const before = (await notices(theirs)).length;
+      await conversation.replyAsReporter(
+        neighbour.personId,
+        theirs,
+        REPORTER_DESCRIPTION,
+      );
+      const toldOfTheirs = recipientsOf((await notices(theirs)).slice(before));
+      expect(toldOfTheirs.get(admin.personId)).toBe("message");
+      expect(toldOfTheirs.get(manager.personId)).toBe("message");
+
+      // Once the messages are out of the hour, the next is mailed about again.
+      await prisma.issueMessage.updateMany({
+        where: { issueId: { in: mine } },
+        data: { createdAt: new Date(Date.now() - 2 * HOUR_MS) },
+      });
+      await write(first);
+      expect(await toldOfMessages()).toHaveLength(
+        NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR + 1,
+      );
+    } finally {
+      // Out of the hour, so no later test finds the budget spent.
+      await prisma.issueMessage.updateMany({
+        where: { issueId: { in: [...mine, theirs] } },
+        data: { createdAt: new Date(Date.now() - 2 * HOUR_MS) },
+      });
+    }
   });
 });
 

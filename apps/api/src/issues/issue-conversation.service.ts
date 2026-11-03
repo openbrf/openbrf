@@ -102,7 +102,8 @@ export interface IssueAttachmentView {
  * Nothing here is offered to a connected app or to the AI package: no action
  * reads or writes the conversation (ADR 0056). A message is followed by a mail
  * that says there is a new one and carries none of what it says (decision 21,
- * `IssueMailer.messageInTransaction`).
+ * `IssueMailer.messageInTransaction`); a reporter's, only while their hourly
+ * budget for messages lasts, and past it the message is stored all the same.
  */
 @Injectable()
 export class IssueConversationService {

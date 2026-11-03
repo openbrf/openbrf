@@ -30,7 +30,7 @@ import {
   issueReporterNoticeMail,
 } from "../mail/templates";
 import { issueHandledBy, issueRecipientsWhere } from "./issue-handlers";
-import { lockFilingBudget, lockIssue } from "./issue-lock";
+import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
 
 /**
  * The mail about issues (decisions 10, 12 and 21 of the issue module plan):
@@ -46,8 +46,9 @@ import { lockFilingBudget, lockIssue } from "./issue-lock";
  * - **Reopened.** A closed issue opened again is mailed to its assignee, or to
  *   its handlers when it has none (decision 8).
  * - **Issue message.** A reporter's message is mailed to the assignee, or to
- *   the handlers when there is none; a handler's to a reporter who has an
- *   account. Nobody's words go with it (GLOSSARY.md, _svar_).
+ *   the handlers when there is none, while the reporter's hourly budget for
+ *   messages lasts; a handler's to a reporter who has an account. Nobody's
+ *   words go with it (GLOSSARY.md, _svar_).
  *
  * The person whose act it was is never told of it. Every handler read is
  * `issueRecipientsWhere`, the handler rule of `issueHandlersWhere` with an
@@ -178,6 +179,21 @@ export const NOTIFIED_PUBLIC_REPORTS_PER_HOUR = 10;
  * the budget is for what reporters send, not for the handlers' own work.
  */
 export const NOTIFIED_REPORTS_PER_REPORTER_PER_HOUR = 5;
+
+/**
+ * How many of their own issue messages in an hour one reporter has the
+ * handlers mailed about, across all of their issues.
+ *
+ * A message is mailed to the assignee or to every handler of the issue, and a
+ * reporter may write as often as they like, so without a bound one resident
+ * could have the handlers mailed hundreds of times an hour and spend the
+ * association's mail account - the one its sign-in links go out through.
+ * Counted for each reporter, so one resident spends their own budget and
+ * nobody else's. Past it the message is stored and shown in the conversation
+ * as always, and only the mail about it is left out. A handler's message to
+ * the reporter spends nothing: the budget is for what reporters send.
+ */
+export const NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR = 10;
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -504,10 +520,15 @@ export class IssueMailer implements OnModuleInit {
    * transaction that stores the message. Never the message itself.
    *
    * A reporter's goes to the assignee, or to every handler of the issue when it
-   * has none. A handler's goes to the reporter when the reporter has an
-   * account; a reporter from the website's form has the private link instead
-   * (ADR 0055). An internal note is not an issue message and is mailed to
-   * nobody.
+   * has none, while the reporter's budget lasts: at most
+   * {@link NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR} of their messages in an
+   * hour are mailed about, whichever issues they are on. A handler's goes to
+   * the reporter when the reporter has an account; a reporter from the
+   * website's form has the private link instead (ADR 0055). An internal note
+   * is not an issue message and is mailed to nobody.
+   *
+   * Called after the message is stored, in the same transaction, so the
+   * budget counts it among the reporter's messages of the hour.
    */
   async messageInTransaction(
     tx: Prisma.TransactionClient,
@@ -520,6 +541,18 @@ export class IssueMailer implements OnModuleInit {
       return 0;
     }
     if (author.kind === "reporter") {
+      const reporter = issue.reporterPersonId;
+      // Only a reporter with an account writes on an issue, and they are its
+      // reporter; with nobody to count the message against, nobody is mailed.
+      if (reporter === null) {
+        return 0;
+      }
+      if (await this.messageBudgetSpent(tx, reporter, now)) {
+        this.logger.warn(
+          `Issue ${issueId} has a message from its reporter but nobody was mailed: their messages for the hour have been.`,
+        );
+        return 0;
+      }
       return this.queue(
         tx,
         issueId,
@@ -944,6 +977,32 @@ export class IssueMailer implements OnModuleInit {
       },
     });
     return earlier >= budget.perHour;
+  }
+
+  /**
+   * Whether this reporter has written more issue messages in the past hour,
+   * on any of their issues and the one just stored among them, than they are
+   * mailed about.
+   *
+   * Counted under the reporter's message budget lock, which every message of
+   * theirs takes after it is stored and holds until it commits, so two
+   * messages written at the same moment, on one issue or on two, each see the
+   * other and the bound is exact.
+   */
+  private async messageBudgetSpent(
+    tx: Prisma.TransactionClient,
+    reporterPersonId: string,
+    now: Date,
+  ): Promise<boolean> {
+    await lockMessageBudget(tx, reporterPersonId);
+    const written = await tx.issueMessage.count({
+      where: {
+        side: "REPORTER",
+        authorPersonId: reporterPersonId,
+        createdAt: { gte: new Date(now.getTime() - HOUR_MS) },
+      },
+    });
+    return written > NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR;
   }
 
   /** Queues one delivery per person, leaving out the person who acted. */

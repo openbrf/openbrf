@@ -49,6 +49,11 @@ number.
   five urgent ones an hour, which one reporter's reports cannot spend for
   anybody else. Past a budget, a report is still filed and shown in the queue,
   but nobody is mailed about it. An issue a handler opens has no budget.
+- **A bound on the mail messages send.** Each reporter has handlers mailed
+  about at most ten of their own messages an hour, across all of their issues.
+  Past that, a message is still stored and shown in the conversation, but
+  nobody is mailed about it. One reporter's messages never spend another's
+  budget, and a handler's message to the reporter has no budget.
 
 The issues row of the record of processing activities now names the mail
 server among its recipients, counts board members and former residents among its
