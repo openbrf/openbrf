@@ -584,7 +584,12 @@ export interface ReportIssueWorkOrder {
    * work orders sent them too: the report then says a removed contractor.
    */
   recipientName: string | null;
-  sentAt: string;
+  /**
+   * When the handler wrote it and it was queued for the mail: the date of the
+   * disclosure. Not a claim that the mail went out, which `deliveryStatus`
+   * says, and which a failed sending never did.
+   */
+  writtenAt: string;
   deliveryStatus: "PENDING" | "SENT" | "FAILED";
 }
 

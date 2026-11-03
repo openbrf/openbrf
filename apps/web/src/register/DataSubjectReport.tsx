@@ -1665,7 +1665,7 @@ export function DataSubjectReport({
                         : issue.workOrders.map((order, index) => (
                             <span key={index} className="block">
                               <span className="font-data text-data">
-                                {day(order.sentAt)}
+                                {day(order.writtenAt)}
                               </span>{" "}
                               {order.recipientName ??
                                 t(

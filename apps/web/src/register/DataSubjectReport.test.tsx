@@ -1806,12 +1806,12 @@ describe("what the document prints", () => {
           workOrders: [
             {
               recipientName: "Rörmokare Ab",
-              sentAt: "2026-01-06T09:00:00.000Z",
+              writtenAt: "2026-01-06T09:00:00.000Z",
               deliveryStatus: "SENT",
             },
             {
               recipientName: null,
-              sentAt: "2026-01-07T09:00:00.000Z",
+              writtenAt: "2026-01-07T09:00:00.000Z",
               deliveryStatus: "FAILED",
             },
           ],

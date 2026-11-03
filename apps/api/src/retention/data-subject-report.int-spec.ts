@@ -1789,12 +1789,12 @@ describe("what the report contains", () => {
     expect(waiting?.workOrders).toEqual([
       {
         recipientName: `Rormokare ${suffix}`,
-        sentAt: "2026-02-20T09:00:00.000Z",
+        writtenAt: "2026-02-20T09:00:00.000Z",
         deliveryStatus: "SENT",
       },
       {
         recipientName: null,
-        sentAt: "2026-02-22T09:00:00.000Z",
+        writtenAt: "2026-02-22T09:00:00.000Z",
         deliveryStatus: "FAILED",
       },
     ]);

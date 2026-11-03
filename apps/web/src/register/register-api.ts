@@ -832,7 +832,8 @@ export interface DataSubjectReport {
      */
     workOrders: {
       recipientName: string | null;
-      sentAt: string;
+      /** When it was written and queued; whether it went is `deliveryStatus`. */
+      writtenAt: string;
       deliveryStatus: "PENDING" | "SENT" | "FAILED";
     }[];
   }[];

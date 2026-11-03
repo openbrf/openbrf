@@ -1734,7 +1734,7 @@ export class DataSubjectReportService {
         photographs: issue._count.photos,
         workOrders: issue.workOrders.map((order) => ({
           recipientName: order.recipientName,
-          sentAt: order.createdAt.toISOString(),
+          writtenAt: order.createdAt.toISOString(),
           deliveryStatus: order.deliveryStatus,
         })),
       })),
