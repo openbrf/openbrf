@@ -1639,6 +1639,40 @@ describe("delivering a mail", () => {
     expect(sent).toEqual([]);
   });
 
+  it("asks again by the time it is when the address was decrypted, so a seat that ended meanwhile is not mailed", async () => {
+    const issueId = await report(unassignedType);
+    const sent = captureSends();
+    const encryption = app.get(FieldEncryptionService);
+    const decrypt = encryption.decrypt.bind(encryption);
+    const spy = vi
+      .spyOn(encryption, "decrypt")
+      .mockImplementation(async (...args) => {
+        const plain = await decrypt(...args);
+        // The seat ends after the first read found it held. An end date is a
+        // whole day, so the job's own earlier instant would still call it held.
+        await prisma.boardPosition.updateMany({
+          where: { personId: board.personId },
+          data: { endedOn: new Date("2025-06-01") },
+        });
+        return plain;
+      });
+    try {
+      expect(
+        await mailer.deliver(
+          { issueId, personId: board.personId, event: "filed" },
+          new Date("2025-05-20T10:00:00Z"),
+        ),
+      ).toBe(false);
+    } finally {
+      spy.mockRestore();
+      await prisma.boardPosition.updateMany({
+        where: { personId: board.personId },
+        data: { endedOn: null },
+      });
+    }
+    expect(sent).toEqual([]);
+  });
+
   it("sends nothing to the property manager once the issue became board-only while the address was decrypted", async () => {
     const issueId = await report(unassignedType);
     const sent = captureSends();

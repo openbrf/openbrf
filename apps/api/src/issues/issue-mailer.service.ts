@@ -77,9 +77,11 @@ import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
  *
  * An issue handed to a person, away and back, or reopened twice, before the
  * first notice is delivered would pass that check twice. The notices of an
- * assignment and of a reopening are therefore throttled by person and issue for
+ * assignment and of a reopening are therefore throttled by person and issue by
  * {@link REPEATED_NOTICE_SECONDS}: the queue creates no second job for the same
- * event in the same slot. The slot belongs to a notice that was sent or is
+ * event in the same slot. A slot is a clock hour, as the queue cuts time, and
+ * not a window that opens with the first notice: a repeat just after the hour
+ * turns is a notice of its own. The slot belongs to a notice that was sent or is
  * still to be: one the delivery skipped, because what it told of had stopped
  * being so, or that was given up on, gives it back, so a later assignment or
  * reopening of the same person is told of.
@@ -197,7 +199,7 @@ export const NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR = 10;
 
 const HOUR_MS = 60 * 60 * 1000;
 
-/** The slot within which one person is told of one assignment or reopening once. */
+/** The length of the clock-hour slot within which one person is told of one assignment or reopening once. */
 const REPEATED_NOTICE_SECONDS = 60 * 60;
 
 /**
@@ -819,16 +821,18 @@ export class IssueMailer implements OnModuleInit {
     }
 
     const to = await this.encryption.decrypt("person.email", cipher);
-    // Decrypting took time, and a restriction or a board-only change can have
-    // been committed since the read above: read the issue again and ask again
-    // as close to the handoff as the code can. This narrows the window; the
-    // rendering and sender lookup inside the mail service still sit between
-    // this and the driver.
+    // Decrypting took time, and a restriction, a board-only change or the end
+    // of a board seat can have come since the read above: read the issue again
+    // and ask again, by the time it is now, as close to the handoff as the code
+    // can. A clock handed in that is ahead of the real one is kept. This
+    // narrows the window; the rendering and sender lookup inside the mail
+    // service still sit between this and the driver.
+    const handoffAt = new Date(Math.max(now.getTime(), Date.now()));
     const current = await this.readIssue(this.prisma, job.issueId);
     const stillRecipient =
-      current !== null && stillSo(current, job, now)
+      current !== null && stillSo(current, job, handoffAt)
         ? await this.prisma.person.findFirst({
-            where: recipientWhereOf(current, job, now),
+            where: recipientWhereOf(current, job, handoffAt),
             select: { emailCipher: true },
           })
         : null;

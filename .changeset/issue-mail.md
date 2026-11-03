@@ -13,7 +13,8 @@ number.
 - **Urgent.** An urgent issue is mailed to everybody who handles its type,
   whoever it is assigned to. So is an issue raised to urgent later.
 - **Assigned.** A handler giving an issue to somebody mails that person, once:
-  an issue handed to them, away and back within the hour, mails them one time.
+  an issue handed to them, away and back within the same clock hour (10:00 to
+  10:59, say), mails them one time. A repeat after the hour turns mails again.
   A mail that was not sent, because the issue had been handed on by the time it
   went out, does not count: giving the issue to that person again mails them.
 - **Overdue.** The assignee is reminded once, the morning after the target date,
@@ -27,7 +28,7 @@ number.
   opened again or given a new target date.
 - **Reopened.** A done issue that is opened again is mailed to its assignee, or
   to everybody who handles it when it has no assignee. Reopened twice within the
-  hour mails once, unless the first mail was not sent because the issue was
+  same clock hour mails once, unless the first mail was not sent because the issue was
   closed again by then.
 - **A new message.** A reporter's message mails the assignee, or everybody who
   handles the issue when it has none. A handler's message mails the reporter
