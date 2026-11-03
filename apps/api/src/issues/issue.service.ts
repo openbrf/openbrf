@@ -1607,8 +1607,10 @@ export class IssueService {
    * What a search of the queue matches: each of its words (`searchTermsOf`:
    * the first `ISSUE_SEARCH_LIMITS.terms` different ones; any after those are
    * not read) somewhere in the issue's description, its place, its type's
-   * name, its apartment's designation or its reporter's name, case aside and
-   * whichever Unicode form the text was stored in.
+   * name, its apartment's designation, its reporter's name, a message in its
+   * conversation with the reporter or an internal note on it, case aside and
+   * whichever Unicode form the text was stored in. The words need not all be
+   * in one place: one in a note and another in the description is a match.
    *
    * Never what the reader is not shown. A reporter with protected personal data
    * is shown without their name or apartment (`IssueReporterView`), so neither
@@ -1653,6 +1655,11 @@ export class IssueService {
             { description: matches },
             { location: matches },
             { type: { name: matches } },
+            // Every handler the issue lets in reads its whole conversation
+            // and every note on it (`IssueConversationService`), so the
+            // issues handled below are the boundary for these as well.
+            { messages: { some: { body: matches } } },
+            { notes: { some: { body: matches } } },
             { AND: [{ apartment: { number: matches } }, notProtected] },
           ]),
           ...(reporters.length === 0

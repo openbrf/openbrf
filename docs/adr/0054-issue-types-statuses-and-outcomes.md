@@ -196,7 +196,8 @@ list. The board's front page shows three of those counts under the open filter:
 open, overdue and unassigned. It shows no charts.
 
 The search matches each of its words somewhere in the issue's description, its
-place, its type's name, its apartment's designation or its reporter's name. It
+place, its type's name, its apartment's designation, its reporter's name, a
+message in its conversation with the reporter or an internal note on it. It
 reads the first six different words and ignores any after them. Case does not
 matter, and each word is matched in both Unicode forms, composed and decomposed,
 because text is stored as it was sent. A word that mixes the two forms within
@@ -205,9 +206,12 @@ the issues the reader handles. It never matches what the reader is not shown: a
 protected reporter's name and apartment match nothing, so a search cannot reveal
 one by trial and error. Who is protected is read in the same transaction as the
 issues. The name and email address of a reporter who used the website's form are
-stored encrypted, so the search does not match them. Text added to an issue
-later, such as internal notes, is searched under the same rule: only where the
-reader may read it.
+stored encrypted, so the search does not match them. Messages and internal
+notes are text added to an issue later, and are searched under the same rule:
+only where the reader may read them. Every handler an issue lets in reads its
+whole conversation and every note on it, so the issues the reader handles are
+that boundary too. Any other text added to an issue later follows the same
+rule.
 
 The views and the search are the board's screen alone. No action reads a view or
 searches the queue, because a new read on `mcp` or `ai` needs a decision of its

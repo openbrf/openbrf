@@ -17,7 +17,8 @@ counts open, overdue and unassigned issues (ADR 0054).
   (the default), one status meaning, or closed issues as well. A type filter and
   a priority filter narrow every view too. The search matches each of its first
   six different words somewhere in an issue's description, place, type,
-  apartment or reporter's name, and ignores any words after those. Case does
+  apartment, reporter's name, conversation with the reporter or internal
+  notes, and ignores any words after those. Case does
   not matter, and an accented letter matches whether it was written as one
   character or as a letter with a combining mark (a word that mixes both
   within itself is not found). It never

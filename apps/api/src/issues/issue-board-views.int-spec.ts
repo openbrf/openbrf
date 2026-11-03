@@ -447,6 +447,63 @@ beforeAll(async () => {
     description: `Ingen anmälare alls fla\u0308kt takränna${suffix}`,
   });
 
+  // Text the search reaches only in the conversation or the notes: a word
+  // each that no description, place, type, apartment or name holds. None ends
+  // in an "r" or an "s" before the suffix, or it would hold an apartment's
+  // designation (`R` and `S` and the suffix) as well.
+  await prisma.issueMessage.createMany({
+    data: [
+      {
+        issueId: filed.leak,
+        side: "REPORTER",
+        authorPersonId: resident.personId,
+        body: `Nu rinner det KRANVATTEN${suffix} på golvet`,
+      },
+      {
+        issueId: filed.shieldedReport,
+        side: "HANDLER",
+        authorPersonId: board.personId,
+        signature: "BOARD",
+        // Stored decomposed, as `filed.internal`'s description is.
+        body: `Vi skickar en ro\u0308rmokare${suffix} på tisdag`,
+      },
+      // The board's own, and one on an issue the property manager handles.
+      {
+        issueId: filed.closedToBoard,
+        side: "HANDLER",
+        authorPersonId: board.personId,
+        signature: "BOARD",
+        body: `Svar om dolt${suffix} i meddelandet`,
+      },
+      {
+        issueId: filed.colleagues,
+        side: "HANDLER",
+        authorPersonId: colleague.personId,
+        signature: "BOARD",
+        body: `Svar om dolt${suffix} till den boende`,
+      },
+    ],
+  });
+  await prisma.issueNote.createMany({
+    data: [
+      {
+        issueId: filed.internal,
+        authorPersonId: board.personId,
+        body: `Ring firman om stupröret${suffix} i morgon`,
+      },
+      {
+        issueId: filed.boardOnly,
+        authorPersonId: board.personId,
+        body: `Anteckning om dolt${suffix} för styrelsen`,
+      },
+      {
+        issueId: filed.closedToBoard,
+        authorPersonId: board.personId,
+        body: `Anteckning om anteckningsord${suffix} för styrelsen`,
+      },
+    ],
+  });
+
   for (const entry of [board, colleague, manager, resident]) {
     cookies[entry.personId] = await signIn(entry.email);
   }
@@ -1005,6 +1062,86 @@ describe("the search", () => {
       overdue: 0,
       all: 0,
     });
+  });
+
+  it("matches a message in the conversation with the reporter, case aside", async () => {
+    expect(await search(board, `kranvatten${suffix}`)).toEqual([filed.leak]);
+    expect(await search(manager, `Kranvatten${suffix}`)).toEqual([filed.leak]);
+    // A handler's message, stored decomposed and typed composed.
+    expect(await search(board, `RÖRMOKARE${suffix}`)).toEqual([
+      filed.shieldedReport,
+    ]);
+  });
+
+  it("matches an internal note", async () => {
+    expect(await search(board, `STUPRÖRET${suffix}`)).toEqual([filed.internal]);
+    expect(await search(manager, `stupröret${suffix}`)).toEqual([
+      filed.internal,
+    ]);
+  });
+
+  it("finds each word in its own place, the conversation and the notes among them", async () => {
+    // One word in a message, the other in the description.
+    expect(await search(board, `kranvatten${suffix} badrummet`)).toEqual([
+      filed.leak,
+    ]);
+    // One word in a note, the other in the description.
+    expect(await search(board, `stupröret${suffix} takränna${suffix}`)).toEqual(
+      [filed.internal],
+    );
+    // A message's word and a note's word on two different issues.
+    expect(
+      await search(board, `kranvatten${suffix} stupröret${suffix}`),
+    ).toEqual([]);
+  });
+
+  it("counts what the conversation and the notes match as it lists it", async () => {
+    for (const q of [`kranvatten${suffix}`, `stupröret${suffix}`]) {
+      const listed = await list(board, { view: "ALL", typeId: searched.id, q });
+      expect(listed).toHaveLength(1);
+      expect(await counts(board, { typeId: searched.id, q })).toEqual({
+        mine: 0,
+        unassigned: 1,
+        overdue: 0,
+        all: listed.length,
+      });
+    }
+  });
+
+  it("never finds for the property manager by a message or a note the board keeps to itself", async () => {
+    const q = `dolt${suffix}`;
+    // The board's own: by a note on an issue of a board-only type, and by a
+    // message on an issue kept to the board; the property manager's colleague
+    // wrote the same word on an issue both handle.
+    expect(ids(await list(board, { view: "ALL", q }))).toEqual(
+      [filed.boardOnly, filed.closedToBoard, filed.colleagues].toSorted(byText),
+    );
+    expect(await counts(board, { q })).toEqual({
+      mine: 0,
+      unassigned: 2,
+      overdue: 1,
+      all: 3,
+    });
+    expect(ids(await list(manager, { view: "ALL", q }))).toEqual([
+      filed.colleagues,
+    ]);
+    expect(await counts(manager, { q })).toEqual({
+      mine: 0,
+      unassigned: 0,
+      overdue: 0,
+      all: 1,
+    });
+    const read = await snapshot(manager, { view: "ALL", q });
+    expect(ids(read.issues)).toEqual([filed.colleagues]);
+    expect(read.counts.all).toBe(1);
+
+    // A word only a note on an issue kept to the board holds.
+    const noted = `anteckningsord${suffix}`;
+    expect(ids(await list(board, { view: "ALL", q: noted }))).toEqual([
+      filed.closedToBoard,
+    ]);
+    expect(await list(manager, { view: "ALL", q: noted })).toEqual([]);
+    expect((await counts(manager, { q: noted })).all).toBe(0);
   });
 
   it("is no search when blank", async () => {
