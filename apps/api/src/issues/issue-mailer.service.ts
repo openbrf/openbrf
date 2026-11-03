@@ -72,6 +72,12 @@ import { lockFilingBudget, lockIssue } from "./issue-lock";
  * assigned, and a notice to the assignee once somebody else is. A delivery run
  * twice repeats one person's mail and nobody else's.
  *
+ * An issue handed to a person, away and back, or reopened twice, before the
+ * first notice is delivered would pass that check twice. The notices of an
+ * assignment and of a reopening are therefore throttled by person and issue for
+ * {@link REPEATED_NOTICE_SECONDS}: the queue creates no second job for the same
+ * event in the same slot.
+ *
  * ## The overdue reminder
  *
  * The queue has no cancel, so a reminder no-ops rather than being withdrawn, as
@@ -83,6 +89,12 @@ import { lockFilingBudget, lockIssue } from "./issue-lock";
  * job for the same date - the date moved away and back, or the issue reopened -
  * finds it claimed, however many other dates were reminded in between. Once for
  * each target date: moving the date gives the new one a reminder of its own.
+ *
+ * A claim is kept only while its mail may still go out. A delivery that sends
+ * nothing, because the assignee changed, the mail settings are missing or the
+ * person is out of reach, and a delivery given up on after its retries, give
+ * the date back, under the same lock. When the issue has meanwhile been handed
+ * to somebody else, the reminder is queued again for them.
  *
  * A job that finds the issue without an assignee this channel reaches claims
  * nothing, so the reminder is still owed. Nothing queues the job again on its
@@ -154,6 +166,9 @@ export const NOTIFIED_PUBLIC_REPORTS_PER_HOUR = 10;
 export const NOTIFIED_REPORTS_PER_REPORTER_PER_HOUR = 5;
 
 const HOUR_MS = 60 * 60 * 1000;
+
+/** The slot within which one person is told of one assignment or reopening once. */
+const REPEATED_NOTICE_SECONDS = 60 * 60;
 
 /** What a delivery tells of: a handler's event, or a reporter's new message. */
 export type IssueNoticeEvent = IssueHandlerNoticeEvent | "reporterMessage";
@@ -233,11 +248,13 @@ export class IssueMailer implements OnModuleInit {
     });
     await this.jobs.work<IssueNoticeJob>(
       ISSUE_NOTICE_ABANDONED_QUEUE,
-      (data) => {
+      async (data) => {
         // Identifiers only, as everywhere else in this module.
         this.logger.error(
           `Gave up mailing ${data.personId} about issue ${data.issueId} (${data.event}); it is in the queue.`,
         );
+        // The reminder for that date was never sent, so it is still owed.
+        await this.releaseOverdueClaim(data);
       },
     );
   }
@@ -549,6 +566,64 @@ export class IssueMailer implements OnModuleInit {
    * other.
    */
   async deliver(job: IssueNoticeJob, now: Date = new Date()): Promise<boolean> {
+    const sent = await this.send(job, now);
+    if (!sent) {
+      // A reminder that goes nowhere gives the date it claimed back.
+      await this.releaseOverdueClaim(job, now);
+    }
+    return sent;
+  }
+
+  /**
+   * Gives back the target date an overdue notice claimed, under the issue's
+   * lock, because the notice was never sent. Nothing for any other notice, or
+   * for a date not claimed.
+   *
+   * When the issue is handed to somebody else and the date is still past, the
+   * reminder is queued again, since nothing else would: the assignment found
+   * the date claimed. Not for the same assignee, who a new job would find
+   * unreachable all the same.
+   */
+  async releaseOverdueClaim(
+    job: IssueNoticeJob,
+    now: Date = new Date(),
+  ): Promise<void> {
+    const targetDate = job.targetDate;
+    if (job.event !== "overdue" || targetDate === undefined) {
+      return;
+    }
+    const day = parseLocalDay(targetDate);
+    if (day === null) {
+      return;
+    }
+    await this.ensureQueues();
+    await this.prisma.$transaction(async (tx) => {
+      await lockIssue(tx, job.issueId);
+      const issue = await this.readIssue(tx, job.issueId);
+      if (issue === null || !remindedFor(issue, targetDate)) {
+        return;
+      }
+      await tx.issue.update({
+        where: { id: job.issueId },
+        data: {
+          overdueRemindedFor: {
+            set: issue.overdueRemindedFor.filter(
+              (date) => formatDateColumn(date) !== targetDate,
+            ),
+          },
+        },
+      });
+      if (
+        issue.assigneePersonId !== null &&
+        issue.assigneePersonId !== job.personId &&
+        overdueFor(issue, targetDate, now)
+      ) {
+        await this.scheduleOverdue(tx, job.issueId, day, now);
+      }
+    });
+  }
+
+  private async send(job: IssueNoticeJob, now: Date): Promise<boolean> {
     const issue = await this.readIssue(this.prisma, job.issueId);
     if (issue === null || !stillSo(issue, job, now)) {
       return false;
@@ -745,7 +820,13 @@ export class IssueMailer implements OnModuleInit {
         tx,
         ISSUE_NOTICE_QUEUE,
         { issueId, personId, event },
-        NOTICE_JOB_OPTIONS,
+        event === "assigned" || event === "reopened"
+          ? {
+              ...NOTICE_JOB_OPTIONS,
+              singletonKey: `${event}:${issueId}:${personId}`,
+              singletonSeconds: REPEATED_NOTICE_SECONDS,
+            }
+          : NOTICE_JOB_OPTIONS,
       );
       queued += 1;
     }

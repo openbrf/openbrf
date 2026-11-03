@@ -12,13 +12,17 @@ number.
   its type.
 - **Urgent.** An urgent issue is mailed to everybody who handles its type,
   whoever it is assigned to. So is an issue raised to urgent later.
-- **Assigned.** A handler giving an issue to somebody mails that person.
+- **Assigned.** A handler giving an issue to somebody mails that person, once:
+  an issue handed to them, away and back within the hour, mails them one time.
 - **Overdue.** The assignee is reminded once, the morning after the target date,
   when the issue is not done. A new target date that passes gives a new
   reminder. A date set again, or moved away from and back to, does not. An issue
-  given to somebody after its date has passed gives them the reminder then.
+  given to somebody after its date has passed gives them the reminder then. A
+  reminder that could not be sent, because the issue was given to somebody else
+  or the mail could not go out, does not count as sent; the date is owed again.
 - **Reopened.** A done issue that is opened again is mailed to its assignee, or
-  to everybody who handles it when it has no assignee.
+  to everybody who handles it when it has no assignee. Reopened twice within the
+  hour mails once.
 - Nobody is mailed about their own action. A board-only issue is never mailed to
   the property manager. A person whose processing is restricted (GDPR art. 18)
   is not mailed at all.

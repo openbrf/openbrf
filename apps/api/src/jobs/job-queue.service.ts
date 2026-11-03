@@ -125,6 +125,13 @@ export interface JobSendOptions {
   expireInSeconds?: number;
   /** Queue a job lands on once its retries are spent. */
   deadLetter?: string;
+  /**
+   * With `singletonSeconds`, the key a job is throttled by: a second job of the
+   * same queue and key sent in the same time slot is not created.
+   */
+  singletonKey?: string;
+  /** Length in seconds of the slot `singletonKey` throttles within. */
+  singletonSeconds?: number;
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   formatLocalDay,
   type LocalDay,
   localDayOf,
+  localDayOfColumn,
 } from "@openbrf/shared";
 import {
   afterAll,
@@ -27,7 +28,11 @@ import {
 } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import { MailService, type SendMailInput } from "../mail/mail.service";
+import {
+  MailNotConfiguredError,
+  MailService,
+  type SendMailInput,
+} from "../mail/mail.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   createIssueTypeFixture,
@@ -574,6 +579,52 @@ describe("a handler acts on an issue", () => {
     ]);
   });
 
+  it("queues one assignment notice for an issue handed to somebody, away and back", async () => {
+    const issueId = await report(unassignedType);
+    const before = (await notices(issueId)).length;
+
+    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, manager.personId, board.personId);
+
+    expect(
+      (await notices(issueId))
+        .slice(before)
+        .map((job) => [job.personId, job.event]),
+    ).toEqual([
+      [manager.personId, "assigned"],
+      [admin.personId, "assigned"],
+    ]);
+  });
+
+  it("queues one reopening notice for an issue reopened twice before it is delivered", async () => {
+    const issueId = await report(assignedType);
+    const close = () =>
+      issues.setStatus(
+        issueId,
+        { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
+        board.personId,
+      );
+    const reopen = () =>
+      issues.setStatus(
+        issueId,
+        { statusId: assignedType.statusIds.IN_PROGRESS },
+        board.personId,
+      );
+    await close();
+    const before = (await notices(issueId)).length;
+
+    await reopen();
+    await close();
+    await reopen();
+
+    expect(
+      (await notices(issueId))
+        .slice(before)
+        .map((job) => [job.personId, job.event]),
+    ).toEqual([[manager.personId, "reopened"]]);
+  });
+
   it("does not mail an assignee whose processing is restricted", async () => {
     const issueId = await report(unassignedType);
     const before = (await notices(issueId)).length;
@@ -860,6 +911,88 @@ describe("the overdue reminder", () => {
     expect(await mailer.remindOverdue({ issueId, targetDate: yesterday })).toBe(
       true,
     );
+  });
+});
+
+describe("an overdue reminder that is never sent", () => {
+  /** An issue past its date, its reminder claimed and its notice queued. */
+  async function remindedIssue(): Promise<{
+    issueId: string;
+    targetDate: string;
+    notice: IssueNoticeJob;
+  }> {
+    const issueId = await report(assignedType);
+    const targetDate = formatLocalDay(addLocalDays(today(), -1));
+    await issues.setTargetDate(issueId, targetDate, board.personId);
+    expect(await mailer.remindOverdue({ issueId, targetDate })).toBe(true);
+    const notice = (await notices(issueId)).at(-1);
+    expect(notice?.event).toBe("overdue");
+    return { issueId, targetDate, notice: notice as IssueNoticeJob };
+  }
+
+  const claimed = async (issueId: string): Promise<string[]> =>
+    (
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: { overdueRemindedFor: true },
+      })
+    ).overdueRemindedFor.map((day) => formatLocalDay(localDayOfColumn(day)));
+
+  it("keeps its claim once the mail is sent", async () => {
+    const { issueId, targetDate, notice } = await remindedIssue();
+    captureSends();
+
+    expect(await mailer.deliver(notice)).toBe(true);
+
+    expect(await claimed(issueId)).toEqual([targetDate]);
+  });
+
+  it("gives the date back, and reminds the new assignee, when the issue was handed on", async () => {
+    const { issueId, targetDate, notice } = await remindedIssue();
+    const sent = captureSends();
+    await issues.assign(issueId, admin.personId, board.personId);
+    const queuedBefore = (await overdueJobs(issueId)).length;
+
+    expect(await mailer.deliver(notice)).toBe(false);
+
+    expect(sent).toEqual([]);
+    expect(await claimed(issueId)).toEqual([]);
+    expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
+    expect(await mailer.remindOverdue({ issueId, targetDate })).toBe(true);
+    expect((await notices(issueId)).at(-1)).toEqual({
+      issueId,
+      personId: admin.personId,
+      event: "overdue",
+      targetDate,
+    });
+  });
+
+  it("gives the date back, without queueing it again, when the instance has no mail settings", async () => {
+    const { issueId, notice } = await remindedIssue();
+    vi.spyOn(mail, "send").mockRejectedValue(new MailNotConfiguredError());
+    const queuedBefore = (await overdueJobs(issueId)).length;
+
+    expect(await mailer.deliver(notice)).toBe(false);
+
+    expect(await claimed(issueId)).toEqual([]);
+    expect(await overdueJobs(issueId)).toHaveLength(queuedBefore);
+  });
+
+  it("gives the date back when the delivery is given up on after its retries", async () => {
+    const { issueId, notice } = await remindedIssue();
+
+    await mailer.releaseOverdueClaim(notice);
+
+    expect(await claimed(issueId)).toEqual([]);
+  });
+
+  it("gives back no date that a reminder of another notice or another date claimed", async () => {
+    const { issueId, targetDate, notice } = await remindedIssue();
+
+    await mailer.releaseOverdueClaim({ ...notice, event: "assigned" });
+    await mailer.releaseOverdueClaim({ ...notice, targetDate: "2000-01-01" });
+
+    expect(await claimed(issueId)).toEqual([targetDate]);
   });
 });
 
