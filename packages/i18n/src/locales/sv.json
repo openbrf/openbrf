@@ -3780,7 +3780,8 @@
         "sendingInterrupted": "Inte skickad: sändningen avbröts innan den började. Skriv den igen för att skicka den.",
         "deliveryUnconfirmed": "Obekräftad: sändningen avbröts, och det går inte att veta om den kom fram. Fråga entreprenören innan du skickar den igen.",
         "recipientRemoved": "Inte skickad: entreprenören togs bort från listan innan den gick iväg.",
-        "textErased": "Inte skickad: arbetsordens text raderades innan den gick iväg."
+        "textErased": "Inte skickad: arbetsordens text raderades innan den gick iväg.",
+        "ringFenced": "Inte skickad: styrelsen avskärmade ärendetypen från entreprenörer innan den gick iväg."
       },
       "ringFenced": "Inget om ett ärende av den här typen får nå en entreprenör, så ingen arbetsorder kan skickas.",
       "noContractors": "Det finns inga entreprenörer på listan. Styrelsen lägger till dem i inställningarna, under Ärenden och bokningar.",

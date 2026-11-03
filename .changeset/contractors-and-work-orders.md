@@ -51,7 +51,10 @@ a preview, and the issue keeps the record of it (ADR 0055).
   becomes time-barred; whom it went to and when stays.
 - **Ring-fenced types.** The board ring-fences an issue type in the settings,
   and each change is recorded in the audit log. A work order on an issue whose
-  type is ring-fenced is refused in the service, its preview included.
+  type is ring-fenced is refused in the service, its preview included. One
+  written before its type was ring-fenced and still waiting to be sent is not
+  mailed, and is recorded as not sent; one already on its way cannot be called
+  back.
 - **Record of processing activities.** The issues row names the contractors and
   the mail server among its recipients, and its purpose mentions work orders.
   A row the board has edited keeps its own text and is not refreshed.

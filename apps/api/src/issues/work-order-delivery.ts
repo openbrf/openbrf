@@ -4,8 +4,9 @@
  * Codes, never prose, on the board mailbox reply's rule: a mail server's
  * rejection quotes the envelope back, and the envelope is a contractor's
  * address. The four a reply has, for the same four ways a sending ends
- * without a mail server's acceptance, and two of its own, for a recipient or a text
- * erased before the sending; a list of its own rather than theirs, so neither
+ * without a mail server's acceptance, and three of its own, for a recipient or a
+ * text erased, or a type ring-fenced, before the sending; a list of its own
+ * rather than theirs, so neither
  * module offers a screen a code the other produces.
  */
 export const WORK_ORDER_DELIVERY_FAILURES = {
@@ -42,6 +43,13 @@ export const WORK_ORDER_DELIVERY_FAILURES = {
    * nothing left to send.
    */
   textErased: "text-erased",
+
+  /**
+   * The board ring-fenced the issue's type after the work order was written
+   * and before its mail went out: nothing about the issue may reach a
+   * contractor any more, so it was not sent.
+   */
+  ringFenced: "ring-fenced",
 } as const;
 
 export type WorkOrderDeliveryFailure =

@@ -611,11 +611,15 @@ export class IssueTypeService {
    * A route of its own rather than a field of the type's settings, so the one
    * setting that decides what may leave the association is changed only by a
    * request that names it, and is audited with the board member who changed
-   * it. Under the type's lock, which a sending takes too, so a work order
-   * being sent while the board ring-fences its type is decided either before
-   * the change or after it. A request that changes nothing writes nothing.
+   * it. Under the type's lock, which a sending takes too, and so does the mail
+   * worker before it claims a work order (`WorkOrderMailerService`): a work
+   * order being written, or about to be mailed, while the board ring-fences
+   * its type is decided either before the change or after it. One written
+   * before and still queued is refused at its claim and recorded as not sent.
+   * A request that changes nothing writes nothing.
    *
-   * Not a recall: a work order sent before the type was ring-fenced has left.
+   * Not a recall: a work order claimed before the type was ring-fenced is on
+   * its way, and may have left.
    */
   async setRingFence(
     id: string,

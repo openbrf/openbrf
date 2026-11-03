@@ -6,10 +6,12 @@ import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
+import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   createIssueTypeFixture,
@@ -200,43 +202,67 @@ async function previewAndSend(
   return workOrder(cookie, issueId, { ...payload, previewToken });
 }
 
-/**
- * Holds the worker's claim at its door: the first statement the worker sends
- * that claims a work order waits until `release` is called, while `reached`
- * settles once the worker is standing there. Whatever the test commits in
- * between is therefore committed before the claim, which is the schedule an
- * erasure can fall into between the worker's start and its claim.
- */
-function holdTheClaim(): {
+/** A promise the test opens by hand, and one that says it has been reached. */
+function gate(): {
   reached: Promise<void>;
-  release: () => void;
-  restore: () => void;
+  reach: () => void;
+  opened: Promise<void>;
+  open: () => void;
 } {
   let reach: () => void = () => undefined;
   let open: () => void = () => undefined;
   const reached = new Promise<void>((resolve) => {
     reach = resolve;
   });
-  const gate = new Promise<void>((resolve) => {
+  const opened = new Promise<void>((resolve) => {
     open = resolve;
   });
-  const original = prisma.$queryRaw.bind(prisma) as (
+  return { reached, reach, opened, open };
+}
+
+/**
+ * Holds the worker's claim at its door: the first transaction opened after
+ * this is called - the worker's claim, when `mailer.send` is called next -
+ * waits until `release` is called, while `reached` settles once the worker is
+ * standing there. Whatever the test commits in between is therefore committed
+ * before the claim, which is the schedule an erasure can fall into between the
+ * worker's start and its claim.
+ */
+function holdTheClaim(): {
+  reached: Promise<void>;
+  release: () => void;
+  restore: () => void;
+} {
+  const door = gate();
+  const original = prisma.$transaction.bind(prisma) as (
     ...args: unknown[]
   ) => Promise<unknown>;
   let held = false;
-  const spy = vi.spyOn(prisma, "$queryRaw").mockImplementation(((
+  const spy = vi.spyOn(prisma, "$transaction").mockImplementation(((
     ...args: unknown[]
   ) => {
-    const [strings] = args;
-    const sql = Array.isArray(strings) ? strings.join("?") : "";
-    if (!held && sql.includes('UPDATE "work_order"')) {
+    if (!held) {
       held = true;
-      reach();
-      return gate.then(() => original(...args));
+      door.reach();
+      return door.opened.then(() => original(...args));
     }
     return original(...args);
-  }) as unknown as typeof prisma.$queryRaw);
-  return { reached, release: open, restore: () => spy.mockRestore() };
+  }) as unknown as typeof prisma.$transaction);
+  return {
+    reached: door.reached,
+    release: door.open,
+    restore: () => spy.mockRestore(),
+  };
+}
+
+/** Ring-fences a type, or lifts its ring-fence, as the board does. */
+function setRingFence(typeId: string, ringFenced: boolean) {
+  return inject({
+    method: "PUT",
+    url: `/api/issue-types/${typeId}/ring-fence`,
+    payload: { ringFenced },
+    cookie: as(board),
+  });
 }
 
 /** A token no preview signed, for a sending refused before it is read. */
@@ -1148,6 +1174,125 @@ describe("the sending", () => {
       deliveryFailure: "text-erased",
       claimedAt: null,
       body: null,
+    });
+  });
+
+  it("sends nothing of a work order whose type the board ring-fenced after it was written, then or after the ring-fence is lifted", async () => {
+    const type = await createIssueTypeFixture(prisma, {
+      id: `wo-type-fenced-late-${suffix}`,
+      name: `Grannar sent ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    typeIds.fencedLate = type.id;
+    const issueId = await filed(type, "fenced-before-claim");
+    const sent = (
+      await previewAndSend(as(board), issueId, {
+        contractorId: plumber.id,
+        body: "Byt tätningen i entrédörren.",
+      })
+    ).json<WorkOrderRow>();
+    expect(sent.deliveryStatus).toBe("PENDING");
+
+    const send = vi.spyOn(mail, "send");
+    try {
+      // The ring-fence commits while the work order waits on the queue.
+      expect((await setRingFence(type.id, true)).statusCode).toBe(200);
+      expect(await mailer.send(sent.id)).toBe("failed");
+      expect(send).not.toHaveBeenCalled();
+
+      // Settled: a retry of the job, even once the ring-fence is lifted,
+      // sends nothing either.
+      expect((await setRingFence(type.id, false)).statusCode).toBe(200);
+      expect(await mailer.send(sent.id)).toBe("skipped");
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      send.mockRestore();
+    }
+    expect(
+      await prisma.workOrder.findUniqueOrThrow({
+        where: { id: sent.id },
+        select: {
+          deliveryStatus: true,
+          deliveryFailure: true,
+          claimedAt: true,
+        },
+      }),
+    ).toEqual({
+      deliveryStatus: "FAILED",
+      deliveryFailure: "ring-fenced",
+      claimedAt: null,
+    });
+  });
+
+  it("makes a claim wait for a ring-fence being set on the type, and then sends nothing", async () => {
+    const type = await createIssueTypeFixture(prisma, {
+      id: `wo-type-fencing-${suffix}`,
+      name: `Grannar samtidigt ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    typeIds.fencing = type.id;
+    const issueId = await filed(type, "fenced-during-claim");
+    const sent = (
+      await previewAndSend(as(board), issueId, {
+        contractorId: plumber.id,
+        body: "Laga brevinkastet.",
+      })
+    ).json<WorkOrderRow>();
+
+    // Holds the ring-fence's transaction open at its audit entry: the type is
+    // locked and changed, and nothing of it is committed.
+    const audit = app.get(AuditLogService);
+    const record = audit.record.bind(audit);
+    const fence = gate();
+    const recording = vi
+      .spyOn(audit, "record")
+      .mockImplementation(async (entry, client) => {
+        if (
+          entry.action === "ISSUE_TYPE_RING_FENCE_CHANGED" &&
+          entry.targetId === type.id
+        ) {
+          fence.reach();
+          await fence.opened;
+        }
+        return record(entry, client);
+      });
+    const send = vi.spyOn(mail, "send");
+    try {
+      const fencing = setRingFence(type.id, true);
+      await fence.reached;
+
+      // A worker that read the type without its lock would find it open, and
+      // claim and mail the work order now.
+      const running = mailer.send(sent.id);
+      await waitFor(
+        async () =>
+          (await advisoryLockCount(prisma, `issue-type:${type.id}`, false)) >
+          0n,
+      );
+      expect(send).not.toHaveBeenCalled();
+
+      fence.open();
+      expect((await fencing).statusCode).toBe(200);
+      expect(await running).toBe("failed");
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      fence.open();
+      recording.mockRestore();
+      send.mockRestore();
+    }
+    expect(
+      await prisma.workOrder.findUniqueOrThrow({
+        where: { id: sent.id },
+        select: {
+          deliveryStatus: true,
+          deliveryFailure: true,
+          claimedAt: true,
+        },
+      }),
+    ).toEqual({
+      deliveryStatus: "FAILED",
+      deliveryFailure: "ring-fenced",
+      claimedAt: null,
     });
   });
 

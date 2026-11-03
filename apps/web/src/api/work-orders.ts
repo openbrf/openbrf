@@ -37,7 +37,8 @@ export type WorkOrderDeliveryFailure =
   | "sending-interrupted"
   | "delivery-unconfirmed"
   | "recipient-removed"
-  | "text-erased";
+  | "text-erased"
+  | "ring-fenced";
 
 /** One work order on an issue: whom, when, what, and whether it went out. */
 export interface WorkOrder {

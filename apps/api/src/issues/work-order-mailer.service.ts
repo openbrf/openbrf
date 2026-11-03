@@ -9,10 +9,12 @@ import {
   JobQueueService,
   type TransactionalSql,
 } from "../jobs/job-queue.service";
+import type { Prisma } from "../generated/prisma/client";
 import { failureName } from "../logging/failure";
 import type { RenderedMail } from "../mail/mail-template";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { workOrderMail, type WorkOrderMailProps } from "../mail/templates";
+import { lockIssueType } from "./issue-lock";
 import { WORK_ORDER_DELIVERY_FAILURES } from "./work-order-delivery";
 
 /**
@@ -28,6 +30,10 @@ import { WORK_ORDER_DELIVERY_FAILURES } from "./work-order-delivery";
  * sent, by a conditional update from PENDING, so a retried job sends only what
  * it never reached and a work order is sent at most once however many times
  * the job runs. A contractor sent the same job twice may do it twice.
+ *
+ * The claim also reads the issue's type, under the type's lock: a work order
+ * still queued when the board ring-fences its type is never mailed, and is
+ * recorded as not sent (decision 32, ADR 0055).
  *
  * The language is the association's default: a contractor is on the
  * association's list, not in the register, and has no preference to read.
@@ -142,29 +148,16 @@ export class WorkOrderMailerService implements OnModuleInit {
 
   /** Sends one work order, and says what it did. */
   async send(workOrderId: string): Promise<"sent" | "failed" | "skipped"> {
-    // The claim and the read of what it sends are one statement, so what is
-    // mailed is what the row held at the moment it was claimed. Reading first
-    // and claiming after would let an erasure commit in between: the claim
-    // would still succeed, and the worker would mail a contractor, or a text,
-    // the database no longer holds. Under READ COMMITTED a concurrent erasure
-    // that holds the row makes this statement wait and re-test its conditions
-    // against the erased row, which then no longer qualifies.
-    //
-    // It writes the time and not the outcome: SENT would say a mail server
-    // accepted it, which nothing knows yet (see the board mailbox's reply for
-    // the whole argument).
-    const [order] = await this.prisma.$queryRaw<ClaimedWorkOrder[]>`
-      UPDATE "work_order"
-      SET "claimedAt" = now() AT TIME ZONE 'UTC'
-      WHERE "id" = ${workOrderId}
-        AND "deliveryStatus" = 'PENDING'
-        AND "claimedAt" IS NULL
-        AND "recipientName" IS NOT NULL
-        AND "recipientEmailCipher" IS NOT NULL
-        AND "body" IS NOT NULL
-      RETURNING "recipientName", "recipientEmailCipher", "body"
-    `;
-    if (order === undefined) {
+    const order = await this.prisma.$transaction((tx) =>
+      this.claim(tx, workOrderId),
+    );
+    if (order === "ring-fenced") {
+      this.logger.warn(
+        `Work order ${workOrderId} was not sent: its issue type is ring-fenced.`,
+      );
+      return "failed";
+    }
+    if (order === null) {
       return this.settleUnclaimed(workOrderId);
     }
 
@@ -253,6 +246,84 @@ export class WorkOrderMailerService implements OnModuleInit {
     this.logger.error(
       `Work order ${workOrderId} was given up on (${String(neverClaimed.count)} unclaimed, ${String(claimed.count)} claimed row).`,
     );
+  }
+
+  /**
+   * Claims a work order for this attempt, and returns what it mails; or
+   * records it as not sent because its issue's type is ring-fenced; or, for
+   * anything else the claim did not take, null.
+   *
+   * Under the issue type's lock, which `IssueTypeService.setRingFence` takes
+   * too, so the board ring-fencing the type and this claim are decided one
+   * after the other: a ring-fence that commits first is read by the claim,
+   * which then refuses the work order, and one that comes second waits for
+   * the claim and cannot recall the mail that follows it. The type is read
+   * before the lock, unlocked: nothing moves an issue to another type.
+   *
+   * The claim and the read of what it sends are one statement, so what is
+   * mailed is what the row held at the moment it was claimed. Reading first
+   * and claiming after would let an erasure commit in between: the claim
+   * would still succeed, and the worker would mail a contractor, or a text,
+   * the database no longer holds. Under READ COMMITTED a concurrent erasure
+   * that holds the row makes this statement wait and re-test its conditions
+   * against the erased row, which then no longer qualifies.
+   *
+   * It writes the time and not the outcome: SENT would say a mail server
+   * accepted it, which nothing knows yet (see the board mailbox's reply for
+   * the whole argument). The claim commits before the mail is sent, and no
+   * lock is held while a mail server answers.
+   */
+  private async claim(
+    tx: Prisma.TransactionClient,
+    workOrderId: string,
+  ): Promise<ClaimedWorkOrder | "ring-fenced" | null> {
+    const located = await tx.workOrder.findUnique({
+      where: { id: workOrderId },
+      select: { issue: { select: { typeId: true } } },
+    });
+    if (located === null) {
+      return null;
+    }
+    await lockIssueType(tx, located.issue.typeId);
+
+    const [order] = await tx.$queryRaw<ClaimedWorkOrder[]>`
+      UPDATE "work_order"
+      SET "claimedAt" = now() AT TIME ZONE 'UTC'
+      WHERE "id" = ${workOrderId}
+        AND "deliveryStatus" = 'PENDING'
+        AND "claimedAt" IS NULL
+        AND "recipientName" IS NOT NULL
+        AND "recipientEmailCipher" IS NOT NULL
+        AND "body" IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "issue"
+          JOIN "issue_type" ON "issue_type"."id" = "issue"."typeId"
+          WHERE "issue"."id" = "work_order"."issueId"
+            AND "issue_type"."ringFenced"
+        )
+      RETURNING "recipientName", "recipientEmailCipher", "body"
+    `;
+    if (order !== undefined) {
+      return order;
+    }
+
+    // Not taken. If the ring-fence is why, the work order is recorded as not
+    // sent here, under the same lock, so the ring-fence this reads is the one
+    // the claim refused on; anything else is settled after the transaction.
+    const { count } = await tx.workOrder.updateMany({
+      where: {
+        id: workOrderId,
+        deliveryStatus: "PENDING",
+        claimedAt: null,
+        issue: { type: { ringFenced: true } },
+      },
+      data: {
+        deliveryStatus: "FAILED",
+        deliveryFailure: WORK_ORDER_DELIVERY_FAILURES.ringFenced,
+      },
+    });
+    return count > 0 ? "ring-fenced" : null;
   }
 
   /** The template a work order is sent with, and what fills it in. */

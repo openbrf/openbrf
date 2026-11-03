@@ -321,6 +321,13 @@ the work order is recorded as not sent, with the code for the contractor
 removed or for the text erased. An erasure that commits after the claim cannot
 recall a mail already being sent, which is the one case the claim leaves open.
 
+The claim also refuses a work order whose case is ring-fenced, and takes the
+issue type's lock before it does, the lock under which the board ring-fences a
+type. A ring-fence that commits while a work order waits on the queue is
+therefore read by its claim: the work order is not mailed, and is recorded as
+not sent with a code of its own. A ring-fence set while a claim holds the lock
+waits for it, and, like an erasure, cannot recall the mail that follows.
+
 A ring-fenced type is a column on the type, `ringFenced`, read by the refusal
 and set by the board under issues:configure through a request of its own,
 audited with who set or lifted it. Which types are ring-fenced by default is
