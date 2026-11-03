@@ -117,6 +117,15 @@ export type {
   IssueStatusMeaning,
   IssueWaitingReason,
 } from "./issue-status.ts";
+export {
+  ISSUE_COST_RESPONSIBILITIES,
+  MAINTENANCE_RESPONSIBILITIES,
+  RESPONSIBILITY_GUIDE_LIMITS,
+} from "./issue-responsibility.ts";
+export type {
+  IssueCostResponsibility,
+  MaintenanceResponsibility,
+} from "./issue-responsibility.ts";
 export { DATA_PROTECTION_LIMITS } from "./data-protection-limits.ts";
 export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";
 export {

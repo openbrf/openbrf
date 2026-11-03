@@ -794,10 +794,20 @@ const eventsRoute = createRoute({
  * is no resident half of this module to be shut out of. A member learns what
  * they are charged from the notice the accounting system sends them, and what
  * this screen holds is the basis the board records and hands over.
+ *
+ * `issue` names the issue "Skapa debitering" was pressed on, and the form
+ * opens filled in from it. Only an identifier, and safe in an address for the
+ * reason `post` is on the issues route: the API answers it on the issue
+ * queue's terms, so somebody who does not handle the issue is shown an empty
+ * form and a sentence, and learns nothing about it.
  */
 const chargesRoute = createRoute({
   getParentRoute: () => boardRoute,
   path: "charges",
+  validateSearch: (search: Record<string, unknown>): { issue?: string } =>
+    typeof search.issue === "string" && search.issue !== ""
+      ? { issue: search.issue }
+      : {},
   component: ChargesRoute,
 });
 
