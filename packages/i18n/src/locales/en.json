@@ -3822,7 +3822,7 @@
       "loading": "Reading the messages...",
       "readFailed": "The messages could not be read just now. Close and open them again.",
       "readFailedHandler": "The messages, notes or files could not be read just now. Close and open the issue again.",
-      "savedRepliesReadFailed": "The saved replies could not be read just now, so none can be inserted. Close and open the issue again.",
+      "savedRepliesReadFailed": "The saved replies could not be read just now. Close and open the issue again.",
       "empty": "No messages yet.",
       "emptyOwn": "No messages yet. The board or the property manager answers here.",
       "you": "You",

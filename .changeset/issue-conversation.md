@@ -16,7 +16,7 @@ the conversation.
   to anyone. A reporter's message is refused on a report that is closed; a
   handler's is not. A handler cannot write to an issue nobody can read the
   answer on: an internal issue, or a report from the website's form, whose
-  reporter has no account to read a thread in.
+  reporter has no account to read a conversation in.
 - **Internal notes.** Handlers write notes for each other on an issue. The
   reporter never sees them. Every handler the issue lets in reads them, so the
   property manager does not see the notes on an issue the board keeps to

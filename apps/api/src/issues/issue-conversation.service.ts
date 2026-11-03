@@ -199,11 +199,12 @@ export class IssueConversationService {
    *
    * Refused on an issue nobody can read the answer on (`no-reporter`), rather
    * than stored as a message to nobody. Only a reporter with an account reads
-   * the thread, so one who left an email address alone, as a report from the
-   * website's form may, has no one to write to either. The reporter is mailed that
-   * there is a new message, never what it says (decision 21). The issue lets the writer in under the
-   * locks a handling write takes (`lockIssueForHandling`), so a message never
-   * lands on an issue the board took to itself while it was written.
+   * the conversation, so one who left an email address alone, as a report from
+   * the website's form may, has no one to write to either. The reporter is
+   * mailed that there is a new message, never what it says (decision 21). The
+   * issue lets the writer in under the locks a handling write takes
+   * (`lockIssueForHandling`), so a message never lands on an issue the board
+   * took to itself while it was written.
    */
   async replyAsHandler(
     handlerPersonId: string,
@@ -218,7 +219,7 @@ export class IssueConversationService {
       await lockErasureEligibility(tx, handlerPersonId);
       await lockIssueForHandling(tx, issueId);
       const issue = await this.requireHandled(tx, issueId, handlerPersonId);
-      // A person with no sign-in account cannot open the thread either.
+      // A person with no sign-in account cannot open the conversation either.
       const reporterAccount =
         issue.reporterPersonId === null
           ? null
