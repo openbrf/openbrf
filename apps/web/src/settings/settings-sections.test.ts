@@ -65,6 +65,7 @@ describe("the panels", () => {
     ["contactInbox", "signupRequest:decide"],
     ["brokerUpdateRequests", "site:manage"],
     ["issueTypes", "issues:configure"],
+    ["issueSavedReplies", "issues:configure"],
     ["bookableResources", "bookings:configure"],
     ["themes", "association:manage"],
   ])("offers %s only with %s", (id, capability) => {

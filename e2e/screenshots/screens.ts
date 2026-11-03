@@ -611,6 +611,20 @@ const LAUNDRY = {
 } as const;
 
 /**
+ * A saved reply the board adds to its own card (decision 17).
+ *
+ * A reply the association might write to a reporter, and nobody's own words:
+ * the screen holds no personal identity number, name or address.
+ */
+const SAVED_REPLY = {
+  title: "Vi har tagit emot din anmälan",
+  body: "Tack för din anmälan. Styrelsen tittar på den och återkommer med besked.",
+} as const;
+
+/** The settings card the saved replies are kept in. */
+const SAVED_REPLIES_CARD = "Sparade svar";
+
+/**
  * A "YYYY-MM-DD" date some whole days from today.
  *
  * Read on the association's clock rather than on this machine's, for the reason
@@ -2236,6 +2250,35 @@ export const SCREENS: readonly Screen[] = [
     // it a marker for the data rather than for the card.
     waitFor: { button: `Ta ${LAUNDRY.name} ur bokning` },
     capture: { panel: "Bokningsbara resurser" },
+  },
+  {
+    /*
+     * The saved replies the handlers insert into a message to a reporter.
+     *
+     * The same route as the bookable resources above, and a card of its own:
+     * that entry crops to the other panel, so it does not show this one. The
+     * board adds a reply, so the marker is the row the save wrote rather than
+     * the card, which renders before its list is read.
+     */
+    name: "settings-issue-saved-replies",
+    as: "administrator",
+    goto: appPath("/board/settings/issues-bookings"),
+    prepare: [
+      { see: { panel: SAVED_REPLIES_CARD } },
+      {
+        fill: { label: "Namn", within: SAVED_REPLIES_CARD },
+        value: SAVED_REPLY.title,
+      },
+      {
+        fill: { label: "Text", within: SAVED_REPLIES_CARD },
+        value: SAVED_REPLY.body,
+      },
+      { click: { button: "Lägg till", within: SAVED_REPLIES_CARD } },
+    ],
+    // The row the save wrote carries its own remove control, which exists only
+    // once the list has been read back with the reply in it.
+    waitFor: { button: `Ta bort ${SAVED_REPLY.title}` },
+    capture: { panel: SAVED_REPLIES_CARD },
   },
   {
     /*

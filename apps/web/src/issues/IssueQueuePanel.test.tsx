@@ -31,6 +31,13 @@ const assignIssue = vi.fn();
 const setIssuePriority = vi.fn();
 const setIssueTargetDate = vi.fn();
 const setIssueBoardOnly = vi.fn();
+/** The conversation beside the handling, read when an issue is opened. */
+const conversationReads = {
+  fetchIssueMessages: vi.fn(),
+  fetchIssueNotes: vi.fn(),
+  fetchIssueAttachments: vi.fn(),
+  fetchIssueSavedReplies: vi.fn(),
+};
 
 vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
@@ -41,6 +48,11 @@ vi.mock("../api/issues", async (importOriginal) => ({
   setIssuePriority: (input: unknown) => setIssuePriority(input),
   setIssueTargetDate: (input: unknown) => setIssueTargetDate(input),
   setIssueBoardOnly: (input: unknown) => setIssueBoardOnly(input),
+  fetchIssueMessages: (id: string) => conversationReads.fetchIssueMessages(id),
+  fetchIssueNotes: (id: string) => conversationReads.fetchIssueNotes(id),
+  fetchIssueAttachments: (id: string) =>
+    conversationReads.fetchIssueAttachments(id),
+  fetchIssueSavedReplies: () => conversationReads.fetchIssueSavedReplies(),
 }));
 
 function status(
@@ -147,6 +159,9 @@ beforeEach(() => {
     ],
   });
   fetchIssueTimeline.mockReset().mockResolvedValue({ ok: true, value: [] });
+  for (const read of Object.values(conversationReads)) {
+    read.mockReset().mockResolvedValue({ ok: true, value: [] });
+  }
   for (const write of [
     assignIssue,
     setIssuePriority,
@@ -500,7 +515,7 @@ describe("handling an issue", () => {
   async function openHandling(session: ReturnType<typeof userEvent.setup>) {
     await session.click(
       screen.getByText(
-        "Hantera Vatten: ansvarig, prioritet, senast klart och tidslinje",
+        "Hantera Vatten: ansvarig, prioritet, senast klart, tidslinje och meddelanden",
       ),
     );
   }

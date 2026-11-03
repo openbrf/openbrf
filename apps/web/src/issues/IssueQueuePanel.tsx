@@ -29,6 +29,7 @@ import {
   ISSUE_WAITING_REASON_LABEL,
 } from "./issue-labels";
 import { IssueHandlerName } from "./IssueHandlerName";
+import { IssueConversation } from "./IssueConversation";
 import { IssueHandling } from "./IssueHandling";
 import { IssuePriorityChip } from "./IssuePriorityChip";
 import { IssueStatusChip } from "./IssueStatusChip";
@@ -305,9 +306,10 @@ export function IssueQueuePanel({
 }
 
 /**
- * The handling of one issue and its timeline, under a disclosure: read only
- * while it is open, because each open issue reads its handlers and its
- * timeline, and a queue of fifty would otherwise read a hundred times on load.
+ * The handling of one issue, its timeline and its conversation, under a
+ * disclosure: read only while it is open, because each open issue reads its
+ * handlers, its timeline, its messages, notes and files, and a queue of fifty
+ * would otherwise read hundreds of times on load.
  */
 function HandlingDisclosure({
   issue,
@@ -331,8 +333,9 @@ function HandlingDisclosure({
         {t("issues.handling.open", { type: issue.typeName })}
       </summary>
       {open ? (
-        <div className="pt-2">
+        <div className="flex flex-col gap-6 pt-2">
           <IssueHandling issue={issue} type={type} onChanged={onChanged} />
+          <IssueConversation issue={issue} onStale={onChanged} />
         </div>
       ) : null}
     </details>

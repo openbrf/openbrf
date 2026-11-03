@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import {
   ISSUE_CLOSING_OUTCOMES,
+  ISSUE_CONVERSATION_LIMITS,
   ISSUE_HANDLED_BY,
   ISSUE_PRIORITIES,
   ISSUE_QUEUE_VIEWS,
@@ -31,6 +32,17 @@ import { RequireCapability } from "../authorization/require-capability.decorator
 import { isTooLarge, readSingleFile } from "../http/multipart";
 import { MediaError } from "../media/media.service";
 import { actingPersonId } from "../registers/acting-person";
+import {
+  type HandlerIssueMessageView,
+  type IssueAttachmentView,
+  IssueConversationService,
+  type IssueNoteView,
+  type ReporterIssueMessageView,
+} from "./issue-conversation.service";
+import {
+  type IssueSavedReplyView,
+  IssueSavedReplyService,
+} from "./issue-saved-reply.service";
 import {
   type ConfiguredIssueTypeView,
   type IssueHandlerChoice,
@@ -124,6 +136,24 @@ function boardFilterOf(
   };
 }
 
+/**
+ * An issue message or an internal note. Never only whitespace: an empty
+ * message would read to the reporter as the board saying nothing.
+ */
+const conversationSchema = z.strictObject({
+  body: z.string().trim().min(1).max(ISSUE_CONVERSATION_LIMITS.body),
+});
+
+const savedReplySchema = z.strictObject({
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(ISSUE_CONVERSATION_LIMITS.savedReplyTitle),
+  body: z.string().trim().min(1).max(ISSUE_CONVERSATION_LIMITS.body),
+  sortOrder: z.coerce.number().int().min(0).max(999).optional(),
+});
+
 const assignSchema = z.object({
   assigneePersonId: z.string().min(1).max(64).nullable(),
 });
@@ -204,6 +234,7 @@ export class IssueReportController {
   constructor(
     private readonly issues: IssueService,
     private readonly types: IssueTypeService,
+    private readonly conversation: IssueConversationService,
   ) {}
 
   /**
@@ -278,6 +309,36 @@ export class IssueReportController {
       fileName: file.fileName,
     });
   }
+
+  /**
+   * The conversation on one's own report: one's own messages, and the
+   * handlers' signed with a role and never a name (decision 19).
+   */
+  @Get(":id/messages")
+  async messages(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<ReporterIssueMessageView[]> {
+    return this.conversation.reporterThread(
+      requirePrincipal(request).personId,
+      id,
+    );
+  }
+
+  /** Writes on one's own report. */
+  @Post(":id/messages")
+  @HttpCode(201)
+  async reply(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<ReporterIssueMessageView> {
+    return this.conversation.replyAsReporter(
+      requirePrincipal(request).personId,
+      id,
+      conversationSchema.parse(body).body,
+    );
+  }
 }
 
 /**
@@ -295,6 +356,8 @@ export class IssueQueueController {
     private readonly issues: IssueService,
     private readonly types: IssueTypeService,
     private readonly residents: IssueResidentsService,
+    private readonly conversation: IssueConversationService,
+    private readonly savedReplies: IssueSavedReplyService,
   ) {}
 
   /**
@@ -399,6 +462,99 @@ export class IssueQueueController {
     @Req() request: RequestWithPrincipal,
   ): Promise<IssueResidentChoice[]> {
     return this.residents.residents(actingPersonId(request), apartmentId);
+  }
+
+  /**
+   * The association's saved replies, which a handler starts a message from
+   * (decision 17). Read by every handler; written under issues:configure.
+   */
+  @Get("saved-replies")
+  async listSavedReplies(): Promise<IssueSavedReplyView[]> {
+    return this.savedReplies.list();
+  }
+
+  /** The conversation with the reporter, each handler's message named. */
+  @Get(":id/messages")
+  async messages(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<HandlerIssueMessageView[]> {
+    return this.conversation.handlerThread(actingPersonId(request), id);
+  }
+
+  /** Writes to the reporter, signed with the writer's role (decision 19). */
+  @Post(":id/messages")
+  @HttpCode(201)
+  async reply(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<HandlerIssueMessageView> {
+    return this.conversation.replyAsHandler(
+      actingPersonId(request),
+      id,
+      conversationSchema.parse(body).body,
+    );
+  }
+
+  /** The handlers' internal notes, which the reporter never reads. */
+  @Get(":id/notes")
+  async notes(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssueNoteView[]> {
+    return this.conversation.notes(actingPersonId(request), id);
+  }
+
+  @Post(":id/notes")
+  @HttpCode(201)
+  async addNote(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssueNoteView> {
+    return this.conversation.addNote(
+      actingPersonId(request),
+      id,
+      conversationSchema.parse(body).body,
+    );
+  }
+
+  /** The files the handlers attached for each other. */
+  @Get(":id/attachments")
+  async attachments(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssueAttachmentView[]> {
+    return this.conversation.attachments(actingPersonId(request), id);
+  }
+
+  /**
+   * Attaches an image or a PDF for the other handlers. Multipart, as a
+   * reporter's photograph is.
+   */
+  @Post(":id/attachments")
+  @HttpCode(201)
+  async attach(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssueAttachmentView> {
+    const handlerPersonId = actingPersonId(request);
+    const file = await readSingleFile(request).catch((cause: unknown) => {
+      if (isTooLarge(cause)) {
+        throw new MediaError("The file is larger than allowed.", "too-large");
+      }
+      throw cause;
+    });
+    if (file === null) {
+      throw new MediaError("The request carried no file.", "no-file");
+    }
+    return this.conversation.attach({
+      issueId: id,
+      handlerPersonId,
+      bytes: file.bytes,
+      fileName: file.fileName,
+    });
   }
 
   /** Who the issue may be assigned to: names, and nothing else. */
@@ -564,5 +720,41 @@ export class IssueTypeAdminController {
       statusId,
       changeStatusSchema.parse(body),
     );
+  }
+}
+
+/**
+ * The association's saved replies (decision 17), which the board writes for
+ * its handlers. issues:configure, as the type catalogue is: they are the
+ * board's words, sent in its name.
+ */
+@Controller("api/issue-saved-replies")
+@RequireCapability("issues:configure")
+export class IssueSavedReplyAdminController {
+  constructor(private readonly savedReplies: IssueSavedReplyService) {}
+
+  @Get()
+  async list(): Promise<IssueSavedReplyView[]> {
+    return this.savedReplies.list();
+  }
+
+  @Post()
+  @HttpCode(201)
+  async create(@Body() body: unknown): Promise<IssueSavedReplyView> {
+    return this.savedReplies.create(savedReplySchema.parse(body));
+  }
+
+  @Put(":id")
+  async update(
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ): Promise<IssueSavedReplyView> {
+    return this.savedReplies.update(id, savedReplySchema.parse(body));
+  }
+
+  @Delete(":id")
+  @HttpCode(204)
+  async remove(@Param("id") id: string): Promise<void> {
+    await this.savedReplies.remove(id);
   }
 }

@@ -46,7 +46,7 @@ import {
   typesHandledWhere,
 } from "./issue-handlers";
 import { type IssueTypeView, IssueTypeService } from "./issue-type.service";
-import { lockIssue, lockIssueType } from "./issue-lock";
+import { lockIssue, lockIssueForHandling, lockIssueType } from "./issue-lock";
 import { IssueError } from "./issue.error";
 
 /**
@@ -1395,7 +1395,7 @@ export class IssueService {
    *
    * It is narrowed to `issues:handle`, which the database requires of every
    * INTERNAL file. The media route reads it by the issue that links it
-   * (`issuePhotoAccess`): whoever handles that issue under the board-only rule,
+   * (`issueFileAccess`): whoever handles that issue under the board-only rule,
    * and the reporter, who holds no capability. An address handed out while the
    * issue was open to a handler stops working for them when the board keeps
    * the issue or its type to itself.
@@ -1718,14 +1718,7 @@ export class IssueService {
     tx: Prisma.TransactionClient,
     issueId: string,
   ): Promise<void> {
-    const issue = await tx.issue.findUnique({
-      where: { id: issueId },
-      select: { typeId: true },
-    });
-    if (issue !== null) {
-      await lockIssueType(tx, issue.typeId);
-    }
-    await lockIssue(tx, issueId);
+    await lockIssueForHandling(tx, issueId);
   }
 
   /** The entry for an assignment changing, by hand or by an access change. */

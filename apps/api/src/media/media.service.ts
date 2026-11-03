@@ -21,7 +21,7 @@ import type { Prisma } from "../generated/prisma/client";
 import { residencyHeldOn } from "../registers/held-on";
 import type { AuditChannel, MediaEncryption } from "../generated/prisma/enums";
 import { postImageAccess } from "../feed/feed-image";
-import { issuePhotoAccess } from "../issues/issue-photo-access";
+import { issueFileAccess } from "../issues/issue-file-access";
 import { DomainError } from "../http/domain-error";
 import { failureName } from "../logging/failure";
 import { generateStorageKey, type StoragePrefix } from "../storage/storage-key";
@@ -572,17 +572,18 @@ export class MediaService {
         throw new MediaError("No such file.", "not-found");
       }
       /*
-       * A photograph on an issue is read by the rule its issue is read by,
-       * asked of the issue module on every request (`issuePhotoAccess`): by
-       * whoever handles that issue - the board-only rule narrows the
-       * capability (ADR 0054) - and by the person who reported it, who took
-       * it. Asked of the issue rather than of the uploader column, so the
-       * owner path reaches issue photos and nothing else, and not written to
-       * the log when it is the reporter's own report.
+       * A file on an issue is read by the rule its issue is read by, asked of
+       * the issue module on every request (`issueFileAccess`): by whoever
+       * handles that issue - the board-only rule narrows the capability (ADR
+       * 0054) - and, for a photograph, by the person who reported it, who took
+       * it. A file the handlers attached for each other is theirs alone. Asked
+       * of the issue rather than of the uploader column, so the owner path
+       * reaches issue photos and nothing else, and not written to the log when
+       * it is the reporter's own report.
        *
        * Any other INTERNAL file is the capability's.
        */
-      const photo = await issuePhotoAccess(
+      const photo = await issueFileAccess(
         this.prisma,
         file.id,
         viewer,

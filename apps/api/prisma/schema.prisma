@@ -1841,6 +1841,10 @@ enum AuditAction {
   ISSUE_ACCESS_CHANGED
   /// A handler was told who lives in one apartment today, to name a resident on an issue they open. The entry names the apartment and how many residents were listed, never who.
   ISSUE_RESIDENTS_LISTED
+  /// An issue message was written, by the reporter or by a handler. The entry names the issue, the message, which side wrote it and the writer as its actor, never the text.
+  ISSUE_MESSAGE_SENT
+  /// A handler wrote an internal note on an issue. The entry names the issue, the note and the handler as its actor, never the text.
+  ISSUE_NOTE_ADDED
   /// A person was moved into an apartment.
   MOVE_IN_RECORDED
   /// A residency was given its move-out date.
@@ -3981,6 +3985,7 @@ model MediaFile {
   associationLogo         Association[]            @relation("AssociationLogo")
   associationLogoDark     Association[]            @relation("AssociationLogoDark")
   issuePhotos             IssuePhoto[]
+  issueAttachment         IssueAttachment?
   document                Document?                @relation("DocumentFile")
   apartmentDocument       ApartmentDocument?       @relation("ApartmentDocumentFile")
   boardMailboxAttachments BoardMailboxAttachment[]
@@ -4523,6 +4528,12 @@ model Issue {
 
   photos IssuePhoto[]
 
+  /// The conversation with the reporter (svar), and the handlers' own notes
+  /// and files beside it, which the reporter never reads (decision 18).
+  messages    IssueMessage[]
+  notes       IssueNote[]
+  attachments IssueAttachment[]
+
   /// The post this issue was reported from, when it was.
   post Post?
 
@@ -4571,6 +4582,149 @@ model IssuePhoto {
   @@unique([issueId, fileId])
   @@index([issueId, sortOrder])
   @@map("issue_photo")
+}
+
+/// Who wrote an issue message: the reporter, or a handler for the association.
+enum IssueMessageSide {
+  REPORTER
+  HANDLER
+}
+
+/// The role a handler's message is signed with to the reporter (decision 19):
+/// the board (Styrelsen) or the property manager (Förvaltaren), never a person.
+enum IssueSignature {
+  BOARD
+  PROPERTY_MANAGER
+}
+
+/// One message in the conversation between an issue's reporter and its
+/// handlers (svar, decision 18), oldest first.
+///
+/// Its own table rather than a feed comment or a board mailbox message. A
+/// comment belongs to a post, its audience and its one-year clock, and a
+/// mailbox letter comes from a correspondent who is never a person. An issue
+/// message is read by the issue's reporter and by the handlers the issue lets
+/// in, and by nobody else, and goes with the issue's free text when that is
+/// purged (ADR 0057).
+///
+/// Never a name. A handler's message is signed to the reporter by
+/// `signature`, a role, and shown to the other handlers by `authorPersonId`,
+/// read and masked per read like every other person on an issue. A name copied
+/// onto the row would escape that masking, and outlive the person's erasure.
+model IssueMessage {
+  id String @id @default(cuid())
+
+  /// Cascade: a message is part of its issue and means nothing without it.
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  side IssueMessageSide
+
+  /// Who wrote it: the signed-in reporter, or the handler. Null on a message a
+  /// reporter without an account wrote, and once the writer is purged.
+  ///
+  /// A plain column, for the reason `Issue.reporterPersonId` gives. The writer
+  /// acted: the audit entry for the message names them as its actor.
+  authorPersonId String?
+
+  /// The role a handler's message is signed with, decided when it was written;
+  /// null on the reporter's. A CHECK holds it to the side.
+  signature IssueSignature?
+
+  /// The text. The reporter's is stored as written, as the description is. A
+  /// handler's is refused while it carries a personal identity number, as
+  /// every text the board writes back to a resident is.
+  body String
+
+  createdAt DateTime @default(now())
+
+  @@index([issueId, createdAt])
+  @@index([authorPersonId])
+  @@map("issue_message")
+}
+
+/// What a handler writes on an issue for the other handlers (intern
+/// anteckning, decision 18): beside the conversation with the reporter and
+/// apart from it.
+///
+/// A table of its own rather than a kind of `IssueMessage`, so no read of the
+/// conversation can reach a note by forgetting a filter. Read by every handler
+/// the issue lets in, with no further layer (decision 18): an issue the board
+/// keeps to itself keeps its notes with it (decision 13). Never read by the
+/// reporter, mailed, or offered to a connected app or the AI package (ADR
+/// 0056).
+model IssueNote {
+  id String @id @default(cuid())
+
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The handler who wrote it; null once they are purged. A plain column, for
+  /// the reason `Issue.reporterPersonId` gives. The audit entry for the note
+  /// names them as its actor.
+  authorPersonId String?
+
+  /// The text, refused while it carries a personal identity number.
+  body String
+
+  createdAt DateTime @default(now())
+
+  @@index([issueId, createdAt])
+  @@index([authorPersonId])
+  @@map("issue_note")
+}
+
+/// A file the handlers attach to an issue for each other: a quote, a protocol,
+/// a photograph a handler took.
+///
+/// A join of its own rather than an `IssuePhoto`, because an `IssuePhoto` is
+/// read by the issue's reporter (`issueFileAccess`), and these are not. The
+/// file is INTERNAL under `issues:handle`, and the media route reads it by the
+/// issue that links it, under the board-only rule, on every request.
+///
+/// Who uploaded it is the file's own `uploadedByPersonId`, so the join names
+/// nobody.
+model IssueAttachment {
+  id String @id @default(cuid())
+
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// Cascade, for the reason `IssuePhoto.fileId` gives. Unique, so a file is
+  /// on one issue's handler shelf and is decided by that issue alone.
+  fileId String    @unique
+  file   MediaFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([issueId, sortOrder])
+  @@map("issue_attachment")
+}
+
+/// A reply the association keeps for its handlers to start an issue message
+/// from (decision 17), such as one saying that what was reported is the
+/// tenant-owner's to maintain under the bylaws.
+///
+/// The board's own text, monolingual and stored as written, as an issue type's
+/// name is. Written by `issues:configure` and read by every handler. Picking
+/// one fills the message field and sends nothing: the handler reads it, adapts
+/// it and sends it as their own message, signed as every other is.
+model IssueSavedReply {
+  id String @id @default(cuid())
+
+  /// What the handler picks it by.
+  title String
+  body  String
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sortOrder])
+  @@map("issue_saved_reply")
 }
 
 // ---------------------------------------------------------------------------
