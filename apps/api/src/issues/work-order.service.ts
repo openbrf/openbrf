@@ -13,6 +13,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { readAuthors } from "../feed/feed-author";
 import { Prisma } from "../generated/prisma/client";
+import { failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
 import { ContractorService } from "./contractor.service";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
@@ -480,14 +481,7 @@ export class WorkOrderService {
         id: row.id,
         contractorId: row.contractorId,
         recipientName: row.recipientName,
-        recipientEmail:
-          row.recipientEmailCipher === null
-            ? null
-            : await this.encryption.decrypt(
-                "workOrder.recipientEmail",
-                row.recipientEmailCipher,
-                row.id,
-              ),
+        recipientEmail: await this.recipientEmail(row),
         body: row.body,
         sentBy: row.sentByPersonId === null ? null : viewOf(row.sentByPersonId),
         sentAt: row.createdAt.toISOString(),
@@ -495,6 +489,29 @@ export class WorkOrderService {
         deliveryFailure: row.deliveryFailure as WorkOrderDeliveryFailure | null,
       })),
     );
+  }
+
+  /**
+   * The address a work order was written to, or null when it is erased or
+   * cannot be read back: one unreadable address must not take down the list of
+   * the others. The failure is logged by name only, never the address or cipher.
+   */
+  private async recipientEmail(row: WorkOrderRow): Promise<string | null> {
+    if (row.recipientEmailCipher === null) {
+      return null;
+    }
+    try {
+      return await this.encryption.decrypt(
+        "workOrder.recipientEmail",
+        row.recipientEmailCipher,
+        row.id,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Work order ${row.id} recipient address could not be read: ${failureName(error)}`,
+      );
+      return null;
+    }
   }
 }
 

@@ -41,6 +41,9 @@ a preview, and the issue keeps the record of it (ADR 0055).
   sending that may have gone out is shown as unconfirmed, not as not sent.
   Outside production, a work order sent with no mail server set up is recorded
   as not sent.
+  A work order whose recipient address cannot be read back is still listed,
+  with no address and the reason it was not sent, and does not hide the issue's
+  other work orders.
   A work order whose contractor was removed, or whose text was erased, before
   its sending began is not mailed and is recorded as not sent, as is one whose
   recipient address cannot be read back; one removed after that cannot be

@@ -3865,7 +3865,7 @@
       "open": "Work orders for {{type}}",
       "loading": "Loading the work orders...",
       "readFailed": "The work orders or the contractors could not be read just now. Close this and open it again.",
-      "none": "No work order has been sent about this issue.",
+      "none": "No work order has been written about this issue.",
       "logTitle": "Work orders",
       "sentBy": "sent by",
       "contents": "What it said",

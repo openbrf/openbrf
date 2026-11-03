@@ -1253,6 +1253,54 @@ describe("the sending", () => {
     );
   });
 
+  it("lists the other work orders on an issue when one recipient address cannot be read", async () => {
+    const issueId = await filed(plain, "unreadable-list");
+    const first = (
+      await previewAndSend(as(board), issueId, {
+        contractorId: plumber.id,
+        body: "Byt packningen i kranen.",
+      })
+    ).json<WorkOrderRow>();
+    const second = (
+      await previewAndSend(as(board), issueId, {
+        contractorId: plumber.id,
+        body: "Kontrollera även elementet.",
+      })
+    ).json<WorkOrderRow>();
+    const url = `/api/issue-queue/${issueId}/work-orders`;
+    const before = await inject({ method: "GET", url, cookie: as(board) });
+    expect(before.statusCode).toBe(200);
+
+    const realDecrypt = encryption.decrypt.bind(encryption);
+    const decrypt = vi
+      .spyOn(encryption, "decrypt")
+      .mockImplementation(async (purpose, cipher, rowId) => {
+        if (rowId === first.id) {
+          throw new Error("bad decrypt");
+        }
+        return realDecrypt(purpose, cipher, rowId);
+      });
+    let listed;
+    try {
+      listed = await inject({ method: "GET", url, cookie: as(board) });
+    } finally {
+      decrypt.mockRestore();
+    }
+    expect(listed.statusCode).toBe(200);
+    const { workOrders } = listed.json<{ workOrders: WorkOrderRow[] }>();
+    const unchanged = before.json<{ workOrders: WorkOrderRow[] }>().workOrders;
+    expect(workOrders.find((row) => row.id === first.id)).toEqual({
+      ...unchanged.find((row) => row.id === first.id),
+      recipientEmail: null,
+    });
+    expect(workOrders.find((row) => row.id === second.id)).toEqual(
+      unchanged.find((row) => row.id === second.id),
+    );
+    expect(workOrders.find((row) => row.id === second.id)?.recipientEmail).toBe(
+      plumber.email,
+    );
+  });
+
   it("leaves a work order untouched for the retry when the association's language cannot be read", async () => {
     const issueId = await filed(plain, "locale-unread");
     const sent = (

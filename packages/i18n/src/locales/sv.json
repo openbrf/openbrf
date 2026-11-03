@@ -3865,7 +3865,7 @@
       "open": "Arbetsorder för {{type}}",
       "loading": "Hämtar arbetsorder...",
       "readFailed": "Arbetsorder eller entreprenörer gick inte att läsa just nu. Stäng och öppna igen.",
-      "none": "Ingen arbetsorder har skickats i ärendet.",
+      "none": "Ingen arbetsorder har skrivits i ärendet.",
       "logTitle": "Arbetsorder",
       "sentBy": "skickad av",
       "contents": "Vad den innehöll",
