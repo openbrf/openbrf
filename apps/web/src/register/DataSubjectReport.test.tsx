@@ -1821,6 +1821,30 @@ describe("what the document prints", () => {
     expect(text).toContain("Gäller till och med 2026-12-24");
   });
 
+  it("prints the answer about getting in as no when the resident said no", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          entry: {
+            answer: "NO",
+            pets: null,
+            masterKey: null,
+            note: null,
+            until: null,
+          },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText(/Tillträde: Nej\./)).toBeTruthy();
+    expect(screen.queryByText(/Tillträde: Ja\./)).toBeNull();
+  });
+
   it("names the capacity somebody was present at a general meeting in", async () => {
     /*
      * "Present" is the smaller half of what this section says. EFL 6 kap. 27 §

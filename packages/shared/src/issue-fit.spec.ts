@@ -24,6 +24,9 @@ describe("findDoorCode", () => {
     // word processor writes "48 21", are one run as with a plain space.
     "Koden är 48\u00a021",
     "Koden är 48\u202f21",
+    // The same with no code word before them, so only the digit run refuses.
+    "Ring 48\u00a021",
+    "Ring 48\u202f21",
     // A word that only ends in "no", "hus" or a month exempts nothing.
     "Ring Nino 4821",
     "Ring Kino 4821",

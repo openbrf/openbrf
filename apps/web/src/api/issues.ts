@@ -535,18 +535,31 @@ export function withdrawOwnEntry(
 }
 
 /**
- * How long the queue waits for the place counts to start arriving. The counts
- * are read with the queue and the screen draws neither until both are in, so a
- * server that never answers would leave it loading with no retry; past this
- * the read comes back as a failed one and the screen goes on without places.
+ * How long the queue waits for the whole of the place counts, body included.
+ * The counts are read with the queue and the screen draws neither until both
+ * are in, so a server that never answers, or stops halfway through the answer,
+ * would leave it loading with no retry; past this the read comes back as a
+ * failed one and the screen goes on without places. The whole read is bounded,
+ * not only the wait for the headers as `answerTimeoutMs` would: the answer is a
+ * short list, so one still arriving after this is one that has stalled.
  */
 export const ISSUE_PLACE_COUNTS_TIMEOUT_MS = 10_000;
 
 /** The places with how many issues this handler may open name each. */
-export function fetchIssuePlaceCounts(): Promise<ApiResult<IssuePlaceCount[]>> {
-  return apiRequest("GET", "/api/issue-queue/places", undefined, {
-    answerTimeoutMs: ISSUE_PLACE_COUNTS_TIMEOUT_MS,
-  });
+export async function fetchIssuePlaceCounts(): Promise<
+  ApiResult<IssuePlaceCount[]>
+> {
+  const deadline = new AbortController();
+  const timer = setTimeout(() => {
+    deadline.abort();
+  }, ISSUE_PLACE_COUNTS_TIMEOUT_MS);
+  try {
+    return await apiRequest("GET", "/api/issue-queue/places", undefined, {
+      signal: deadline.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function setIssuePlace(input: {

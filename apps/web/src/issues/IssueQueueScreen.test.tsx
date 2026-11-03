@@ -205,8 +205,27 @@ describe("a read that fails", () => {
 });
 
 describe("the place filter", () => {
+  /** The whole queue holds a water leak; narrowed to the lift, a stuck lift. */
+  function queueByPlace(): void {
+    fetchIssueQueue.mockImplementation((input?: { placeId?: string }) =>
+      Promise.resolve({
+        ok: true,
+        value:
+          input?.placeId === "p-lift"
+            ? [issue({ id: "issue-lift", description: "Hissen står still." })]
+            : [
+                issue({
+                  id: "issue-water",
+                  description: "Det droppar i taket.",
+                }),
+              ],
+      }),
+    );
+  }
+
   it("is dropped when the counts cannot be read, so the whole queue is back", async () => {
     const session = userEvent.setup();
+    queueByPlace();
     fetchIssuePlaceCounts.mockResolvedValue({
       ok: true,
       value: [{ id: "p-lift", name: "Hiss", active: true, issues: 1, open: 1 }],
@@ -228,5 +247,33 @@ describe("the place filter", () => {
     await waitFor(() => {
       expect(fetchIssueQueue).toHaveBeenLastCalledWith(undefined);
     });
+    // The unnarrowed answer is the one drawn, not the lift's.
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+    expect(screen.queryByText("Hissen står still.")).toBeNull();
+  });
+
+  it("is dropped when the counts no longer list the place", async () => {
+    const session = userEvent.setup();
+    queueByPlace();
+    fetchIssuePlaceCounts.mockResolvedValue({
+      ok: true,
+      value: [{ id: "p-lift", name: "Hiss", active: true, issues: 1, open: 1 }],
+    });
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    const only = await screen.findByRole("button", { name: "Visa bara Hiss" });
+
+    // Switched off with nothing left on it, the lift drops out of the counts,
+    // and with it the row that holds the way back to the whole queue.
+    fetchIssuePlaceCounts.mockResolvedValue({ ok: true, value: [] });
+    await session.click(only);
+
+    await waitFor(() => {
+      expect(fetchIssueQueue).toHaveBeenCalledWith({ placeId: "p-lift" });
+    });
+    await waitFor(() => {
+      expect(fetchIssueQueue).toHaveBeenLastCalledWith(undefined);
+    });
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+    expect(screen.queryByText("Hissen står still.")).toBeNull();
   });
 });
