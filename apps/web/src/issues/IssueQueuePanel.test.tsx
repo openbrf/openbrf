@@ -782,6 +782,37 @@ describe("handling an issue", () => {
     expect(await screen.findByText(/7 kap\. 12 a §/)).toBeTruthy();
   });
 
+  it("keeps saying a reply is not a notice to remedy on an issue closed as the tenant-owner's", async () => {
+    const session = userEvent.setup();
+    show(
+      issue({
+        meaning: "DONE",
+        status: { id: "s-done", label: "Klar" },
+        outcome: "TENANT_OWNER_RESPONSIBILITY",
+        closedAt: "2026-08-22T08:00:00.000Z",
+      }),
+    );
+    await openHandling(session);
+
+    expect(await screen.findByText(/7 kap\. 12 a §/)).toBeTruthy();
+  });
+
+  it("does not say it on an issue closed with another outcome", async () => {
+    const session = userEvent.setup();
+    show(
+      issue({
+        meaning: "DONE",
+        status: { id: "s-done", label: "Klar" },
+        outcome: "FIXED",
+        closedAt: "2026-08-22T08:00:00.000Z",
+      }),
+    );
+    await openHandling(session);
+    await screen.findByLabelText("Vatten: vem betalar");
+
+    expect(screen.queryByText(/7 kap\. 12 a §/)).toBeNull();
+  });
+
   it("shows the responsibility guide labelled as an example until the board adopts it", async () => {
     const session = userEvent.setup();
     show();

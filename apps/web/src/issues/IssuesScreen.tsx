@@ -149,8 +149,12 @@ export function IssuesScreen({
       types: types?.ok === true ? types.value : null,
       apartments: apartments?.ok === true ? apartments.value : null,
       own: own?.ok === true ? own.value : null,
-      /** Not a failed load either way: a report is filed without the guide. */
-      guide: guide?.ok === true ? guide.value.guide : null,
+      /**
+       * Not a failed load either way: a report is filed without the guide.
+       * `undefined` marks a read that failed, so a re-read keeps the guide on
+       * screen as it keeps the lists; `null` is "none adopted" or "not asked".
+       */
+      guide: guide === null ? null : guide.ok ? guide.value.guide : undefined,
       loadFailed:
         types?.ok === false || apartments?.ok === false || own?.ok === false,
       /** Nothing was asked for: a viewer who cannot report has no lists. */
@@ -178,7 +182,7 @@ export function IssuesScreen({
           apartments:
             next.apartments ?? (next.asked ? previous.apartments : []),
           own: next.own ?? (next.asked ? previous.own : []),
-          guide: next.guide,
+          guide: next.guide === undefined ? previous.guide : next.guide,
           loadFailed: next.loadFailed,
         }));
       }

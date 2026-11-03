@@ -468,7 +468,13 @@ export function fetchHandlerResponsibilityGuide(): Promise<
 export function fetchReporterResponsibilityGuide(): Promise<
   ApiResult<{ guide: ResponsibilityGuide | null }>
 > {
-  return apiRequest("GET", "/api/issues/responsibility-guide");
+  /*
+   * Bounded: the screen waits for this read with the others before it shows
+   * the report form, and a form is filed without the guide when it fails.
+   */
+  return apiRequest("GET", "/api/issues/responsibility-guide", undefined, {
+    answerTimeoutMs: 10_000,
+  });
 }
 
 /** The guide as the board configures it. Under issues:configure. */

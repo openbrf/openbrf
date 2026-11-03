@@ -321,9 +321,11 @@ export function IssueHandling({
           At the formal step and not before it: once a handler says the cost
           is the tenant-owner's, the next thing the board may want is for them
           to put it right, and a reply here is not how BRL 7 kap. 12 a § asks
-          for that.
+          for that. It stays on an issue closed with that outcome, because the
+          reply field stays with it.
         */}
-        {issue.costResponsibility === "TENANT_OWNER" ? (
+        {issue.costResponsibility === "TENANT_OWNER" ||
+        issue.outcome === "TENANT_OWNER_RESPONSIBILITY" ? (
           <Notice tone="info">{t("issues.handling.notANoticeToRemedy")}</Notice>
         ) : null}
         <details className="flex flex-col gap-2">

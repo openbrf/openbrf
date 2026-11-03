@@ -34,6 +34,7 @@ const attachIssuePhoto = vi.fn();
 const fetchOwnIssues = vi.fn();
 const fetchOwnIssueMessages = vi.fn();
 const sendOwnIssueMessage = vi.fn();
+const fetchGuide = vi.fn();
 
 vi.mock("../api/feed", () => ({
   fetchPost: (input: unknown) => fetchPost(input),
@@ -46,7 +47,7 @@ vi.mock("../api/issues", async (importOriginal) => ({
       ok([{ id: "type-lift", name: "Hiss", reporters: ["RESIDENTS"] }]),
     ),
   fetchOwnApartments: () => Promise.resolve(ok([])),
-  fetchReporterResponsibilityGuide: () => Promise.resolve(ok({ guide: null })),
+  fetchReporterResponsibilityGuide: () => fetchGuide(),
   fetchOwnIssues: () => fetchOwnIssues(),
   fetchOwnIssueMessages: (id: string) => fetchOwnIssueMessages(id),
   sendOwnIssueMessage: (input: unknown) => sendOwnIssueMessage(input),
@@ -93,6 +94,7 @@ const READER = viewer(["issues:report"]);
 beforeEach(() => {
   vi.clearAllMocks();
   fetchOwnIssues.mockResolvedValue(ok([]));
+  fetchGuide.mockResolvedValue(ok({ guide: null }));
   reportIssue.mockResolvedValue(ok({ id: "issue-1" }));
   attachIssuePhoto.mockResolvedValue(
     ok({
@@ -214,6 +216,59 @@ describe("a report made from a post", () => {
     });
     await screen.findByText("Ärendena kunde inte läsas just nu.");
     expect(screen.getByText("Hissen står still.")).toBeTruthy();
+  });
+
+  it("keeps the guide on show when it cannot be read again", async () => {
+    const guide = {
+      adoptedAt: "2026-08-01T08:00:00.000Z",
+      version: "2026-08-01T08:00:00.000Z",
+      items: [
+        {
+          part: "Golvbrunn",
+          responsibility: "ASSOCIATION" as const,
+          note: null,
+        },
+      ],
+    };
+    fetchGuide.mockResolvedValueOnce(ok({ guide }));
+    fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    const report = {
+      id: "issue-1",
+      meaning: "IN_PROGRESS" as const,
+      typeId: "type-lift",
+      typeName: "Hiss",
+      location: null,
+      description: "Hissen står still.",
+      apartment: null,
+      photos: [],
+      enteredByHandler: false,
+      createdAt: "2026-08-20T08:00:00.000Z",
+      updatedAt: "2026-08-20T08:00:00.000Z",
+    };
+    fetchOwnIssues.mockResolvedValueOnce(ok([report]));
+    sendOwnIssueMessage.mockResolvedValue(refused(409, "issue-closed"));
+    const session = userEvent.setup();
+    render(<IssuesScreen viewer={READER} />);
+
+    expect(
+      await screen.findByText("Vem ansvarar för vad?", { selector: "summary" }),
+    ).toBeTruthy();
+
+    // The re-read that a closed answer asks for fails on the guide only.
+    fetchGuide.mockResolvedValue(refused(500, "unknown"));
+    fetchOwnIssues.mockResolvedValue(ok([report]));
+    await session.click(screen.getByText("Meddelanden om Hiss"));
+    await session.type(
+      await screen.findByLabelText("Hiss: ditt meddelande"),
+      "Hallå",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+    await waitFor(() => {
+      expect(fetchGuide).toHaveBeenCalledTimes(2);
+    });
+    expect(
+      screen.getByText("Vem ansvarar för vad?", { selector: "summary" }),
+    ).toBeTruthy();
   });
 
   it("hides the composer once the list is read again and shows the report closed", async () => {

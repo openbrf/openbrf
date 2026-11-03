@@ -2318,9 +2318,12 @@ export const SCREENS: readonly Screen[] = [
     as: "nobody",
     goto: "/kontakt",
     prepare: [{ click: { text: "Vem ansvarar för vad?", first: true } }],
-    // A line of the guide, which is on the page only when the board has
-    // adopted one and is visible only once the guide is open.
-    waitFor: { text: "Golvbrunn, rensning" },
+    // The sentence that says the board has adopted the guide, which is on the
+    // page only for an adopted guide and visible only once it is open, and does
+    // not depend on what the lines say.
+    waitFor: {
+      text: "Enligt föreningens stadgar, som styrelsen läser dem. Stadgarna gäller före tabellen.",
+    },
     capture: "page",
   },
 
