@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -665,5 +665,133 @@ describe("handling an issue", () => {
     // The board's own name for the status, from the type.
     expect(steps[2]).toContain("Flyttat till Hos rörmokaren");
     expect(steps[2]).toContain("Namnet visas inte (skyddade personuppgifter)");
+  });
+
+  it("adds a status just saved to the timeline while it stays open", async () => {
+    const reported = {
+      kind: "reported",
+      at: "2026-08-20T08:00:00.000Z",
+      actor: null,
+    };
+    fetchIssueTimeline.mockResolvedValueOnce({ ok: true, value: [reported] });
+    const session = userEvent.setup();
+    const queued = issue();
+    const view = render(
+      <IssueQueuePanel
+        issues={[queued]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await openHandling(session);
+    const timeline = (await screen.findByText("Anmält")).closest("ol");
+    expect(
+      within(timeline as HTMLElement).getAllByRole("listitem"),
+    ).toHaveLength(1);
+
+    // The status form saves and the queue reloads: the same open issue comes
+    // back in its new status, and the panel is not remounted.
+    fetchIssueTimeline.mockResolvedValue({
+      ok: true,
+      value: [
+        reported,
+        {
+          kind: "status",
+          at: "2026-08-21T09:00:00.000Z",
+          actor: null,
+          fromMeaning: "NEW",
+          toMeaning: "IN_PROGRESS",
+          fromStatusId: "s-new",
+          toStatusId: "s-doing",
+          waitingReason: null,
+          outcome: null,
+        },
+      ],
+    });
+    view.rerender(
+      <IssueQueuePanel
+        issues={[
+          {
+            ...queued,
+            meaning: "IN_PROGRESS",
+            status: { id: "s-doing", label: "Pågår" },
+            updatedAt: "2026-08-21T09:00:00.000Z",
+          },
+        ]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(await screen.findByText(/Flyttat till Pågår/)).toBeTruthy();
+    expect(fetchIssueTimeline).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a timeline read that a newer revision superseded", async () => {
+    let answerFirst: (value: unknown) => void = () => undefined;
+    fetchIssueTimeline.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerFirst = resolve;
+      }),
+    );
+    const session = userEvent.setup();
+    const queued = issue();
+    const view = render(
+      <IssueQueuePanel
+        issues={[queued]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await openHandling(session);
+    await waitFor(() => {
+      expect(fetchIssueTimeline).toHaveBeenCalledTimes(1);
+    });
+
+    fetchIssueTimeline.mockResolvedValue({
+      ok: true,
+      value: [
+        { kind: "reported", at: "2026-08-20T08:00:00.000Z", actor: null },
+        {
+          kind: "status",
+          at: "2026-08-21T09:00:00.000Z",
+          actor: null,
+          fromMeaning: "NEW",
+          toMeaning: "IN_PROGRESS",
+          fromStatusId: "s-new",
+          toStatusId: "s-doing",
+          waitingReason: null,
+          outcome: null,
+        },
+      ],
+    });
+    view.rerender(
+      <IssueQueuePanel
+        issues={[
+          {
+            ...queued,
+            meaning: "IN_PROGRESS",
+            status: { id: "s-doing", label: "Pågår" },
+            updatedAt: "2026-08-21T09:00:00.000Z",
+          },
+        ]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    expect(await screen.findByText(/Flyttat till Pågår/)).toBeTruthy();
+
+    // The first read answers last, with the timeline as it stood before.
+    await act(async () => {
+      answerFirst({
+        ok: true,
+        value: [
+          { kind: "reported", at: "2026-08-20T08:00:00.000Z", actor: null },
+        ],
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText(/Flyttat till Pågår/)).toBeTruthy();
   });
 });

@@ -102,8 +102,18 @@ export function IssueHandling({
   const [handlers, setHandlers] = useState<IssueHandler[] | null>(null);
   const [timeline, setTimeline] = useState<IssueTimelineStep[] | null>(null);
   const [readFailed, setReadFailed] = useState(false);
-  /** Bumped after every save, which re-reads the timeline. */
+  /** Bumped after every save here, which re-reads the timeline. */
   const [reads, setReads] = useState(0);
+  /*
+   * The issue's own revision, read again whenever the queue brings a newer one.
+   * A status moved in the form beside this panel saves and reloads the queue
+   * without remounting the open panel and without a save of its own here, so
+   * neither the issue's id nor `reads` changes - and the timeline would leave
+   * out the step just written until it was closed and opened again. Each read
+   * still answers only the issue and revision that asked for it: the cleanup
+   * below drops a superseded one.
+   */
+  const revision = `${issue.updatedAt}:${issue.status.id}`;
 
   useEffect(() => {
     let active = true;
@@ -121,7 +131,7 @@ export function IssueHandling({
     return () => {
       active = false;
     };
-  }, [issue.id, reads]);
+  }, [issue.id, revision, reads]);
 
   const save = useSaveAction(
     (act: HandlingAct) => perform(issue.id, act),
