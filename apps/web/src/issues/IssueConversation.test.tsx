@@ -342,6 +342,29 @@ describe("the conversation with the reporter", () => {
     expect(screen.queryByLabelText("Sparat svar")).toBeNull();
   });
 
+  it("keeps loaded saved replies after a later failed read", async () => {
+    const { rerender } = render(
+      <IssueConversation issue={issue()} onStale={vi.fn()} />,
+    );
+    expect(await screen.findByLabelText("Sparat svar")).toBeTruthy();
+
+    fetchIssueSavedReplies.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    rerender(
+      <IssueConversation
+        issue={issue({ updatedAt: "2026-08-21T08:00:00.000Z" })}
+        onStale={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText(/Sparade svar gick inte att läsa just nu/),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Sparat svar")).toBeTruthy();
+  });
+
   it("reads the conversation again when the queue brings a newer revision of the issue", async () => {
     const { rerender } = render(
       <IssueConversation issue={issue()} onStale={vi.fn()} />,
@@ -349,6 +372,19 @@ describe("the conversation with the reporter", () => {
     await screen.findByText("Kommer någon i dag?");
     expect(fetchIssueMessages).toHaveBeenCalledTimes(1);
 
+    fetchIssueMessages.mockResolvedValueOnce({
+      ok: true,
+      value: [
+        {
+          id: "m-4",
+          side: "HANDLER",
+          signature: "BOARD",
+          author: { kind: "protected", personId: "p-shielded" },
+          body: "Rörmokaren kommer imorgon.",
+          createdAt: "2026-08-21T09:00:00.000Z",
+        },
+      ],
+    });
     rerender(
       <IssueConversation
         issue={issue({ updatedAt: "2026-08-21T08:00:00.000Z" })}
@@ -358,6 +394,8 @@ describe("the conversation with the reporter", () => {
     await waitFor(() => {
       expect(fetchIssueMessages).toHaveBeenCalledTimes(2);
     });
+    expect(await screen.findByText("Rörmokaren kommer imorgon.")).toBeTruthy();
+    expect(screen.queryByText("Kommer någon i dag?")).toBeNull();
   });
 
   it("tells the queue when the issue is no longer the reader's", async () => {

@@ -214,4 +214,41 @@ describe("a report made from a post", () => {
     await screen.findByText("Ärendena kunde inte läsas just nu.");
     expect(screen.getByText("Hissen står still.")).toBeTruthy();
   });
+
+  it("hides the composer once the list is read again and shows the report closed", async () => {
+    const report = {
+      id: "issue-1",
+      meaning: "IN_PROGRESS" as const,
+      typeId: "type-lift",
+      typeName: "Hiss",
+      location: null,
+      description: "Hissen står still.",
+      apartment: null,
+      photos: [],
+      enteredByHandler: false,
+      createdAt: "2026-08-20T08:00:00.000Z",
+      updatedAt: "2026-08-20T08:00:00.000Z",
+    };
+    fetchOwnIssues.mockResolvedValueOnce(ok([report]));
+    fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    sendOwnIssueMessage.mockResolvedValue(refused(409, "issue-closed"));
+    const session = userEvent.setup();
+    render(<IssuesScreen viewer={READER} />);
+
+    expect(await screen.findByText("Hissen står still.")).toBeTruthy();
+    fetchOwnIssues.mockResolvedValue(ok([{ ...report, meaning: "DONE" }]));
+    await session.click(screen.getByText("Meddelanden om Hiss"));
+    await session.type(
+      await screen.findByLabelText("Hiss: ditt meddelande"),
+      "Hallå",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    await waitFor(() => {
+      expect(fetchOwnIssues).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Hiss: ditt meddelande")).toBeNull();
+    });
+  });
 });
