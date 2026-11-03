@@ -142,6 +142,47 @@
       },
       "bodyUndated": "{{event}} för {{apartment}} registrerades den {{triggeredOn}} och ska anmälas till Lantmäteriet.",
       "noDeadlineNotice": "Lag (2026:484) 3 kap. 3 § tredje stycket sätter ingen frist för den här anmälan, så ingen anges här."
+    },
+    "issueHandlerNotice": {
+      "footerNotice": "Du får detta eftersom du handlägger ärenden för {{association}}.",
+      "facts": "Ärende {{number}} · {{type}} · Prioritet: {{priority}}",
+      "action": "Öppna ärendekön",
+      "assigned": {
+        "subject": "Ärende {{number}} har tilldelats dig: {{type}}",
+        "heading": "Ett ärende har tilldelats dig",
+        "body": "Du är ansvarig för ärende {{number}}, {{type}}. Vad som har anmälts står i ärendekön, inte i det här mejlet."
+      },
+      "filed": {
+        "subject": "Nytt ärende {{number}}: {{type}}",
+        "heading": "Ett nytt ärende utan ansvarig",
+        "body": "Ärende {{number}}, {{type}}, har kommit in och ingen är ansvarig för det ännu. Vad som har anmälts står i ärendekön, inte i det här mejlet."
+      },
+      "urgent": {
+        "subject": "Akut ärende {{number}}: {{type}}",
+        "heading": "Ett ärende är akut",
+        "body": "Ärende {{number}}, {{type}}, har prioritet Akut, och alla som handlägger ärenden av den här typen får det här mejlet. Vad som har anmälts står i ärendekön, inte i det här mejlet."
+      },
+      "overdue": {
+        "subject": "Ärende {{number}} har passerat senast klart: {{type}}",
+        "heading": "Ett av dina ärenden är försenat",
+        "body": "Ärende {{number}}, {{type}}, skulle vara klart senast {{targetDate}} och är inte avslutat. Du är ansvarig för det. I ärendekön kan du flytta datumet eller avsluta ärendet."
+      },
+      "reopened": {
+        "subject": "Ärende {{number}} har öppnats igen: {{type}}",
+        "heading": "Ett avslutat ärende har öppnats igen",
+        "body": "Ärende {{number}}, {{type}}, var avslutat och har öppnats igen. Vad som har hänt står i ärendekön, inte i det här mejlet."
+      },
+      "message": {
+        "subject": "Nytt svar i ärende {{number}}: {{type}}",
+        "heading": "Anmälaren har svarat",
+        "body": "Anmälaren har skrivit ett nytt svar i ärende {{number}}, {{type}}. Svaret står i ärendekön, inte i det här mejlet."
+      }
+    },
+    "issueReporterNotice": {
+      "subject": "Nytt svar i ditt ärende {{number}}: {{type}}",
+      "heading": "Du har fått ett svar",
+      "body": "Det finns ett nytt svar i ditt ärende {{number}}, {{type}}. Svaret står bland dina ärenden, inte i det här mejlet.",
+      "action": "Öppna dina ärenden"
     }
   },
   "sms": {
@@ -3517,6 +3558,7 @@
     }
   },
   "issues": {
+    "number": "Ärende {{number}}",
     "navLabel": "Ärenden",
     "title": "Ärenden",
     "intro": "Anmäl ett fel i huset och följ vad som händer med det.",
@@ -6113,7 +6155,7 @@
         },
         "issues": {
           "name": "Felanmälningar",
-          "purpose": "Ta emot och åtgärda fel i huset.",
+          "purpose": "Ta emot och åtgärda fel i huset, och meddela den som handlägger ett ärende och den som anmälde det med e-post. Mejlen innehåller ärendenummer, ärendetyp, prioritet och en länk, aldrig vad någon har skrivit.",
           "legalBasisNote": "Berättigat intresse: att förvalta fastigheten. Den som anmäler kan självmant skriva uppgifter om hälsa (art. 9).",
           "retention": "Kopplingen till personen tas bort vid gallringen; ärendet och bilderna behålls. Anmälningar från det öppna formuläret gallras 365 dagar efter avslut."
         },

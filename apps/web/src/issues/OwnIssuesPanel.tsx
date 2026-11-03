@@ -36,6 +36,9 @@ export function OwnIssuesPanel({ issues }: OwnIssuesPanelProps): ReactElement {
               className="flex flex-col gap-2 rounded-control border border-line bg-page px-3 py-3"
             >
               <div className="flex flex-wrap items-center gap-3">
+                <span className="font-data text-data text-ink-muted">
+                  {t("issues.number", { number: issue.number })}
+                </span>
                 <span className="text-body font-semibold">
                   {issue.typeName}
                 </span>

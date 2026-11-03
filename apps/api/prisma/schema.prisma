@@ -4426,6 +4426,12 @@ model IssueStatus {
 model Issue {
   id String @id @default(cuid())
 
+  /// The issue number (ärendenummer): what a handler, the reporter and every
+  /// mail about the issue call it. Given in the order issues are filed and never
+  /// reused; a filing that rolls back skips one. A label only: nothing looks an
+  /// issue up by it, so it is never a key in an address (ADR 0055).
+  number Int @unique @default(autoincrement())
+
   typeId String
   type   IssueType @relation(fields: [typeId], references: [id], onDelete: Restrict)
 
@@ -4500,6 +4506,14 @@ model Issue {
   /// it is not closed. A plan rather than a promise: nothing counts time from
   /// it.
   targetDate DateTime? @db.Date
+
+  /// The target date the assignee was last reminded of being past, or null
+  /// while no reminder has gone out. The overdue reminder is owed once for each
+  /// target date: a reminder job finding this equal to the issue's target date
+  /// sends nothing, so a job queued twice for one date, or a date moved away
+  /// and back, reminds once. Written with the claim that queues the mail, under
+  /// the issue's lock. Not personal data.
+  overdueRemindedFor DateTime? @db.Date
 
   /// Closed to every handler but the board, whatever its type allows (decision
   /// 13). A handler tightens an issue; only the board loosens it again, and

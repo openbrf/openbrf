@@ -106,6 +106,7 @@ function issue(
     outcome: null,
     typeReporters: ["RESIDENTS"],
     closedAt: null,
+    number: 7,
     typeId: "type-water",
     typeName: "Vatten",
     location: null,
@@ -155,6 +156,20 @@ beforeEach(() => {
   ]) {
     write.mockReset().mockResolvedValue({ ok: true, value: issue() });
   }
+});
+
+describe("the issue number", () => {
+  it("is shown on the row, as the mail about the issue names it", () => {
+    render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText("Ärende 7")).toBeTruthy();
+  });
 });
 
 describe("who reported it", () => {

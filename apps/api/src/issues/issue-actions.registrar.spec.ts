@@ -28,6 +28,7 @@ import {
 
 const QUEUED: QueuedIssueView = {
   id: "issue-1",
+  number: 1,
   meaning: "NEW",
   status: { id: "status-water-new", label: "Ny" },
   waitingReason: null,

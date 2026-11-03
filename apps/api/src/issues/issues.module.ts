@@ -3,6 +3,7 @@ import { Module } from "@nestjs/common";
 import { ActionsModule } from "../actions/actions.module";
 import { MediaModule } from "../media/media.module";
 import { IssueActionsRegistrar } from "./issue-actions.registrar";
+import { IssueMailer } from "./issue-mailer.service";
 import { IssuePurgeService } from "./issue-purge.service";
 import { IssueResidentsService } from "./issue-residents.service";
 import { IssueTypeService } from "./issue-type.service";
@@ -15,8 +16,9 @@ import {
 
 /**
  * Reported issues: the board's type catalogue, the resident's report, the
- * queue whoever handles issues works from, and the resident picker a handler
- * names a resident from on an issue they open.
+ * queue whoever handles issues works from, the resident picker a handler
+ * names a resident from on an issue they open, and the mail and the overdue
+ * reminder that tell handlers of their issues (`IssueMailer`).
  *
  * MediaModule is imported for the photographs, and ActionsModule for the
  * queue's read actions (ADR 0040), which is not global because the registry is
@@ -40,6 +42,7 @@ import {
   ],
   providers: [
     IssueService,
+    IssueMailer,
     IssueTypeService,
     IssuePurgeService,
     IssueResidentsService,

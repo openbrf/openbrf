@@ -60,6 +60,7 @@ function issue(
     outcome: null,
     typeReporters: ["RESIDENTS"],
     closedAt: null,
+    number: 7,
     typeId: "type-water",
     typeName: "Vatten",
     location: null,

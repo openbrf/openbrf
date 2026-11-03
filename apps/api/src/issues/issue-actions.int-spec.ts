@@ -29,6 +29,7 @@ import { MediaService } from "../media/media.service";
 import { createIssueTypeFixture } from "../testing/issue-fixtures";
 import { IssueTypeService } from "./issue-type.service";
 import { IssueService } from "./issue.service";
+import { IssueMailer } from "./issue-mailer.service";
 
 /**
  * The reads of the issue queue and the contact form inbox (ADR 0040), against
@@ -869,6 +870,7 @@ describe("what the queue carries beyond the instance", () => {
           app.get(MediaService),
           app.get(FieldEncryptionService),
           app.get(AuditLogService),
+          app.get(IssueMailer),
         );
 
         const issues = await read(queue);

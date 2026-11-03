@@ -341,6 +341,15 @@ locally the application runs from source beside the PostgreSQL that
       of who did what and when, read from the audit log. The people an issue
       can be assigned to are named and nothing more, so the property manager is
       never shown the address book (ADR 0054)
+- [x] Mail about issues: a new issue to its assignee, or to the type's handlers
+      when it lands unassigned; an urgent one to every handler of its type; an
+      assignment to the new assignee; a reopened one to its assignee; and one
+      reminder to the assignee the morning after the target date has passed.
+      A mail gives the issue number, the type, the priority and a link, and
+      never anything a reporter or a handler wrote. Nobody is mailed about
+      their own action, and a person whose processing is restricted is not
+      mailed at all. Every issue has a number, shown in the queue and on the
+      reporter's own list
 - [x] One page, one audience: the board's work on its own pages under the
       Styrelsen section, each signed on its own heading, the overview as the
       house's notice board with one line for whoever works a queue, and a phone
