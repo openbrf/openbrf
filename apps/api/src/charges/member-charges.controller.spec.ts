@@ -59,12 +59,14 @@ describe("the charges of an issue", () => {
     expect(answer.charges).toBeNull();
   });
 
-  it("keeps an apartment party when the charges are withheld", async () => {
+  it("withholds an apartment party with the charges when the protection was set between the two reads", async () => {
     const apartment = { kind: "apartment", apartmentId: "a-1" } as never;
-    const { subject } = controller([basis(apartment)], null);
+    const { subject, reads } = controller([basis(apartment)], null);
 
     const answer = await subject.forIssue(ISSUE_ID, request);
 
-    expect(answer.issue.party).toEqual(apartment);
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(answer.issue.party).toBeNull();
+    expect(answer.charges).toBeNull();
   });
 });

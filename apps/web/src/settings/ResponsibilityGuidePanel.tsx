@@ -175,12 +175,21 @@ export function ResponsibilityGuidePanel(): ReactElement {
    */
   const [reloadFailed, setReloadFailed] = useState(false);
 
+  /**
+   * A read of the current table, asked for from a form on screen, is under
+   * way. The form is locked meanwhile: the answer replaces the draft, so what
+   * was typed while it ran would be deleted without a word, and a failed read
+   * keeps the draft whole.
+   */
+  const [reloading, setReloading] = useState(false);
+
   useEffect(() => {
     let active = true;
     void fetchResponsibilityGuide().then((read) => {
       if (!active) {
         return;
       }
+      setReloading(false);
       if (read.ok) {
         setGuide(read.value);
         setRevision((count) => count + 1);
@@ -242,6 +251,7 @@ export function ResponsibilityGuidePanel(): ReactElement {
         <GuideForm
           key={revision}
           reloadFailed={reloadFailed}
+          reloading={reloading}
           guide={guide}
           onEdited={() => {
             setSaved(false);
@@ -254,6 +264,7 @@ export function ResponsibilityGuidePanel(): ReactElement {
           onReload={() => {
             setSaved(false);
             setReloadFailed(false);
+            setReloading(true);
             setReads((count) => count + 1);
           }}
         />
@@ -265,6 +276,7 @@ export function ResponsibilityGuidePanel(): ReactElement {
 function GuideForm({
   guide,
   reloadFailed,
+  reloading,
   onEdited,
   onSaved,
   onReload,
@@ -272,6 +284,8 @@ function GuideForm({
   guide: ResponsibilityGuide;
   /** The last read of the current table failed; the draft is kept. */
   reloadFailed: boolean;
+  /** The current table is being read; the form refuses input until it is. */
+  reloading: boolean;
   /** Called on every change to the draft, which clears the last notice. */
   onEdited: () => void;
   onSaved: (guide: ResponsibilityGuide) => void;
@@ -321,7 +335,7 @@ function GuideForm({
 
   return (
     <LockedForm
-      locked={saving}
+      locked={saving || reloading}
       focusFallback={firstField}
       className="flex flex-col gap-4"
       onSend={() => {

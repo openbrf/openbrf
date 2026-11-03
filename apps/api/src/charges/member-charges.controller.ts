@@ -190,11 +190,12 @@ export class MemberChargesController {
     /*
      * The party and the charges are two reads, and protection can change
      * between them in either direction. Where the second observed the
-     * reporter's protection and the first did not, the person party is the
-     * reporter: withhold it with the charges. An apartment party does not depend
-     * on the reporter's protection.
+     * reporter's protection and the first did not, withhold the party with the
+     * charges, whatever its kind: an apartment party can identify the home of
+     * the protected reporter, which is why the issue's own view withholds the
+     * apartment of a protected reporter too.
      */
-    if (charges === null && issue.party?.kind === "person") {
+    if (charges === null && issue.party !== null) {
       return { issue: { ...issue, party: null }, charges };
     }
     /*

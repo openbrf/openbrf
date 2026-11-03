@@ -231,6 +231,64 @@ describe("the responsibility guide", () => {
     expect(screen.queryByText(/sparades av någon annan/)).toBeNull();
   });
 
+  it("refuses input while the current table is being read, so nothing typed is deleted", async () => {
+    fetchResponsibilityGuide.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        adoptedAt: null,
+        items: [
+          { part: "Golvbrunn", responsibility: "TENANT_OWNER", note: null },
+        ],
+        version: "2026-11-01T09:00:00.000Z",
+      },
+    });
+    saveResponsibilityGuide.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "changed-since-read" },
+    });
+    const session = userEvent.setup();
+    render(<ResponsibilityGuidePanel />);
+
+    await session.type(await screen.findByLabelText("Rad 1: anmärkning"), "ny");
+    await session.click(
+      screen.getByRole("button", { name: "Spara ansvarsfördelningen" }),
+    );
+    expect(await screen.findByText(/sparades av någon annan/)).toBeTruthy();
+
+    let answer: (read: unknown) => void = () => undefined;
+    fetchResponsibilityGuide.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Läs den aktuella tabellen" }),
+    );
+
+    const note = screen.getByLabelText("Rad 1: anmärkning") as HTMLInputElement;
+    // The form is one disabled fieldset, so the property stays false.
+    expect(note.matches(":disabled")).toBe(true);
+    await session.type(note, "mer");
+    expect(note.value).toBe("ny");
+
+    answer({
+      ok: true,
+      value: {
+        adoptedAt: null,
+        items: [{ part: "Stammar", responsibility: "ASSOCIATION", note: null }],
+        version: "2026-11-02T09:00:00.000Z",
+      },
+    });
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText("Rad 1: vad") as HTMLInputElement).value,
+      ).toBe("Stammar");
+    });
+    expect(screen.getByLabelText("Rad 1: vad").matches(":disabled")).toBe(
+      false,
+    );
+  });
+
   it("keeps the draft when the read of the current table fails, and reads again on request", async () => {
     fetchResponsibilityGuide.mockResolvedValueOnce({
       ok: true,
