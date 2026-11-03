@@ -242,18 +242,25 @@ reporter's link is not behind that gate.
 
 The fallback is built first, because it is what a release ships with whatever
 the review says, and it asks nothing of the switch. Building it took a provisional
-answer to three of the open questions below; each stands until the owner
-answers it:
+answer to three of the open questions below. Questions 2 and 4 stand until the
+owner answers them; question 3 conflicts with the owner's own plan and is put
+to the owner rather than answered here:
 
 - **Question 2.** The contractor register holds an email address beside the
   name, the trade and the telephone number, optional, and a contractor without
   one is listed and offered for no work order.
-- **Question 3.** The mail is the work order: the handler's text, the
-  contractor's name in the greeting and the association's in the heading, and
-  nothing else from the case. Decision 21 keeps free text out of the mails that
-  tell somebody who can sign in that something happened; a contractor cannot
-  sign in, so the work order travels whole, and the preview is what answers for
-  it. A text holding a personal identity number is refused.
+- **Question 3, open.** As built, the mail is the work order: the handler's
+  text, the contractor's name in the greeting and the association's in the
+  heading, and nothing else from the case; a text holding a personal identity
+  number is refused. The issue module's plan says both that no mail carries
+  free text, the reporter's or the handler's, so that nothing a person wrote
+  passes through the mail provider (decision 21), and that a work order is
+  mailed while the contractor's link is off (decision 25). A mailed work order
+  that carries no free text says nothing a contractor can act on, so the two
+  cannot both hold. Reading decision 21 as covering only the notices sent to
+  people who can sign in would decide the conflict rather than report it, so
+  it is not this record's answer: the question is the owner's, and the mailed
+  work order stays built, unreleased, until the owner decides it.
 - **Question 4.** A work order on a case whose reporter has protected personal
   data is not refused. Nothing of the case goes into it but what the handler
   writes, and the form tells the handler to keep the reporter's name and home
@@ -261,13 +268,41 @@ answers it:
 
 The work order is stored with a copy of whom it went to, the text and who sent
 it before the mail is put on the queue, in one transaction, and the mail is
-sent at most once; a sending that fails says so on the work order with a code.
+sent at most once; a sending that fails says so on the work order with a code,
+and one that may have gone out says that nobody knows rather than that it did
+not.
+
+What is sent is what was previewed, and the server holds the sending to it.
+The preview returns a signature over the case, the handler, the contractor,
+the recipient's name and address and the text, valid for half an hour, and the
+sending is refused unless what it would send now matches it. The contractor's
+row is locked while the sending reads it, so a board member who changes the
+address at the same moment changes it either before the sending, which is then
+refused and previewed again, or after it. The same text to the same contractor
+on the same case within ten minutes is refused as a second press, and one
+handler may send twenty work orders an hour.
+
 The audit entry names the case, the work order, the contractor and the sender,
-with the length of the text and none of its words. A contractor removed from
-the register leaves the record of what was sent them.
+with the length of the text and none of its words. Each change to the
+contractor register is audited too, by the contractor's id and the fields it
+touched, because an address changed there changes who receives what a handler
+writes. The contractor's telephone number and address, and the work order's
+copy of the address, are encrypted with their row's id as context.
+
+A contractor switched off stays named on the work orders sent them. A
+contractor removed from the register is erased from them as well: the copy of
+the name and address on each is cleared, and the work order stays, saying that
+it went out, when and what it said. That is how a sole trader's erasure is
+honoured. The text of a work order is erased a year after its case was closed,
+by the nightly purge; the year is a default for the owner to confirm. A
+reporter's data subject access report lists, under each of their cases, the
+work orders sent about it: to whom, when, and whether the mail went out, not
+the text, which may be about other people.
 
 A ring-fenced type is a column on the type, `ringFenced`, read by the refusal
-and set by nothing until question 5 of ADR 0054 is answered.
+and set by the board under issues:configure through a request of its own,
+audited with who set or lifted it. Which types are ring-fenced by default is
+question 5 of ADR 0054.
 
 ## Open questions
 
@@ -283,8 +318,8 @@ wrote this record:
    provisionally under [The mailed work order](#the-mailed-work-order).
 3. **A mailed work order and decision 21.** Decision 21 puts no free text in any
    mail. A work order mailed under the fallback of decision 25 is the handler's
-   own text; whether decision 21 reaches it. Answered provisionally under
-   [The mailed work order](#the-mailed-work-order).
+   own text; whether decision 21 reaches it. Put to the owner, with the
+   conflict stated, under [The mailed work order](#the-mailed-work-order).
 4. **A work order on an apartment whose household has protected personal data.**
    The contractor needs to know where to go. What the work order may say, and
    whether such a work order is refused, as the plan's research proposes.

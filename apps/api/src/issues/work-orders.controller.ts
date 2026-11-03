@@ -37,6 +37,14 @@ const workOrderSchema = z.strictObject({
   body: z.string().trim().min(1).max(WORK_ORDER_LIMITS.body),
 });
 
+/**
+ * A sending: the work order and the token of the preview the handler read it
+ * in, which the service holds it to.
+ */
+const sendingSchema = workOrderSchema.extend({
+  previewToken: z.string().min(1).max(128),
+});
+
 /** An optional one-line field: absent, null or empty is none. */
 const optionalLine = (max: number) => z.string().trim().max(max).nullish();
 
@@ -114,7 +122,7 @@ export class IssueWorkOrderController {
     return this.workOrders.send(
       actingPersonId(request),
       id,
-      workOrderSchema.parse(body),
+      sendingSchema.parse(body),
     );
   }
 }
@@ -136,25 +144,39 @@ export class ContractorAdminController {
 
   @Post()
   @HttpCode(201)
-  async create(@Body() body: unknown): Promise<ContractorView> {
-    return this.contractors.create(contractorSchema.parse(body));
+  async create(
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<ContractorView> {
+    return this.contractors.create(
+      contractorSchema.parse(body),
+      actingPersonId(request),
+    );
   }
 
   @Put(":id")
   async update(
     @Param("id") id: string,
     @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
   ): Promise<ContractorView> {
-    return this.contractors.update(id, contractorSchema.parse(body));
+    return this.contractors.update(
+      id,
+      contractorSchema.parse(body),
+      actingPersonId(request),
+    );
   }
 
   /**
-   * Takes a contractor off the list. What was sent them stays on the issues,
-   * with its own copy of whom it went to.
+   * Takes a contractor off the list and erases them from the work orders sent
+   * them. The work orders stay on the issues, without a recipient.
    */
   @Delete(":id")
   @HttpCode(204)
-  async remove(@Param("id") id: string): Promise<void> {
-    await this.contractors.remove(id);
+  async remove(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<void> {
+    await this.contractors.remove(id, actingPersonId(request));
   }
 }

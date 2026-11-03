@@ -705,6 +705,36 @@ beforeAll(async () => {
       },
     ],
   });
+  // Two work orders on the waiting issue: one to a contractor still on the
+  // list, and one to a contractor since removed, whose name the removal erased.
+  const waitingIssue = await prisma.issue.findFirstOrThrow({
+    where: { typeId: issueTypeId, description: "Droppar fran taket i koket" },
+    select: { id: true },
+  });
+  await prisma.workOrder.createMany({
+    data: [
+      {
+        issueId: waitingIssue.id,
+        recipientName: `Rormokare ${suffix}`,
+        // Never read by the report, which carries no address.
+        recipientEmailCipher: "not-a-cipher",
+        body: "Laga laeckan i koket",
+        sentByPersonId: board.personId,
+        deliveryStatus: "SENT",
+        createdAt: new Date("2026-02-20T09:00:00.000Z"),
+      },
+      {
+        issueId: waitingIssue.id,
+        recipientName: null,
+        recipientEmailCipher: null,
+        body: "Titta pa taket igen",
+        sentByPersonId: board.personId,
+        deliveryStatus: "FAILED",
+        deliveryFailure: "send-failed",
+        createdAt: new Date("2026-02-22T09:00:00.000Z"),
+      },
+    ],
+  });
 
   await prisma.mediaFile.create({
     data: {
@@ -1754,6 +1784,23 @@ describe("what the report contains", () => {
     expect(waiting?.meaning).toBe("WAITING");
     expect(waiting?.waitingReason).toBe("CONTRACTOR");
     expect(waiting?.outcome).toBeNull();
+    // Whom the issue was sent to and when (art. 15(1)(c)), oldest first; a
+    // removed contractor is named by nobody, and no text or address is copied.
+    expect(waiting?.workOrders).toEqual([
+      {
+        recipientName: `Rormokare ${suffix}`,
+        sentAt: "2026-02-20T09:00:00.000Z",
+        deliveryStatus: "SENT",
+      },
+      {
+        recipientName: null,
+        sentAt: "2026-02-22T09:00:00.000Z",
+        deliveryStatus: "FAILED",
+      },
+    ]);
+    expect(JSON.stringify(report.issues)).not.toContain("Laga laeckan");
+    expect(JSON.stringify(report.issues)).not.toContain("not-a-cipher");
+    expect(open?.workOrders).toEqual([]);
 
     const closed = byDescription("Lampan i hallen blinkar");
     expect(closed?.meaning).toBe("DONE");

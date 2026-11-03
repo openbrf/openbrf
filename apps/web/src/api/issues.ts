@@ -73,6 +73,8 @@ export type IssueHandler = AuthorView;
 /** A type on the board's configuration screen, with its default assignee. */
 export type ConfiguredIssueType = IssueTypeView & {
   defaultAssignee: IssueHandler | null;
+  /** Nothing about its issues may reach a contractor (ADR 0055). */
+  ringFenced: boolean;
 };
 
 /** Somebody a type's issues may be given to by default. */
@@ -444,6 +446,18 @@ export function updateIssueType(input: {
     "PUT",
     `/api/issue-types/${encodeURIComponent(input.id)}`,
     input.values,
+  );
+}
+
+/** Ring-fences a type from contractors, or lifts its ring-fence. */
+export function setIssueTypeRingFence(input: {
+  id: string;
+  ringFenced: boolean;
+}): Promise<ApiResult<ConfiguredIssueType>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-types/${encodeURIComponent(input.id)}/ring-fence`,
+    { ringFenced: input.ringFenced },
   );
 }
 

@@ -510,6 +510,8 @@ export type ReportAuditAction =
   | "ISSUE_ACCESS_CHANGED"
   | "ISSUE_RESIDENTS_LISTED"
   | "ISSUE_WORK_ORDER_SENT"
+  | "CONTRACTOR_LIST_CHANGED"
+  | "ISSUE_TYPE_RING_FENCE_CHANGED"
   | "MOVE_IN_RECORDED"
   | "MOVE_OUT_RECORDED"
   | "PLUGIN_ENABLED"
@@ -822,6 +824,15 @@ export interface DataSubjectReport {
     description: string;
     reportedAt: string;
     photographs: number;
+    /**
+     * Whom the issue was sent to, oldest first. `recipientName` is null once
+     * the contractor was removed from the list. Never the text or an address.
+     */
+    workOrders: {
+      recipientName: string | null;
+      sentAt: string;
+      deliveryStatus: "PENDING" | "SENT" | "FAILED";
+    }[];
   }[];
   documents: {
     documentId: string;

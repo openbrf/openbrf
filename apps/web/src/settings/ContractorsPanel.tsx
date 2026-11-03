@@ -18,12 +18,12 @@ import {
   HINT,
   LABEL,
   PRIMARY_BUTTON,
-  QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { TwoPressConfirm } from "../ui/TwoPressConfirm";
 
 const CONTRACTOR_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "contractor-not-found": "settings.contractors.errors.notFound",
@@ -253,6 +253,8 @@ function ContractorForm({
 }): ReactElement {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(initial);
+  /** Removing erases the contractor from what was sent them: asked twice. */
+  const [confirming, setConfirming] = useState(false);
   const changed = JSON.stringify(draft) !== JSON.stringify(initial);
   const complete = draft.name.trim() !== "" && draft.trade.trim() !== "";
   const label = (field: TranslationKey): string =>
@@ -363,17 +365,29 @@ function ContractorForm({
           {submitLabel}
         </button>
         {onRemove === null || named === null ? null : (
-          <button
-            type="button"
-            aria-label={t("settings.contractors.removeNamed", { name: named })}
-            disabled={disabled}
-            onClick={onRemove}
-            className={QUIET_BUTTON}
-          >
-            {t("settings.contractors.remove")}
-          </button>
+          <TwoPressConfirm
+            confirming={confirming}
+            busy={disabled}
+            askText={t("settings.contractors.remove")}
+            askLabel={t("settings.contractors.removeNamed", { name: named })}
+            confirmText={t("settings.contractors.removeConfirm")}
+            keepText={t("settings.contractors.keep")}
+            onAsk={() => {
+              setConfirming(true);
+            }}
+            onConfirm={() => {
+              setConfirming(false);
+              onRemove();
+            }}
+            onKeep={() => {
+              setConfirming(false);
+            }}
+          />
         )}
       </div>
+      {confirming ? (
+        <p className={HINT}>{t("settings.contractors.removeHint")}</p>
+      ) : null}
     </form>
   );
 }

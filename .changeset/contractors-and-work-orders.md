@@ -11,15 +11,22 @@ a preview, and the issue keeps the record of it (ADR 0055).
 - **The contractor list.** The board keeps the firms it hires in the settings,
   under Issues and bookings: a name, a trade, a telephone number and an email
   address. A contractor with no address stays on the list but cannot be mailed
-  a work order. A contractor switched off is no longer offered, and one removed
-  from the list leaves the work orders already sent them. Every handler,
-  the property manager included, chooses from the list; only those who
-  configure the issue types change it.
+  a work order. A contractor switched off is no longer offered and stays named
+  on the work orders sent them. Removing a contractor, which the board confirms
+  with a second press, also erases their name and address from those work
+  orders, which stay on the issues. Every handler, the property manager
+  included, chooses from the list; only those who configure the issue types
+  change it, and each change is recorded in the audit log without the details
+  themselves.
 - **Writing and previewing.** On an issue, a handler chooses a contractor,
   writes what is to be done and where, and previews the mail as the contractor
   will receive it before sending. Changing the text or the contractor drops the
-  preview, so what is sent is what was read. The preview says when this
-  instance has no mail server set up.
+  preview, and the server sends only what was previewed: if the contractor's
+  name or address changed after the preview, or the preview is over half an
+  hour old, the handler is asked to preview again. The same work order sent
+  twice within ten minutes is refused, and one person may send twenty work
+  orders an hour. The preview says when this instance has no mail server set
+  up.
 - **What the mail carries.** The handler's text and nothing else from the
   issue: never the report, the place the reporter wrote, the reporter, the
   photographs or a link into the application. A text holding a personal
@@ -28,12 +35,19 @@ a preview, and the issue keeps the record of it (ADR 0055).
 - **The record.** Each work order is stored on the issue before it is mailed,
   with whom it went to, when, what it said and who sent it, so the association
   can answer who received a person's data (GDPR art. 15(1)(c) and 19). The
-  issue's handlers read it, with whether the mail went out and, if not, why.
+  issue's handlers read it, with whether the mail went out and, if not, why;
+  the screen follows a work order on its way until it is sent or fails, and a
+  sending that may have gone out is shown as unconfirmed, not as not sent.
+  Outside production, a work order sent with no mail server set up is recorded
+  as not sent.
   The timeline shows that a work order was sent, and the audit log records the
-  sending with the length of the text and none of its words.
-- **Ring-fenced types.** A work order on an issue whose type is ring-fenced is
-  refused in the service, its preview included. Nothing in the product marks a
-  type as ring-fenced yet; that setting comes with the ring-fence itself.
+  sending with the length of the text and none of its words. A reporter's data
+  subject access report lists the work orders sent about their issues: to
+  whom, when, and whether the mail went out. The text of a work order is erased
+  a year after its issue was closed.
+- **Ring-fenced types.** The board ring-fences an issue type in the settings,
+  and each change is recorded in the audit log. A work order on an issue whose
+  type is ring-fenced is refused in the service, its preview included.
 - **Record of processing activities.** The issues row names the contractors and
   the mail server among its recipients, and its purpose mentions work orders.
   A row the board has edited keeps its own text and is not refreshed.

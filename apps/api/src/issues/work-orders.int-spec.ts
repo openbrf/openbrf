@@ -37,6 +37,7 @@ let app: NestFastifyApplication;
 let prisma: PrismaService;
 let mail: MailService;
 let mailer: WorkOrderMailerService;
+let encryption: FieldEncryptionService;
 
 const suffix = process.hrtime.bigint().toString(36);
 const PASSWORD = "a-long-enough-password";
@@ -56,7 +57,7 @@ const resident = person("resident", "Rune", "Rapportor");
 const people = [board, manager, resident];
 const personIds = people.map((entry) => entry.personId);
 
-const typeIds = {
+const typeIds: Record<string, string> = {
   plain: `wo-type-plain-${suffix}`,
   boardOnly: `wo-type-board-${suffix}`,
   ringFenced: `wo-type-ring-${suffix}`,
@@ -127,9 +128,9 @@ interface ContractorRow {
 interface WorkOrderRow {
   id: string;
   contractorId: string | null;
-  recipientName: string;
-  recipientEmail: string;
-  body: string;
+  recipientName: string | null;
+  recipientEmail: string | null;
+  body: string | null;
   sentBy: { kind: string; personId?: string } | null;
   deliveryStatus: string;
   deliveryFailure: string | null;
@@ -184,6 +185,21 @@ function workOrder(
   });
 }
 
+/** Previews a work order and sends it with the preview's token. */
+async function previewAndSend(
+  cookie: string,
+  issueId: string,
+  payload: { contractorId: string; body: string },
+) {
+  const preview = await workOrder(cookie, issueId, payload, "preview");
+  expect(preview.statusCode).toBe(200);
+  const { previewToken } = preview.json<{ previewToken: string }>();
+  return workOrder(cookie, issueId, { ...payload, previewToken });
+}
+
+/** A token no preview signed, for a sending refused before it is read. */
+const UNSIGNED = "1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
 let plumber: ContractorRow;
 
 beforeAll(async () => {
@@ -198,7 +214,7 @@ beforeAll(async () => {
   prisma = app.get(PrismaService);
   mail = app.get(MailService);
   mailer = app.get(WorkOrderMailerService);
-  const encryption = app.get(FieldEncryptionService);
+  encryption = app.get(FieldEncryptionService);
 
   await prisma.association.upsert({
     where: { id: 1 },
@@ -236,30 +252,33 @@ beforeAll(async () => {
   });
 
   plain = await createIssueTypeFixture(prisma, {
-    id: typeIds.plain,
+    id: `wo-type-plain-${suffix}`,
     name: `Vatten ${suffix}`,
     reporters: ["RESIDENTS"],
   });
   boardOnly = await createIssueTypeFixture(prisma, {
-    id: typeIds.boardOnly,
+    id: `wo-type-board-${suffix}`,
     name: `Försäkring ${suffix}`,
     reporters: ["HANDLERS"],
     handledBy: "BOARD",
   });
   ringFenced = await createIssueTypeFixture(prisma, {
-    id: typeIds.ringFenced,
+    id: `wo-type-ring-${suffix}`,
     name: `Störningar ${suffix}`,
     reporters: ["RESIDENTS"],
   });
-  // Nothing sets the mark yet but the database (ADR 0054, question 5).
-  await prisma.issueType.update({
-    where: { id: ringFenced.id },
-    data: { ringFenced: true },
-  });
-
   for (const entry of people) {
     cookies[entry.personId] = await signIn(entry.email);
   }
+
+  // The board ring-fences the type through its own route.
+  const fenced = await inject({
+    method: "PUT",
+    url: `/api/issue-types/${ringFenced.id}/ring-fence`,
+    payload: { ringFenced: true },
+    cookie: as(board),
+  });
+  expect(fenced.statusCode).toBe(200);
 
   plumber = await addContractor({
     name: `Rörfirman ${suffix}`,
@@ -420,11 +439,12 @@ describe("a work order", () => {
         { contractorId: plumber.id, body: text },
         "preview",
       )
-    ).json<{ subject: string; text: string }>();
+    ).json<{ subject: string; text: string; previewToken: string }>();
 
     const response = await workOrder(as(board), issueId, {
       contractorId: plumber.id,
       body: text,
+      previewToken: previewed.previewToken,
     });
     expect(response.statusCode).toBe(201);
     const sent = response.json<WorkOrderRow>();
@@ -509,7 +529,7 @@ describe("a work order", () => {
   it("records a mail server's refusal as a code on the work order", async () => {
     const issueId = await filed(plain, "refused");
     const sent = (
-      await workOrder(as(board), issueId, {
+      await previewAndSend(as(board), issueId, {
         contractorId: plumber.id,
         body: "Byt lampan i trapphuset.",
       })
@@ -536,7 +556,12 @@ describe("a work order", () => {
     const payload = { contractorId: plumber.id, body: "Kom och titta." };
 
     for (const what of ["preview", "send"] as const) {
-      const refused = await workOrder(as(board), issueId, payload, what);
+      const refused = await workOrder(
+        as(board),
+        issueId,
+        { ...payload, ...(what === "send" ? { previewToken: UNSIGNED } : {}) },
+        what,
+      );
       expect(refused.statusCode, what).toBe(422);
       expect(refused.json<{ reason: string }>().reason, what).toBe(
         "work-order-ring-fenced",
@@ -594,7 +619,15 @@ describe("a work order", () => {
     ];
     for (const [payload, status, reason] of cases) {
       for (const what of ["preview", "send"] as const) {
-        const refused = await workOrder(as(board), issueId, payload, what);
+        const refused = await workOrder(
+          as(board),
+          issueId,
+          {
+            ...payload,
+            ...(what === "send" ? { previewToken: UNSIGNED } : {}),
+          },
+          what,
+        );
         expect(refused.statusCode, `${reason} ${what}`).toBe(status);
         expect(refused.json<{ reason: string }>().reason).toBe(reason);
       }
@@ -605,9 +638,23 @@ describe("a work order", () => {
     const extra = await workOrder(as(board), issueId, {
       contractorId: plumber.id,
       body: "Kom på måndag.",
+      previewToken: UNSIGNED,
       photoIds: ["a"],
     });
     expect(extra.statusCode).toBe(400);
+
+    // A sending with no preview behind it is refused, and stores nothing.
+    for (const previewToken of [undefined, UNSIGNED]) {
+      const unpreviewed = await workOrder(as(board), issueId, {
+        contractorId: plumber.id,
+        body: "Kom på måndag.",
+        ...(previewToken === undefined ? {} : { previewToken }),
+      });
+      expect(unpreviewed.statusCode).toBe(
+        previewToken === undefined ? 400 : 409,
+      );
+    }
+    expect(await prisma.workOrder.count({ where: { issueId } })).toBe(0);
   });
 
   it("is reached by a property manager on an issue they handle, and on a board-only one is no issue at all", async () => {
@@ -619,7 +666,12 @@ describe("a work order", () => {
     expect(preview.statusCode).toBe(200);
 
     for (const what of ["preview", "send"] as const) {
-      const refused = await workOrder(as(manager), kept, payload, what);
+      const refused = await workOrder(
+        as(manager),
+        kept,
+        { ...payload, ...(what === "send" ? { previewToken: UNSIGNED } : {}) },
+        what,
+      );
       expect(refused.statusCode, what).toBe(404);
       expect(refused.json<{ reason: string }>().reason).toBe("issue-not-found");
     }
@@ -639,7 +691,7 @@ describe("a work order", () => {
     expect(resident403.statusCode).toBe(403);
   });
 
-  it("keeps whom it went to when the contractor is taken off the list", async () => {
+  it("erases a removed contractor from the work orders sent them, and keeps the work orders", async () => {
     const issueId = await filed(plain, "removed");
     const firm = await addContractor({
       name: `Tillfällig firma ${suffix}`,
@@ -647,7 +699,7 @@ describe("a work order", () => {
       email: `glas-${suffix}@firma.test`,
     });
     const sent = (
-      await workOrder(as(board), issueId, {
+      await previewAndSend(as(board), issueId, {
         contractorId: firm.id,
         body: "Byt rutan i porten.",
       })
@@ -669,9 +721,297 @@ describe("a work order", () => {
       expect.objectContaining({
         id: sent.id,
         contractorId: null,
-        recipientName: firm.name,
-        recipientEmail: firm.email,
+        recipientName: null,
+        recipientEmail: null,
+        body: "Byt rutan i porten.",
+        sentBy: expect.objectContaining({ personId: board.personId }),
       }),
     ]);
+
+    // Its mail had not gone out: there is nobody left to send it to.
+    const send = vi.spyOn(mail, "send");
+    try {
+      expect(await mailer.send(sent.id)).toBe("failed");
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      send.mockRestore();
+    }
+    expect(
+      await prisma.workOrder.findUniqueOrThrow({
+        where: { id: sent.id },
+        select: { deliveryStatus: true, deliveryFailure: true },
+      }),
+    ).toEqual({
+      deliveryStatus: "FAILED",
+      deliveryFailure: "recipient-removed",
+    });
+
+    // The removal is audited by id and count, never by name or address.
+    const entries = await prisma.auditLogEntry.findMany({
+      where: { targetKind: "contractor", targetId: firm.id },
+      orderBy: { createdAt: "asc" },
+      select: { action: true, actorPersonId: true, context: true },
+    });
+    expect(entries).toEqual([
+      {
+        action: "CONTRACTOR_LIST_CHANGED",
+        actorPersonId: board.personId,
+        context: { change: "added", fields: ["name", "trade", "email"] },
+      },
+      {
+        action: "CONTRACTOR_LIST_CHANGED",
+        actorPersonId: board.personId,
+        context: { change: "removed", fields: [], workOrdersErased: 1 },
+      },
+    ]);
+    expect(JSON.stringify(entries.map((entry) => entry.context))).not.toContain(
+      suffix,
+    );
+  });
+});
+
+describe("what is sent is what was previewed", () => {
+  it("refuses a sending after the board changed the contractor's address, and sends to the new one only after a fresh preview", async () => {
+    const issueId = await filed(plain, "rebound");
+    const firm = await addContractor({
+      name: `Flyttfirman ${suffix}`,
+      trade: "Snickare",
+      email: `gammal-${suffix}@firma.test`,
+    });
+    const payload = {
+      contractorId: firm.id,
+      body: "Laga dörren till förrådet.",
+    };
+
+    const first = await workOrder(as(board), issueId, payload, "preview");
+    const { previewToken } = first.json<{ previewToken: string }>();
+    expect(first.json<{ recipient: { email: string } }>().recipient.email).toBe(
+      `gammal-${suffix}@firma.test`,
+    );
+
+    // Another board member corrects the address while the preview is open.
+    const changed = await inject({
+      method: "PUT",
+      url: `/api/contractors/${firm.id}`,
+      payload: {
+        name: firm.name,
+        trade: firm.trade,
+        email: `ny-${suffix}@firma.test`,
+      },
+      cookie: as(board),
+    });
+    expect(changed.statusCode).toBe(200);
+
+    const stale = await workOrder(as(board), issueId, {
+      ...payload,
+      previewToken,
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json<{ reason: string }>().reason).toBe(
+      "work-order-preview-stale",
+    );
+    expect(await prisma.workOrder.count({ where: { issueId } })).toBe(0);
+
+    // A changed text is not what was previewed either.
+    const edited = await workOrder(as(board), issueId, {
+      ...payload,
+      body: "Laga dörren till cykelrummet.",
+      previewToken,
+    });
+    expect(edited.statusCode).toBe(409);
+
+    // Nor is another handler's preview of the same work order.
+    const others = await workOrder(as(manager), issueId, payload, "preview");
+    const borrowed = await workOrder(as(board), issueId, {
+      ...payload,
+      previewToken: others.json<{ previewToken: string }>().previewToken,
+    });
+    expect(borrowed.statusCode).toBe(409);
+
+    const sent = await previewAndSend(as(board), issueId, payload);
+    expect(sent.statusCode).toBe(201);
+    expect(sent.json<WorkOrderRow>().recipientEmail).toBe(
+      `ny-${suffix}@firma.test`,
+    );
+
+    // The change is audited by the fields it touched, never their values.
+    const audited = await prisma.auditLogEntry.findMany({
+      where: {
+        targetKind: "contractor",
+        targetId: firm.id,
+        context: { path: ["change"], equals: "changed" },
+      },
+      select: { context: true },
+    });
+    expect(audited).toEqual([
+      { context: { change: "changed", fields: ["email"] } },
+    ]);
+  });
+
+  it("refuses the same work order sent twice in a moment, and a handler past the hourly budget", async () => {
+    const issueId = await filed(plain, "twice");
+    const payload = {
+      contractorId: plumber.id,
+      body: `Sota imkanalen. ${suffix}`,
+    };
+    const preview = await workOrder(as(board), issueId, payload, "preview");
+    const { previewToken } = preview.json<{ previewToken: string }>();
+
+    const [first, second] = await Promise.all([
+      workOrder(as(board), issueId, { ...payload, previewToken }),
+      workOrder(as(board), issueId, { ...payload, previewToken }),
+    ]);
+    expect([first.statusCode, second.statusCode].sort((a, b) => a - b)).toEqual(
+      [201, 409],
+    );
+    expect(
+      [first, second]
+        .filter((response) => response.statusCode === 409)
+        .map((response) => response.json<{ reason: string }>().reason),
+    ).toEqual(["work-order-duplicate"]);
+    expect(await prisma.workOrder.count({ where: { issueId } })).toBe(1);
+
+    // The manager has sent their budget's worth in the last hour.
+    const budgetIssue = await filed(plain, "budget");
+    await prisma.workOrder.createMany({
+      data: Array.from({ length: 20 }, (_, index) => ({
+        issueId: budgetIssue,
+        contractorId: plumber.id,
+        recipientName: plumber.name,
+        body: `Arbetsorder ${String(index)} ${suffix}`,
+        sentByPersonId: manager.personId,
+        deliveryStatus: "SENT" as const,
+      })),
+    });
+    const spent = await previewAndSend(as(manager), issueId, {
+      contractorId: plumber.id,
+      body: "Kom på måndag.",
+    });
+    expect(spent.statusCode).toBe(429);
+    expect(spent.json<{ reason: string }>().reason).toBe(
+      "work-order-budget-spent",
+    );
+  });
+});
+
+describe("the ring-fence", () => {
+  it("is set by the board alone, audited, and refuses work orders while it holds", async () => {
+    const type = await createIssueTypeFixture(prisma, {
+      id: `wo-type-fence-${suffix}`,
+      name: `Grannar ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    typeIds.fence = type.id;
+    const issueId = await filed(type, "fence");
+    const payload = { contractorId: plumber.id, body: "Kom och titta." };
+    const fence = (cookie: string, body: object) =>
+      inject({
+        method: "PUT",
+        url: `/api/issue-types/${type.id}/ring-fence`,
+        payload: body,
+        cookie,
+      });
+
+    // A handler who configures nothing cannot lift or set it.
+    expect((await fence(as(manager), { ringFenced: true })).statusCode).toBe(
+      403,
+    );
+    // Strict: a request that says anything else is refused.
+    expect(
+      (await fence(as(board), { ringFenced: true, name: "x" })).statusCode,
+    ).toBe(400);
+
+    const preview = await workOrder(as(board), issueId, payload, "preview");
+    expect(preview.statusCode).toBe(200);
+
+    const set = await fence(as(board), { ringFenced: true });
+    expect(set.statusCode).toBe(200);
+    expect(set.json<{ ringFenced: boolean }>().ringFenced).toBe(true);
+    // Setting it again changes nothing and writes nothing.
+    expect((await fence(as(board), { ringFenced: true })).statusCode).toBe(200);
+
+    // The preview read before the fence went up sends nothing.
+    const refused = await workOrder(as(board), issueId, {
+      ...payload,
+      previewToken: preview.json<{ previewToken: string }>().previewToken,
+    });
+    expect(refused.json<{ reason: string }>().reason).toBe(
+      "work-order-ring-fenced",
+    );
+    const listed = await inject({
+      method: "GET",
+      url: `/api/issue-queue/${issueId}/work-orders`,
+      cookie: as(board),
+    });
+    expect(listed.json<{ ringFenced: boolean }>().ringFenced).toBe(true);
+
+    expect((await fence(as(board), { ringFenced: false })).statusCode).toBe(
+      200,
+    );
+    expect(
+      await prisma.auditLogEntry.findMany({
+        where: { targetKind: "issueType", targetId: type.id },
+        orderBy: { createdAt: "asc" },
+        select: { action: true, actorPersonId: true, context: true },
+      }),
+    ).toEqual([
+      {
+        action: "ISSUE_TYPE_RING_FENCE_CHANGED",
+        actorPersonId: board.personId,
+        context: { ringFenced: true },
+      },
+      {
+        action: "ISSUE_TYPE_RING_FENCE_CHANGED",
+        actorPersonId: board.personId,
+        context: { ringFenced: false },
+      },
+    ]);
+  });
+});
+
+describe("the sending", () => {
+  it("records a work order as not sent when no mail server is configured, and not a null message identifier as such", async () => {
+    const issueId = await filed(plain, "unconfigured");
+    const sent = (
+      await previewAndSend(as(board), issueId, {
+        contractorId: plumber.id,
+        body: "Byt filtret i ventilationen.",
+      })
+    ).json<WorkOrderRow>();
+
+    const send = vi
+      .spyOn(mail, "send")
+      .mockResolvedValue({ messageId: null, suppressed: true });
+    try {
+      expect(await mailer.send(sent.id)).toBe("failed");
+    } finally {
+      send.mockRestore();
+    }
+    expect(
+      await prisma.workOrder.findUniqueOrThrow({
+        where: { id: sent.id },
+        select: { deliveryStatus: true, deliveryFailure: true },
+      }),
+    ).toEqual({
+      deliveryStatus: "FAILED",
+      deliveryFailure: "mail-not-configured",
+    });
+  });
+
+  it("binds a contractor's address and a work order's recipient to their own rows", async () => {
+    const stored = await prisma.contractor.findUniqueOrThrow({
+      where: { id: plumber.id },
+      select: { emailCipher: true },
+    });
+    if (stored.emailCipher === null) {
+      throw new Error("The plumber has no address.");
+    }
+    await expect(
+      encryption.decrypt("contractor.email", stored.emailCipher, plumber.id),
+    ).resolves.toBe(plumber.email);
+    // The same cipher moved onto another contractor's row does not decrypt.
+    await expect(
+      encryption.decrypt("contractor.email", stored.emailCipher, "another-row"),
+    ).rejects.toThrow();
   });
 });

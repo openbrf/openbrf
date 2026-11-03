@@ -3,9 +3,10 @@
  *
  * Codes, never prose, on the board mailbox reply's rule: a mail server's
  * rejection quotes the envelope back, and the envelope is a contractor's
- * address. The same four a reply has, for the same four ways a sending ends
- * without a mail server's acceptance; a list of its own rather than theirs,
- * so neither module offers a screen a code the other produces.
+ * address. The four a reply has, for the same four ways a sending ends
+ * without a mail server's acceptance, and one of its own for a recipient
+ * erased before the sending; a list of its own rather than theirs, so neither
+ * module offers a screen a code the other produces.
  */
 export const WORK_ORDER_DELIVERY_FAILURES = {
   /**
@@ -27,6 +28,13 @@ export const WORK_ORDER_DELIVERY_FAILURES = {
    * handler told the latter sends the contractor the same job twice.
    */
   unconfirmed: "delivery-unconfirmed",
+
+  /**
+   * The contractor was removed from the list, and erased from this work
+   * order with it, before its mail went out: there is nobody left to send it
+   * to.
+   */
+  recipientRemoved: "recipient-removed",
 } as const;
 
 export type WorkOrderDeliveryFailure =

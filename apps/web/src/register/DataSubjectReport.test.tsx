@@ -376,6 +376,7 @@ const FULL_REPORT: Report = {
       description: ISSUE_DESCRIPTION,
       reportedAt: "2026-01-05T08:00:00.000Z",
       photographs: 2,
+      workOrders: [],
     },
   ],
   issueAssignments: [
@@ -1789,6 +1790,45 @@ describe("what the document prints", () => {
     expect(within(waiting as HTMLElement).queryByText("Åtgärdat")).toBeNull();
     expect(within(done as HTMLElement).getByText("Åtgärdat")).toBeTruthy();
     expect(within(done as HTMLElement).queryByText("Entreprenör")).toBeNull();
+  });
+
+  it("names whom an issue was sent to, and a removed contractor as one", async () => {
+    // Art. 15(1)(c): the recipients of the reporter's issue, with the date and
+    // whether the mail went out. A failure is not said to be certain, because
+    // one that was never confirmed may have gone out.
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          workOrders: [
+            {
+              recipientName: "Rörmokare Ab",
+              sentAt: "2026-01-06T09:00:00.000Z",
+              deliveryStatus: "SENT",
+            },
+            {
+              recipientName: null,
+              sentAt: "2026-01-07T09:00:00.000Z",
+              deliveryStatus: "FAILED",
+            },
+          ],
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const row = screen.getByText(/Rörmokare Ab/).closest("tr");
+    expect(row).not.toBeNull();
+    const cell = within(row as HTMLElement);
+    expect(cell.getByText(/Rörmokare Ab · Skickad/)).toBeTruthy();
+    expect(
+      cell.getByText(
+        /En entreprenör som sedan tagits bort från listan · Inte bekräftad som skickad/,
+      ),
+    ).toBeTruthy();
   });
 
   it("names the capacity somebody was present at a general meeting in", async () => {

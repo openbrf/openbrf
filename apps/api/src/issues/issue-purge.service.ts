@@ -8,9 +8,18 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { lockIssue } from "./issue-lock";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
-import { ISSUE_RETENTION_DAYS, issuePurgeCutoff } from "./issue-retention";
+import {
+  isPersonWithheld,
+  withheldPersonIds,
+} from "../retention/withheld-persons";
+import {
+  ISSUE_RETENTION_DAYS,
+  issuePurgeCutoff,
+  WORK_ORDER_BODY_RETENTION_DAYS,
+} from "./issue-retention";
 
 /** Queue the nightly public-form issue purge runs on. */
 export const ISSUE_PURGE_QUEUE = "issue-purge";
@@ -47,6 +56,8 @@ export interface IssuePurgeRunSummary {
    * database refuses must not stop every later report for good.
    */
   failed: number;
+  /** The same three counts for the issues whose work-order text was erased. */
+  workOrderTexts: { considered: number; purged: number; failed: number };
 }
 
 /**
@@ -126,6 +137,18 @@ export interface IssuePurgeRunSummary {
  * There is no person to name - that is the whole point of this job - so the
  * record it names is the issue, which survives the purge and stays readable for
  * as long as the entry does.
+ *
+ * ## Work-order text
+ *
+ * The same run erases the text of the work orders sent about any closed issue,
+ * whoever reported it, once `WORK_ORDER_BODY_RETENTION_DAYS` have passed since
+ * it was closed (see `issue-retention.ts`). Unlike the description, that text
+ * is not the association's record of its building but a copy of a mail it sent
+ * a firm, in a handler's words that may name the reporter or a neighbour; the
+ * row stays with whom it went to and when, which is the record of the
+ * disclosure. A legal hold or a restriction against the issue's reporter keeps
+ * the text, as it keeps the reporter's details, read again under the registry
+ * key inside the transaction that erases it.
  */
 @Injectable()
 export class IssuePurgeService implements OnModuleInit {
@@ -166,6 +189,7 @@ export class IssuePurgeService implements OnModuleInit {
   async run(
     now: Date = new Date(),
     retentionDays: number = ISSUE_RETENTION_DAYS,
+    workOrderRetentionDays: number = WORK_ORDER_BODY_RETENTION_DAYS,
   ): Promise<IssuePurgeRunSummary> {
     const issueIds = await this.eligible(now, retentionDays);
 
@@ -204,7 +228,185 @@ export class IssuePurgeService implements OnModuleInit {
       );
     }
 
+    return {
+      considered: issueIds.length,
+      purged,
+      failed,
+      workOrderTexts: await this.runWorkOrderTexts(now, workOrderRetentionDays),
+    };
+  }
+
+  /** Erases the text of the work orders on every closed issue past its window. */
+  private async runWorkOrderTexts(
+    now: Date,
+    retentionDays: number,
+  ): Promise<IssuePurgeRunSummary["workOrderTexts"]> {
+    const issueIds = await this.eligibleWorkOrderTexts(now, retentionDays);
+
+    let purged = 0;
+    let failed = 0;
+    for (const issueId of issueIds) {
+      try {
+        if (await this.purgeWorkOrderTexts(issueId, now, retentionDays)) {
+          purged += 1;
+        }
+      } catch (error) {
+        // The issue id and the class of the failure, never what it was
+        // holding: see `run`.
+        failed += 1;
+        this.logger.error(
+          `Work-order text purge failed for issue ${issueId}: ${failureName(error)}`,
+        );
+      }
+    }
+
+    if (purged > 0 || failed > 0) {
+      this.logger.log(
+        `Erased the work-order text of ${String(purged)} of ${String(
+          issueIds.length,
+        )} eligible closed issues`,
+      );
+    }
+    if (issueIds.length === MAX_ISSUES_PER_RUN) {
+      this.logger.log(
+        `Work-order text purge stopped at its per-run bound of ${String(
+          MAX_ISSUES_PER_RUN,
+        )}; the rest are erased by the next run.`,
+      );
+    }
+
     return { considered: issueIds.length, purged, failed };
+  }
+
+  /**
+   * The closed issues with a work order whose text is still kept past its
+   * window, by the oldest closing first.
+   *
+   * An issue whose reporter is withheld - a person under a legal hold or a
+   * restriction, or a public-form address that is theirs - is excluded by the
+   * query rather than dropped from its answer, for the reason `eligible`
+   * gives about its bound.
+   */
+  async eligibleWorkOrderTexts(
+    now: Date,
+    retentionDays: number,
+  ): Promise<string[]> {
+    const cutoff = issuePurgeCutoff(now, retentionDays);
+    const persons = await withheldPersonIds(this.prisma);
+    const addresses = [...(await this.withheldAddresses(this.prisma)).keys()];
+
+    const issues = await this.prisma.issue.findMany({
+      where: {
+        status: { meaning: "DONE" },
+        closedAt: { not: null, lte: cutoff },
+        workOrders: { some: { body: { not: null } } },
+        AND: [
+          // Conditional, with the null branch beside it, for the reason
+          // `eligible` gives: `NOT IN` answers null for a null column.
+          ...(persons.length > 0
+            ? [
+                {
+                  OR: [
+                    { reporterPersonId: { notIn: persons } },
+                    { reporterPersonId: null },
+                  ],
+                },
+              ]
+            : []),
+          ...(addresses.length > 0
+            ? [
+                {
+                  OR: [
+                    { reporterEmailIndex: { notIn: addresses } },
+                    { reporterEmailIndex: null },
+                  ],
+                },
+              ]
+            : []),
+        ],
+      },
+      orderBy: [{ closedAt: "asc" }, { id: "asc" }],
+      take: MAX_ISSUES_PER_RUN,
+      select: { id: true },
+    });
+
+    return issues.map((issue) => issue.id);
+  }
+
+  /**
+   * Erases the text of one closed issue's work orders, and answers whether any
+   * went. The recipient, the date and the delivery record stay.
+   *
+   * The closing is stated again in the update's own `where`, so an issue
+   * reopened since the scan keeps its texts; and the reporter's hold or
+   * restriction is read again under the legal hold registry key, which a hold
+   * placement and a restriction grant take too, so one committed while the
+   * run is in flight wins. The entry records how many texts went and the
+   * window, never a word of them.
+   */
+  async purgeWorkOrderTexts(
+    issueId: string,
+    now: Date = new Date(),
+    retentionDays: number = WORK_ORDER_BODY_RETENTION_DAYS,
+  ): Promise<boolean> {
+    const cutoff = issuePurgeCutoff(now, retentionDays);
+
+    return this.prisma.$transaction(async (tx) => {
+      await lockLegalHoldRegistry(tx);
+      // The issue's own lock, which a reopen takes before it clears
+      // `closedAt` (`issue-lock.ts`): the closing read below then holds until
+      // the texts are erased.
+      await lockIssue(tx, issueId);
+      const issue = await tx.issue.findFirst({
+        where: {
+          id: issueId,
+          status: { meaning: "DONE" },
+          closedAt: { not: null, lte: cutoff },
+        },
+        select: { reporterPersonId: true, reporterEmailIndex: true },
+      });
+      if (issue === null) {
+        return false;
+      }
+      if (
+        issue.reporterPersonId !== null &&
+        (await isPersonWithheld(tx, issue.reporterPersonId))
+      ) {
+        return false;
+      }
+      if (
+        issue.reporterEmailIndex !== null &&
+        (await this.withheldAddresses(tx)).has(issue.reporterEmailIndex)
+      ) {
+        return false;
+      }
+
+      const { count } = await tx.workOrder.updateMany({
+        where: { issueId, body: { not: null } },
+        data: { body: null },
+      });
+      if (count === 0) {
+        return false;
+      }
+
+      await this.audit.record(
+        {
+          action: "SERVICE_DATA_PURGED",
+          channel: "SYSTEM",
+          actorPersonId: null,
+          targetPersonId: null,
+          targetKind: "issue",
+          targetId: issueId,
+          context: {
+            workOrderTexts: count,
+            retentionDaysAfterClosing: retentionDays,
+          },
+        },
+        tx,
+      );
+
+      return true;
+    });
   }
 
   /**

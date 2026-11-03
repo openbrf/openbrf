@@ -49,6 +49,25 @@ const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 export const ISSUE_RETENTION_DAYS = 365;
 
 /**
+ * How long a closed issue keeps the text of the work orders sent about it.
+ *
+ * A work order's text is the handler's free text to a firm and may name the
+ * reporter or a neighbour, and nothing else ever erases it: the reporter's own
+ * purge detaches the reporter from the issue and never reads a work order. So
+ * the text gets a clock of its own, anchored where the reporter's is, on the
+ * day the issue was closed: while the problem is live the board may need to
+ * say what it asked a contractor to do, and once it is settled the copy of
+ * what was sent has served its purpose. The row stays, with whom it went to
+ * and when, which is the record GDPR art. 15(1)(c) and 19 ask for.
+ *
+ * A year, the reporter window's length, as a default. How long the association
+ * keeps what it sent a contractor is its own legal call (the contractor's
+ * warranty period may argue for longer); this constant is where that answer
+ * goes once it is made.
+ */
+export const WORK_ORDER_BODY_RETENTION_DAYS = 365;
+
+/**
  * The date a closed issue's reporter details become erasable.
  *
  * @param closedAt When the issue was closed. Null while it is open, which has

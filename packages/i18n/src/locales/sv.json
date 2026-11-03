@@ -515,6 +515,7 @@
           "location": "Plats",
           "description": "Beskrivning",
           "photographs": "Fotografier",
+          "workOrders": "Arbetsordrar till entreprenörer",
           "documentTitle": "Titel",
           "binder": "Pärm",
           "entryKind": "Sort",
@@ -637,6 +638,14 @@
           "ENTRY": "Inträde",
           "EXIT": "Utträde",
           "CORRECTION": "Rättelse"
+        },
+        "workOrder": {
+          "removedContractor": "En entreprenör som sedan tagits bort från listan",
+          "delivery": {
+            "PENDING": "Skickas",
+            "SENT": "Skickad",
+            "FAILED": "Inte bekräftad som skickad"
+          }
         },
         "direction": {
           "acquired": "Förvärvad",
@@ -821,6 +830,8 @@
           "ISSUE_ACCESS_CHANGED": "Vilka som hanterar ett ärende ändrades",
           "ISSUE_RESIDENTS_LISTED": "Någon som hanterar ärenden visades vilka som bor i en lägenhet, för att lägga upp ett ärende",
           "ISSUE_WORK_ORDER_SENT": "En arbetsorder i ett ärende skickades till en entreprenör",
+          "CONTRACTOR_LIST_CHANGED": "En entreprenör lades till, ändrades eller togs bort i entreprenörslistan",
+          "ISSUE_TYPE_RING_FENCE_CHANGED": "En ärendetyp stängdes för entreprenörer, eller öppnades igen",
           "MOVE_IN_RECORDED": "En inflyttning registrerades",
           "MOVE_OUT_RECORDED": "En utflyttning registrerades",
           "PLUGIN_ENABLED": "Ett tillägg slogs på",
@@ -1701,7 +1712,9 @@
       "defaultAssigneeNamed": "{{name}}: ansvarig när det anmäls",
       "noDefaultAssignee": "Ingen: meddela alla som hanterar",
       "handledByBoardHint": "Styrelsen och en administratör hanterar de här ärendena, också en administratör utan plats i styrelsen. Förvaltaren ser dem inte. När en typ blir styrelsens tas förvaltaren bort som ansvarig på dess ärenden.",
-      "handledByEveryHandlerHint": "Alla som hanterar ärenden ser de här ärendena, förvaltaren också. Ett ärende utan ansvarig meddelas till alla."
+      "handledByEveryHandlerHint": "Alla som hanterar ärenden ser de här ärendena, förvaltaren också. Ett ärende utan ansvarig meddelas till alla.",
+      "ringFenced": "Avskärmad: inget når en entreprenör",
+      "ringFencedNamed": "{{name}}: avskärmad, inget når en entreprenör"
     },
     "contractors": {
       "title": "Entreprenörer",
@@ -1728,7 +1741,10 @@
         "incomplete": "En entreprenör behöver ett namn och ett yrke.",
         "invalidBody": "Kontrollera fälten: adressen måste vara en giltig e-postadress.",
         "unknown": "Listan gick inte att ändra just nu. Försök igen."
-      }
+      },
+      "removeConfirm": "Ta bort för gott",
+      "keep": "Behåll",
+      "removeHint": "Att ta bort entreprenören raderar också namnet och adressen ur arbetsordrarna som skickats till dem; arbetsordrarna finns kvar i ärendena. Stäng av entreprenören i stället för att sluta erbjuda dem och behålla uppgiften om vem arbetsordrarna gick till."
     },
     "issueReporting": {
       "title": "Felanmälan från webbplatsen",
@@ -3757,12 +3773,13 @@
       "contents": "Vad den innehöll",
       "pending": "På väg till e-postservern.",
       "delivered": "Mottagen av e-postservern.",
-      "failed": "Inte skickad:",
+      "failed": "Inte skickad.",
       "failure": {
-        "mailNotConfigured": "ingen e-postserver är inställd.",
-        "sendFailed": "e-postservern tog inte emot den.",
-        "sendingInterrupted": "sändningen avbröts innan den började. Skriv den igen för att skicka den.",
-        "deliveryUnconfirmed": "sändningen avbröts, och det går inte att veta om den kom fram. Fråga entreprenören innan du skickar den igen."
+        "mailNotConfigured": "Inte skickad: ingen e-postserver är inställd.",
+        "sendFailed": "Inte skickad: e-postservern tog inte emot den.",
+        "sendingInterrupted": "Inte skickad: sändningen avbröts innan den började. Skriv den igen för att skicka den.",
+        "deliveryUnconfirmed": "Obekräftad: sändningen avbröts, och det går inte att veta om den kom fram. Fråga entreprenören innan du skickar den igen.",
+        "recipientRemoved": "Inte skickad: entreprenören togs bort från listan innan den gick iväg."
       },
       "ringFenced": "Inget om ett ärende av den här typen får nå en entreprenör, så ingen arbetsorder kan skickas.",
       "noContractors": "Det finns inga entreprenörer på listan. Styrelsen lägger till dem i inställningarna, under Ärenden och bokningar.",
@@ -3795,8 +3812,13 @@
         "ringFenced": "Inget om ett ärende av den här typen får nå en entreprenör.",
         "identityNumber": "Arbetsordern innehåller ett personnummer. Skriv den utan.",
         "empty": "Arbetsordern är tom.",
-        "unknown": "Arbetsordern gick inte att förbereda eller skicka just nu. Försök igen."
-      }
+        "unknown": "Arbetsordern gick inte att förbereda eller skicka just nu. Försök igen.",
+        "previewStale": "Entreprenörens uppgifter eller texten har ändrats sedan förhandsvisningen. Förhandsvisa den igen innan du skickar.",
+        "duplicate": "Den här arbetsordern skickades till entreprenören alldeles nyss. Titta i listan ovan innan du skickar den igen.",
+        "budgetSpent": "Du har skickat så många arbetsorder som en person får skicka på en timme. Försök igen senare."
+      },
+      "recipientRemoved": "En entreprenör som sedan tagits bort från listan",
+      "bodyErased": "Texten raderades när ärendets lagringstid gick ut."
     },
     "open": {
       "__after__": "timeline",

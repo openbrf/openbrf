@@ -515,6 +515,7 @@
           "location": "Location",
           "description": "Description",
           "photographs": "Photographs",
+          "workOrders": "Work orders sent to contractors",
           "documentTitle": "Title",
           "binder": "Binder",
           "entryKind": "Kind",
@@ -637,6 +638,14 @@
           "ENTRY": "Membership granted",
           "EXIT": "Membership ended",
           "CORRECTION": "Correction"
+        },
+        "workOrder": {
+          "removedContractor": "A contractor since removed from the list",
+          "delivery": {
+            "PENDING": "Being sent",
+            "SENT": "Sent",
+            "FAILED": "Not confirmed as sent"
+          }
         },
         "direction": {
           "acquired": "Acquired",
@@ -821,6 +830,8 @@
           "ISSUE_ACCESS_CHANGED": "Who handles an issue was changed",
           "ISSUE_RESIDENTS_LISTED": "A handler was shown who lives in an apartment, to open an issue",
           "ISSUE_WORK_ORDER_SENT": "A work order on an issue was sent to a contractor",
+          "CONTRACTOR_LIST_CHANGED": "A contractor was added to, changed on or removed from the contractor list",
+          "ISSUE_TYPE_RING_FENCE_CHANGED": "An issue type was ring-fenced from contractors, or its ring-fence was lifted",
           "MOVE_IN_RECORDED": "A move-in was recorded",
           "MOVE_OUT_RECORDED": "A move-out was recorded",
           "PLUGIN_ENABLED": "A plugin was switched on",
@@ -1701,7 +1712,9 @@
       "defaultAssigneeNamed": "{{name}}: assignee on filing",
       "noDefaultAssignee": "Nobody: tell every handler",
       "handledByBoardHint": "The board and an administrator handle these issues, an administrator without a seat on the board included. The property manager does not see them. Making a type the board's unassigns the property manager from its issues.",
-      "handledByEveryHandlerHint": "Every handler sees these issues, the property manager included. An issue with no assignee is told to all of them."
+      "handledByEveryHandlerHint": "Every handler sees these issues, the property manager included. An issue with no assignee is told to all of them.",
+      "ringFenced": "Ring-fenced: nothing reaches a contractor",
+      "ringFencedNamed": "{{name}}: ring-fenced, nothing reaches a contractor"
     },
     "contractors": {
       "title": "Contractors",
@@ -1728,7 +1741,10 @@
         "incomplete": "A contractor needs a name and a trade.",
         "invalidBody": "Check the fields: the address has to be a valid email address.",
         "unknown": "The list could not be changed just now. Please try again."
-      }
+      },
+      "removeConfirm": "Remove for good",
+      "keep": "Keep",
+      "removeHint": "Removing also erases the contractor's name and address from the work orders sent to them; the work orders stay on the issues. To stop offering a contractor and keep the record of whom work orders went to, switch them off instead."
     },
     "issueReporting": {
       "title": "Issue reports from the website",
@@ -3757,12 +3773,13 @@
       "contents": "What it said",
       "pending": "On its way to the mail server.",
       "delivered": "Accepted by the mail server.",
-      "failed": "Not sent:",
+      "failed": "Not sent.",
       "failure": {
-        "mailNotConfigured": "this instance has no mail server set up.",
-        "sendFailed": "the mail server refused it.",
-        "sendingInterrupted": "the sending stopped before it began. Write it again to send it.",
-        "deliveryUnconfirmed": "the sending stopped, and nobody knows whether it went out. Ask the contractor before sending it again."
+        "mailNotConfigured": "Not sent: this instance has no mail server set up.",
+        "sendFailed": "Not sent: the mail server refused it.",
+        "sendingInterrupted": "Not sent: the sending stopped before it began. Write it again to send it.",
+        "deliveryUnconfirmed": "Unconfirmed: the sending stopped, and nobody knows whether it went out. Ask the contractor before sending it again.",
+        "recipientRemoved": "Not sent: the contractor was removed from the list before it went out."
       },
       "ringFenced": "Nothing about an issue of this type may reach a contractor, so no work order is offered.",
       "noContractors": "There are no contractors on the list. The board adds them in the settings, under Issues and bookings.",
@@ -3795,8 +3812,13 @@
         "ringFenced": "Nothing about an issue of this type may reach a contractor.",
         "identityNumber": "The work order contains a personal identity number. Write it without one.",
         "empty": "The work order is empty.",
-        "unknown": "The work order could not be prepared or sent just now. Please try again."
-      }
+        "unknown": "The work order could not be prepared or sent just now. Please try again.",
+        "previewStale": "The contractor's details or the text changed since the preview. Preview it again before sending.",
+        "duplicate": "This work order was sent to this contractor a moment ago. Check the record above before sending it again.",
+        "budgetSpent": "You have sent as many work orders as one person may in an hour. Try again later."
+      },
+      "recipientRemoved": "A contractor since removed from the list",
+      "bodyErased": "The text was erased when the issue's retention period ran out."
     },
     "open": {
       "__after__": "timeline",

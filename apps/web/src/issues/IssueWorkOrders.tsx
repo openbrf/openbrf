@@ -27,6 +27,7 @@ import {
 import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { usePoll } from "../ui/use-poll";
 import { IssueHandlerName } from "./IssueHandlerName";
 
 const WORK_ORDER_FAILURES: Readonly<Record<string, TranslationKey>> = {
@@ -36,6 +37,9 @@ const WORK_ORDER_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "work-order-ring-fenced": "issues.workOrders.errors.ringFenced",
   "work-order-identity-number": "issues.workOrders.errors.identityNumber",
   "work-order-empty": "issues.workOrders.errors.empty",
+  "work-order-preview-stale": "issues.workOrders.errors.previewStale",
+  "work-order-duplicate": "issues.workOrders.errors.duplicate",
+  "work-order-budget-spent": "issues.workOrders.errors.budgetSpent",
   "invalid-body": "issues.workOrders.errors.unknown",
 };
 
@@ -45,7 +49,15 @@ const STALE_REASONS: ReadonlySet<string> = new Set([
   "contractor-not-found",
   "contractor-without-email",
   "work-order-ring-fenced",
+  "work-order-preview-stale",
+  "work-order-duplicate",
 ]);
+
+/**
+ * How often the record is read again while a work order's mail is on its way.
+ * The job usually settles within seconds; this is how soon the handler sees it.
+ */
+const PENDING_POLL_MS = 4000;
 
 const DELIVERY_FAILURE_LABEL: Readonly<
   Record<WorkOrderDeliveryFailure, TranslationKey>
@@ -54,6 +66,7 @@ const DELIVERY_FAILURE_LABEL: Readonly<
   "send-failed": "issues.workOrders.failure.sendFailed",
   "sending-interrupted": "issues.workOrders.failure.sendingInterrupted",
   "delivery-unconfirmed": "issues.workOrders.failure.deliveryUnconfirmed",
+  "recipient-removed": "issues.workOrders.failure.recipientRemoved",
 };
 
 /** A draft a preview was asked for, so its answer is matched to it. */
@@ -79,8 +92,14 @@ function sameDraft(a: Draft, b: Draft): boolean {
  * after the draft changed is dropped too, so the handler never sends a mail
  * they did not read.
  *
+ * The API holds the sending to the same rule: it carries the preview's token,
+ * and a contractor's address or text changed since the preview is refused, the
+ * preview dropped and the record read again.
+ *
  * Mounted only while a handler has it open, for the reason the handling panel
- * gives: it reads the contractors and the record of its own.
+ * gives: it reads the contractors and the record of its own. While a work
+ * order's mail is on its way the record is read again every few seconds, so
+ * the handler sees it go out or fail without closing anything.
  */
 export function IssueWorkOrders({
   issue,
@@ -127,6 +146,30 @@ export function IssueWorkOrders({
     };
   }, [issue.id, reads]);
 
+  const pending =
+    data?.workOrders.some((order) => order.deliveryStatus === "PENDING") ??
+    false;
+  /*
+   * The record alone, and only while something is on its way. Each answer is
+   * matched to the reads it was asked under, so one that a send or a refusal
+   * has since superseded is dropped; a failed attempt keeps what is shown, and
+   * the next attempt asks again.
+   */
+  const readsRef = useRef(reads);
+  useEffect(() => {
+    readsRef.current = reads;
+  }, [reads]);
+  usePoll(
+    async (stillWanted) => {
+      const askedUnder = readsRef.current;
+      const orders = await fetchIssueWorkOrders(issue.id);
+      if (stillWanted() && orders.ok && askedUnder === readsRef.current) {
+        setData(orders.value);
+      }
+    },
+    { intervalMs: PENDING_POLL_MS, enabled: pending },
+  );
+
   const onRefused = (failure: ApiFailure): void => {
     if (STALE_REASONS.has(failure.reason)) {
       setPreview(null);
@@ -152,7 +195,12 @@ export function IssueWorkOrders({
     onRefused,
   );
   const sending = useSaveAction(
-    (asked: Draft) => sendWorkOrder({ issueId: issue.id, ...asked }),
+    (asked: { draft: Draft; previewToken: string }) =>
+      sendWorkOrder({
+        issueId: issue.id,
+        ...asked.draft,
+        previewToken: asked.previewToken,
+      }),
     (sent) => {
       setPreview(null);
       draftRef.current = EMPTY_DRAFT;
@@ -320,7 +368,10 @@ export function IssueWorkOrders({
               sending={sending.state.kind === "saving"}
               disabled={busy}
               onSend={() => {
-                void sending.submit(preview.draft);
+                void sending.submit({
+                  draft: preview.draft,
+                  previewToken: preview.mail.previewToken,
+                });
               }}
               onEdit={() => {
                 setPreview(null);
@@ -418,12 +469,18 @@ function WorkOrderLog({
               <span className="font-data text-data text-ink-muted">
                 {formatMoment(order.sentAt, locale)}
               </span>
-              <span>
-                {order.recipientName}{" "}
-                <span className="font-data text-data">
-                  {order.recipientEmail}
+              {order.recipientName === null ? (
+                <span className="text-ink-muted">
+                  {t("issues.workOrders.recipientRemoved")}
                 </span>
-              </span>
+              ) : (
+                <span>
+                  {order.recipientName}{" "}
+                  <span className="font-data text-data">
+                    {order.recipientEmail}
+                  </span>
+                </span>
+              )}
               {order.sentBy === null ? null : (
                 <span className="text-ink-muted">
                   {t("issues.workOrders.sentBy")}{" "}
@@ -432,12 +489,18 @@ function WorkOrderLog({
               )}
             </p>
             <DeliveryLine order={order} />
-            <details>
-              <summary className="flex min-h-11 cursor-pointer items-center">
-                {t("issues.workOrders.contents")}
-              </summary>
-              <p className="whitespace-pre-wrap">{order.body}</p>
-            </details>
+            {order.body === null ? (
+              <p className="text-ink-muted">
+                {t("issues.workOrders.bodyErased")}
+              </p>
+            ) : (
+              <details>
+                <summary className="flex min-h-11 cursor-pointer items-center">
+                  {t("issues.workOrders.contents")}
+                </summary>
+                <p className="whitespace-pre-wrap">{order.body}</p>
+              </details>
+            )}
           </li>
         ))}
       </ol>
@@ -445,7 +508,12 @@ function WorkOrderLog({
   );
 }
 
-/** Whether the mail went out, said in words and never by colour alone. */
+/**
+ * Whether the mail went out, said in words and never by colour alone. Each
+ * failure says what is known: "not sent" only where nothing left, and
+ * "unconfirmed" where the mail may have gone out, so a handler is not invited
+ * to send the contractor the same job twice.
+ */
 function DeliveryLine({ order }: { order: WorkOrder }): ReactElement {
   const { t } = useTranslation();
   switch (order.deliveryStatus) {
@@ -458,10 +526,11 @@ function DeliveryLine({ order }: { order: WorkOrder }): ReactElement {
     case "FAILED":
       return (
         <span className="font-semibold text-danger">
-          {t("issues.workOrders.failed")}{" "}
-          {order.deliveryFailure === null
-            ? null
-            : t(DELIVERY_FAILURE_LABEL[order.deliveryFailure])}
+          {t(
+            order.deliveryFailure === null
+              ? "issues.workOrders.failed"
+              : DELIVERY_FAILURE_LABEL[order.deliveryFailure],
+          )}
         </span>
       );
   }

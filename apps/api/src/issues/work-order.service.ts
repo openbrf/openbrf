@@ -1,10 +1,14 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
   normalizeFreeText,
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import { ENV } from "../config/config.module";
+import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { readAuthors } from "../feed/feed-author";
@@ -12,16 +16,41 @@ import { Prisma } from "../generated/prisma/client";
 import { MailService } from "../mail/mail.service";
 import { ContractorService } from "./contractor.service";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
-import { lockIssue, lockIssueType } from "./issue-lock";
+import { lockIssue, lockIssueType, lockWorkOrderSender } from "./issue-lock";
 import type { IssueHandlerView } from "./issue.service";
 import { IssueError } from "./issue.error";
 import type { WorkOrderDeliveryFailure } from "./work-order-delivery";
 import { WorkOrderMailerService } from "./work-order-mailer.service";
+import {
+  previewKey,
+  previewMatches,
+  type PreviewedWorkOrder,
+  signPreview,
+} from "./work-order-preview-token";
+
+/**
+ * How long the same text to the same contractor on the same issue is taken for
+ * a second press of the same button, and refused.
+ */
+export const WORK_ORDER_DUPLICATE_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * How many work orders one handler may send in an hour, from every issue
+ * together. Far above what a board writes in a day; there so that a script on
+ * a handler's session - or a hijacked one - cannot mail the association's
+ * contractors from its address as often as it likes.
+ */
+export const WORK_ORDER_SEND_BUDGET = { count: 20, windowMs: 60 * 60 * 1000 };
 
 /** What a handler writes: whom to, and the job in their own words. */
 export interface WorkOrderInput {
   contractorId: string;
   body: string;
+}
+
+/** A sending: the work order, and the token of the preview it was read in. */
+export interface WorkOrderSending extends WorkOrderInput {
+  previewToken: string;
 }
 
 /**
@@ -38,6 +67,11 @@ export interface WorkOrderPreview {
    * is recorded and fails to go out; the handler is told before they send.
    */
   mailConfigured: boolean;
+  /**
+   * What the sending must carry: a signature over this recipient and this
+   * text, so what is sent is what was previewed (`work-order-preview-token.ts`).
+   */
+  previewToken: string;
 }
 
 /**
@@ -48,9 +82,11 @@ export interface WorkOrderView {
   id: string;
   /** The contractor on the list, or null once they were removed from it. */
   contractorId: string | null;
-  recipientName: string;
-  recipientEmail: string;
-  body: string;
+  /** Null once the contractor was removed from the list and with it erased. */
+  recipientName: string | null;
+  recipientEmail: string | null;
+  /** Null once the retention window after the issue was closed ran out. */
+  body: string | null;
   sentBy: IssueHandlerView | null;
   sentAt: string;
   deliveryStatus: "PENDING" | "SENT" | "FAILED";
@@ -97,14 +133,19 @@ export interface IssueWorkOrdersView {
 export class WorkOrderService {
   private readonly logger = new Logger(WorkOrderService.name);
 
+  private readonly previewKey: Buffer;
+
   constructor(
+    @Inject(ENV) env: Env,
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
     private readonly encryption: FieldEncryptionService,
     private readonly mail: MailService,
     private readonly mailer: WorkOrderMailerService,
     private readonly contractors: ContractorService,
-  ) {}
+  ) {
+    this.previewKey = previewKey(env.BETTER_AUTH_SECRET);
+  }
 
   /** The work orders on an issue the reader handles, oldest first. */
   async list(
@@ -154,6 +195,11 @@ export class WorkOrderService {
       subject: rendered.subject,
       text: rendered.text,
       mailConfigured,
+      previewToken: signPreview(
+        this.previewKey,
+        previewed(issueId, readerPersonId, prepared),
+        new Date(),
+      ),
     };
   }
 
@@ -166,6 +212,18 @@ export class WorkOrderService {
    * the module takes them in, so a change to who handles the type - or to
    * whether it is ring-fenced - is not decided around.
    *
+   * What is sent is what was previewed. The contractor's row is locked before
+   * it is read, so a change the board makes to the list waits for this
+   * sending to commit, and the recipient and text read under that lock must be
+   * the ones the preview signed; anything else - an address changed since, a
+   * different text, a preview over half an hour old - is refused, and the
+   * handler previews again.
+   *
+   * The same text to the same contractor on the same issue within ten minutes
+   * is refused as the second press it almost always is, and a handler has a
+   * budget of sendings an hour across every issue, held under a lock of its
+   * own.
+   *
    * The audit entry names the handler, the issue, the work order and the
    * contractor, and how long the text was. Never a word of it, and never the
    * contractor's name or address: the log is append-only and outside every
@@ -174,7 +232,7 @@ export class WorkOrderService {
   async send(
     readerPersonId: string,
     issueId: string,
-    input: WorkOrderInput,
+    input: WorkOrderSending,
   ): Promise<WorkOrderView> {
     // Before the transaction opens: creating a queue is the queue backend's
     // own work, on its own connection.
@@ -189,15 +247,36 @@ export class WorkOrderService {
         await lockIssueType(tx, located.typeId);
       }
       await lockIssue(tx, issueId);
+      await lockWorkOrderSender(tx, readerPersonId);
+      await this.contractors.lockForSending(tx, input.contractorId);
 
       const prepared = await this.prepare(tx, issueId, readerPersonId, input);
+      const now = new Date();
+      if (
+        !previewMatches(
+          this.previewKey,
+          input.previewToken,
+          previewed(issueId, readerPersonId, prepared),
+          now,
+        )
+      ) {
+        throw new IssueError(
+          "What would be sent is not what was previewed. Preview it again.",
+          "work-order-preview-stale",
+        );
+      }
+      await this.refuseRepeat(tx, issueId, readerPersonId, prepared, now);
+
+      const id = randomUUID();
       const recipientEmail = await this.encryption.encrypt(
         "workOrder.recipientEmail",
         prepared.recipient.email,
+        id,
       );
       const order = await tx.workOrder
         .create({
           data: {
+            id,
             issueId,
             contractorId: prepared.contractorId,
             recipientName: prepared.recipient.name,
@@ -239,6 +318,51 @@ export class WorkOrderService {
       throw new Error(`Work order ${id} could not be viewed.`);
     }
     return view;
+  }
+
+  /**
+   * Refuses a second press of the same button, and a handler past their
+   * budget. Under the issue's lock and the sender's, so neither is a count two
+   * sendings can both pass.
+   */
+  private async refuseRepeat(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+    readerPersonId: string,
+    prepared: { contractorId: string; body: string },
+    now: Date,
+  ): Promise<void> {
+    const repeated = await tx.workOrder.findFirst({
+      where: {
+        issueId,
+        contractorId: prepared.contractorId,
+        body: prepared.body,
+        createdAt: {
+          gte: new Date(now.getTime() - WORK_ORDER_DUPLICATE_WINDOW_MS),
+        },
+      },
+      select: { id: true },
+    });
+    if (repeated !== null) {
+      throw new IssueError(
+        "This work order was sent to this contractor a moment ago.",
+        "work-order-duplicate",
+      );
+    }
+    const recent = await tx.workOrder.count({
+      where: {
+        sentByPersonId: readerPersonId,
+        createdAt: {
+          gte: new Date(now.getTime() - WORK_ORDER_SEND_BUDGET.windowMs),
+        },
+      },
+    });
+    if (recent >= WORK_ORDER_SEND_BUDGET.count) {
+      throw new IssueError(
+        "Too many work orders sent in the last hour.",
+        "work-order-budget-spent",
+      );
+    }
   }
 
   /**
@@ -328,10 +452,14 @@ export class WorkOrderService {
         id: row.id,
         contractorId: row.contractorId,
         recipientName: row.recipientName,
-        recipientEmail: await this.encryption.decrypt(
-          "workOrder.recipientEmail",
-          row.recipientEmailCipher,
-        ),
+        recipientEmail:
+          row.recipientEmailCipher === null
+            ? null
+            : await this.encryption.decrypt(
+                "workOrder.recipientEmail",
+                row.recipientEmailCipher,
+                row.id,
+              ),
         body: row.body,
         sentBy: row.sentByPersonId === null ? null : viewOf(row.sentByPersonId),
         sentAt: row.createdAt.toISOString(),
@@ -357,6 +485,26 @@ const WORK_ORDER_SELECT = {
 type WorkOrderRow = Prisma.WorkOrderGetPayload<{
   select: typeof WORK_ORDER_SELECT;
 }>;
+
+/** What a preview signs and a sending is checked against. */
+function previewed(
+  issueId: string,
+  readerPersonId: string,
+  prepared: {
+    contractorId: string;
+    recipient: { name: string; email: string };
+    body: string;
+  },
+): PreviewedWorkOrder {
+  return {
+    issueId,
+    readerPersonId,
+    contractorId: prepared.contractorId,
+    recipientName: prepared.recipient.name,
+    recipientEmail: prepared.recipient.email,
+    body: prepared.body,
+  };
+}
 
 /**
  * A contractor removed from the list between the read above and the insert,

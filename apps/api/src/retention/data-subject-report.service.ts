@@ -693,6 +693,16 @@ export class DataSubjectReportService {
         createdAt: true,
         type: { select: { name: true } },
         _count: { select: { photos: true } },
+        // Whom the issue was sent to (art. 15(1)(c)); never the text, which is
+        // the handler's and may name others (see `ReportIssueWorkOrder`).
+        workOrders: {
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: {
+            recipientName: true,
+            createdAt: true,
+            deliveryStatus: true,
+          },
+        },
       },
     });
 
@@ -1722,6 +1732,11 @@ export class DataSubjectReportService {
         description: issue.description,
         reportedAt: issue.createdAt.toISOString(),
         photographs: issue._count.photos,
+        workOrders: issue.workOrders.map((order) => ({
+          recipientName: order.recipientName,
+          sentAt: order.createdAt.toISOString(),
+          deliveryStatus: order.deliveryStatus,
+        })),
       })),
       issueAssignments: [
         ...assignedIssues.map((issue) => ({

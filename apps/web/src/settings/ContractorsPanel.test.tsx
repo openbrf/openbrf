@@ -9,7 +9,7 @@ import { ContractorsPanel } from "./ContractorsPanel";
 /**
  * The board's list of contractors: added with a name and a trade, an empty
  * telephone number or address sent as none, and removed whatever was sent
- * them.
+ * them, once the board has confirmed it.
  */
 
 const fetchContractors = vi.fn();
@@ -72,7 +72,7 @@ describe("ContractorsPanel", () => {
     expect(fetchContractors).toHaveBeenCalledTimes(2);
   });
 
-  it("removes a contractor who has received work orders", async () => {
+  it("removes a contractor who has received work orders only when asked twice, saying what it erases", async () => {
     fetchContractors.mockResolvedValue({ ok: true, value: [PLUMBER] });
     removeContractor.mockResolvedValue({ ok: true, value: undefined });
     const user = userEvent.setup();
@@ -80,6 +80,17 @@ describe("ContractorsPanel", () => {
 
     expect(await screen.findByText("Skickade arbetsorder: 3")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Ta bort Rörfirman" }));
+    expect(removeContractor).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(/raderar också namnet och adressen ur arbetsordrarna/),
+    ).toBeTruthy();
+
+    // Keeping closes the question and removes nothing.
+    await user.click(screen.getByRole("button", { name: "Behåll" }));
+    expect(removeContractor).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Ta bort Rörfirman" }));
+    await user.click(screen.getByRole("button", { name: "Ta bort för gott" }));
     await waitFor(() => {
       expect(removeContractor).toHaveBeenCalledWith("c-ror");
     });

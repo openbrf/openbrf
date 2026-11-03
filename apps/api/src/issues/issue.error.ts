@@ -52,6 +52,13 @@ import { DomainError } from "../http/domain-error";
  * handler asking already reads the issue. `work-order-identity-number` is a work order whose
  * text carries a personal identity number, which has no business leaving the
  * instance in a contractor's mail.
+ * `work-order-preview-stale` is a sending whose preview no longer matches
+ * what would be sent - the contractor's name or address changed, the text
+ * differs, or the preview is too old - so the handler previews again before
+ * anything leaves. `work-order-duplicate` is the same text to the same
+ * contractor on the same issue a moment after the first, and
+ * `work-order-budget-spent` a handler who has sent as many work orders as one
+ * person may in an hour.
  */
 export type IssueReason =
   | "type-not-found"
@@ -77,7 +84,10 @@ export type IssueReason =
   | "contractor-incomplete"
   | "work-order-empty"
   | "work-order-ring-fenced"
-  | "work-order-identity-number";
+  | "work-order-identity-number"
+  | "work-order-preview-stale"
+  | "work-order-duplicate"
+  | "work-order-budget-spent";
 
 export class IssueError extends DomainError {
   readonly status: number;
@@ -92,22 +102,26 @@ export class IssueError extends DomainError {
       reason === "too-many-photos" ||
       reason === "post-already-reported" ||
       reason === "default-status-required" ||
-      reason === "too-many-statuses"
+      reason === "too-many-statuses" ||
+      reason === "work-order-preview-stale" ||
+      reason === "work-order-duplicate"
         ? HttpStatus.CONFLICT
-        : reason === "public-reporting-disabled"
-          ? HttpStatus.FORBIDDEN
-          : reason === "post-not-reportable" ||
-              reason === "waiting-reason-required" ||
-              reason === "outcome-required" ||
-              reason === "status-detail-not-applicable" ||
-              reason === "assignee-not-a-handler" ||
-              reason === "target-date-invalid" ||
-              reason === "contractor-without-email" ||
-              reason === "contractor-incomplete" ||
-              reason === "work-order-empty" ||
-              reason === "work-order-ring-fenced" ||
-              reason === "work-order-identity-number"
-            ? HttpStatus.UNPROCESSABLE_ENTITY
-            : HttpStatus.NOT_FOUND;
+        : reason === "work-order-budget-spent"
+          ? HttpStatus.TOO_MANY_REQUESTS
+          : reason === "public-reporting-disabled"
+            ? HttpStatus.FORBIDDEN
+            : reason === "post-not-reportable" ||
+                reason === "waiting-reason-required" ||
+                reason === "outcome-required" ||
+                reason === "status-detail-not-applicable" ||
+                reason === "assignee-not-a-handler" ||
+                reason === "target-date-invalid" ||
+                reason === "contractor-without-email" ||
+                reason === "contractor-incomplete" ||
+                reason === "work-order-empty" ||
+                reason === "work-order-ring-fenced" ||
+                reason === "work-order-identity-number"
+              ? HttpStatus.UNPROCESSABLE_ENTITY
+              : HttpStatus.NOT_FOUND;
   }
 }

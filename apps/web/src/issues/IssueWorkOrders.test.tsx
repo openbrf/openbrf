@@ -1,6 +1,13 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import "../i18n";
 import type { QueuedIssue } from "../api/issues";
@@ -17,8 +24,9 @@ import { IssueWorkOrders } from "./IssueWorkOrders";
  *
  * The case worth having is that what is sent is what was previewed: the send
  * is offered only beside a preview, carries the draft the preview was made
- * from, and a changed draft drops the preview. And a ring-fenced issue offers
- * no work order at all.
+ * from with the preview's token, and a changed draft drops the preview. A
+ * work order on its way is read again until it settles, and a failure says
+ * what is known. And a ring-fenced issue offers no work order at all.
  */
 
 const fetchIssueWorkOrders = vi.fn();
@@ -67,6 +75,7 @@ function preview(body: string): WorkOrderPreview {
     subject: "Arbetsorder från Brf Eksemplet",
     text: `Hej Rörfirman,\n\n${body}`,
     mailConfigured: true,
+    previewToken: `token-${body}`,
   };
 }
 
@@ -92,6 +101,10 @@ beforeEach(() => {
     .mockResolvedValue({ ok: true, value: [PLUMBER, PHONE_ONLY] });
   previewWorkOrder.mockReset();
   sendWorkOrder.mockReset();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 async function writeDraft(body: string): Promise<void> {
@@ -131,6 +144,7 @@ describe("IssueWorkOrders", () => {
         issueId: "issue-1",
         contractorId: PLUMBER.id,
         body: "Byt packningen.",
+        previewToken: "token-Byt packningen.",
       });
     });
     expect(
@@ -214,6 +228,108 @@ describe("IssueWorkOrders", () => {
       await screen.findByText(
         "Arbetsordern innehåller ett personnummer. Skriv den utan.",
       ),
+    ).toBeTruthy();
+  });
+
+  it("reads a work order on its way again until it settles, and then stops", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        workOrders: [
+          { ...SENT, deliveryStatus: "PENDING", deliveryFailure: null },
+        ],
+      }),
+    });
+    render(<IssueWorkOrders issue={ISSUE} />);
+    expect(await screen.findByText("På väg till e-postservern.")).toBeTruthy();
+
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        workOrders: [
+          {
+            ...SENT,
+            deliveryStatus: "FAILED",
+            deliveryFailure: "delivery-unconfirmed",
+          },
+        ],
+      }),
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    // Unconfirmed, not "not sent": the mail may have gone out.
+    expect(
+      await screen.findByText(
+        /^Obekräftad: sändningen avbröts, och det går inte att veta om den kom fram/,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/^Inte skickad/)).toBeNull();
+
+    const settled = fetchIssueWorkOrders.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    expect(fetchIssueWorkOrders).toHaveBeenCalledTimes(settled);
+  });
+
+  it("drops the preview and reads again when the contractor changed since it", async () => {
+    previewWorkOrder.mockImplementation((input: { body: string }) =>
+      Promise.resolve({ ok: true, value: preview(input.body) }),
+    );
+    sendWorkOrder.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "work-order-preview-stale" },
+    });
+    const user = userEvent.setup();
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    await writeDraft("Byt packningen.");
+    await user.click(screen.getByRole("button", { name: "Förhandsgranska" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Skicka till Rörfirman" }),
+    );
+
+    expect(
+      await screen.findByText(
+        /Entreprenörens uppgifter eller texten har ändrats sedan förhandsvisningen/,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Skicka till Rörfirman" }),
+    ).toBeNull();
+    await waitFor(() => {
+      expect(fetchIssueWorkOrders).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("lists a work order whose contractor was removed, and one whose text was erased", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        workOrders: [
+          {
+            ...SENT,
+            contractorId: null,
+            recipientName: null,
+            recipientEmail: null,
+            deliveryStatus: "SENT",
+            deliveryFailure: null,
+          },
+          { ...SENT, id: "wo-2", body: null, deliveryStatus: "SENT" },
+        ],
+      }),
+    });
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    expect(
+      await screen.findByText(
+        "En entreprenör som sedan tagits bort från listan",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Texten raderades när ärendets lagringstid gick ut."),
     ).toBeTruthy();
   });
 });

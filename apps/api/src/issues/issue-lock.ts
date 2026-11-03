@@ -53,3 +53,20 @@ export async function lockIssueType(
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`issue-type:${typeId}`}))`;
 }
+
+/**
+ * The lock a transaction takes before it counts what one handler has sent
+ * contractors in the last hour and adds a work order to it.
+ *
+ * The sending budget (`WorkOrderService.send`) is a count followed by an
+ * insert across every issue the handler sends from, so the issue's own lock
+ * does not serialise it: two sendings from two issues at once would both pass
+ * the count. Taken after the type's and the issue's, the order every sending
+ * takes them in. An advisory lock for the reason `lockIssue` gives.
+ */
+export async function lockWorkOrderSender(
+  tx: Prisma.TransactionClient,
+  personId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`work-order-sender:${personId}`}))`;
+}

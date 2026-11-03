@@ -35,15 +35,18 @@ export type WorkOrderDeliveryFailure =
   | "mail-not-configured"
   | "send-failed"
   | "sending-interrupted"
-  | "delivery-unconfirmed";
+  | "delivery-unconfirmed"
+  | "recipient-removed";
 
 /** One work order on an issue: whom, when, what, and whether it went out. */
 export interface WorkOrder {
   id: string;
   contractorId: string | null;
-  recipientName: string;
-  recipientEmail: string;
-  body: string;
+  /** Null once the contractor was removed from the list, and erased with it. */
+  recipientName: string | null;
+  recipientEmail: string | null;
+  /** Null once the retention period after the issue was closed ran out. */
+  body: string | null;
   sentBy: IssueHandler | null;
   sentAt: string;
   deliveryStatus: "PENDING" | "SENT" | "FAILED";
@@ -62,6 +65,8 @@ export interface WorkOrderPreview {
   subject: string;
   text: string;
   mailConfigured: boolean;
+  /** What the sending carries, so the API sends only what was previewed. */
+  previewToken: string;
 }
 
 export interface WorkOrderInput {
@@ -96,11 +101,12 @@ export function previewWorkOrder(
 }
 
 export function sendWorkOrder(
-  input: WorkOrderInput,
+  input: WorkOrderInput & { previewToken: string },
 ): Promise<ApiResult<WorkOrder>> {
   return apiRequest("POST", workOrdersPath(input.issueId), {
     contractorId: input.contractorId,
     body: input.body,
+    previewToken: input.previewToken,
   });
 }
 

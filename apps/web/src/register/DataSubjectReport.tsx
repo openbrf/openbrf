@@ -163,6 +163,13 @@ const CONSENT_SCOPE_LABEL = {
   BOARD_ROSTER: "register.person.consentScope.boardRoster",
 } as const satisfies Record<ConsentScope, TranslationKey>;
 
+/** Whether a work order's mail went out, in words that keep a failure open. */
+const WORK_ORDER_DELIVERY_LABEL = {
+  PENDING: "register.person.report.workOrder.delivery.PENDING",
+  SENT: "register.person.report.workOrder.delivery.SENT",
+  FAILED: "register.person.report.workOrder.delivery.FAILED",
+} as const satisfies Record<"PENDING" | "SENT" | "FAILED", TranslationKey>;
+
 /**
  * What each scope on a grant to a connected app lets the app do, in words.
  *
@@ -575,6 +582,10 @@ const AUDIT_ACTION_LABEL = {
   ISSUE_RESIDENTS_LISTED:
     "register.person.report.action.ISSUE_RESIDENTS_LISTED",
   ISSUE_WORK_ORDER_SENT: "register.person.report.action.ISSUE_WORK_ORDER_SENT",
+  CONTRACTOR_LIST_CHANGED:
+    "register.person.report.action.CONTRACTOR_LIST_CHANGED",
+  ISSUE_TYPE_RING_FENCE_CHANGED:
+    "register.person.report.action.ISSUE_TYPE_RING_FENCE_CHANGED",
   MOVE_IN_RECORDED: "register.person.report.action.MOVE_IN_RECORDED",
   MOVE_OUT_RECORDED: "register.person.report.action.MOVE_OUT_RECORDED",
   PLUGIN_ENABLED: "register.person.report.action.PLUGIN_ENABLED",
@@ -1610,6 +1621,7 @@ export function DataSubjectReport({
                   "register.person.report.field.location",
                   "register.person.report.field.description",
                   "register.person.report.field.photographs",
+                  "register.person.report.field.workOrders",
                 ]}
               >
                 {report.issues.map((issue) => (
@@ -1642,6 +1654,28 @@ export function DataSubjectReport({
                       </span>
                     </td>
                     <td className={DATA_CELL}>{String(issue.photographs)}</td>
+                    {/* Whom the issue was sent to and when (art. 15(1)(c)):
+                      never the work order's text, which is the handler's and
+                      may name somebody else. */}
+                    <td className={TEXT_CELL}>
+                      {issue.workOrders.length === 0
+                        ? nothing
+                        : issue.workOrders.map((order, index) => (
+                            <span key={index} className="block">
+                              <span className="font-data text-data">
+                                {day(order.sentAt)}
+                              </span>{" "}
+                              {order.recipientName ??
+                                t(
+                                  "register.person.report.workOrder.removedContractor",
+                                )}
+                              {" · "}
+                              {t(
+                                WORK_ORDER_DELIVERY_LABEL[order.deliveryStatus],
+                              )}
+                            </span>
+                          ))}
+                    </td>
                   </tr>
                 ))}
               </Rows>

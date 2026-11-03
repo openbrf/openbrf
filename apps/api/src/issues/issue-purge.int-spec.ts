@@ -13,7 +13,10 @@ import { PrismaService } from "../database/prisma.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { createIssueTypeFixture } from "../testing/issue-fixtures";
 import { IssuePurgeService } from "./issue-purge.service";
-import { ISSUE_RETENTION_DAYS } from "./issue-retention";
+import {
+  ISSUE_RETENTION_DAYS,
+  WORK_ORDER_BODY_RETENTION_DAYS,
+} from "./issue-retention";
 import { IssueService } from "./issue.service";
 
 /**
@@ -764,6 +767,172 @@ describe("a report whose address is a withheld person's", () => {
       expect((await read(issueId)).reporterNameCipher).toBeNull();
     } finally {
       await restrict(false);
+    }
+  });
+});
+
+describe("the text of a work order", () => {
+  /** A work order on the issue, as the sending writes one. */
+  async function workOrderOn(issueId: string, body: string): Promise<string> {
+    const order = await prisma.workOrder.create({
+      data: {
+        issueId,
+        recipientName: `Rormokare ${suffix}`,
+        recipientEmailCipher: "kept-as-it-was",
+        body,
+        sentByPersonId: board.personId,
+        deliveryStatus: "SENT",
+      },
+      select: { id: true },
+    });
+    return order.id;
+  }
+
+  async function readOrder(id: string) {
+    return prisma.workOrder.findUniqueOrThrow({
+      where: { id },
+      select: { body: true, recipientName: true, recipientEmailCipher: true },
+    });
+  }
+
+  /** A resident's own report, closed the given number of days ago. */
+  async function residentIssueClosed(
+    description: string,
+    days: number,
+  ): Promise<string> {
+    const response = await inject({
+      method: "POST",
+      url: "/api/issues",
+      headers: { cookie: residentCookie },
+      payload: { typeId: memberTypeId, description },
+    });
+    expect(response.statusCode).toBe(201);
+    const { id: issueId } = JSON.parse(response.body) as { id: string };
+    await close(issueId);
+    await closedDaysAgo(issueId, days);
+    return issueId;
+  }
+
+  it("is erased past its window after the issue closed, and the record of whom it went to stays", async () => {
+    // A resident's report as well as the public form's: the text is erased
+    // on every issue, because no person-keyed purge ever reads it.
+    const issueId = await residentIssueClosed(
+      "Stopp i avloppet i tvattstugan.",
+      WORK_ORDER_BODY_RETENTION_DAYS + 1,
+    );
+    const orderId = await workOrderOn(issueId, "Spola avloppet, fragan Eva.");
+
+    const summary = await purge.run();
+    expect(summary.workOrderTexts.failed).toBe(0);
+    expect(summary.workOrderTexts.purged).toBeGreaterThanOrEqual(1);
+
+    const after = await readOrder(orderId);
+    expect(after.body).toBeNull();
+    expect(after.recipientName).toBe(`Rormokare ${suffix}`);
+    expect(after.recipientEmailCipher).toBe("kept-as-it-was");
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "SERVICE_DATA_PURGED",
+        targetKind: "issue",
+        targetId: issueId,
+      },
+      select: { actorPersonId: true, context: true },
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.actorPersonId).toBeNull();
+    expect(entries[0]?.context).toEqual({
+      workOrderTexts: 1,
+      retentionDaysAfterClosing: WORK_ORDER_BODY_RETENTION_DAYS,
+    });
+    expect(JSON.stringify(entries[0]?.context)).not.toContain("Spola");
+
+    // Nothing left to erase, so nothing is selected or written again.
+    expect(
+      await purge.eligibleWorkOrderTexts(
+        new Date(),
+        WORK_ORDER_BODY_RETENTION_DAYS,
+      ),
+    ).not.toContain(issueId);
+  });
+
+  it("is kept while the issue is open, however old", async () => {
+    const issueId = await reportPublicly("Fukt i kallaren.");
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        createdAt: new Date(
+          Date.now() - 2 * WORK_ORDER_BODY_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+        ),
+      },
+    });
+    const orderId = await workOrderOn(issueId, "Mat fukten i kallaren.");
+
+    await purge.run();
+
+    expect((await readOrder(orderId)).body).toBe("Mat fukten i kallaren.");
+  });
+
+  it("is kept on an issue closed inside its window", async () => {
+    const issueId = await residentIssueClosed(
+      "Glodlampan i trappan ar trasig.",
+      WORK_ORDER_BODY_RETENTION_DAYS - 7,
+    );
+    const orderId = await workOrderOn(issueId, "Byt lampan i trappan.");
+
+    await purge.run();
+
+    expect((await readOrder(orderId)).body).toBe("Byt lampan i trappan.");
+  });
+
+  it("is kept on an issue reopened since the scan", async () => {
+    const issueId = await residentIssueClosed(
+      "Dorren till soprummet gar inte i las.",
+      WORK_ORDER_BODY_RETENTION_DAYS + 1,
+    );
+    const orderId = await workOrderOn(issueId, "Justera stangaren.");
+    expect(
+      await purge.eligibleWorkOrderTexts(
+        new Date(),
+        WORK_ORDER_BODY_RETENTION_DAYS,
+      ),
+    ).toContain(issueId);
+
+    await reopen(issueId);
+
+    // Asked directly, so the closing read inside the transaction is shown.
+    await expect(purge.purgeWorkOrderTexts(issueId)).resolves.toBe(false);
+    expect((await readOrder(orderId)).body).toBe("Justera stangaren.");
+  });
+
+  it("is kept while a legal hold stands against the reporter", async () => {
+    const issueId = await reportPublicly(
+      "Skadat racke pa balkongen.",
+      withheld.email,
+    );
+    await close(issueId);
+    await closedDaysAgo(issueId, WORK_ORDER_BODY_RETENTION_DAYS + 1);
+    const orderId = await workOrderOn(issueId, "Laga racket pa balkongen.");
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: withheld.personId,
+        reason: `Tvist om racket ${suffix}`,
+        placedByPersonId: board.personId,
+      },
+    });
+
+    try {
+      expect(
+        await purge.eligibleWorkOrderTexts(
+          new Date(),
+          WORK_ORDER_BODY_RETENTION_DAYS,
+        ),
+      ).not.toContain(issueId);
+      await expect(purge.purgeWorkOrderTexts(issueId)).resolves.toBe(false);
+
+      expect((await readOrder(orderId)).body).toBe("Laga racket pa balkongen.");
+    } finally {
+      await prisma.legalHold.delete({ where: { id: hold.id } });
     }
   });
 });

@@ -160,12 +160,31 @@ export class WorkOrderMailerService implements OnModuleInit {
       return "skipped";
     }
 
+    if (
+      order.recipientName === null ||
+      order.recipientEmailCipher === null ||
+      order.body === null
+    ) {
+      // The contractor was removed from the list, and erased from this work
+      // order, between the handler pressing send and this run.
+      await this.fail(
+        workOrderId,
+        WORK_ORDER_DELIVERY_FAILURES.recipientRemoved,
+      );
+      this.logger.warn(
+        `Work order ${workOrderId} had no recipient left to send to.`,
+      );
+      return "failed";
+    }
+
+    let sent: { suppressed?: true };
     try {
       const to = await this.encryption.decrypt(
         "workOrder.recipientEmail",
         order.recipientEmailCipher,
+        workOrderId,
       );
-      await this.mail.send({
+      sent = await this.mail.send({
         to,
         ...this.workOrderMail({
           recipientName: order.recipientName,
@@ -183,6 +202,22 @@ export class WorkOrderMailerService implements OnModuleInit {
       // never the mail server's own words, which quote it back.
       this.logger.error(
         `Work order ${workOrderId} failed: ${failureName(error)}`,
+      );
+      return "failed";
+    }
+
+    if (sent.suppressed === true) {
+      // No mail server is configured, outside production, where the mail
+      // service drops the message rather than refusing it. Nothing left the
+      // instance, and the record must not say a contractor was mailed. Not a
+      // null message identifier, which a transport that accepted the message
+      // and reported none answers too.
+      await this.fail(
+        workOrderId,
+        WORK_ORDER_DELIVERY_FAILURES.mailNotConfigured,
+      );
+      this.logger.warn(
+        `Work order ${workOrderId} was not sent: no mail server is configured.`,
       );
       return "failed";
     }

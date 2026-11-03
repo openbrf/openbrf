@@ -1843,6 +1843,10 @@ enum AuditAction {
   ISSUE_RESIDENTS_LISTED
   /// A handler sent a work order on an issue to a contractor. The entry names the issue, the work order, the contractor and the handler as its actor, and how long the text was; never a word of it, nor the contractor's name or address.
   ISSUE_WORK_ORDER_SENT
+  /// The board added, changed or removed a contractor on the association's list. The entry names the contractor by id, what kind of change it was, and which contact fields changed; never a name, a telephone number or an address.
+  CONTRACTOR_LIST_CHANGED
+  /// The board ring-fenced an issue type, or lifted its ring-fence. The entry names the type and the new setting.
+  ISSUE_TYPE_RING_FENCE_CHANGED
   /// A person was moved into an apartment.
   MOVE_IN_RECORDED
   /// A residency was given its move-out date.
@@ -4353,10 +4357,10 @@ model IssueType {
   /// work order on such an issue is refused inside `WorkOrderService`, its
   /// preview included (ADR 0055).
   ///
-  /// Read by that refusal and written by nothing yet. Which types carry it,
-  /// and who may set it, is ADR 0054's open question 5, answered with the
-  /// rest of the ring-fence; until then a type is not ring-fenced unless the
-  /// database says so.
+  /// Set by the board under issues:configure (`IssueTypeService.setRingFence`),
+  /// each change audited. Which types carry it by default is ADR 0054's open
+  /// question 5, answered with the rest of the ring-fence; until then a type
+  /// is ring-fenced when the board says so.
   ringFenced Boolean @default(false)
 
   /// Its statuses: at least one of each meaning, one of which is the default
@@ -4675,13 +4679,22 @@ model WorkOrder {
 
   /// Whom it went to, as the mail addressed them. Copied rather than read
   /// through the contractor, so the record keeps saying who received it after
-  /// the list is corrected or the contractor removed. The address encrypted
-  /// as the contractor's is.
-  recipientName        String
-  recipientEmailCipher String
+  /// the list is corrected. The address encrypted as the contractor's is, with
+  /// the work order's id as its context.
+  ///
+  /// Both null once the contractor is removed from the list: removing a
+  /// contractor is how a sole trader's erasure is honoured, and it reaches
+  /// the copies on their work orders too (`ContractorService.remove`). The
+  /// row stays, so the issue still records that a work order went out, when,
+  /// and what it said.
+  recipientName        String?
+  recipientEmailCipher String?
 
-  /// The work order, as the handler wrote and previewed it.
-  body String
+  /// The work order, as the handler wrote and previewed it. Null once the
+  /// retention window after its issue was closed has run out
+  /// (`IssuePurgeService`, `WORK_ORDER_BODY_RETENTION_DAYS`): the text is the
+  /// handler's free text and may name people, and nothing else ever erases it.
+  body String?
 
   /// The handler who sent it. A plain column, for the reason the issue's
   /// `reporterPersonId` gives. The person named acted: the audit entry for the
@@ -4704,7 +4717,8 @@ model WorkOrder {
 
   @@index([issueId, createdAt])
   @@index([contractorId])
-  @@index([sentByPersonId])
+  /// The sender's own work orders in the last hour, for the sending budget.
+  @@index([sentByPersonId, createdAt])
   @@map("work_order")
 }
 
