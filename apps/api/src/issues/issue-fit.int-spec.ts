@@ -863,8 +863,13 @@ describe("common-area places", () => {
     const released = new Promise<void>((resolve) => {
       release = resolve;
     });
+    let holderPid = 0;
     const write = prisma.$transaction(async (tx) => {
       expect(await holdOfferedPlace(tx, held)).toBe(true);
+      const [backend] = await tx.$queryRaw<
+        { pid: number }[]
+      >`SELECT pg_backend_pid() AS pid`;
+      holderPid = backend?.pid ?? 0;
       holding();
       await released;
       await tx.issue.update({
@@ -876,13 +881,23 @@ describe("common-area places", () => {
 
     const removal = (async () =>
       call(admin, "DELETE", `/api/issue-places/${held}`))();
-    // Without the hold the removal would be answered at once, and the write
-    // would then fail on the foreign key.
-    const early = await Promise.race([
-      removal.then(() => "answered"),
-      new Promise((resolve) => setTimeout(() => resolve("waiting"), 500)),
-    ]);
-    expect(early).toBe("waiting");
+    // The removal must be seen queued behind the write's own backend. A delay
+    // alone would also pass when the removal reached the database late, after
+    // the write had committed. Only this write's backend is looked at, so
+    // other workers' lock waiters do not count.
+    const deadline = Date.now() + 10_000;
+    let blocked = false;
+    while (!blocked && Date.now() < deadline) {
+      const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+        SELECT count(*) AS waiting
+        FROM pg_stat_activity
+        WHERE ${holderPid}::int = ANY(pg_blocking_pids(pid))`;
+      blocked = (row?.waiting ?? 0n) > 0n;
+      if (!blocked) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+    expect(blocked).toBe(true);
 
     release();
     await write;

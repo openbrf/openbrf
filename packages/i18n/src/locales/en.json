@@ -3998,7 +3998,7 @@
       "petsNone": "no pets",
       "masterKeyLabel": "The master key may be used",
       "masterKeyShort": "master key",
-      "masterKeyNone": "no master key",
+      "masterKeyNone": "master key may not be used",
       "noteLabel": "How to get in",
       "noteHint": "For example who to ring, or when someone is at home. Never write a door code here.",
       "doorCodeWarning": "This reads like a door code. Door codes are never stored, because everyone who handles the issue could read it. Say who to ring or when someone is at home instead.",

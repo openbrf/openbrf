@@ -1881,7 +1881,7 @@ describe("what the document prints", () => {
     const row = screen.getByText(/Tillträde: Ja\./).closest("tr");
     expect(row).not.toBeNull();
     expect((row as HTMLElement).textContent ?? "").toContain(
-      "inga husdjur · ingen huvudnyckel",
+      "inga husdjur · huvudnyckel får inte användas",
     );
   });
 
