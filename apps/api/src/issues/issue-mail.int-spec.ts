@@ -1575,6 +1575,36 @@ describe("delivering a mail", () => {
     expect(sent).toEqual([]);
   });
 
+  it("sends nothing to the property manager once the issue became board-only while the address was decrypted", async () => {
+    const issueId = await report(unassignedType);
+    const sent = captureSends();
+    const encryption = app.get(FieldEncryptionService);
+    const decrypt = encryption.decrypt.bind(encryption);
+    const spy = vi
+      .spyOn(encryption, "decrypt")
+      .mockImplementation(async (...args) => {
+        const plain = await decrypt(...args);
+        // Committed after the first read found the manager eligible.
+        await prisma.issue.update({
+          where: { id: issueId },
+          data: { boardOnly: true },
+        });
+        return plain;
+      });
+    try {
+      expect(
+        await mailer.deliver({
+          issueId,
+          personId: manager.personId,
+          event: "filed",
+        }),
+      ).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(sent).toEqual([]);
+  });
+
   it("sends nothing once what it tells of stopped being so", async () => {
     const issueId = await report(urgentType);
     const sent = captureSends();

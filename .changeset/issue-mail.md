@@ -22,6 +22,9 @@ number.
   given to somebody after its date has passed gives them the reminder then. A
   reminder that could not be sent, because the issue was given to somebody else
   or the mail could not go out, does not count as sent; the date is owed again.
+  A reminder skipped because the assignee was restricted or had no email
+  address at that moment is not sent later, unless the issue is assigned again,
+  opened again or given a new target date.
 - **Reopened.** A done issue that is opened again is mailed to its assignee, or
   to everybody who handles it when it has no assignee. Reopened twice within the
   hour mails once, unless the first mail was not sent because the issue was
@@ -48,7 +51,8 @@ number.
   Each signed-in reporter has a budget of their own: five ordinary reports and
   five urgent ones an hour, which one reporter's reports cannot spend for
   anybody else. Past a budget, a report is still filed and shown in the queue,
-  but nobody is mailed about it. An issue a handler opens has no budget.
+  but nobody is mailed about it. A report a handler later raises to urgent
+  counts as urgent from then on. An issue a handler opens has no budget.
 - **A bound on the mail messages send.** Each reporter has handlers mailed
   about at most ten of their own messages an hour, across all of their issues.
   Past that, a message is still stored and shown in the conversation, but

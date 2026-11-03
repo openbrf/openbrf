@@ -801,9 +801,8 @@ export class IssueMailer implements OnModuleInit {
       return "notOwed";
     }
 
-    const recipientWhere = recipientWhereOf(issue, job, now);
     const recipient = await this.prisma.person.findFirst({
-      where: recipientWhere,
+      where: recipientWhereOf(issue, job, now),
       select: {
         firstName: true,
         lastName: true,
@@ -820,15 +819,20 @@ export class IssueMailer implements OnModuleInit {
     }
 
     const to = await this.encryption.decrypt("person.email", cipher);
-    // Decrypting took time, and a restriction can have been granted since the
-    // read above: ask again as close to the handoff as the code can. This
-    // narrows the window; the rendering and sender lookup inside the mail
-    // service still sit between this and the driver.
-    const stillRecipient = await this.prisma.person.findFirst({
-      where: recipientWhere,
-      select: { id: true },
-    });
-    if (stillRecipient === null) {
+    // Decrypting took time, and a restriction or a board-only change can have
+    // been committed since the read above: read the issue again and ask again
+    // as close to the handoff as the code can. This narrows the window; the
+    // rendering and sender lookup inside the mail service still sit between
+    // this and the driver.
+    const current = await this.readIssue(this.prisma, job.issueId);
+    const stillRecipient =
+      current !== null && stillSo(current, job, now)
+        ? await this.prisma.person.findFirst({
+            where: recipientWhereOf(current, job, now),
+            select: { id: true },
+          })
+        : null;
+    if (current === null || stillRecipient === null) {
       this.logger.log(
         `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
       );
@@ -843,8 +847,8 @@ export class IssueMailer implements OnModuleInit {
           template: issueReporterNoticeMail,
           props: {
             recipientName,
-            number: issue.number,
-            typeName: issue.type.name,
+            number: current.number,
+            typeName: current.type.name,
           },
         });
       } else {
@@ -855,10 +859,10 @@ export class IssueMailer implements OnModuleInit {
           props: {
             recipientName,
             event: job.event,
-            number: issue.number,
-            typeName: issue.type.name,
-            priority: issue.priority,
-            targetDate: job.event === "overdue" ? issue.targetDate : null,
+            number: current.number,
+            typeName: current.type.name,
+            priority: current.priority,
+            targetDate: job.event === "overdue" ? current.targetDate : null,
           },
         });
       }
