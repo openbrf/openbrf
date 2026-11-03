@@ -89,6 +89,8 @@ function dayFromToday(days: number): Date {
 }
 
 let ipCounter = 0;
+/** Whether this suite made the association row, and so removes it again. */
+let associationCreatedHere = false;
 function inject(options: {
   url: string;
   cookie?: string;
@@ -266,6 +268,11 @@ beforeAll(async () => {
   prisma = app.get(PrismaService);
   encryption = app.get(FieldEncryptionService);
 
+  associationCreatedHere =
+    (await prisma.association.findUnique({
+      where: { id: 1 },
+      select: { id: true },
+    })) === null;
   await prisma.association.upsert({
     where: { id: 1 },
     create: { id: 1, name: "Brf Eksemplet" },
@@ -457,6 +464,11 @@ afterAll(async () => {
     where: { id: { in: [apartment.id, shieldedApartment.id] } },
   });
   await prisma.address.deleteMany({ where: { id: addressId } });
+  // A row this suite made has no organisation number, and the register export's
+  // suite reuses whatever row it finds: leaving it would fail that suite.
+  if (associationCreatedHere) {
+    await prisma.association.deleteMany({ where: { id: 1 } });
+  }
   await app.close();
 });
 
