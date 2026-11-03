@@ -1083,6 +1083,12 @@ describe("a closed issue", () => {
       (await workOrder(as(board), issueId, { ...payload, previewToken }))
         .statusCode,
     ).toBe(201);
+    const relisted = await inject({
+      method: "GET",
+      url: `/api/issue-queue/${issueId}/work-orders`,
+      cookie: as(board),
+    });
+    expect(relisted.json<{ closed: boolean }>().closed).toBe(false);
   });
 });
 

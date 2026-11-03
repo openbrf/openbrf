@@ -151,7 +151,7 @@ export function IssueWorkOrders({
     return () => {
       active = false;
     };
-  }, [issue.id, reads]);
+  }, [issue.id, issue.meaning, reads]);
 
   const pending =
     data?.workOrders.some((order) => order.deliveryStatus === "PENDING") ??

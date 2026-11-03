@@ -202,7 +202,7 @@ describe("IssueWorkOrders", () => {
     expect(screen.queryByLabelText("Vatten: arbetsorder")).toBeNull();
     // The record says it did not go out, and why, in words.
     expect(
-      screen.getByText("Inte skickad: e-postservern tog inte emot den."),
+      screen.getByText(/^Obekräftad: e-postservern svarade med ett fel/),
     ).toBeTruthy();
   });
 
@@ -219,6 +219,35 @@ describe("IssueWorkOrders", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByLabelText("Vatten: arbetsorder")).toBeNull();
+    expect(screen.getByText("Byt packningen.")).toBeTruthy();
+  });
+
+  it("offers the form again when a closed issue is reopened while the disclosure is open", async () => {
+    fetchIssueWorkOrders.mockResolvedValueOnce({
+      ok: true,
+      value: orders({ closed: true, workOrders: [SENT] }),
+    });
+    const { rerender } = render(
+      <IssueWorkOrders
+        issue={{ ...ISSUE, meaning: "DONE" as const } as QueuedIssue}
+      />,
+    );
+    await screen.findByText(
+      "Ärendet är avslutat, så ingen arbetsorder erbjuds. Öppna det igen för att skriva en.",
+    );
+
+    // Reopening changes the issue's meaning and nothing else the screen reads.
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ closed: false, workOrders: [SENT] }),
+    });
+    rerender(
+      <IssueWorkOrders
+        issue={{ ...ISSUE, meaning: "IN_PROGRESS" as const } as QueuedIssue}
+      />,
+    );
+
+    expect(await screen.findByLabelText("Vatten: arbetsorder")).toBeTruthy();
   });
 
   it("warns that a protected reporter's name and home stay out of the work order", async () => {

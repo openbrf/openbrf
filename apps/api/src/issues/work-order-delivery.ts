@@ -16,7 +16,11 @@ export const WORK_ORDER_DELIVERY_FAILURES = {
    */
   mailNotConfigured: "mail-not-configured",
 
-  /** The mail server refused the message. */
+  /**
+   * The mail send ended in an error other than a missing mail server. The
+   * driver does not say whether the error came before or after the server took
+   * the message, so this is unconfirmed, like `unconfirmed`, and is shown so.
+   */
   refused: "send-failed",
 
   /** The sending was given up on before any attempt reached this work order. */

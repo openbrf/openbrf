@@ -3819,7 +3819,7 @@
       "failed": "Not sent.",
       "failure": {
         "mailNotConfigured": "Not sent: this instance has no mail server set up.",
-        "sendFailed": "Not sent: the mail server refused it.",
+        "sendFailed": "Unconfirmed: the mail server returned an error, and nobody knows whether it went out. Ask the contractor before sending it again.",
         "sendingInterrupted": "Not sent: the sending stopped before it began. Write it again to send it.",
         "deliveryUnconfirmed": "Unconfirmed: the sending stopped, and nobody knows whether it went out. Ask the contractor before sending it again.",
         "recipientRemoved": "Not sent: the contractor was removed from the list before it went out.",

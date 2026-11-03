@@ -3819,7 +3819,7 @@
       "failed": "Inte skickad.",
       "failure": {
         "mailNotConfigured": "Inte skickad: ingen e-postserver är inställd.",
-        "sendFailed": "Inte skickad: e-postservern tog inte emot den.",
+        "sendFailed": "Obekräftad: e-postservern svarade med ett fel, och det går inte att veta om den kom fram. Fråga entreprenören innan du skickar den igen.",
         "sendingInterrupted": "Inte skickad: sändningen avbröts innan den började. Skriv den igen för att skicka den.",
         "deliveryUnconfirmed": "Obekräftad: sändningen avbröts, och det går inte att veta om den kom fram. Fråga entreprenören innan du skickar den igen.",
         "recipientRemoved": "Inte skickad: entreprenören togs bort från listan innan den gick iväg.",
