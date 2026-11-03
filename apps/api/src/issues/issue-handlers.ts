@@ -116,11 +116,17 @@ export function typesHandledWhere(
 }
 
 /**
- * The people who handle issues of this scope, ordered by name, each as the
- * feed's `AuthorView` - names and nothing else, with a protected handler's
- * withheld (ADR 0056). The read the assignee picker and the type's default
- * assignee are chosen from, so neither reaches the address book, which the
- * property manager never reads (decision 11 of the product decision log).
+ * The people who handle issues of this scope, each as the feed's `AuthorView`
+ * - names and nothing else, with a protected handler's withheld (ADR 0056).
+ * The read the assignee picker and the type's default assignee are chosen
+ * from, so neither reaches the address book, which the property manager never
+ * reads (decision 11 of the product decision log).
+ *
+ * The named handlers come first, by name. A protected handler comes after
+ * them, in the order of their identifiers, which say nothing: left among the
+ * others, their place in an alphabetical list would hint at the name the
+ * entry withholds. The resident picker orders a protected resident the same
+ * way.
  */
 export async function readIssueHandlers(
   db: FeedDbClient,
@@ -136,7 +142,22 @@ export async function readIssueHandlers(
     db,
     persons.map((person) => person.id),
   );
-  return persons.map((person) => viewOf(person.id));
+  const named: AuthorView[] = [];
+  const shielded: { personId: string; view: AuthorView }[] = [];
+  for (const { id } of persons) {
+    const view = viewOf(id);
+    if (view.kind === "person") {
+      named.push(view);
+    } else {
+      // Protected, or erased between the two reads: either way unnamed, so
+      // placed by identifier rather than by the name the first read sorted on.
+      shielded.push({ personId: id, view });
+    }
+  }
+  shielded.sort((a, b) =>
+    a.personId < b.personId ? -1 : a.personId > b.personId ? 1 : 0,
+  );
+  return [...named, ...shielded.map((entry) => entry.view)];
 }
 
 /** Whether this person handles issues of this scope now. */

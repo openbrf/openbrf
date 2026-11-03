@@ -177,10 +177,14 @@ describe("opening an issue as a handler", () => {
 
     await chooseApartment(session, "a-1401");
     expect(
-      await screen.findByRole("option", { name: "Skyddad identitet 1" }),
+      await screen.findByRole("option", {
+        name: "Namn som inte visas 1 (skyddade personuppgifter)",
+      }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("option", { name: "Skyddad identitet 2" }),
+      screen.getByRole("option", {
+        name: "Namn som inte visas 2 (skyddade personuppgifter)",
+      }),
     ).toBeTruthy();
   });
 

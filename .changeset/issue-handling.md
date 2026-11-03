@@ -27,8 +27,11 @@ Issues can be assigned, prioritised, given a target date and kept to the board
   issue or a type the board keeps to itself, in the queue or through the
   actions. They are not served its photographs, even from an address they
   opened before, and a post in the feed does not show them its status. Their
-  counts of a type's issues leave such issues out, and the types they are
-  offered to report under leave out a type the board keeps to itself. Handing a
+  counts of a type's issues leave such issues out. A type the board keeps to
+  itself is not offered to them to report under as a handler, though they may
+  still report under it on the ground anyone else would: as a resident when it
+  takes reports from residents and they live here, or as a member of the public
+  when it takes reports from the public and they do not. Handing a
   type to the board, or closing an issue to it, unassigns a property manager who
   was its assignee.
 - **Issues a handler opens.** Any handler, the property manager included, opens

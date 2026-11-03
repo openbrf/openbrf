@@ -860,6 +860,65 @@ describe("who handles a type and an issue", () => {
       board_.json<HandlerView[]>().map((handler) => handler.personId),
     ).not.toContain(manager.personId);
   });
+
+  it("places a protected handler after the named ones whatever their name, in the assignee picker and in a type's default assignee", async () => {
+    const id = await filed(plain, "handlers-order");
+    const ours = (handlers: HandlerView[]): string[] =>
+      handlers
+        .map((handler) => handler.personId)
+        .filter(
+          (personId): personId is string =>
+            personId !== undefined && personIds.includes(personId),
+        );
+    const orders = async (): Promise<{ queue: string[]; type: string[] }> => {
+      const queue = await inject({
+        method: "GET",
+        url: `/api/issue-queue/${id}/handlers`,
+        cookie: cookies[admin.personId],
+      });
+      const type = await inject({
+        method: "GET",
+        url: "/api/issue-types/handlers",
+        cookie: cookies[board.personId],
+      });
+      expect(queue.statusCode).toBe(200);
+      expect(type.statusCode).toBe(200);
+      return {
+        queue: ours(queue.json<HandlerView[]>()),
+        type: ours(
+          type
+            .json<{ handler: HandlerView }[]>()
+            .map((choice) => choice.handler),
+        ),
+      };
+    };
+    const renamed = async (firstName: string) =>
+      prisma.person.update({
+        where: { id: shieldedBoard.personId },
+        data: { firstName },
+      });
+
+    try {
+      // Before every named handler of this run, and then after all of them.
+      await renamed("Aaron");
+      const first = await orders();
+      await renamed("Zelda");
+      const last = await orders();
+
+      expect(last).toEqual(first);
+      for (const order of [first.queue, first.type]) {
+        expect(order).toEqual([
+          admin.personId,
+          board.personId,
+          manager.personId,
+          tenantManager.personId,
+          shieldedBoard.personId,
+        ]);
+      }
+    } finally {
+      await renamed(shieldedBoard.firstName);
+    }
+  });
 });
 
 describe("what the board-only rule keeps beyond the queue", () => {
