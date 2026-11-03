@@ -89,6 +89,36 @@ describe("findPhoneNumbers", () => {
     expect(findPhoneNumbers(text)).toEqual([found]);
   });
 
+  describe("after a long run of letters", () => {
+    // Long enough that reading the whole text before each number, as the
+    // guard once did, takes several times the test's timeout. No wall-clock
+    // assertion of its own: the guard reads a few dozen characters around a
+    // number however long the page is.
+    const run = "a".repeat(200_000);
+
+    it("finds a number after a space", () => {
+      expect(findPhoneNumbers(`${run} 0701234567`)).toEqual(["0701234567"]);
+    });
+
+    it("finds a number the run touches", () => {
+      expect(findPhoneNumbers(`${run}cabcdefghijklmn0701234567`)).toEqual([
+        "0701234567",
+      ]);
+    });
+
+    it("lets an id through after a space", () => {
+      expect(findPhoneNumbers(`${run} cmw0a0761000506r118hutuv1`)).toEqual([]);
+    });
+  });
+
+  it("finds a number after a run of letters outside the Basic Multilingual Plane", () => {
+    // Twenty such letters are forty UTF-16 code units, so the window of
+    // twenty-five the guard reads before the number starts inside a pair.
+    expect(findPhoneNumbers(`${"\u{10400}".repeat(20)}0701234567`)).toEqual([
+      "0701234567",
+    ]);
+  });
+
   it("lets a date, a time and an amount through", () => {
     expect(
       findPhoneNumbers("2026-07-01 – 2026-07-31, kl. 07:30, 1 070 123,45 kr"),
