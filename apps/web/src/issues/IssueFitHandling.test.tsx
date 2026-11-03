@@ -268,6 +268,36 @@ describe("the inspection finding", () => {
     });
   });
 
+  it("lets a finding on a done issue be taken off but not changed", async () => {
+    const session = userEvent.setup();
+    renderFit(
+      issue({
+        meaning: "DONE",
+        targetDate: "2026-09-30",
+        finding: {
+          kind: "OVK",
+          inspectedOn: "2026-03-10",
+          protocol: { attachmentId: "att-1", fileName: "hissbesiktning.pdf" },
+        },
+      }),
+    );
+
+    const change = await screen.findByRole("button", {
+      name: "Spara anmärkning",
+    });
+    expect((change as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByLabelText("Besiktning") as HTMLSelectElement).disabled,
+    ).toBe(true);
+
+    const remove = screen.getByRole("button", { name: "Ta bort markeringen" });
+    expect((remove as HTMLButtonElement).disabled).toBe(false);
+    await session.click(remove);
+    await waitFor(() => {
+      expect(removeIssueFinding).toHaveBeenCalledWith("issue-1");
+    });
+  });
+
   it("says in words what the server refused", async () => {
     const session = userEvent.setup();
     markIssueFinding.mockResolvedValue({

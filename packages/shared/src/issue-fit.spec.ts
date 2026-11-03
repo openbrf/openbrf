@@ -20,6 +20,10 @@ describe("findDoorCode", () => {
     "Koden är 48\u200b21",
     "Porten: 4\u200d8\u200d2\u200d1",
     "Koden är ４８２１",
+    // Digits joined by a no-break or a narrow no-break space, as a phone or a
+    // word processor writes "48 21", are one run as with a plain space.
+    "Koden är 48\u00a021",
+    "Koden är 48\u202f21",
     // A word that only ends in "no", "hus" or a month exempts nothing.
     "Ring Nino 4821",
     "Ring Kino 4821",

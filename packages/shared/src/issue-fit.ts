@@ -104,11 +104,13 @@ const CODE_AFTER_WORD =
   /^[^\n.;!?]{0,30}?(?<![\p{L}\p{N}])[\p{L}\p{N}*#-]*\p{Nd}/u;
 
 /**
- * A run of digits, joined by single spaces or hyphens: "1234", "12 34",
- * "1-2-3-4". A colon or a full stop does not join, so "14.30" and "14:30" are
- * a time and not a code.
+ * A run of digits, joined by single spaces (a no-break or narrow no-break
+ * space too, which is how a phone or a word processor writes "48 21") or
+ * hyphens: "1234", "12 34", "1-2-3-4". A colon or a full stop does not join,
+ * so "14.30" and "14:30" are a time and not a code.
  */
-const DIGIT_RUN = /(?<![\p{N}])\p{Nd}+(?:[ \-–]\p{Nd}+)*(?![\p{N}])/gu;
+const DIGIT_RUN =
+  /(?<![\p{N}])\p{Nd}+(?:[ \u00a0\u202f\-–]\p{Nd}+)*(?![\p{N}])/gu;
 
 /**
  * A span of time, which says when and not what opens the door: two clock times

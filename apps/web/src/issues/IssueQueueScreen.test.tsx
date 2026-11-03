@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
@@ -25,13 +26,14 @@ const fetchIssueQueue = vi.fn();
 const fetchHandlerIssueTypes = vi.fn();
 const fetchOwnIssues = vi.fn();
 const setIssueStatus = vi.fn();
+const fetchIssuePlaceCounts = vi.fn();
 
 vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
   fetchIssueQueue: (input?: unknown) => fetchIssueQueue(input),
   fetchHandlerIssueTypes: () => fetchHandlerIssueTypes(),
   fetchOwnIssues: () => fetchOwnIssues(),
-  fetchIssuePlaceCounts: () => Promise.resolve({ ok: true, value: [] }),
+  fetchIssuePlaceCounts: () => fetchIssuePlaceCounts(),
   setIssueStatus: (input: unknown) => setIssueStatus(input),
 }));
 
@@ -115,6 +117,7 @@ beforeEach(() => {
     ],
   });
   fetchOwnIssues.mockReset().mockResolvedValue({ ok: true, value: [] });
+  fetchIssuePlaceCounts.mockReset().mockResolvedValue({ ok: true, value: [] });
   setIssueStatus.mockReset().mockResolvedValue({ ok: true, value: issue() });
 });
 
@@ -198,5 +201,32 @@ describe("a read that fails", () => {
     });
     expect(screen.queryByText("Ingenting har anmälts.")).toBeNull();
     expect(screen.queryByText("Ärendekön")).toBeNull();
+  });
+});
+
+describe("the place filter", () => {
+  it("is dropped when the counts cannot be read, so the whole queue is back", async () => {
+    const session = userEvent.setup();
+    fetchIssuePlaceCounts.mockResolvedValue({
+      ok: true,
+      value: [{ id: "p-lift", name: "Hiss", active: true, issues: 1, open: 1 }],
+    });
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    const only = await screen.findByRole("button", { name: "Visa bara Hiss" });
+
+    // The read the choice causes cannot give the counts: with no panel to
+    // leave the place from, the queue is read again without it.
+    fetchIssuePlaceCounts.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await session.click(only);
+
+    await waitFor(() => {
+      expect(fetchIssueQueue).toHaveBeenCalledWith({ placeId: "p-lift" });
+    });
+    await waitFor(() => {
+      expect(fetchIssueQueue).toHaveBeenLastCalledWith(undefined);
+    });
   });
 });

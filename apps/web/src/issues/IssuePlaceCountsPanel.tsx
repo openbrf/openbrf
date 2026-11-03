@@ -50,7 +50,7 @@ export function IssuePlaceCountsPanel({
                 open: place.open,
               })}
             </span>
-            {place.issues === 0 ? null : (
+            {place.issues === 0 && selected !== place.id ? null : (
               <button
                 type="button"
                 aria-pressed={selected === place.id}

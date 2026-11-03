@@ -51,6 +51,21 @@ describe("the issues per common area", () => {
     expect(screen.queryByRole("button", { name: "Visa bara Gård" })).toBeNull();
   });
 
+  it("keeps the way back while the selected place has no issue left", async () => {
+    const session = userEvent.setup();
+    const onSelect = vi.fn();
+    render(
+      <IssuePlaceCountsPanel
+        places={PLACES}
+        selected="p-yard"
+        onSelect={onSelect}
+      />,
+    );
+
+    await session.click(screen.getByRole("button", { name: "Visa alla" }));
+    expect(onSelect).toHaveBeenCalledWith("");
+  });
+
   it("is not drawn while the association keeps no places", () => {
     const { container } = render(
       <IssuePlaceCountsPanel places={[]} selected="" onSelect={vi.fn()} />,

@@ -94,6 +94,13 @@ export function IssueQueueScreen({
       fetchIssuePlaceCounts(),
     ]).then(([queue, types, places]) => {
       if (version === currentRead.current) {
+        // Without the counts there is no control to leave a place with, so a
+        // queue narrowed to one would have no way back to the whole of it.
+        // Clearing the place re-reads the queue unnarrowed.
+        if (!places.ok && placeId !== "") {
+          setPlaceId("");
+          return;
+        }
         setLoaded({
           ready: true,
           queue: queue.ok ? queue.value : [],

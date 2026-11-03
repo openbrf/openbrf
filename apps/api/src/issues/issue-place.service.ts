@@ -60,13 +60,13 @@ const SEEDED_PLACES = [
 ] as const;
 
 /**
- * A name that is an apartment: the word for one, or a number alone. The list is
- * of common areas (decision 30); an apartment is named by the issue's own
- * apartment, and a list that held them would enumerate the building to
- * everyone who files a report.
+ * A name that is an apartment: the word for one, or a number alone, with the
+ * letter an apartment number can carry (`1202A`). The list is of common areas
+ * (decision 30); an apartment is named by the issue's own apartment, and a list
+ * that held them would enumerate the building to everyone who files a report.
  */
 const APARTMENT_NAME =
-  /^\s*(?:(?:lgh|lägenhet|lägenheten|apt|apartment|flat)\b|\d+\s*$)/iu;
+  /^\s*(?:(?:lgh|lägenhet|lägenheten|apt|apartment|flat)\b|\d+\p{L}?\s*$)/iu;
 
 /**
  * The association's list of common-area places (decision 30): a short list such

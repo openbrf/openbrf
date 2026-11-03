@@ -723,7 +723,7 @@ describe("common-area places", () => {
     expect(again.statusCode).toBe(409);
     expect(again.json()).toMatchObject({ reason: "place-name-taken" });
 
-    for (const apartment of ["Lgh 1101", "Lägenhet 1203", "1101"]) {
+    for (const apartment of ["Lgh 1101", "Lägenhet 1203", "1101", "1202A"]) {
       const refused = await call(admin, "POST", "/api/issue-places", {
         name: apartment,
       });

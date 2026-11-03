@@ -534,9 +534,19 @@ export function withdrawOwnEntry(
   );
 }
 
+/**
+ * How long the queue waits for the place counts to start arriving. The counts
+ * are read with the queue and the screen draws neither until both are in, so a
+ * server that never answers would leave it loading with no retry; past this
+ * the read comes back as a failed one and the screen goes on without places.
+ */
+export const ISSUE_PLACE_COUNTS_TIMEOUT_MS = 10_000;
+
 /** The places with how many issues this handler may open name each. */
 export function fetchIssuePlaceCounts(): Promise<ApiResult<IssuePlaceCount[]>> {
-  return apiRequest("GET", "/api/issue-queue/places");
+  return apiRequest("GET", "/api/issue-queue/places", undefined, {
+    answerTimeoutMs: ISSUE_PLACE_COUNTS_TIMEOUT_MS,
+  });
 }
 
 export function setIssuePlace(input: {

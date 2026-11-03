@@ -199,6 +199,7 @@ export function IssueFitHandling({
           issue={issue}
           attachments={attachments}
           disabled={busy}
+          closed={!open}
           onDraftChanged={onDraftChanged}
           onMark={(finding) => {
             void save.submit({ kind: "mark", finding });
@@ -282,6 +283,7 @@ function FindingSection({
   issue,
   attachments,
   disabled,
+  closed,
   onDraftChanged,
   onMark,
   onUnmark,
@@ -289,12 +291,18 @@ function FindingSection({
   issue: QueuedIssue;
   attachments: readonly IssueAttachment[] | null;
   disabled: boolean;
+  /**
+   * The issue is done: the server refuses a mark or a change then, and still
+   * takes the mark off, so only the fields and their save are switched off.
+   */
+  closed: boolean;
   onDraftChanged: () => void;
   onMark: (finding: IssueFindingInput) => void;
   onUnmark: () => void;
 }): ReactElement {
   const { t } = useTranslation();
   const finding = issue.finding;
+  const editDisabled = disabled || closed;
   const [draft, setDraft] = useState({
     kind: (finding?.kind ?? "") as IssueFindingKind | "",
     inspectedOn: finding?.inspectedOn ?? "",
@@ -369,7 +377,7 @@ function FindingSection({
             {t("issues.fit.finding.kind")}
             <select
               value={draft.kind}
-              disabled={disabled}
+              disabled={editDisabled}
               onChange={(event) => {
                 change({ kind: event.target.value as IssueFindingKind | "" });
               }}
@@ -389,7 +397,7 @@ function FindingSection({
             <input
               type="date"
               value={draft.inspectedOn}
-              disabled={disabled}
+              disabled={editDisabled}
               onChange={(event) => {
                 change({ inspectedOn: event.target.value });
               }}
@@ -402,7 +410,7 @@ function FindingSection({
             <input
               type="date"
               value={draft.targetDate}
-              disabled={disabled}
+              disabled={editDisabled}
               aria-invalid={tooLate ? true : undefined}
               onChange={(event) => {
                 change({ targetDate: event.target.value });
@@ -423,7 +431,7 @@ function FindingSection({
               <button
                 type="button"
                 className={QUIET_BUTTON}
-                disabled={disabled}
+                disabled={editDisabled}
                 onClick={() => {
                   change({ targetDate: latest });
                 }}
@@ -443,7 +451,7 @@ function FindingSection({
           {t("issues.fit.finding.protocol")}
           <select
             value={draft.protocolAttachmentId}
-            disabled={disabled || attachments === null}
+            disabled={editDisabled || attachments === null}
             onChange={(event) => {
               change({ protocolAttachmentId: event.target.value });
             }}
@@ -466,7 +474,7 @@ function FindingSection({
         <div className="flex flex-wrap gap-2">
           <button
             type="submit"
-            disabled={disabled || !complete || tooLate || unchanged}
+            disabled={editDisabled || !complete || tooLate || unchanged}
             className={SECONDARY_BUTTON}
           >
             {finding === null

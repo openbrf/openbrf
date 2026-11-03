@@ -388,9 +388,26 @@ export class IssueFitService {
         tx,
       );
     }
-    const written = await tx.issue.update({
-      where: { id: issue.id },
+    /*
+     * The reporter's own write also names the reporter. The issue was read
+     * above, but a purge of that person can detach and clear it before this
+     * write lands (it takes the locks of the issues it found, and an issue
+     * filed after that is not among them); at READ COMMITTED the update
+     * re-checks the filter once the purge's row lock lets go, finds no row,
+     * and the answer is refused instead of leaving entry details on an issue
+     * the erasure was recorded as having cleared.
+     */
+    const { count } = await tx.issue.updateMany({
+      where: byReporter
+        ? { id: issue.id, reporterPersonId: actorPersonId }
+        : { id: issue.id },
       data: next,
+    });
+    if (count === 0) {
+      throw new IssueError("No such issue.", "issue-not-found");
+    }
+    const written = await tx.issue.findUniqueOrThrow({
+      where: { id: issue.id },
       select: ENTRY_SELECT,
     });
     this.logger.log(`Issue ${issue.id} entry permission changed`);
