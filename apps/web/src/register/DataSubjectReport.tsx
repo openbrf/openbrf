@@ -1640,10 +1640,10 @@ export function DataSubjectReport({
                     <td className={DATA_CELL}>{day(issue.reportedAt)}</td>
                     <td className={TEXT_CELL}>
                       {issue.locationRedactedAt !== null ? (
-                        <RedactedMark at={issue.locationRedactedAt} />
+                        <RedactedMark at={issue.locationRedactedAt} t={t} />
                       ) : issue.location === null &&
                         issue.freeTextRemovedAt !== null ? (
-                        <PurgedMark at={issue.freeTextRemovedAt} />
+                        <PurgedMark at={issue.freeTextRemovedAt} t={t} />
                       ) : (
                         (issue.location ?? nothing)
                       )}
@@ -1656,9 +1656,9 @@ export function DataSubjectReport({
                       collapse. */}
                     <td className={TEXT_CELL}>
                       {issue.freeTextRemovedAt !== null ? (
-                        <PurgedMark at={issue.freeTextRemovedAt} />
+                        <PurgedMark at={issue.freeTextRemovedAt} t={t} />
                       ) : issue.descriptionRedactedAt !== null ? (
-                        <RedactedMark at={issue.descriptionRedactedAt} />
+                        <RedactedMark at={issue.descriptionRedactedAt} t={t} />
                       ) : (
                         <span className="block whitespace-pre-line">
                           {issue.description}

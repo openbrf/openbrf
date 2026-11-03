@@ -407,6 +407,34 @@ describe("the conversation with the reporter", () => {
     expect(screen.queryByText("Kommer någon i dag?")).toBeNull();
   });
 
+  it("drops the thread on screen when the purge removed it and the read after fails", async () => {
+    const { rerender } = render(
+      <IssueConversation issue={issue()} onStale={vi.fn()} />,
+    );
+    await screen.findByText("Kommer någon i dag?");
+
+    fetchIssueMessages.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    rerender(
+      <IssueConversation
+        issue={issue({
+          updatedAt: "2026-08-21T08:00:00.000Z",
+          freeTextRemovedAt: "2026-08-21T03:00:00.000Z",
+        })}
+        onStale={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(fetchIssueMessages).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Kommer någon i dag?")).toBeNull();
+    });
+  });
+
   it("tells the queue when the issue is no longer the reader's", async () => {
     sendIssueMessage.mockResolvedValue({
       ok: false,

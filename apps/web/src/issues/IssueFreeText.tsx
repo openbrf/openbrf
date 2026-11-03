@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import type { ReactElement } from "react";
 import { Trans, useTranslation } from "react-i18next";
 
@@ -17,10 +18,18 @@ import { Notice } from "../ui/Notice";
  */
 
 /** "Removed by a handler on 2026-11-03", in place of a redacted text. */
-export function RedactedMark({ at }: { at: string }): ReactElement {
+export function RedactedMark({
+  at,
+  t,
+}: {
+  at: string;
+  /** The document's translator, where the viewer's language is not the reader's. */
+  t?: TFunction;
+}): ReactElement {
   return (
     <span className="text-small text-ink-muted italic">
       <Trans
+        t={t}
         i18nKey="issues.redaction.removedOn"
         values={{ date: localDayOfInstant(at) }}
         components={DATA_TAGS}
@@ -30,10 +39,18 @@ export function RedactedMark({ at }: { at: string }): ReactElement {
 }
 
 /** "Removed under the retention rule on 2026-11-03", in place of a purged text. */
-export function PurgedMark({ at }: { at: string }): ReactElement {
+export function PurgedMark({
+  at,
+  t,
+}: {
+  at: string;
+  /** The document's translator, where the viewer's language is not the reader's. */
+  t?: TFunction;
+}): ReactElement {
   return (
     <span className="text-small text-ink-muted italic">
       <Trans
+        t={t}
         i18nKey="issues.redaction.purgedOn"
         values={{ date: localDayOfInstant(at) }}
         components={DATA_TAGS}

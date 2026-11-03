@@ -147,8 +147,13 @@ export class IssueTextPurgeService implements OnModuleInit {
       if (page.length === 0) {
         break;
       }
-      considered += page.length;
       for (const { id } of page) {
+        // The bound holds inside a page too: a page read with room left is not
+        // carried through once the run has taken its share.
+        if (purged >= MAX_ISSUES_PER_RUN) {
+          break;
+        }
+        considered += 1;
         try {
           if ((await this.purgeIssue(id, now, clock)) === "removed") {
             purged += 1;

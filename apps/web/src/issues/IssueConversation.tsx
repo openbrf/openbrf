@@ -131,10 +131,21 @@ export function IssueConversation({
    */
   const redactionRevision = redaction?.revision;
   const shownAtRedaction = useRef(redactionRevision);
+  /*
+   * The same for the nightly purge, which removes the thread without any
+   * answer here: the issue's own `freeTextRemovedAt` moves when it has, and
+   * the lists are dropped with it for the same reason.
+   */
+  const purgedAt = issue.freeTextRemovedAt;
+  const shownAtPurge = useRef(purgedAt);
 
   useEffect(() => {
-    if (shownAtRedaction.current !== redactionRevision) {
+    if (
+      shownAtRedaction.current !== redactionRevision ||
+      shownAtPurge.current !== purgedAt
+    ) {
       shownAtRedaction.current = redactionRevision;
+      shownAtPurge.current = purgedAt;
       setRead((current) => ({
         ...current,
         messages: null,
@@ -176,7 +187,7 @@ export function IssueConversation({
     return () => {
       active = false;
     };
-  }, [issue.id, revision, reads, redactionRevision]);
+  }, [issue.id, revision, reads, redactionRevision, purgedAt]);
 
   const reread = (): void => {
     setReads((count) => count + 1);
