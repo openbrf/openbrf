@@ -29,6 +29,7 @@ import {
 } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { JobQueueService } from "../jobs/job-queue.service";
 import {
   MailNotConfiguredError,
   MailService,
@@ -196,25 +197,64 @@ async function notices(issueId: string): Promise<IssueNoticeJob[]> {
 }
 
 /**
- * Moves the notice queued for one person to a state the queue puts it in: a
- * worker takes it (`active`), and completes it whether or not it sent
- * anything (`completed`). Integration tests drive the deliveries themselves.
+ * Moves one queued notice to a state the queue puts it in: a worker takes it
+ * (`active`), completes it whether or not it sent anything (`completed`), or
+ * gives up on it (`failed`). Integration tests drive the deliveries
+ * themselves.
  */
 async function setNoticeState(
-  issueId: string,
-  personId: string,
-  event: IssueNoticeJob["event"],
+  job: IssueNoticeJob,
   state: "active" | "completed" | "failed",
 ): Promise<void> {
   const moved = await prisma.$executeRawUnsafe(
-    "UPDATE pgboss.job SET state = $1::pgboss.job_state WHERE name = $2 AND data->>'issueId' = $3 AND data->>'personId' = $4 AND data->>'event' = $5",
+    "UPDATE pgboss.job SET state = $1::pgboss.job_state WHERE name = $2 AND id::text = $3",
     state,
     ISSUE_NOTICE_QUEUE,
-    issueId,
-    personId,
-    event,
+    job.jobId,
   );
   expect(moved).toBe(1);
+}
+
+/** Whether a queued notice still holds its throttle slot. */
+async function holdsSlot(job: IssueNoticeJob): Promise<boolean> {
+  const [row] = await prisma.$queryRawUnsafe<{ holds: boolean }[]>(
+    "SELECT singleton_on IS NOT NULL AS holds FROM pgboss.job WHERE name = $1 AND id::text = $2",
+    ISSUE_NOTICE_QUEUE,
+    job.jobId,
+  );
+  expect(row).toBeDefined();
+  return row?.holds === true;
+}
+
+/** The notice last queued for one issue, which a test expects there to be. */
+async function lastNotice(issueId: string): Promise<IssueNoticeJob> {
+  const job = (await notices(issueId)).at(-1);
+  expect(job).toBeDefined();
+  return job as IssueNoticeJob;
+}
+
+/**
+ * Waits until a transaction is waiting for the issue's lock, which another one
+ * holds: the advisory lock `lockIssue` takes, by its key's two halves.
+ */
+async function untilWaitingForIssueLock(issueId: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const [row] = await prisma.$queryRawUnsafe<{ waiting: number }[]>(
+      `SELECT count(*)::int AS waiting FROM pg_locks
+       WHERE locktype = 'advisory' AND NOT granted AND objsubid = 1
+         AND classid = ((hashtext($1)::bigint >> 32) & 4294967295)::oid
+         AND objid = (hashtext($1)::bigint & 4294967295)::oid`,
+      `issue:${issueId}`,
+    );
+    if ((row?.waiting ?? 0) > 0) {
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw new Error("Nothing waited for the issue's lock.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 }
 
 /** The overdue jobs queued for one issue, with when each is due. */
@@ -414,7 +454,12 @@ describe("a report is filed", () => {
     const issueId = await report(assignedType);
 
     expect(await notices(issueId)).toEqual([
-      { issueId, personId: manager.personId, event: "assigned" },
+      {
+        issueId,
+        personId: manager.personId,
+        event: "assigned",
+        jobId: expect.any(String),
+      },
     ]);
   });
 
@@ -625,7 +670,12 @@ describe("a handler acts on an issue", () => {
     await issues.assign(issueId, board.personId, admin.personId);
 
     expect((await notices(issueId)).slice(before)).toEqual([
-      { issueId, personId: manager.personId, event: "assigned" },
+      {
+        issueId,
+        personId: manager.personId,
+        event: "assigned",
+        jobId: expect.any(String),
+      },
     ]);
   });
 
@@ -681,17 +731,14 @@ describe("a handler acts on an issue", () => {
     const sent = captureSends();
 
     await issues.assign(issueId, manager.personId, board.personId);
+    const first = await lastNotice(issueId);
     await issues.assign(issueId, admin.personId, board.personId);
     // The worker takes the first notice while the issue is somebody else's,
     // sends nothing, and the queue completes it.
-    const first = {
-      issueId,
-      personId: manager.personId,
-      event: "assigned",
-    } as const;
-    await setNoticeState(issueId, manager.personId, "assigned", "active");
+    await setNoticeState(first, "active");
     expect(await mailer.deliver(first)).toBe(false);
-    await setNoticeState(issueId, manager.personId, "assigned", "completed");
+    await setNoticeState(first, "completed");
+    expect(await holdsSlot(first)).toBe(false);
 
     await issues.assign(issueId, manager.personId, board.personId);
 
@@ -711,15 +758,10 @@ describe("a handler acts on an issue", () => {
     const sent = captureSends();
 
     await issues.assign(issueId, manager.personId, board.personId);
-    await setNoticeState(issueId, manager.personId, "assigned", "active");
-    expect(
-      await mailer.deliver({
-        issueId,
-        personId: manager.personId,
-        event: "assigned",
-      }),
-    ).toBe(true);
-    await setNoticeState(issueId, manager.personId, "assigned", "completed");
+    const first = await lastNotice(issueId);
+    await setNoticeState(first, "active");
+    expect(await mailer.deliver(first)).toBe(true);
+    await setNoticeState(first, "completed");
     expect(sent).toHaveLength(1);
 
     await issues.assign(issueId, admin.personId, board.personId);
@@ -741,14 +783,10 @@ describe("a handler acts on an issue", () => {
     const before = (await notices(issueId)).length;
 
     await issues.assign(issueId, manager.personId, board.personId);
-    await setNoticeState(issueId, manager.personId, "assigned", "failed");
-    expect(
-      await mailer.releaseNoticeSlot({
-        issueId,
-        personId: manager.personId,
-        event: "assigned",
-      }),
-    ).toBe(true);
+    const first = await lastNotice(issueId);
+    await setNoticeState(first, "failed");
+    // What the dead letter carries: the job's own data.
+    expect(await mailer.releaseNoticeSlot(first)).toBe(true);
     await issues.assign(issueId, admin.personId, board.personId);
     await issues.assign(issueId, manager.personId, board.personId);
 
@@ -782,16 +820,12 @@ describe("a handler acts on an issue", () => {
     const before = (await notices(issueId)).length;
 
     await reopen();
+    const first = await lastNotice(issueId);
     await close();
     // The issue is closed again when the worker looks, so nothing is sent.
-    const first = {
-      issueId,
-      personId: manager.personId,
-      event: "reopened",
-    } as const;
-    await setNoticeState(issueId, manager.personId, "reopened", "active");
+    await setNoticeState(first, "active");
     expect(await mailer.deliver(first)).toBe(false);
-    await setNoticeState(issueId, manager.personId, "reopened", "completed");
+    await setNoticeState(first, "completed");
 
     await reopen();
 
@@ -802,6 +836,174 @@ describe("a handler acts on an issue", () => {
     ]);
     expect(await mailer.deliver(queued[1] as IssueNoticeJob)).toBe(true);
     expect(sent.map((input) => input.to)).toEqual([manager.email]);
+  });
+
+  it("sends a notice owed again by the time it settles its slot, and keeps the slot", async () => {
+    const issueId = await report(unassignedType);
+    const before = (await notices(issueId)).length;
+    const sent = captureSends();
+
+    await issues.assign(issueId, manager.personId, board.personId);
+    const first = await lastNotice(issueId);
+    await issues.assign(issueId, admin.personId, board.personId);
+    await setNoticeState(first, "active");
+    // The worker looks while the issue is the admin's. Before it takes the
+    // issue's lock, the issue is handed back, and that queues nothing: the
+    // first notice holds the slot.
+    vi.spyOn(mailer, "releaseOverdueClaim").mockImplementationOnce(async () => {
+      await issues.assign(issueId, manager.personId, board.personId);
+    });
+    expect(await mailer.deliver(first)).toBe(true);
+    await setNoticeState(first, "completed");
+    expect(sent.map((input) => input.to)).toEqual([manager.email]);
+    expect(await holdsSlot(first)).toBe(true);
+
+    // Away and back once more within the hour: the manager has been told.
+    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, manager.personId, board.personId);
+    expect(
+      (await notices(issueId))
+        .slice(before)
+        .map((job) => [job.personId, job.event]),
+    ).toEqual([
+      [manager.personId, "assigned"],
+      [admin.personId, "assigned"],
+    ]);
+  });
+
+  it("sends a reopening notice owed again by the time it settles its slot, and keeps the slot", async () => {
+    const issueId = await report(assignedType);
+    const close = () =>
+      issues.setStatus(
+        issueId,
+        { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
+        board.personId,
+      );
+    const reopen = () =>
+      issues.setStatus(
+        issueId,
+        { statusId: assignedType.statusIds.IN_PROGRESS },
+        board.personId,
+      );
+    const sent = captureSends();
+    await close();
+    const before = (await notices(issueId)).length;
+
+    await reopen();
+    const first = await lastNotice(issueId);
+    await close();
+    await setNoticeState(first, "active");
+    vi.spyOn(mailer, "releaseOverdueClaim").mockImplementationOnce(async () => {
+      await reopen();
+    });
+    expect(await mailer.deliver(first)).toBe(true);
+    await setNoticeState(first, "completed");
+    expect(sent.map((input) => input.to)).toEqual([manager.email]);
+
+    await close();
+    await reopen();
+    expect(
+      (await notices(issueId))
+        .slice(before)
+        .map((job) => [job.personId, job.event]),
+    ).toEqual([[manager.personId, "reopened"]]);
+  });
+
+  it("sends nothing for a notice whose slot an assignment waits on, and lets that assignment queue its own", async () => {
+    const issueId = await report(unassignedType);
+    const before = (await notices(issueId)).length;
+    const sent = captureSends();
+
+    await issues.assign(issueId, manager.personId, board.personId);
+    const first = await lastNotice(issueId);
+    await issues.assign(issueId, admin.personId, board.personId);
+    await setNoticeState(first, "active");
+    // While the first notice gives its slot back under the issue's lock, the
+    // issue is handed back to the manager, and that waits for the lock.
+    const jobs = app.get(JobQueueService);
+    const release = jobs.releaseSingleton.bind(jobs);
+    let handedBack: Promise<unknown> | undefined;
+    vi.spyOn(jobs, "releaseSingleton").mockImplementationOnce(
+      async (...args) => {
+        handedBack = issues.assign(issueId, manager.personId, board.personId);
+        await untilWaitingForIssueLock(issueId);
+        return release(...args);
+      },
+    );
+    expect(await mailer.deliver(first)).toBe(false);
+    await handedBack;
+    await setNoticeState(first, "completed");
+    expect(sent).toEqual([]);
+
+    const queued = (await notices(issueId)).slice(before);
+    expect(queued.map((job) => [job.personId, job.event])).toEqual([
+      [manager.personId, "assigned"],
+      [admin.personId, "assigned"],
+      [manager.personId, "assigned"],
+    ]);
+    expect(await mailer.deliver(queued[2] as IssueNoticeJob)).toBe(true);
+    expect(sent.map((input) => input.to)).toEqual([manager.email]);
+  });
+
+  it("leaves a notice that finds the issue changed after every look to its retry, holding its slot", async () => {
+    const issueId = await report(unassignedType);
+    await issues.assign(issueId, manager.personId, board.personId);
+    const first = await lastNotice(issueId);
+    await setNoticeState(first, "active");
+    // Every look finds the notice not owed, as though the issue were handed
+    // away each time after the lock found it owed and before the look.
+    const look = vi
+      .spyOn(mailer as unknown as { send: IssueMailer["deliver"] }, "send")
+      .mockResolvedValue("notOwed" as never);
+
+    await expect(mailer.deliver(first)).rejects.toThrow(/retried/);
+    expect(look).toHaveBeenCalledTimes(3);
+    expect(await holdsSlot(first)).toBe(true);
+  });
+
+  it("gives back the slot of the notice given up on, and not a later one's of the same person", async () => {
+    const issueId = await report(unassignedType);
+    const before = (await notices(issueId)).length;
+    const sent = captureSends();
+
+    await issues.assign(issueId, manager.personId, board.personId);
+    const older = await lastNotice(issueId);
+    // Its retries ran into the next hour's slot, where the issue is handed
+    // away and back, and that queues a notice of its own.
+    await prisma.$executeRawUnsafe(
+      "UPDATE pgboss.job SET singleton_on = singleton_on - interval '1 hour' WHERE name = $1 AND id::text = $2",
+      ISSUE_NOTICE_QUEUE,
+      older.jobId,
+    );
+    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, manager.personId, board.personId);
+    const newer = await lastNotice(issueId);
+    expect(newer.jobId).not.toBe(older.jobId);
+    expect(newer.personId).toBe(manager.personId);
+    await setNoticeState(newer, "active");
+
+    // The older one is given up on, and its dead letter gives back its slot.
+    await setNoticeState(older, "failed");
+    expect(await mailer.releaseNoticeSlot(older)).toBe(true);
+    expect(await holdsSlot(older)).toBe(false);
+    expect(await holdsSlot(newer)).toBe(true);
+
+    expect(await mailer.deliver(newer)).toBe(true);
+    await setNoticeState(newer, "completed");
+    expect(sent.map((input) => input.to)).toEqual([manager.email]);
+
+    // The newer notice was sent within its hour and still keeps a repeat out.
+    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, manager.personId, board.personId);
+    expect(
+      (await notices(issueId))
+        .slice(before)
+        .map((job) => [job.personId, job.event]),
+    ).toEqual([
+      [manager.personId, "assigned"],
+      [admin.personId, "assigned"],
+      [manager.personId, "assigned"],
+    ]);
   });
 
   it("does not mail an assignee whose processing is restricted", async () => {
@@ -845,7 +1047,12 @@ describe("a handler acts on an issue", () => {
       board.personId,
     );
     expect((await notices(issueId)).slice(before)).toEqual([
-      { issueId, personId: manager.personId, event: "reopened" },
+      {
+        issueId,
+        personId: manager.personId,
+        event: "reopened",
+        jobId: expect.any(String),
+      },
     ]);
 
     // The assignee reopening it themselves is told nothing.

@@ -132,6 +132,12 @@ export interface JobSendOptions {
   singletonKey?: string;
   /** Length in seconds of the slot `singletonKey` throttles within. */
   singletonSeconds?: number;
+  /**
+   * The job's id, a UUID the caller chose, for a job whose data names it: one
+   * that gives back its own slot with {@link JobQueueService.releaseSingleton}.
+   * The queue makes one up otherwise.
+   */
+  id?: string;
 }
 
 /** The states a job is in, as the queue backend names them. */
@@ -373,33 +379,39 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Frees the slot a throttled job holds, so a job sent with the same
+   * Frees the slot one throttled job holds, so a job sent with the same
    * `singletonKey` in the same time slot is created instead of dropped.
    *
    * The queue's unique index counts every job but a cancelled one, a job that
    * finished without doing its work included. A caller whose job found nothing
    * to do - a notice for an assignment that was undone - gives the slot back
-   * with this, and keeps it for a job that did its work. Only a job in one of
-   * `states` is freed; the job itself is left as it is.
+   * with this, and keeps it for a job that did its work.
    *
-   * Answers how many slots were freed.
+   * By the job's id, which the caller chose when it sent the job (see
+   * {@link JobSendOptions.id}): never by the key, which another job of the
+   * same key in a later slot holds too, and whose slot is that job's to keep.
+   * Only a job in one of `states` is freed; the job itself is left as it is.
+   * Compared as text, so an id that is not a UUID frees nothing rather than
+   * failing.
+   *
+   * Answers whether the slot was freed.
    */
   async releaseSingleton(
     tx: TransactionalSql,
     name: string,
-    singletonKey: string,
+    jobId: string,
     states: readonly JobState[],
-  ): Promise<number> {
+  ): Promise<boolean> {
     const freed = await tx.$queryRawUnsafe<unknown[]>(
       `UPDATE ${JOB_SCHEMA}.job SET singleton_on = NULL
-       WHERE name = $1 AND singleton_key = $2 AND singleton_on IS NOT NULL
+       WHERE name = $1 AND id::text = $2 AND singleton_on IS NOT NULL
          AND state::text = ANY($3::text[])
        RETURNING id`,
       name,
-      singletonKey,
+      jobId,
       [...states],
     );
-    return freed.length;
+    return freed.length > 0;
   }
 
   /**

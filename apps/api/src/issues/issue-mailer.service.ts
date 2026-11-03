@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import {
   addLocalDays,
@@ -79,9 +81,16 @@ import { lockFilingBudget, lockIssue } from "./issue-lock";
  * event in the same slot. The slot belongs to a notice that was sent or is
  * still to be: one the delivery skipped, because what it told of had stopped
  * being so, or that was given up on, gives it back, so a later assignment or
- * reopening of the same person is told of. That delivery asks once more after
- * giving the slot back, under the issue's lock, for an assignment that came
- * between its look and the release and found the slot taken.
+ * reopening of the same person is told of.
+ *
+ * One job holds a slot, and only that job may send while it does. A delivery
+ * that finds nothing to send decides under the issue's lock, which every act
+ * that queues such a notice holds until it commits. An act that came between
+ * its look and the lock found the slot taken and queued nothing, so when the
+ * notice is owed again the job keeps its slot and looks once more; when it is
+ * not, the job gives the slot back and sends nothing, and an act after that
+ * queues a job of its own. Each job carries its own id, and gives back its own
+ * slot by it, never another job's of the same person and event.
  *
  * ## The overdue reminder
  *
@@ -176,6 +185,14 @@ const HOUR_MS = 60 * 60 * 1000;
 const REPEATED_NOTICE_SECONDS = 60 * 60;
 
 /**
+ * How many times a delivery that found its notice owed again under the
+ * issue's lock looks once more, before it leaves the decision to its retry.
+ * Each look after the first needs the issue to have changed again since the
+ * lock was let go.
+ */
+const REPEATED_LOOKS = 2;
+
+/**
  * The throttle key of an assignment or reopening notice, or null for a notice
  * that is not throttled.
  */
@@ -194,8 +211,20 @@ export interface IssueNoticeJob {
   event: IssueNoticeEvent;
   /** The target date an `overdue` delivery is for, as `YYYY-MM-DD`. */
   targetDate?: string;
+  /**
+   * The queue's id of this job, for an assignment or reopening notice: chosen
+   * when it is queued, so the delivery, and its dead letter once it is given up
+   * on, give back the slot this job holds and no other job's.
+   */
+  jobId?: string;
   [key: string]: unknown;
 }
+
+/**
+ * What one look at a delivery came to: the mail was handed to the mail
+ * service, nothing was owed any more, or the instance has no mail settings.
+ */
+type Delivery = "sent" | "notOwed" | "noMailSettings";
 
 export interface IssueOverdueJob {
   issueId: string;
@@ -582,45 +611,104 @@ export class IssueMailer implements OnModuleInit {
    *
    * Any other failure is rethrown, so the queue retries this delivery and no
    * other.
+   *
+   * An assignment or reopening notice that finds nothing to send settles its
+   * slot under the issue's lock before it answers (see the module's comment):
+   * it keeps the slot and looks again when the notice is owed by then, and
+   * gives it back otherwise. One whose issue changes again after each of
+   * those looks is thrown back to the queue still holding its slot, and its
+   * retry decides afresh.
    */
   async deliver(job: IssueNoticeJob, now: Date = new Date()): Promise<boolean> {
-    let sent = await this.send(job, now);
-    if (!sent) {
-      // A reminder that goes nowhere gives the date it claimed back.
-      await this.releaseOverdueClaim(job, now);
-      if (await this.releaseNoticeSlot(job)) {
-        // The slot was taken until just now, so an assignment that came
-        // after the look above may have been dropped for it: look again.
-        sent = await this.send(job, now);
+    let delivery = await this.send(job, now);
+    if (delivery === "sent") {
+      return true;
+    }
+    // A reminder that goes nowhere gives the date it claimed back.
+    await this.releaseOverdueClaim(job, now);
+    for (let looks = 0; delivery === "notOwed"; looks += 1) {
+      if (!(await this.keepNoticeSlotIfOwed(job, now))) {
+        return false;
+      }
+      if (looks === REPEATED_LOOKS) {
+        throw new Error(
+          `Issue ${job.issueId} changed during each look at its ${job.event} notice for ${job.personId}; it is retried.`,
+        );
+      }
+      delivery = await this.send(job, now);
+      if (delivery === "sent") {
+        return true;
       }
     }
-    return sent;
+    // Without mail settings nobody is mailed, whoever the slot is kept for.
+    await this.releaseNoticeSlot(job);
+    return false;
   }
 
   /**
    * Gives back the slot an assignment or reopening notice holds, because it
-   * was not sent: the queue completes a job that sent nothing, and its slot
-   * would keep the same person from being told for the rest of the hour.
+   * was not sent and will not be: the queue completes a job that sent nothing,
+   * and its slot would keep the same person from being told for the rest of
+   * the hour. For a delivery without mail settings, and for one given up on
+   * after its retries.
    *
-   * Under the issue's lock, which every act that queues such a notice holds
-   * until it commits: an act that committed before it has been seen by the
-   * caller's next look, and one that comes after finds the slot free.
-   * Answers whether a slot was given back, which is never for any other
-   * notice.
+   * The slot of this job alone, by the id it carries: another job of the same
+   * person and event, in a later slot, keeps its own. Answers whether a slot
+   * was given back, which is never for any other notice.
    */
   async releaseNoticeSlot(job: IssueNoticeJob): Promise<boolean> {
-    const key = throttleKeyOf(job);
-    if (key === null) {
+    const jobId = job.jobId;
+    if (throttleKeyOf(job) === null || jobId === undefined) {
       return false;
     }
     return this.prisma.$transaction(async (tx) => {
       await lockIssue(tx, job.issueId);
-      return (
-        (await this.jobs.releaseSingleton(tx, ISSUE_NOTICE_QUEUE, key, [
-          "active",
-          "failed",
-        ])) > 0
-      );
+      return this.jobs.releaseSingleton(tx, ISSUE_NOTICE_QUEUE, jobId, [
+        "active",
+        "failed",
+      ]);
+    });
+  }
+
+  /**
+   * Decides, under the issue's lock, what becomes of the slot of an
+   * assignment or reopening notice whose delivery found nothing to send.
+   *
+   * Every act that queues such a notice holds the lock until it commits. One
+   * that committed since the delivery looked found this job's slot taken and
+   * queued nothing, and this reads what it did: when the notice is owed now,
+   * the slot is kept and the answer is true, for the caller to look again.
+   * Otherwise the slot is given back before the lock is, so an act that comes
+   * after queues a job of its own, and the answer is false: this job sends
+   * nothing. Either way the slot has one job that may send while it holds it.
+   *
+   * False, with nothing given back, for any other notice.
+   */
+  private async keepNoticeSlotIfOwed(
+    job: IssueNoticeJob,
+    now: Date,
+  ): Promise<boolean> {
+    const jobId = job.jobId;
+    if (throttleKeyOf(job) === null || jobId === undefined) {
+      return false;
+    }
+    return this.prisma.$transaction(async (tx) => {
+      await lockIssue(tx, job.issueId);
+      const issue = await this.readIssue(tx, job.issueId);
+      if (
+        issue !== null &&
+        stillSo(issue, job, now) &&
+        (await tx.person.findFirst({
+          where: recipientWhereOf(issue, job, now),
+          select: { id: true },
+        })) !== null
+      ) {
+        return true;
+      }
+      await this.jobs.releaseSingleton(tx, ISSUE_NOTICE_QUEUE, jobId, [
+        "active",
+      ]);
+      return false;
     });
   }
 
@@ -673,25 +761,14 @@ export class IssueMailer implements OnModuleInit {
     });
   }
 
-  private async send(job: IssueNoticeJob, now: Date): Promise<boolean> {
+  /** One look at a delivery: sends the mail when it is owed. */
+  private async send(job: IssueNoticeJob, now: Date): Promise<Delivery> {
     const issue = await this.readIssue(this.prisma, job.issueId);
     if (issue === null || !stillSo(issue, job, now)) {
-      return false;
+      return "notOwed";
     }
 
-    const recipientWhere =
-      job.event === "reporterMessage"
-        ? {
-            id: job.personId,
-            emailCipher: { not: null },
-            processingRestrictedAt: null,
-          }
-        : {
-            AND: [
-              { id: job.personId },
-              issueRecipientsWhere(issueHandledBy(issue), now),
-            ],
-          };
+    const recipientWhere = recipientWhereOf(issue, job, now);
     const recipient = await this.prisma.person.findFirst({
       where: recipientWhere,
       select: {
@@ -706,7 +783,7 @@ export class IssueMailer implements OnModuleInit {
       this.logger.log(
         `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
       );
-      return false;
+      return "notOwed";
     }
 
     const to = await this.encryption.decrypt("person.email", cipher);
@@ -722,7 +799,7 @@ export class IssueMailer implements OnModuleInit {
       this.logger.log(
         `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
       );
-      return false;
+      return "notOwed";
     }
     const recipientName = `${recipient.firstName} ${recipient.lastName}`.trim();
     try {
@@ -757,7 +834,7 @@ export class IssueMailer implements OnModuleInit {
         this.logger.warn(
           `Issue ${job.issueId} is in the queue but was not mailed: this instance has no mail settings.`,
         );
-        return false;
+        return "noMailSettings";
       }
       // By the class of the failure: a rejection quotes the address back.
       this.logger.error(
@@ -765,7 +842,7 @@ export class IssueMailer implements OnModuleInit {
       );
       throw error;
     }
-    return true;
+    return "sent";
   }
 
   /** The issue as every decision here reads it, or null when it is gone. */
@@ -881,20 +958,29 @@ export class IssueMailer implements OnModuleInit {
       if (personId === except) {
         continue;
       }
-      const job: IssueNoticeJob = { issueId, personId, event };
-      const key = throttleKeyOf(job);
-      await this.jobs.sendInTransaction<IssueNoticeJob>(
-        tx,
-        ISSUE_NOTICE_QUEUE,
-        job,
-        key === null
-          ? NOTICE_JOB_OPTIONS
-          : {
-              ...NOTICE_JOB_OPTIONS,
-              singletonKey: key,
-              singletonSeconds: REPEATED_NOTICE_SECONDS,
-            },
-      );
+      const key = throttleKeyOf({ issueId, personId, event });
+      if (key === null) {
+        await this.jobs.sendInTransaction<IssueNoticeJob>(
+          tx,
+          ISSUE_NOTICE_QUEUE,
+          { issueId, personId, event },
+          NOTICE_JOB_OPTIONS,
+        );
+      } else {
+        // The job is told its own id, to give back its own slot by.
+        const jobId = randomUUID();
+        await this.jobs.sendInTransaction<IssueNoticeJob>(
+          tx,
+          ISSUE_NOTICE_QUEUE,
+          { issueId, personId, event, jobId },
+          {
+            ...NOTICE_JOB_OPTIONS,
+            id: jobId,
+            singletonKey: key,
+            singletonSeconds: REPEATED_NOTICE_SECONDS,
+          },
+        );
+      }
       queued += 1;
     }
     return queued;
@@ -974,6 +1060,30 @@ function remindedFor(issue: NoticeIssue, targetDate: string): boolean {
   return issue.overdueRemindedFor.some(
     (day) => formatDateColumn(day) === targetDate,
   );
+}
+
+/**
+ * The person a delivery may still go to: the reporter with an address and no
+ * restriction for a reporter's notice, and otherwise the handler of the issue
+ * this channel reaches.
+ */
+function recipientWhereOf(
+  issue: NoticeIssue,
+  job: IssueNoticeJob,
+  now: Date,
+): Prisma.PersonWhereInput {
+  return job.event === "reporterMessage"
+    ? {
+        id: job.personId,
+        emailCipher: { not: null },
+        processingRestrictedAt: null,
+      }
+    : {
+        AND: [
+          { id: job.personId },
+          issueRecipientsWhere(issueHandledBy(issue), now),
+        ],
+      };
 }
 
 /**
