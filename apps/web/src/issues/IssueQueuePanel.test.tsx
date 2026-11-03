@@ -814,6 +814,40 @@ describe("handling an issue", () => {
     ).toBe("/board/charges?issue=issue-1");
   });
 
+  it("says the charges are withheld, not that there are none, where the API withholds them", async () => {
+    fetchIssueCharges.mockResolvedValue({
+      ok: true,
+      value: {
+        issue: {
+          issueId: "issue-1",
+          typeName: "Vatten",
+          costResponsibility: "TENANT_OWNER",
+          party: null,
+        },
+        charges: null,
+      },
+    });
+    const session = userEvent.setup();
+    render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+
+    expect(
+      await screen.findByText(
+        "Visas inte: den som anmälde ärendet har skyddade personuppgifter, och en debitering skulle visa vem det är.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Ingen debitering har gjorts från ärendet."),
+    ).toBeNull();
+  });
+
   it("offers no access switch on a type the board handles alone", async () => {
     const session = userEvent.setup();
     show(issue({ typeHandledBy: "BOARD" }));

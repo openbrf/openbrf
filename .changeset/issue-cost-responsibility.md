@@ -20,7 +20,10 @@ a responsibility guide from its own bylaws (ADR 0054).
   issue purged or merged away leaves the charge. A board member who may read
   charges sees the charges made from an issue, with their amounts, beside it.
   The property manager does not, and nothing they read about an issue carries an
-  amount. The printed debiting list and its file do not name the issue.
+  amount. The printed debiting list and its file do not name the issue. While
+  the person who reported an issue has protected personal data, its charges are
+  shown as withheld, and the debiting list on screen does not link those charges
+  to the issue, so neither leads to who reported it.
 - **Responsibility guide.** The board edits a table of who maintains which part
   of the home and the building, under the association's own bylaws, in the
   settings beside the issue types. It starts from an example the board loads and

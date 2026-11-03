@@ -25,6 +25,7 @@ import {
   issueReaderScope,
   issuesHandledWhere,
 } from "../issues/issue-handlers";
+import { issuesReportedByProtectedPersons } from "../issues/issue-reporter-protection";
 import { isResidencyHeldOn } from "../registers/held-on";
 import { financialYearStartMonthInForce } from "../retention/financial-year";
 import {
@@ -566,10 +567,25 @@ export class MemberChargeService {
    * charges (decision 26), and for nobody else: the route is under
    * `memberCharges:manage`, and the issue's own view carries no amount.
    *
+   * Null, which says the charges are withheld rather than that there are none,
+   * while the person who reported the issue has protected personal data. The
+   * queue withholds that reporter's name, identifier and apartment from every
+   * handler, and a charge made from the issue names a person or an apartment -
+   * often the reporter's own. Withholding only the charged party would not do:
+   * the same charge stands named on the debiting list, and its identifier, day,
+   * amount and reason find it there. The list withholds the issue in turn (see
+   * `toRow`), so neither side leads to the other.
+   *
    * Not audited, as the list on screen is not. The caller has checked that the
    * reader handles the issue.
    */
-  async listForIssue(issueId: string): Promise<DebitingListRow[]> {
+  async listForIssue(issueId: string): Promise<DebitingListRow[] | null> {
+    const withheld = await issuesReportedByProtectedPersons(this.prisma, [
+      issueId,
+    ]);
+    if (withheld.has(issueId)) {
+      return null;
+    }
     const charges = await this.prisma.memberCharge.findMany({
       where: { issueId },
       orderBy: [{ chargedOn: "asc" }, { createdAt: "asc" }],
@@ -880,12 +896,15 @@ export class MemberChargeService {
    * where they live now: the list is a record of a period, and a household that
    * moved in October would otherwise appear against the new flat on a charge from
    * March.
+   *
+   * With them, the issues among the charges' own whose reporter has protected
+   * personal data now, which `toRow` withholds.
    */
   private async partiesFor(
     client: PrismaService | Prisma.TransactionClient,
     charges: readonly Pick<
       ChargeRecord,
-      "personId" | "apartmentId" | "chargedOn"
+      "personId" | "apartmentId" | "chargedOn" | "issueId"
     >[],
   ): Promise<PartyLookup> {
     const personIds = [
@@ -941,6 +960,13 @@ export class MemberChargeService {
             },
           });
 
+    const withheldIssueIds = await issuesReportedByProtectedPersons(
+      client,
+      charges
+        .map((charge) => charge.issueId)
+        .filter((id): id is string => id !== null),
+    );
+
     return {
       persons: new Map(persons.map((person) => [person.id, person])),
       apartments: new Map(
@@ -949,6 +975,7 @@ export class MemberChargeService {
           apartmentLabel(apartment),
         ]),
       ),
+      withheldIssueIds,
     };
   }
 }
@@ -968,6 +995,8 @@ interface PersonRecord {
 interface PartyLookup {
   persons: Map<string, PersonRecord>;
   apartments: Map<string, string>;
+  /** The issues whose reporter has protected personal data now. */
+  withheldIssueIds: ReadonlySet<string>;
 }
 
 function apartmentLabel(apartment: {
@@ -992,7 +1021,16 @@ function toRow(charge: ChargeRecord, parties: PartyLookup): DebitingListRow {
         ? null
         : formatLocalDay(localDayOfColumn(charge.handedToManagerOn)),
     deliveries: charge.deliveries.map(deliveryReceiptOf),
-    issueId: charge.issueId,
+    /*
+     * Withheld while the issue's reporter has protected personal data: the row
+     * names the charged person or apartment, and the issue beside it would
+     * pair the report with the identity the queue withholds. `listForIssue`
+     * withholds the other direction.
+     */
+    issueId:
+      charge.issueId !== null && parties.withheldIssueIds.has(charge.issueId)
+        ? null
+        : charge.issueId,
   };
 }
 

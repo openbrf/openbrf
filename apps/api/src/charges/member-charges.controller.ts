@@ -174,13 +174,16 @@ export class MemberChargesController {
    * handle is answered as one that does not exist. This is the only way an
    * amount reaches an issue: its own view carries none, and the property
    * manager, who handles issues, holds no `memberCharges:manage`.
+   *
+   * `charges` is null, withheld rather than empty, while the issue's reporter
+   * has protected personal data: see `MemberChargeService.listForIssue`.
    */
   @Get("issues/:issueId")
   @RequireCapability("issues:handle")
   async forIssue(
     @Param("issueId") issueId: string,
     @Req() request: RequestWithPrincipal,
-  ): Promise<{ issue: IssueChargeBasis; charges: DebitingListRow[] }> {
+  ): Promise<{ issue: IssueChargeBasis; charges: DebitingListRow[] | null }> {
     const issue = await this.issues.chargeBasis(
       actingPersonId(request),
       issueId,

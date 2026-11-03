@@ -260,6 +260,16 @@ queue's own rule, so a case the reader does not handle is answered as one that
 does not exist. The property manager holds no `memberCharges:manage`, and
 nothing they read about a case carries an amount.
 
+While the person who reported a case has protected personal data, the link is
+withheld in both directions, by their protection as it stands when it is read
+rather than when the charge was made: the case's charges are answered as
+withheld rather than listed, and the debiting list states the charge without
+the case. A charge names a person or an apartment, often the reporter's own,
+and the queue withholds who is behind such a report from every handler, the
+board included. Withholding only the charged party on the case would not do,
+because the same charge stands named on the list and its date, amount and
+reason find it there. The stored link is kept.
+
 ### The responsibility guide
 
 BRL 7 kap. 12 § puts the upkeep of the apartment on the tenant-owner "om inte

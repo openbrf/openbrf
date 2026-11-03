@@ -132,7 +132,9 @@ function person(key: string, firstName: string, lastName: string) {
 const board = person("board", "Bea", "Styrelse");
 const manager = person("manager", "Frida", "Forvaltare");
 const resident = person("resident", "Rune", "Boende");
-const people = [board, manager, resident];
+/** Reports one issue, and is given protected personal data after it. */
+const shielded = person("shielded", "Siv", "Skyddad");
+const people = [board, manager, resident, shielded];
 const personIds = people.map((entry) => entry.personId);
 
 const addressId = `ir-address-${suffix}`;
@@ -182,15 +184,18 @@ async function signIn(email: string): Promise<string> {
 
 const cookies: Record<string, string> = {};
 
-/** An issue the resident filed against their apartment, written directly. */
-async function filed(key: string): Promise<string> {
+/** An issue a resident filed against their apartment, written directly. */
+async function filed(
+  key: string,
+  reporterPersonId: string = resident.personId,
+): Promise<string> {
   const id = `ir-issue-${key}-${suffix}`;
   await prisma.issue.create({
     data: {
       id,
       typeId: type.id,
       statusId: type.statusIds.NEW,
-      reporterPersonId: resident.personId,
+      reporterPersonId,
       apartmentId,
       description: `Beskrivning ${key}`,
     },
@@ -202,14 +207,21 @@ function today(): string {
   return formatLocalDay(localDayOf(new Date()));
 }
 
-/** Records a charge from an issue as the board, and answers with the row. */
-async function chargeFrom(issueId: string, amount = "1250.00") {
+/**
+ * Records a charge from an issue as the board, and answers with the row. On
+ * the apartment unless a person is named.
+ */
+async function chargeFrom(
+  issueId: string,
+  amount = "1250.00",
+  party: { personId: string } | { apartmentId: string } = { apartmentId },
+) {
   const response = await inject({
     method: "POST",
     url: "/api/member-charges",
     cookie: cookies[board.personId],
     payload: {
-      apartmentId,
+      ...party,
       chargedOn: today(),
       amount,
       reason: "Ärende: Vattenläcka",
@@ -284,14 +296,16 @@ beforeAll(async () => {
   await prisma.systemRole.create({
     data: { personId: manager.personId, role: "PROPERTY_MANAGER" },
   });
-  await prisma.residency.create({
-    data: {
-      personId: resident.personId,
-      apartmentId,
-      role: "MEMBER",
-      movedInOn: new Date("2024-01-01"),
-    },
-  });
+  for (const entry of [resident, shielded]) {
+    await prisma.residency.create({
+      data: {
+        personId: entry.personId,
+        apartmentId,
+        role: "MEMBER",
+        movedInOn: new Date("2024-01-01"),
+      },
+    });
+  }
 
   type = await createIssueTypeFixture(prisma, {
     id: typeId,
@@ -576,6 +590,100 @@ describe("a charge made from an issue", () => {
       cookie: cookies[board.personId],
     });
     expect(read.json<{ charges: unknown[] }>().charges).toEqual([]);
+  });
+
+  it("withholds the link once the reporter has protected personal data, for a charge on the person and on the apartment, on both reads", async () => {
+    const issueId = await filed("shielded", shielded.personId);
+    const onApartment = await chargeFrom(issueId, "410.00");
+    const onPerson = await chargeFrom(issueId, "420.00", {
+      personId: shielded.personId,
+    });
+    const chargeIds = [onApartment.chargeId, onPerson.chargeId];
+
+    async function readBoth() {
+      const forIssue = await inject({
+        method: "GET",
+        url: `/api/member-charges/issues/${issueId}`,
+        cookie: cookies[board.personId],
+      });
+      const list = await inject({
+        method: "GET",
+        url: `/api/member-charges?from=${today()}&to=${today()}`,
+        cookie: cookies[board.personId],
+      });
+      expect(forIssue.statusCode).toBe(200);
+      expect(list.statusCode).toBe(200);
+      return {
+        forIssue,
+        rows: list
+          .json<{
+            rows: {
+              chargeId: string;
+              issueId: string | null;
+              chargedTo: { kind: string; personId?: string };
+            }[];
+          }>()
+          .rows.filter((row) => chargeIds.includes(row.chargeId)),
+      };
+    }
+
+    // Linked both ways while the reporter is not protected.
+    const before = await readBoth();
+    expect(
+      before.forIssue
+        .json<{ charges: { chargeId: string }[] }>()
+        .charges.map((row) => row.chargeId),
+    ).toEqual(chargeIds);
+    expect(before.rows.map((row) => [row.chargeId, row.issueId])).toEqual([
+      [onApartment.chargeId, issueId],
+      [onPerson.chargeId, issueId],
+    ]);
+
+    await prisma.person.update({
+      where: { id: shielded.personId },
+      data: { protectedPersonalData: true },
+    });
+
+    const after = await readBoth();
+
+    // The issue says its charges are withheld, and names neither party.
+    expect(after.forIssue.json()).toEqual({
+      issue: {
+        issueId,
+        typeName: `Vattenläcka ${suffix}`,
+        costResponsibility: null,
+        party: null,
+      },
+      charges: null,
+    });
+    for (const withheld of [
+      shielded.personId,
+      shielded.lastName,
+      apartmentId,
+      ...chargeIds,
+    ]) {
+      expect(after.forIssue.body).not.toContain(withheld);
+    }
+
+    // The list still states both charges and whom they are on, without the
+    // issue.
+    expect(
+      after.rows.map((row) => [row.chargeId, row.chargedTo.kind, row.issueId]),
+    ).toEqual([
+      [onApartment.chargeId, "apartment", null],
+      [onPerson.chargeId, "person", null],
+    ]);
+    expect(after.rows[1]?.chargedTo.personId).toBe(shielded.personId);
+    for (const row of after.rows) {
+      expect(JSON.stringify(row)).not.toContain(issueId);
+    }
+
+    // What is withheld is the reading: the stored link is untouched.
+    const stored = await prisma.memberCharge.findMany({
+      where: { id: { in: chargeIds } },
+      select: { issueId: true },
+    });
+    expect(stored.map((row) => row.issueId)).toEqual([issueId, issueId]);
   });
 
   it("keeps the charge when the issue it names is gone", async () => {

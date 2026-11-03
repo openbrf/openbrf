@@ -51,7 +51,8 @@ export interface ChargeRow {
   deliveries: DeliveryReceipt[];
   /**
    * The issue it was made from, or null. Never in the file, and it may name
-   * an issue that has since been purged or merged away.
+   * an issue that has since been purged or merged away. Null as well while
+   * the issue's reporter has protected personal data.
    */
   issueId: string | null;
 }
@@ -123,11 +124,15 @@ export function fetchDebitingList(
 /**
  * One issue as a charge is made from it, and the charges already made from it.
  * Needs `memberCharges:manage` and `issues:handle`; an issue the reader does
- * not handle is answered as one that does not exist.
+ * not handle is answered as one that does not exist. `charges` is null -
+ * withheld, not empty - while the issue's reporter has protected personal
+ * data, as the queue withholds who they are.
  */
 export function fetchIssueCharges(
   issueId: string,
-): Promise<ApiResult<{ issue: IssueChargeBasis; charges: ChargeRow[] }>> {
+): Promise<
+  ApiResult<{ issue: IssueChargeBasis; charges: ChargeRow[] | null }>
+> {
   return apiRequest(
     "GET",
     `/api/member-charges/issues/${encodeURIComponent(issueId)}`,

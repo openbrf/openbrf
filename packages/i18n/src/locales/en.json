@@ -3817,6 +3817,7 @@
       "create": "Create a charge",
       "createNamed": "{{type}}: create a charge",
       "none": "No charge has been made from this issue.",
+      "withheld": "Not shown: the person who reported the issue has protected personal data, and a charge would show who they are.",
       "loading": "Reading the charges...",
       "loadFailed": "The charges could not be read just now.",
       "amount": "<data>{{amount}}</data> kr"

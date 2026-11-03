@@ -3817,6 +3817,7 @@
       "create": "Skapa debitering",
       "createNamed": "{{type}}: skapa debitering",
       "none": "Ingen debitering har gjorts från ärendet.",
+      "withheld": "Visas inte: den som anmälde ärendet har skyddade personuppgifter, och en debitering skulle visa vem det är.",
       "loading": "Läser debiteringarna...",
       "loadFailed": "Debiteringarna gick inte att läsa just nu.",
       "amount": "<data>{{amount}}</data> kr"

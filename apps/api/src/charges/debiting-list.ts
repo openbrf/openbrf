@@ -96,6 +96,10 @@ export interface DebitingListRow {
    * the file, for the reason a receipt is not: it says where the charge came
    * from inside the association, and the bookkeeper has no issue to look up.
    * It may name an issue that has since been purged or merged away.
+   *
+   * Also null while the person who reported the issue has protected personal
+   * data: the row names the charged party, and the issue queue withholds who
+   * is behind that report from every handler.
    */
   issueId: string | null;
 }

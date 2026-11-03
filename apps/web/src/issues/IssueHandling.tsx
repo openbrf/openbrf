@@ -428,7 +428,8 @@ function IssueCharges({
   /** The last answer, with the issue it answered for. */
   const [read, setRead] = useState<{
     issueId: string;
-    charges: ChargeRow[] | "failed";
+    /** Null where the API withholds them: the reporter is protected. */
+    charges: ChargeRow[] | null | "failed";
   } | null>(null);
 
   useEffect(() => {
@@ -451,19 +452,21 @@ function IssueCharges({
    * last answer stays while a newer revision is read, rather than flashing
    * back to "reading".
    */
-  const charges = read?.issueId === issue.id ? read.charges : null;
+  const charges = read?.issueId === issue.id ? read.charges : "reading";
 
   return (
     <section className="flex flex-col gap-2">
       <h3 className="text-label text-ink-muted uppercase">
         {t("issues.charges.title")}
       </h3>
-      {charges === null ? (
+      {charges === "reading" ? (
         <p role="status" className={HINT}>
           {t("issues.charges.loading")}
         </p>
       ) : charges === "failed" ? (
         <p className={HINT}>{t("issues.charges.loadFailed")}</p>
+      ) : charges === null ? (
+        <p className={HINT}>{t("issues.charges.withheld")}</p>
       ) : charges.length === 0 ? (
         <p className={HINT}>{t("issues.charges.none")}</p>
       ) : (
