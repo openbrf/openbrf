@@ -556,6 +556,13 @@ const MOTION = {
  */
 const MOTION_DEADLINE_CARD = "Sista dag för motioner";
 
+/** The settings card public issue reporting is switched on in, named once. */
+const ISSUE_REPORTING_CARD = "Felanmälan från webbplatsen";
+
+/** What that card says while the public report form is on. */
+const ISSUE_REPORTING_ON =
+  "På: formuläret finns på webbplatsen och erbjuder typerna för icke-medlem.";
+
 /** The settings card the board mailbox is set up in, named once. */
 const BOARD_MAILBOX_CARD = "Styrelsens gemensamma brevlåda";
 
@@ -2219,6 +2226,73 @@ export const SCREENS: readonly Screen[] = [
     ],
     waitFor: { text: /^Antagen / },
     capture: { panel: "Ansvarsfördelning" },
+  },
+  {
+    /*
+     * Public reporting switched on, and the report form placed on the
+     * association's contact page, so that the entry below has a form to
+     * photograph. Both steps are skipped where a walk against a stack that is
+     * already up did them, since the switch and the block are kept.
+     *
+     * The contact page rather than the front page: every picture of the front
+     * page is above, and this leaves them as they were.
+     */
+    name: "settings-issue-reporting",
+    as: "administrator",
+    goto: appPath("/board/settings/issues-bookings"),
+    prepare: [
+      // The pages the form can go on, which arrive with their own read.
+      { see: { combobox: "Sida", within: ISSUE_REPORTING_CARD } },
+      {
+        unlessSeen: { text: ISSUE_REPORTING_ON, within: ISSUE_REPORTING_CARD },
+        steps: [
+          {
+            click: {
+              label: "Ta emot felanmälan från webbplatsen",
+              within: ISSUE_REPORTING_CARD,
+            },
+          },
+        ],
+      },
+      {
+        select: { combobox: "Sida", within: ISSUE_REPORTING_CARD },
+        option: "Kontakt",
+      },
+      {
+        unlessSeen: {
+          text: "Sidan har redan ett felanmälningsformulär.",
+          within: ISSUE_REPORTING_CARD,
+        },
+        steps: [
+          {
+            click: { button: "Placera på sidan", within: ISSUE_REPORTING_CARD },
+          },
+          { see: { text: /^Blocket lades sist på Kontakt\./ } },
+        ],
+      },
+    ],
+    waitFor: { text: ISSUE_REPORTING_ON, within: ISSUE_REPORTING_CARD },
+    capture: { panel: ISSUE_REPORTING_CARD },
+  },
+  {
+    /*
+     * The public report form as a visitor with no account reads it, with the
+     * responsibility guide the board adopted two entries up opened above its
+     * fields (decision 27 of the issue module plan). The guide is folded until
+     * a reader opens it, and it is opened here because the table is what the
+     * picture is about.
+     *
+     * The first match for the title, because the table repeats it as a caption
+     * a screen reader announces and nobody sees.
+     */
+    name: "site-issue-report-form",
+    as: "nobody",
+    goto: "/kontakt",
+    prepare: [{ click: { text: "Vem ansvarar för vad?", first: true } }],
+    // A line of the guide, which is on the page only when the board has
+    // adopted one and is visible only once the guide is open.
+    waitFor: { text: "Golvbrunn, rensning" },
+    capture: "page",
   },
 
   // --- bookings ---------------------------------------------------------------
