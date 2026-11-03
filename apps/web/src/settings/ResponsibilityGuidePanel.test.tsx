@@ -144,6 +144,28 @@ describe("the responsibility guide", () => {
     ).toBeNull();
   });
 
+  it("adopts a guide with no lines, which the server keeps from reporters", async () => {
+    const session = userEvent.setup();
+    render(<ResponsibilityGuidePanel />);
+
+    await session.click(
+      await screen.findByRole("checkbox", {
+        name: "Tabellen följer föreningens stadgar",
+      }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Spara ansvarsfördelningen" }),
+    );
+
+    await waitFor(() => {
+      expect(saveResponsibilityGuide).toHaveBeenCalledWith({
+        items: [],
+        adopted: true,
+        version: null,
+      });
+    });
+  });
+
   it("names the line and the field of a refused personal identity number, and clears it when the draft changes", async () => {
     fetchResponsibilityGuide.mockResolvedValue({
       ok: true,

@@ -253,6 +253,7 @@ describe("a report made from a post", () => {
     expect(
       await screen.findByText("Vem ansvarar för vad?", { selector: "summary" }),
     ).toBeTruthy();
+    expect(screen.getByText("Golvbrunn")).toBeTruthy();
 
     // The re-read that a closed answer asks for fails on the guide only.
     fetchGuide.mockResolvedValue(refused(500, "unknown"));
@@ -269,6 +270,7 @@ describe("a report made from a post", () => {
     expect(
       screen.getByText("Vem ansvarar för vad?", { selector: "summary" }),
     ).toBeTruthy();
+    expect(screen.getByText("Golvbrunn")).toBeTruthy();
   });
 
   it("hides the composer once the list is read again and shows the report closed", async () => {

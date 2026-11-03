@@ -968,6 +968,12 @@ describe("the responsibility guide", () => {
       );
       expect((await reporterGuide())?.items).toHaveLength(1);
 
+      // An adopted guide with no lines answers nothing, so a reporter sees none.
+      const emptied = await save(true, []);
+      expect(emptied.statusCode).toBe(200);
+      expect(emptied.json()).toMatchObject({ adoptedAt, items: [] });
+      expect(await reporterGuide()).toBeNull();
+
       const withdrawn = await save(false);
       expect(
         withdrawn.json<{ adoptedAt: string | null }>().adoptedAt,
