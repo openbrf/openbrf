@@ -825,8 +825,13 @@ export class IssueMailer implements OnModuleInit {
     // of a board seat can have come since the read above: read the issue again
     // and ask again, by the time it is now, as close to the handoff as the code
     // can. A clock handed in that is ahead of the real one is kept. This
-    // narrows the window; the rendering and sender lookup inside the mail
-    // service still sit between this and the driver.
+    // narrows the window and does not close it: the issue lock is not held
+    // here, because it would stay held across the mail service's rendering,
+    // sender lookup and the driver's network call. A restriction, board-only
+    // change or ended seat committed in that last stretch is not seen, and a
+    // mail with the number, type and priority and no free text can still go
+    // out. That is the accepted residual window; closing it would need the
+    // mail to be handed over inside a transaction that holds the lock.
     const handoffAt = new Date(Math.max(now.getTime(), Date.now()));
     const current = await this.readIssue(this.prisma, job.issueId);
     const stillRecipient =
