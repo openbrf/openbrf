@@ -127,4 +127,24 @@ describe("the saved replies", () => {
     // The draft is kept to change.
     expect((bodyField as HTMLTextAreaElement).value).toBe("Ring 19811218-9876");
   });
+
+  it("offers a retry when the first read fails, and shows the list once it works", async () => {
+    fetchConfiguredSavedReplies.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    const session = userEvent.setup();
+    render(<IssueSavedRepliesPanel />);
+
+    expect(
+      await screen.findByText("De sparade svaren gick inte att läsa just nu."),
+    ).toBeTruthy();
+    await session.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    await screen.findByDisplayValue("Ditt ansvar enligt stadgarna");
+    expect(fetchConfiguredSavedReplies).toHaveBeenCalledTimes(2);
+    expect(
+      screen.queryByText("De sparade svaren gick inte att läsa just nu."),
+    ).toBeNull();
+  });
 });

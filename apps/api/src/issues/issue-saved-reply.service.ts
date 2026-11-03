@@ -91,24 +91,33 @@ export class IssueSavedReplyService {
     input: IssueSavedReplyInput,
   ): Promise<IssueSavedReplyView> {
     refusePersonalIdentityNumbers({ title: input.title, body: input.body });
-    const { count } = await this.prisma.issueSavedReply.updateMany({
-      where: { id },
-      data: {
-        title: input.title,
-        body: input.body,
-        ...(input.sortOrder === undefined
-          ? {}
-          : { sortOrder: input.sortOrder }),
-      },
+    /*
+     * The write and the read in one transaction: the row lock the update takes
+     * makes a removal arriving between them wait, so the read finds the row it
+     * just wrote rather than failing with a missing-row error that would
+     * answer 500 where this documents 404.
+     */
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.issueSavedReply.updateMany({
+        where: { id },
+        data: {
+          title: input.title,
+          body: input.body,
+          ...(input.sortOrder === undefined
+            ? {}
+            : { sortOrder: input.sortOrder }),
+        },
+      });
+      if (count === 0) {
+        throw notFound();
+      }
+      return tx.issueSavedReply.findUniqueOrThrow({
+        where: { id },
+        select: SAVED_REPLY_SELECT,
+      });
     });
-    if (count === 0) {
-      throw notFound();
-    }
     this.logger.log(`Saved reply ${id} changed`);
-    return this.prisma.issueSavedReply.findUniqueOrThrow({
-      where: { id },
-      select: SAVED_REPLY_SELECT,
-    });
+    return updated;
   }
 
   /**

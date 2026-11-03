@@ -293,6 +293,73 @@ describe("the conversation with the reporter", () => {
     expect(screen.getByLabelText("Vatten: intern anteckning")).toBeTruthy();
   });
 
+  it("offers no field to an external reporter with only an address", async () => {
+    render(
+      <IssueConversation
+        issue={issue({
+          reporter: { kind: "external", name: null, email: "a@exempel.se" },
+        })}
+        onStale={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText(/Ingen kan läsa ett svar på det här ärendet/),
+    ).toBeTruthy();
+    expect(
+      screen.queryByLabelText("Vatten: meddelande till anmälaren"),
+    ).toBeNull();
+  });
+
+  it("tells the queue when a read says the issue is no longer the reader's", async () => {
+    fetchIssueNotes.mockResolvedValue({
+      ok: false,
+      failure: { status: 404, reason: "issue-not-found" },
+    });
+    const onStale = vi.fn();
+    render(<IssueConversation issue={issue()} onStale={onStale} />);
+
+    await waitFor(() => {
+      expect(onStale).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("says when the saved replies could not be read, apart from the rest", async () => {
+    fetchIssueSavedReplies.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    render(<IssueConversation issue={issue()} onStale={vi.fn()} />);
+
+    expect(
+      await screen.findByText(/Sparade svar gick inte att läsa just nu/),
+    ).toBeTruthy();
+    // The messages themselves were read, so their notice is not shown.
+    expect(await screen.findByText("Kommer någon i dag?")).toBeTruthy();
+    expect(
+      screen.queryByText(/Meddelandena, anteckningarna eller filerna/),
+    ).toBeNull();
+    expect(screen.queryByLabelText("Sparat svar")).toBeNull();
+  });
+
+  it("reads the conversation again when the queue brings a newer revision of the issue", async () => {
+    const { rerender } = render(
+      <IssueConversation issue={issue()} onStale={vi.fn()} />,
+    );
+    await screen.findByText("Kommer någon i dag?");
+    expect(fetchIssueMessages).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <IssueConversation
+        issue={issue({ updatedAt: "2026-08-21T08:00:00.000Z" })}
+        onStale={vi.fn()}
+      />,
+    );
+    await waitFor(() => {
+      expect(fetchIssueMessages).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it("tells the queue when the issue is no longer the reader's", async () => {
     sendIssueMessage.mockResolvedValue({
       ok: false,

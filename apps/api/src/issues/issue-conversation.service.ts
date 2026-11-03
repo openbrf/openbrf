@@ -173,12 +173,13 @@ export class IssueConversationService {
     readerPersonId: string,
     issueId: string,
   ): Promise<HandlerIssueMessageView[]> {
-    await this.requireHandled(this.prisma, issueId, readerPersonId);
-    const messages = await this.prisma.issueMessage.findMany({
-      where: { issueId },
-      orderBy: MESSAGE_ORDER,
-      select: MESSAGE_SELECT,
-    });
+    const messages = await this.readHandled(issueId, readerPersonId, (tx) =>
+      tx.issueMessage.findMany({
+        where: { issueId },
+        orderBy: MESSAGE_ORDER,
+        select: MESSAGE_SELECT,
+      }),
+    );
     return this.handlerViews(messages);
   }
 
@@ -187,7 +188,10 @@ export class IssueConversationService {
    * (decision 19).
    *
    * Refused on an issue nobody can read the answer on (`no-reporter`), rather
-   * than stored as a message to nobody. The issue lets the writer in under the
+   * than stored as a message to nobody. Only a reporter with an account reads
+   * the thread, so one who left an email address alone, as a report from the
+   * website's form may, has no one to write to either; nothing mails a message
+   * (decision 21). The issue lets the writer in under the
    * locks a handling write takes (`lockIssueForHandling`), so a message never
    * lands on an issue the board took to itself while it was written.
    */
@@ -201,10 +205,7 @@ export class IssueConversationService {
       const now = new Date();
       await lockIssueForHandling(tx, issueId);
       const issue = await this.requireHandled(tx, issueId, handlerPersonId);
-      if (
-        issue.reporterPersonId === null &&
-        issue.reporterEmailCipher === null
-      ) {
+      if (issue.reporterPersonId === null) {
         throw new IssueError(
           "Nobody can read an answer on this issue.",
           "no-reporter",
@@ -237,12 +238,13 @@ export class IssueConversationService {
     readerPersonId: string,
     issueId: string,
   ): Promise<IssueNoteView[]> {
-    await this.requireHandled(this.prisma, issueId, readerPersonId);
-    const notes = await this.prisma.issueNote.findMany({
-      where: { issueId },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      select: NOTE_SELECT,
-    });
+    const notes = await this.readHandled(issueId, readerPersonId, (tx) =>
+      tx.issueNote.findMany({
+        where: { issueId },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        select: NOTE_SELECT,
+      }),
+    );
     return this.noteViews(notes);
   }
 
@@ -288,12 +290,13 @@ export class IssueConversationService {
     readerPersonId: string,
     issueId: string,
   ): Promise<IssueAttachmentView[]> {
-    await this.requireHandled(this.prisma, issueId, readerPersonId);
-    const attachments = await this.prisma.issueAttachment.findMany({
-      where: { issueId },
-      orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-      select: ATTACHMENT_SELECT,
-    });
+    const attachments = await this.readHandled(issueId, readerPersonId, (tx) =>
+      tx.issueAttachment.findMany({
+        where: { issueId },
+        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+        select: ATTACHMENT_SELECT,
+      }),
+    );
     return attachments.map(toAttachmentView);
   }
 
@@ -390,6 +393,30 @@ export class IssueConversationService {
   }
 
   /**
+   * Reads something an issue holds for its handlers, after asking whether the
+   * reader handles it, from one snapshot.
+   *
+   * Two statements at READ COMMITTED each take a snapshot of their own, so a
+   * board-only change or a handover that committed between the check and the
+   * read would let the read return rows the check had not been made for. At
+   * REPEATABLE READ the snapshot is taken at the check, and the read cannot
+   * see a later one.
+   */
+  private async readHandled<T>(
+    issueId: string,
+    readerPersonId: string,
+    read: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.requireHandled(tx, issueId, readerPersonId);
+        return read(tx);
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
+  }
+
+  /**
    * An issue this person reported, or the refusal that answers an issue that
    * does not exist.
    */
@@ -424,7 +451,6 @@ export class IssueConversationService {
       select: {
         id: true,
         reporterPersonId: true,
-        reporterEmailCipher: true,
         _count: { select: { attachments: true } },
       },
     });

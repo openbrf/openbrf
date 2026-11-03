@@ -10,6 +10,8 @@ import { OwnIssueConversation } from "./OwnIssueConversation";
 
 export interface OwnIssuesPanelProps {
   issues: readonly OwnIssue[];
+  /** Told when a report turns out to be closed, so the list is read again. */
+  onClosed: () => void;
 }
 
 /**
@@ -20,7 +22,10 @@ export interface OwnIssuesPanelProps {
  * issues. Without that separation the queue would be a list of what residents
  * thought was done rather than of what was.
  */
-export function OwnIssuesPanel({ issues }: OwnIssuesPanelProps): ReactElement {
+export function OwnIssuesPanel({
+  issues,
+  onClosed,
+}: OwnIssuesPanelProps): ReactElement {
   const { t } = useTranslation();
 
   return (
@@ -93,7 +98,7 @@ export function OwnIssuesPanel({ issues }: OwnIssuesPanelProps): ReactElement {
                 </ul>
               )}
 
-              <OwnIssueConversation issue={issue} />
+              <OwnIssueConversation issue={issue} onClosed={onClosed} />
             </li>
           ))}
         </ul>

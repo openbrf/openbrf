@@ -20,6 +20,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessage, useSaveAction } from "../ui/save-state";
@@ -68,8 +69,8 @@ function perform(act: Act) {
  * The board's own words, sent in its name, so they are written here under
  * issues:configure and read by everybody who handles issues. Picking one in a
  * conversation fills the field and sends nothing. Two come with a new
- * instance, one of them saying that what was reported is the tenant-owner's
- * under the bylaws; the board rewords them to its own bylaws.
+ * instance, one of them saying that the bylaws decide whether what was
+ * reported is the tenant-owner's; the board rewords them to its own bylaws.
  */
 export function IssueSavedRepliesPanel(): ReactElement {
   const { t } = useTranslation();
@@ -130,9 +131,12 @@ export function IssueSavedRepliesPanel(): ReactElement {
             )}
           </Notice>
         ) : readFailed ? (
-          <Notice tone="danger" live>
-            {t("settings.issueSavedReplies.loadFailed")}
-          </Notice>
+          <LoadFailure
+            messageKey="settings.issueSavedReplies.loadFailed"
+            onRetry={() => {
+              setReads((count) => count + 1);
+            }}
+          />
         ) : null}
 
         {replies === null ? (

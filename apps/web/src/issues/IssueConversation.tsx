@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -55,6 +55,8 @@ interface Read {
   attachments: IssueAttachment[] | null;
   savedReplies: IssueSavedReply[];
   failed: boolean;
+  /** The saved replies are read apart: a picker that is missing says why. */
+  savedRepliesFailed: boolean;
 }
 
 /**
@@ -86,9 +88,29 @@ export function IssueConversation({
     attachments: null,
     savedReplies: [],
     failed: false,
+    savedRepliesFailed: false,
   });
   /** Bumped after every write here, which reads the panel again. */
   const [reads, setReads] = useState(0);
+  /*
+   * The issue's own revision, read again whenever the queue brings a newer one.
+   * A status or handling saved beside this panel reloads the queue without
+   * remounting the open conversation and without a write of its own here, so
+   * neither the issue's id nor `reads` changes, and the panel would keep what
+   * it read before - a board-only change among it. Each read still answers only
+   * the issue and revision that asked for it: the cleanup below drops a
+   * superseded one.
+   */
+  const revision = `${issue.updatedAt}:${issue.status.id}`;
+  /*
+   * The caller's callback as of the latest render, so a read that finishes
+   * tells the queue through the current one without a new callback, which an
+   * inline function is on every render, starting the reads over.
+   */
+  const staleRef = useRef(onStale);
+  useEffect(() => {
+    staleRef.current = onStale;
+  });
 
   useEffect(() => {
     let active = true;
@@ -101,6 +123,15 @@ export function IssueConversation({
       if (!active) {
         return;
       }
+      // An issue the reader may no longer open is not one to keep on screen:
+      // the queue is read again, which drops the row and this panel with it.
+      if (
+        [messages, notes, attachments].some(
+          (answer) => !answer.ok && STALE_REASONS.has(answer.failure.reason),
+        )
+      ) {
+        staleRef.current();
+      }
       // A failed read keeps what the screen already shows, and says so.
       setRead((current) => ({
         messages: messages.ok ? messages.value : current.messages,
@@ -110,12 +141,13 @@ export function IssueConversation({
           ? savedReplies.value
           : current.savedReplies,
         failed: !messages.ok || !notes.ok || !attachments.ok,
+        savedRepliesFailed: !savedReplies.ok,
       }));
     });
     return () => {
       active = false;
     };
-  }, [issue.id, reads]);
+  }, [issue.id, revision, reads]);
 
   const reread = (): void => {
     setReads((count) => count + 1);
@@ -125,10 +157,11 @@ export function IssueConversation({
       onStale();
     }
   };
+  // Only a reporter with an account reads the thread. One who left an address
+  // alone, as a report from the website's form may, has no way to see a reply,
+  // and nothing is mailed (decision 21).
   const reachable =
-    issue.reporter.kind === "resident" ||
-    issue.reporter.kind === "protected" ||
-    (issue.reporter.kind === "external" && issue.reporter.email !== null);
+    issue.reporter.kind === "resident" || issue.reporter.kind === "protected";
   const named = { type: issue.typeName };
 
   return (
@@ -136,6 +169,11 @@ export function IssueConversation({
       {read.failed ? (
         <Notice tone="danger" live>
           {t("issues.conversation.readFailedHandler")}
+        </Notice>
+      ) : null}
+      {read.savedRepliesFailed ? (
+        <Notice tone="danger" live>
+          {t("issues.conversation.savedRepliesReadFailed")}
         </Notice>
       ) : null}
 
@@ -348,7 +386,7 @@ function Attachments({
                 href={attachment.url}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex min-h-11 items-center underline"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center underline"
               >
                 {attachment.fileName}
               </a>

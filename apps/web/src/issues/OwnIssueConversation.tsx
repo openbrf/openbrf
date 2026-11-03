@@ -33,8 +33,15 @@ const REPLY_FAILURES: Readonly<Record<string, TranslationKey>> = {
  */
 export function OwnIssueConversation({
   issue,
+  onClosed,
 }: {
   issue: OwnIssue;
+  /**
+   * Told when the server says the report is closed, which the list on screen
+   * does not yet know: the caller reads the list again, and the composer gives
+   * way to the closed report's notice.
+   */
+  onClosed: () => void;
 }): ReactElement {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -48,12 +55,18 @@ export function OwnIssueConversation({
       <summary className="flex min-h-11 cursor-pointer items-center text-small font-semibold">
         {t("issues.conversation.openOwn", { type: issue.typeName })}
       </summary>
-      {open ? <Thread issue={issue} /> : null}
+      {open ? <Thread issue={issue} onClosed={onClosed} /> : null}
     </details>
   );
 }
 
-function Thread({ issue }: { issue: OwnIssue }): ReactElement {
+function Thread({
+  issue,
+  onClosed,
+}: {
+  issue: OwnIssue;
+  onClosed: () => void;
+}): ReactElement {
   const { t, i18n } = useTranslation();
   const [messages, setMessages] = useState<OwnIssueMessage[] | null>(null);
   const [readFailed, setReadFailed] = useState(false);
@@ -136,6 +149,11 @@ function Thread({ issue }: { issue: OwnIssue }): ReactElement {
           send={(body) => sendOwnIssueMessage({ issueId: issue.id, body })}
           onSent={() => {
             setReads((count) => count + 1);
+          }}
+          onRefused={(reason) => {
+            if (reason === "issue-closed") {
+              onClosed();
+            }
           }}
         />
       )}

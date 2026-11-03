@@ -13,6 +13,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { registerMultipart } from "../http/multipart";
 import { pngBytes } from "../media/testing/image-fixtures";
+import { StorageService } from "../storage/storage.service";
 import { waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
@@ -160,12 +161,22 @@ function multipart(bytes: Buffer, fileName: string, contentType: string) {
 
 let issueCounter = 0;
 /** An issue, written directly, as the queue would hold it. */
+async function externalReporter(email: string) {
+  const sealed = await encryption.encrypt("issue.reporterEmail", email);
+  return {
+    reporterEmailCipher: sealed.cipher,
+    reporterEmailIndex: sealed.index,
+  };
+}
+
 async function filed(
   type: IssueTypeFixture,
   extra: {
     reporterPersonId?: string | null;
     meaning?: "NEW" | "DONE";
     boardOnly?: boolean;
+    /** An address and no account, as a report from the website's form leaves. */
+    externalEmail?: string;
   } = {},
 ): Promise<string> {
   issueCounter += 1;
@@ -180,6 +191,9 @@ async function filed(
         extra.reporterPersonId === undefined
           ? resident.personId
           : extra.reporterPersonId,
+      ...(extra.externalEmail === undefined
+        ? {}
+        : await externalReporter(extra.externalEmail)),
       description: `Beskrivning ${String(issueCounter)}`,
       boardOnly: extra.boardOnly ?? false,
       ...(meaning === "DONE"
@@ -316,6 +330,20 @@ afterAll(async () => {
   await prisma.issue.deleteMany({
     where: { typeId: { in: Object.values(typeIds) } },
   });
+  // The objects first: the local driver writes them under the data directory,
+  // and a row deleted before its keys are read leaves them there for good.
+  const uploaded = await prisma.mediaFile.findMany({
+    where: { uploadedByPersonId: { in: personIds } },
+    select: { storageKey: true, unencryptedStorageKey: true },
+  });
+  const storage = app.get(StorageService);
+  for (const file of uploaded) {
+    for (const key of [file.storageKey, file.unencryptedStorageKey]) {
+      if (key !== null) {
+        await storage.remove(key);
+      }
+    }
+  }
   await prisma.mediaFile.deleteMany({
     where: { uploadedByPersonId: { in: personIds } },
   });
@@ -508,6 +536,22 @@ describe("a resident and the handlers converse", () => {
       "Försäkringsbolaget ringer tillbaka.",
     );
     expect(noted.statusCode).toBe(201);
+  });
+
+  it("refuses a message to a reporter who left an address and has no account", async () => {
+    const issueId = await filed(plain, {
+      reporterPersonId: null,
+      externalEmail: `ic-extern-${suffix}@exempel.se`,
+    });
+
+    const refused = await write(
+      board,
+      `/api/issue-queue/${issueId}/messages`,
+      "Hej",
+    );
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ reason: "no-reporter" });
+    expect(await prisma.issueMessage.count({ where: { issueId } })).toBe(0);
   });
 
   it("refuses a personal identity number in what the board writes back, and stores the reporter's words as written", async () => {

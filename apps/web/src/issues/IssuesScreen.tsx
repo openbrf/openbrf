@@ -228,7 +228,7 @@ export function IssuesScreen({
               reload();
             }}
           />
-          <OwnIssuesPanel issues={own} />
+          <OwnIssuesPanel issues={own} onClosed={reload} />
         </>
       ) : null}
     </div>

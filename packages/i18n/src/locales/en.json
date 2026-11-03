@@ -3591,7 +3591,7 @@
       },
       "bylaws": {
         "title": "Yours under the bylaws",
-        "body": "Thank you for your report. Under the association's bylaws, what you describe is for you as the tenant-owner to maintain, so you arrange the work and pay for it. The bylaws say what applies to your apartment. Write here if you have any questions."
+        "body": "Thank you for your report. The association's bylaws decide whether you as the tenant-owner or the association is responsible for maintaining what you describe. If the bylaws place it with you, you arrange the work and pay for it. Write here if you have any questions."
       }
     },
     "report": {
@@ -3780,6 +3780,7 @@
       "loading": "Reading the messages...",
       "readFailed": "The messages could not be read just now. Close and open them again.",
       "readFailedHandler": "The messages, notes or files could not be read just now. Close and open the issue again.",
+      "savedRepliesReadFailed": "The saved replies could not be read just now, so none can be inserted. Close and open the issue again.",
       "empty": "No messages yet.",
       "emptyOwn": "No messages yet. The board or the property manager answers here.",
       "you": "You",
@@ -3797,7 +3798,7 @@
       "send": "Send",
       "sending": "Sending...",
       "closedOwn": "This report is closed and takes no more messages.",
-      "noReporter": "Nobody can read an answer on this issue: it has no reporter, or no address to reach them at.",
+      "noReporter": "Nobody can read an answer on this issue: its reporter has no account to read it in, or it has no reporter.",
       "savedReply": "Saved reply",
       "savedReplyPick": "Insert a saved reply...",
       "savedReplyTooLong": "That saved reply does not fit: the message would be longer than {{max}} characters. Shorten what you have written first.",

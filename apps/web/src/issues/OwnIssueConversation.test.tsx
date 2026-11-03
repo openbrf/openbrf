@@ -81,7 +81,7 @@ beforeEach(() => {
 describe("the reporter's conversation", () => {
   it("reads nothing until opened, then signs the handlers' messages with a role", async () => {
     const session = userEvent.setup();
-    render(<OwnIssueConversation issue={own()} />);
+    render(<OwnIssueConversation issue={own()} onClosed={() => undefined} />);
 
     expect(fetchOwnIssueMessages).not.toHaveBeenCalled();
     await openConversation(session);
@@ -94,7 +94,7 @@ describe("the reporter's conversation", () => {
 
   it("sends a message and reads the conversation again", async () => {
     const session = userEvent.setup();
-    render(<OwnIssueConversation issue={own()} />);
+    render(<OwnIssueConversation issue={own()} onClosed={() => undefined} />);
     await openConversation(session);
 
     const field = await screen.findByLabelText("Vatten: ditt meddelande");
@@ -115,7 +115,7 @@ describe("the reporter's conversation", () => {
 
   it("does not offer to send a message without words", async () => {
     const session = userEvent.setup();
-    render(<OwnIssueConversation issue={own()} />);
+    render(<OwnIssueConversation issue={own()} onClosed={() => undefined} />);
     await openConversation(session);
 
     await session.type(
@@ -130,7 +130,12 @@ describe("the reporter's conversation", () => {
 
   it("offers no field on a closed report, and says why", async () => {
     const session = userEvent.setup();
-    render(<OwnIssueConversation issue={own({ meaning: "DONE" })} />);
+    render(
+      <OwnIssueConversation
+        issue={own({ meaning: "DONE" })}
+        onClosed={() => undefined}
+      />,
+    );
     await openConversation(session);
 
     expect(
@@ -147,7 +152,7 @@ describe("the reporter's conversation", () => {
       failure: { status: 409, reason: "issue-closed" },
     });
     const session = userEvent.setup();
-    render(<OwnIssueConversation issue={own()} />);
+    render(<OwnIssueConversation issue={own()} onClosed={() => undefined} />);
     await openConversation(session);
 
     await session.type(
@@ -161,5 +166,26 @@ describe("the reporter's conversation", () => {
         "Anmälan avslutades medan du skrev. Ditt meddelande skickades inte.",
       ),
     ).toBeTruthy();
+  });
+
+  it("tells the list when the server says the report is closed", async () => {
+    sendOwnIssueMessage.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "issue-closed" },
+    });
+    const onClosed = vi.fn();
+    const session = userEvent.setup();
+    render(<OwnIssueConversation issue={own()} onClosed={onClosed} />);
+    await openConversation(session);
+
+    await session.type(
+      await screen.findByLabelText("Vatten: ditt meddelande"),
+      "Det läcker igen",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    await waitFor(() => {
+      expect(onClosed).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -7,6 +7,7 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { lockIssue } from "../issues/issue-lock";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import {
@@ -935,6 +936,23 @@ export class PurgeService implements OnModuleInit {
        * the board decides; a job rewriting prose on a schedule would be the
        * association quietly editing its own history.
        */
+      /*
+       * The locks a reporter's reply takes, taken first. A reply reads the
+       * issue's reporter, then inserts a message that names them; without the
+       * lock, one that read the reporter before this purge committed could
+       * insert after the detachments below have run, and the link the erasure
+       * is recorded as having cleared would survive. In identifier order, so
+       * two purges never wait on each other the other way round.
+       */
+      const reportedIssues = await tx.issue.findMany({
+        where: { reporterPersonId: personId },
+        select: { id: true },
+        orderBy: { id: "asc" },
+      });
+      for (const reported of reportedIssues) {
+        await lockIssue(tx, reported.id);
+      }
+
       const { count: issuesDetachedFromPerson } = await tx.issue.updateMany({
         where: { reporterPersonId: personId },
         data: {

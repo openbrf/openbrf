@@ -16,6 +16,9 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import type { Prisma } from "../generated/prisma/client";
+import { lockIssue } from "../issues/issue-lock";
+import { waitFor } from "../testing/advisory-locks";
+import { backendPid, waitersBehind } from "../testing/lock-waiters";
 import { lockLegalHold } from "./legal-hold-lock";
 import { LegalHoldService } from "./legal-hold.service";
 import { computePurgeDate } from "./purge-date";
@@ -1175,7 +1178,46 @@ describe("who the purge leaves alone", () => {
 
 describe("issues, documents, binder entries and files the person left behind", () => {
   it("detaches them from the person and keeps every one of them", async () => {
-    const outcome = await purge.purgePerson(people.referenced, dueAt);
+    /*
+     * Run while somebody else holds the lock on the person's issue, as a
+     * reply their reporter is writing does: the purge waits for it. One that
+     * did not could detach the message authors, finish, and leave the reply
+     * that commits afterwards still naming a person the erasure is recorded as
+     * having cleared.
+     */
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reached: (pid: number) => void = () => undefined;
+    const holding = new Promise<number>((resolve) => {
+      reached = resolve;
+    });
+    const reply = prisma.$transaction(
+      async (tx) => {
+        await lockIssue(tx, issueId);
+        reached(await backendPid(tx));
+        await gate;
+      },
+      { timeout: 30_000 },
+    );
+    const holder = await holding;
+    let finished = false;
+    const erasure = purge.purgePerson(people.referenced, dueAt).finally(() => {
+      finished = true;
+    });
+    let waited = false;
+    try {
+      await waitFor(
+        async () => finished || (await waitersBehind(prisma, holder)) > 0,
+      );
+      waited = !finished;
+    } finally {
+      release();
+      await reply;
+    }
+    expect(waited, "the purge waits for the issue's lock").toBe(true);
+    const outcome = await erasure;
 
     expect(outcome?.issuesDetachedFromPerson).toBe(1);
     expect(outcome?.documentsDetachedFromPerson).toBe(1);

@@ -3591,7 +3591,7 @@
       },
       "bylaws": {
         "title": "Ditt ansvar enligt stadgarna",
-        "body": "Tack för din anmälan. Enligt föreningens stadgar är det du som bostadsrättshavare som ansvarar för underhållet av det du beskriver, så det är du som ordnar och bekostar åtgärden. I stadgarna står vad som gäller för din lägenhet. Skriv här om du har frågor."
+        "body": "Tack för din anmälan. Enligt föreningens stadgar avgörs det om det är du som bostadsrättshavare eller föreningen som ansvarar för underhållet av det du beskriver. Om stadgarna lägger ansvaret på dig ordnar och bekostar du åtgärden. Skriv här om du har frågor."
       }
     },
     "report": {
@@ -3780,6 +3780,7 @@
       "loading": "Läser meddelandena...",
       "readFailed": "Meddelandena gick inte att läsa just nu. Stäng och öppna dem igen.",
       "readFailedHandler": "Meddelandena, anteckningarna eller filerna gick inte att läsa just nu. Stäng och öppna ärendet igen.",
+      "savedRepliesReadFailed": "Sparade svar gick inte att läsa just nu, så inget kan infogas. Stäng och öppna ärendet igen.",
       "empty": "Inga meddelanden än.",
       "emptyOwn": "Inga meddelanden än. Styrelsen eller förvaltaren svarar här.",
       "you": "Du",
@@ -3797,7 +3798,7 @@
       "send": "Skicka",
       "sending": "Skickar...",
       "closedOwn": "Anmälan är avslutad och tar inte emot fler meddelanden.",
-      "noReporter": "Ingen kan läsa ett svar på det här ärendet: det saknar anmälare, eller en adress att nå anmälaren på.",
+      "noReporter": "Ingen kan läsa ett svar på det här ärendet: anmälaren har inget konto att läsa det på, eller så saknas anmälare.",
       "savedReply": "Sparat svar",
       "savedReplyPick": "Infoga ett sparat svar...",
       "savedReplyTooLong": "Det sparade svaret ryms inte: meddelandet skulle bli längre än {{max}} tecken. Korta först ner det du har skrivit.",
