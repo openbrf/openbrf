@@ -27,6 +27,9 @@ import {
 } from "../testing/issue-fixtures";
 import { lockResponsibilityGuide } from "./issue-lock";
 import { ResponsibilityGuideService } from "./responsibility-guide.service";
+import { AuditLogService } from "../audit/audit-log.service";
+import { MemberChargeService } from "../charges/member-charge.service";
+import { FinanceEventsService } from "../finance-events/finance-events.service";
 
 /**
  * The client a guide reader is given, which runs `between` to its end after
@@ -684,6 +687,77 @@ describe("a charge made from an issue", () => {
       select: { issueId: true },
     });
     expect(stored.map((row) => row.issueId)).toEqual([issueId, issueId]);
+  });
+
+  it("withholds the charges when the protection lands between the issue's check and the charge read", async () => {
+    const was = await prisma.person.findUniqueOrThrow({
+      where: { id: shielded.personId },
+      select: { protectedPersonalData: true },
+    });
+    await prisma.person.update({
+      where: { id: shielded.personId },
+      data: { protectedPersonalData: false },
+    });
+    try {
+      const issueId = await filed("shielded-race", shielded.personId);
+      const onApartment = await chargeFrom(issueId, "430.00");
+      const onPerson = await chargeFrom(issueId, "440.00", {
+        personId: shielded.personId,
+      });
+
+      // The service reads through a client that enables the protection once
+      // the issue's charges are loaded: after the first check, before the one
+      // that masks the rows. Nothing is timed; the write lands in the gap.
+      let enabled = false;
+      const racing = new Proxy(prisma, {
+        get(db, property) {
+          const value: unknown = Reflect.get(db, property, db);
+          if (property !== "memberCharge") {
+            return typeof value === "function" ? value.bind(db) : value;
+          }
+          return new Proxy(value as object, {
+            get(table, method) {
+              const query: unknown = Reflect.get(table, method, table);
+              if (method !== "findMany" || typeof query !== "function") {
+                return query;
+              }
+              return async (...args: unknown[]) => {
+                const rows = await (
+                  query as (...a: unknown[]) => Promise<unknown>
+                ).apply(table, args);
+                await prisma.person.update({
+                  where: { id: shielded.personId },
+                  data: { protectedPersonalData: true },
+                });
+                enabled = true;
+                return rows;
+              };
+            },
+          });
+        },
+      });
+      const service = new MemberChargeService(
+        racing,
+        app.get(AuditLogService),
+        app.get(FinanceEventsService),
+      );
+
+      const read = await service.listForIssue(issueId);
+
+      expect(enabled).toBe(true);
+      // Withheld as a whole, not a row naming the party under the issue's url.
+      expect(read).toBeNull();
+      const stored = await prisma.memberCharge.findMany({
+        where: { id: { in: [onApartment.chargeId, onPerson.chargeId] } },
+        select: { issueId: true },
+      });
+      expect(stored.map((row) => row.issueId)).toEqual([issueId, issueId]);
+    } finally {
+      await prisma.person.update({
+        where: { id: shielded.personId },
+        data: { protectedPersonalData: was.protectedPersonalData },
+      });
+    }
   });
 
   it("keeps the charge when the issue it names is gone", async () => {

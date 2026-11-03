@@ -592,6 +592,13 @@ export class MemberChargeService {
       select: CHARGE_FIELDS,
     });
     const parties = await this.partiesFor(this.prisma, charges);
+    // Protection can be enabled between the check above and this read. The
+    // read that resolved the parties is the one the rows are masked by, so
+    // withhold the whole answer when it observed the protection: the request
+    // names the issue, and a row would pair it with the charged party.
+    if (parties.withheldIssueIds.has(issueId)) {
+      return null;
+    }
     return charges.map((charge) => toRow(charge, parties));
   }
 
