@@ -1774,6 +1774,7 @@ describe("what the document prints", () => {
           issueId: "issue-done",
           meaning: "DONE",
           outcome: "FIXED",
+          costResponsibility: "TENANT_OWNER",
           description: "Lampan blinkar",
         },
       ],
@@ -1797,7 +1798,10 @@ describe("what the document prints", () => {
         "Vem betalar: Bostadsrättshavaren",
       ),
     ).toBeTruthy();
-    expect(within(done as HTMLElement).queryByText(/Vem betalar/)).toBeNull();
+    // A closed issue keeps the payer it was closed with.
+    expect(
+      within(done as HTMLElement).getByText("Vem betalar: Bostadsrättshavaren"),
+    ).toBeTruthy();
   });
 
   it("names the capacity somebody was present at a general meeting in", async () => {

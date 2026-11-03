@@ -513,6 +513,7 @@ describe("the responsibility guide", () => {
     const summary = screen.getByText("Vem ansvarar för vad?", {
       selector: "summary",
     });
+    expect(summary.closest("details")?.hasAttribute("open")).toBe(false);
     await session.click(summary);
     expect(screen.getByText("Golvbrunn, rensning")).toBeTruthy();
     expect(screen.getByText("Bostadsrättshavaren")).toBeTruthy();
