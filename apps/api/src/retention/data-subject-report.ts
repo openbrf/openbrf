@@ -21,6 +21,7 @@
 
 import type {
   AuditChannelName,
+  IssueEntryAnswer,
   IssueOutcome,
   IssueStatusMeaning,
   IssueWaitingReason,
@@ -557,6 +558,18 @@ export interface ReportIssue {
   waitingReason: IssueWaitingReason | null;
   location: string | null;
   description: string;
+  /**
+   * What the person answered about entering their apartment (decision 29),
+   * while the issue is open: it is cleared when the issue closes. Null when
+   * they have not answered, and after closing.
+   */
+  entry: {
+    answer: IssueEntryAnswer;
+    note: string | null;
+    pets: boolean | null;
+    masterKey: boolean | null;
+    until: string | null;
+  } | null;
   reportedAt: string;
   photographs: number;
 }

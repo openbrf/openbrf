@@ -33,6 +33,7 @@ import {
   ISSUE_PRIORITY_LABEL,
   ISSUE_WAITING_REASON_LABEL,
 } from "./issue-labels";
+import { IssueFitHandling } from "./IssueFitHandling";
 import { IssueHandlerName, issueHandlerName } from "./IssueHandlerName";
 
 const HANDLING_FAILURES: Readonly<Record<string, TranslationKey>> = {
@@ -255,6 +256,8 @@ export function IssueHandling({
           void save.submit({ kind: "access", boardOnly });
         }}
       />
+
+      <IssueFitHandling issue={issue} onChanged={onChanged} />
 
       <section className="flex flex-col gap-2">
         <h3 className="text-label text-ink-muted uppercase">
@@ -540,6 +543,46 @@ function TimelineSentence({
           {step.boardOnly
             ? t("issues.timeline.boardOnly")
             : t("issues.timeline.everyHandler")}
+        </>
+      );
+    case "place":
+      return (
+        <>
+          {step.placeId === null
+            ? t("issues.timeline.placeRemoved")
+            : t("issues.timeline.placeSet")}
+        </>
+      );
+    case "entry":
+      return (
+        <>
+          {step.answer === null
+            ? t("issues.timeline.entryWithdrawn")
+            : step.byReporter
+              ? t("issues.timeline.entryAnsweredByResident", {
+                  answer: t(
+                    step.answer === "YES"
+                      ? "issues.entry.answerYes"
+                      : "issues.entry.answerNo",
+                  ),
+                })
+              : t("issues.timeline.entryRecorded", {
+                  answer: t(
+                    step.answer === "YES"
+                      ? "issues.entry.answerYes"
+                      : "issues.entry.answerNo",
+                  ),
+                })}
+        </>
+      );
+    case "finding":
+      return (
+        <>
+          {step.findingKind === null
+            ? t("issues.timeline.findingRemoved")
+            : t("issues.timeline.findingMarked", {
+                kind: t(`issues.fit.finding.kinds.${step.findingKind}`),
+              })}
         </>
       );
   }

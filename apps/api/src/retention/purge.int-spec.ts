@@ -74,6 +74,8 @@ const MOVED_IN = new Date("2010-01-01T00:00:00.000Z");
 
 const issueTypeId = `purge-type-${suffix}`;
 const issueId = `purge-issue-${suffix}`;
+/** An open issue of the same person's that holds an entry permission. */
+const entryIssueId = `purge-entry-issue-${suffix}`;
 /** A note on the same issue by somebody else, which the purge leaves alone. */
 const otherNoteId = `purge-note-other-${suffix}`;
 const OTHER_NOTE = "Besiktning bokad nästa vecka";
@@ -472,6 +474,22 @@ beforeAll(async () => {
       outcome: "FIXED",
     },
   });
+  // An open one, which can hold what its reporter said about letting somebody
+  // into their home (decision 29): the purge takes that with them.
+  await prisma.issue.create({
+    data: {
+      id: entryIssueId,
+      typeId: issueTypeId,
+      reporterPersonId: people.referenced,
+      description: ISSUE_DESCRIPTION,
+      statusId: issueType.statusIds.NEW,
+      entryAnswer: "YES",
+      entryNote: "Ring på hos grannen",
+      entryPets: true,
+      entryMasterKey: false,
+      entryUntil: new Date("2027-12-31"),
+    },
+  });
   // The conversation on it, as its reporter and as a handler writing a note:
   // each names its writer, and the words are the issue's.
   await prisma.issueMessage.create({
@@ -829,6 +847,7 @@ afterAll(async () => {
          */
         () => prisma.issuePhoto.deleteMany({ where: { issueId } }),
         () => prisma.issue.deleteMany({ where: { id: issueId } }),
+        () => prisma.issue.deleteMany({ where: { id: entryIssueId } }),
         () => prisma.issueType.deleteMany({ where: { id: issueTypeId } }),
         () => prisma.document.deleteMany({ where: { id: documentId } }),
         () =>
@@ -1230,7 +1249,7 @@ describe("issues, documents, binder entries and files the person left behind", (
     expect(waited, "the purge waits for the issue's lock").toBe(true);
     const outcome = await erasure;
 
-    expect(outcome?.issuesDetachedFromPerson).toBe(1);
+    expect(outcome?.issuesDetachedFromPerson).toBe(2);
     expect(outcome?.documentsDetachedFromPerson).toBe(1);
     expect(outcome?.binderEntriesDetachedFromPerson).toBe(1);
     // Three files: the document's own, the photograph on the issue and the
@@ -1251,6 +1270,30 @@ describe("issues, documents, binder entries and files the person left behind", (
       },
     });
     expect(issue.reporterPersonId).toBeNull();
+    // What the person said about letting somebody into their home goes with
+    // them, and the issue it was said on stays.
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: entryIssueId },
+        select: {
+          reporterPersonId: true,
+          description: true,
+          entryAnswer: true,
+          entryNote: true,
+          entryPets: true,
+          entryMasterKey: true,
+          entryUntil: true,
+        },
+      }),
+    ).toEqual({
+      reporterPersonId: null,
+      description: ISSUE_DESCRIPTION,
+      entryAnswer: null,
+      entryNote: null,
+      entryPets: null,
+      entryMasterKey: null,
+      entryUntil: null,
+    });
     // Unassigned and no longer entered by anybody in particular, and the issue
     // still says that a handler entered it.
     expect(issue.assigneePersonId).toBeNull();
@@ -1336,7 +1379,7 @@ describe("issues, documents, binder entries and files the person left behind", (
     const [entry] = await purgeEntriesFor(people.referenced);
 
     expect(entry?.context).toMatchObject({
-      issuesDetachedFromPerson: 1,
+      issuesDetachedFromPerson: 2,
       documentsDetachedFromPerson: 1,
       binderEntriesDetachedFromPerson: 1,
       mediaDetachedFromPerson: 3,

@@ -7,6 +7,7 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { NO_ENTRY_PERMISSION } from "../issues/issue-fit-views";
 import { lockIssue } from "../issues/issue-lock";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
@@ -960,6 +961,13 @@ export class PurgeService implements OnModuleInit {
           reporterNameCipher: null,
           reporterEmailCipher: null,
           reporterEmailIndex: null,
+          /*
+           * What the person said about getting into their home (decision 29)
+           * goes with them: it is their answer, and it is cleared when the
+           * issue closes in any case, so an open issue is the only one that
+           * can hold it. The description stays, as it does above.
+           */
+          ...NO_ENTRY_PERMISSION,
         },
       });
 

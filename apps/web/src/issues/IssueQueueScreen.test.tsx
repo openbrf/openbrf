@@ -31,6 +31,7 @@ vi.mock("../api/issues", async (importOriginal) => ({
   fetchIssueQueue: (input?: unknown) => fetchIssueQueue(input),
   fetchHandlerIssueTypes: () => fetchHandlerIssueTypes(),
   fetchOwnIssues: () => fetchOwnIssues(),
+  fetchIssuePlaceCounts: () => Promise.resolve({ ok: true, value: [] }),
   setIssueStatus: (input: unknown) => setIssueStatus(input),
 }));
 
@@ -63,8 +64,11 @@ function issue(
     typeId: "type-water",
     typeName: "Vatten",
     location: null,
+    place: null,
     description: "Det droppar i taket.",
     apartment: { id: "a-1", number: "1401", address: "Storgatan 12" },
+    entry: null,
+    finding: null,
     photos: [],
     reporter: { kind: "resident", personId: "p-1", name: "Rune Boende" },
     createdAt: "2026-08-20T08:00:00.000Z",

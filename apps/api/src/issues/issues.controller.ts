@@ -13,6 +13,9 @@ import {
 import {
   ISSUE_CLOSING_OUTCOMES,
   ISSUE_CONVERSATION_LIMITS,
+  ISSUE_ENTRY_ANSWERS,
+  ISSUE_FINDING_KINDS,
+  ISSUE_FIT_LIMITS,
   ISSUE_HANDLED_BY,
   ISSUE_PRIORITIES,
   ISSUE_REPORT_LIMITS,
@@ -37,6 +40,14 @@ import {
   type IssueNoteView,
   type ReporterIssueMessageView,
 } from "./issue-conversation.service";
+import type { IssueEntryView } from "./issue-fit-views";
+import { IssueFitService } from "./issue-fit.service";
+import {
+  type ConfiguredIssuePlaceView,
+  type IssuePlaceChoice,
+  type IssuePlaceCount,
+  IssuePlaceService,
+} from "./issue-place.service";
 import {
   type IssueSavedReplyView,
   IssueSavedReplyService,
@@ -66,6 +77,7 @@ const reportSchema = z.object({
   typeId: z.string().min(1),
   apartmentId: z.string().min(1).nullish(),
   location: z.string().max(ISSUE_REPORT_LIMITS.location).nullish(),
+  placeId: z.string().min(1).max(64).nullish(),
   /** The limit is shared with the form; see `ISSUE_REPORT_LIMITS`. */
   description: z.string().min(1).max(ISSUE_REPORT_LIMITS.description),
   /** The post in the feed the report is made from, when it is. */
@@ -95,6 +107,7 @@ const openSchema = z.strictObject({
   /** A residency the resident picker offered; absent for an internal issue. */
   residencyId: z.string().min(1).max(64).nullish(),
   location: z.string().max(ISSUE_REPORT_LIMITS.location).nullish(),
+  placeId: z.string().min(1).max(64).nullish(),
   description: z.string().trim().min(1).max(ISSUE_REPORT_LIMITS.description),
 });
 
@@ -131,6 +144,38 @@ const targetDateSchema = z.object({
 });
 
 const accessSchema = z.object({ boardOnly: z.boolean() });
+
+const calendarDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/**
+ * The resident's answer to the entry question (decision 29). Strict, so a field
+ * this route does not read - a door code sent as its own field, say - is
+ * refused and not dropped.
+ */
+const entrySchema = z.strictObject({
+  answer: z.enum(ISSUE_ENTRY_ANSWERS),
+  note: z.string().max(ISSUE_FIT_LIMITS.entryNote).nullish(),
+  pets: z.boolean().optional(),
+  masterKey: z.boolean().optional(),
+  until: calendarDay.nullish(),
+});
+
+const placeSchema = z.strictObject({
+  placeId: z.string().min(1).max(64).nullable(),
+});
+
+const findingSchema = z.strictObject({
+  kind: z.enum(ISSUE_FINDING_KINDS),
+  inspectedOn: calendarDay,
+  protocolAttachmentId: z.string().min(1).max(64),
+  targetDate: calendarDay,
+});
+
+const placeInputSchema = z.strictObject({
+  name: z.string().trim().min(1).max(ISSUE_FIT_LIMITS.placeName),
+  active: z.boolean().optional(),
+  sortOrder: z.coerce.number().int().min(0).max(999).optional(),
+});
 
 const typeSchema = z.object({
   name: z.string().trim().min(1).max(ISSUE_TYPE_LIMITS.name),
@@ -197,7 +242,18 @@ export class IssueReportController {
     private readonly issues: IssueService,
     private readonly types: IssueTypeService,
     private readonly conversation: IssueConversationService,
+    private readonly fit: IssueFitService,
+    private readonly places: IssuePlaceService,
   ) {}
+
+  /**
+   * The common-area places a report may name (decision 30): the association's
+   * short list, in the board's order. Names of rooms and yards, never homes.
+   */
+  @Get("places")
+  async offeredPlaces(): Promise<IssuePlaceChoice[]> {
+    return this.places.offered();
+  }
 
   /**
    * The types this account may report under.
@@ -273,6 +329,40 @@ export class IssueReportController {
   }
 
   /**
+   * Answers the entry question on one's own report (decision 29): whether the
+   * association or its contractor may enter the apartment it is about. A note
+   * that reads like a door code is refused.
+   */
+  @Put(":id/entry-permission")
+  async answerEntry(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<{ entry: IssueEntryView | null }> {
+    return {
+      entry: await this.fit.answerEntry(
+        requirePrincipal(request).personId,
+        id,
+        entrySchema.parse(body),
+      ),
+    };
+  }
+
+  /** Withdraws the answer to the entry question. */
+  @Delete(":id/entry-permission")
+  async withdrawEntry(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<{ entry: IssueEntryView | null }> {
+    return {
+      entry: await this.fit.withdrawEntry(
+        requirePrincipal(request).personId,
+        id,
+      ),
+    };
+  }
+
+  /**
    * The conversation on one's own report: one's own messages, and the
    * handlers' signed with a role and never a name (decision 19).
    */
@@ -320,7 +410,20 @@ export class IssueQueueController {
     private readonly residents: IssueResidentsService,
     private readonly conversation: IssueConversationService,
     private readonly savedReplies: IssueSavedReplyService,
+    private readonly fit: IssueFitService,
+    private readonly places: IssuePlaceService,
   ) {}
+
+  /**
+   * The common-area places with how many of the issues this reader handles
+   * name each (decision 30): the count that makes a repeat fault visible.
+   */
+  @Get("places")
+  async placeCounts(
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssuePlaceCount[]> {
+    return this.places.counts(actingPersonId(request));
+  }
 
   /**
    * Every type the reader handles, with its statuses, which is what a handler
@@ -345,9 +448,13 @@ export class IssueQueueController {
   async list(
     @Req() request: RequestWithPrincipal,
     @Query("meaning") meaning?: string,
+    @Query("placeId") placeId?: string,
   ): Promise<QueuedIssueView[]> {
     const filter = z.enum(ISSUE_STATUS_MEANINGS).optional().parse(meaning);
-    return this.issues.listQueue(actingPersonId(request), { meaning: filter });
+    return this.issues.listQueue(actingPersonId(request), {
+      meaning: filter,
+      placeId: z.string().min(1).max(64).optional().parse(placeId),
+    });
   }
 
   /** Opens an issue for a named resident, or with no reporter (decision 14). */
@@ -548,6 +655,74 @@ export class IssueQueueController {
     );
   }
 
+  /** Sets the common-area place the issue is about, or takes it off. */
+  @Put(":id/place")
+  async setPlace(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.fit.setPlace(
+      actingPersonId(request),
+      id,
+      placeSchema.parse(body).placeId,
+    );
+  }
+
+  /**
+   * Records the resident's answer to the entry question, given to a handler
+   * by telephone or at the door (decision 29).
+   */
+  @Put(":id/entry-permission")
+  async answerEntry(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<{ entry: IssueEntryView | null }> {
+    return {
+      entry: await this.fit.answerEntryAsHandler(
+        actingPersonId(request),
+        id,
+        entrySchema.parse(body),
+      ),
+    };
+  }
+
+  @Delete(":id/entry-permission")
+  async withdrawEntry(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<{ entry: IssueEntryView | null }> {
+    return {
+      entry: await this.fit.withdrawEntryAsHandler(actingPersonId(request), id),
+    };
+  }
+
+  /**
+   * Marks the issue as a finding of an OVK, lift or fire inspection, with its
+   * protocol and a real target date (decision 31).
+   */
+  @Put(":id/finding")
+  async markFinding(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.fit.markFinding(
+      actingPersonId(request),
+      id,
+      findingSchema.parse(body),
+    );
+  }
+
+  @Delete(":id/finding")
+  async removeFinding(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.fit.removeFinding(actingPersonId(request), id);
+  }
+
   @Post(":id/status")
   async setStatus(
     @Param("id") id: string,
@@ -676,5 +851,41 @@ export class IssueSavedReplyAdminController {
   @HttpCode(204)
   async remove(@Param("id") id: string): Promise<void> {
     await this.savedReplies.remove(id);
+  }
+}
+
+/**
+ * The association's list of common-area places (decision 30), which the board
+ * keeps. issues:configure, as the type catalogue is: the list is the board's
+ * vocabulary for its building.
+ */
+@Controller("api/issue-places")
+@RequireCapability("issues:configure")
+export class IssuePlaceAdminController {
+  constructor(private readonly places: IssuePlaceService) {}
+
+  @Get()
+  async list(): Promise<ConfiguredIssuePlaceView[]> {
+    return this.places.configured();
+  }
+
+  @Post()
+  @HttpCode(201)
+  async create(@Body() body: unknown): Promise<ConfiguredIssuePlaceView> {
+    return this.places.create(placeInputSchema.parse(body));
+  }
+
+  @Put(":id")
+  async update(
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ): Promise<ConfiguredIssuePlaceView> {
+    return this.places.update(id, placeInputSchema.parse(body));
+  }
+
+  @Delete(":id")
+  @HttpCode(204)
+  async remove(@Param("id") id: string): Promise<void> {
+    await this.places.remove(id);
   }
 }

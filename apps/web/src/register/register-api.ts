@@ -510,6 +510,11 @@ export type ReportAuditAction =
   | "ISSUE_ACCESS_CHANGED"
   | "ISSUE_MESSAGE_SENT"
   | "ISSUE_NOTE_ADDED"
+  | "ISSUE_ENTRY_PERMISSION_SET"
+  | "ISSUE_ENTRY_PERMISSION_REMOVED"
+  | "ISSUE_PLACE_CHANGED"
+  | "ISSUE_FINDING_MARKED"
+  | "ISSUE_FINDING_REMOVED"
   | "ISSUE_RESIDENTS_LISTED"
   | "MOVE_IN_RECORDED"
   | "MOVE_OUT_RECORDED"
@@ -821,6 +826,14 @@ export interface DataSubjectReport {
     waitingReason: IssueWaitingReason | null;
     location: string | null;
     description: string;
+    /** The answer about entering their apartment, while the issue is open. */
+    entry: {
+      answer: "YES" | "NO";
+      note: string | null;
+      pets: boolean | null;
+      masterKey: boolean | null;
+      until: string | null;
+    } | null;
     reportedAt: string;
     photographs: number;
   }[];

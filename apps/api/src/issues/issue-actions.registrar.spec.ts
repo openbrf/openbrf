@@ -36,8 +36,10 @@ const QUEUED: QueuedIssueView = {
   typeName: "Vatten",
   typeReporters: ["PUBLIC", "RESIDENTS"],
   location: "Badrummet",
+  place: null,
   description: "Det droppar från taket.",
   apartment: { id: "apartment-1", number: "1001", address: "Storgatan 12" },
+  entry: null,
   photos: [
     {
       id: "photo-1",
@@ -59,6 +61,7 @@ const QUEUED: QueuedIssueView = {
   assignee: null,
   enteredBy: null,
   boardOnly: false,
+  finding: null,
 };
 
 const EXTERNAL: QueuedIssueView = {

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import {
   attachIssuePhoto,
   type IssueApartment,
+  type IssuePlaceChoice,
   type ReportableIssueType,
   reportIssue,
 } from "../api/issues";
@@ -42,6 +43,7 @@ const REPORT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "post-not-found": "issues.report.errors.postNotFound",
   "post-not-reportable": "issues.report.errors.postNotReportable",
   "post-already-reported": "issues.report.errors.postAlreadyReported",
+  "place-not-found": "issues.report.errors.placeNotFound",
   "invalid-body": "issues.report.errors.unknown",
 };
 
@@ -56,6 +58,11 @@ export interface ReportIssuePanelProps {
   types: readonly ReportableIssueType[];
   apartments: readonly IssueApartment[];
   /**
+   * The association's common-area places (decision 30), offered beside the
+   * free-text location when the problem is not in a home. Empty offers none.
+   */
+  places?: readonly IssuePlaceChoice[];
+  /**
    * What the form opens with when the report is made from a post in the feed
    * ("Gör felanmälan"): the post's text and images, and the post the report is
    * linked to. The caller mounts the form again when this changes.
@@ -68,7 +75,13 @@ export interface ReportIssuePanelProps {
   onReported: (fromPostId: string | null) => void;
 }
 
-const EMPTY = { typeId: "", apartmentId: "", location: "", description: "" };
+const EMPTY = {
+  typeId: "",
+  apartmentId: "",
+  placeId: "",
+  location: "",
+  description: "",
+};
 
 /**
  * The report form.
@@ -92,6 +105,7 @@ const EMPTY = { typeId: "", apartmentId: "", location: "", description: "" };
 export function ReportIssuePanel({
   types,
   apartments,
+  places = [],
   prefill,
   onReported,
 }: ReportIssuePanelProps): ReactElement {
@@ -131,6 +145,7 @@ export function ReportIssuePanel({
     async (input: {
       typeId: string;
       apartmentId: string | null;
+      placeId: string | null;
       location: string | null;
       description: string;
       photos: readonly File[];
@@ -139,6 +154,7 @@ export function ReportIssuePanel({
       const filed = await reportIssue({
         typeId: input.typeId,
         apartmentId: input.apartmentId,
+        placeId: input.placeId,
         location: input.location,
         description: input.description,
         ...(input.postId === null ? {} : { postId: input.postId }),
@@ -174,6 +190,10 @@ export function ReportIssuePanel({
     void submit.submit({
       typeId: draft.typeId,
       apartmentId: draft.apartmentId === "" ? null : draft.apartmentId,
+      // A place is for what is not in a home: choosing an apartment leaves it
+      // out, so a report never carries both.
+      placeId:
+        draft.apartmentId !== "" || draft.placeId === "" ? null : draft.placeId,
       location: draft.location.trim() === "" ? null : draft.location.trim(),
       description: draft.description.trim(),
       photos,
@@ -278,6 +298,28 @@ export function ReportIssuePanel({
                 </option>
               ))}
             </select>
+          </label>
+        )}
+
+        {places.length === 0 || draft.apartmentId !== "" ? null : (
+          <label className={LABEL}>
+            {t("issues.report.place")}
+            <select
+              name="issuePlace"
+              value={draft.placeId}
+              onChange={(event) => {
+                setDraft({ ...draft, placeId: event.target.value });
+              }}
+              className={FIELD}
+            >
+              <option value="">{t("issues.report.placeNone")}</option>
+              {places.map((place) => (
+                <option key={place.id} value={place.id}>
+                  {place.name}
+                </option>
+              ))}
+            </select>
+            <span className={HINT}>{t("issues.report.placeHint")}</span>
           </label>
         )}
 

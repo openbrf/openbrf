@@ -52,6 +52,20 @@ import { DomainError } from "../http/domain-error";
  * sits and never the value. `too-many-attachments` and `too-many-saved-replies`
  * are the bounds in `ISSUE_CONVERSATION_LIMITS`, and `saved-reply-not-found` a
  * saved reply that is not there.
+ *
+ * The Swedish-fit reasons (decisions 29 to 31). `place-not-found` is a place
+ * that is not on the list or is switched off, answered alike. `place-name-taken`
+ * is a name the list has under any capitalisation, `place-name-apartment` a
+ * name that is an apartment, which the list never holds, `place-in-use` a
+ * removal of a place an issue names and `too-many-places` the bound in
+ * `ISSUE_FIT_LIMITS`. `entry-needs-apartment` is an entry permission on an
+ * issue that is not about an apartment, `entry-until-past` an expiry before
+ * today, and `door-code` an entry note that reads like a door code, refused
+ * with where it starts and never the value. `finding-needs-target-date` and
+ * `finding-target-date-too-late` hold a finding to a real target date and a lift to
+ * its one month; `finding-protocol-not-found` is a protocol that is not one of
+ * the issue's own handler files, and `date-invalid` a date the calendar does
+ * not have.
  */
 export type IssueReason =
   | "type-not-found"
@@ -77,14 +91,26 @@ export type IssueReason =
   | "personal-identity-number"
   | "too-many-attachments"
   | "saved-reply-not-found"
-  | "too-many-saved-replies";
+  | "too-many-saved-replies"
+  | "place-not-found"
+  | "place-name-taken"
+  | "place-name-apartment"
+  | "place-in-use"
+  | "too-many-places"
+  | "entry-needs-apartment"
+  | "entry-until-past"
+  | "door-code"
+  | "finding-needs-target-date"
+  | "finding-target-date-too-late"
+  | "finding-protocol-not-found"
+  | "date-invalid";
 
 /**
  * Where in a message, a note or a saved reply a refused value sits: a part and
  * an offset, never the value.
  */
 export interface IssueTextLocation {
-  part: "body" | "title";
+  part: "body" | "title" | "entryNote";
   offset: number;
 }
 
@@ -106,7 +132,11 @@ export class IssueError extends DomainError {
       reason === "no-reporter" ||
       reason === "post-already-reported" ||
       reason === "default-status-required" ||
-      reason === "too-many-statuses"
+      reason === "too-many-statuses" ||
+      reason === "place-name-taken" ||
+      reason === "place-in-use" ||
+      reason === "too-many-places" ||
+      reason === "entry-needs-apartment"
         ? HttpStatus.CONFLICT
         : reason === "public-reporting-disabled"
           ? HttpStatus.FORBIDDEN
@@ -116,7 +146,13 @@ export class IssueError extends DomainError {
               reason === "status-detail-not-applicable" ||
               reason === "assignee-not-a-handler" ||
               reason === "target-date-invalid" ||
-              reason === "personal-identity-number"
+              reason === "personal-identity-number" ||
+              reason === "place-name-apartment" ||
+              reason === "entry-until-past" ||
+              reason === "date-invalid" ||
+              reason === "door-code" ||
+              reason === "finding-needs-target-date" ||
+              reason === "finding-target-date-too-late"
             ? HttpStatus.UNPROCESSABLE_ENTITY
             : HttpStatus.NOT_FOUND;
   }

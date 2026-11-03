@@ -4,12 +4,16 @@ import {
   compareLocalDays,
   dateColumnOf,
   formatDateColumn,
+  ISSUE_ENTRY_ANSWERS,
+  ISSUE_FINDING_KINDS,
   ISSUE_OUTCOMES,
   ISSUE_PRIORITIES,
   ISSUE_STATUS_LIMITS,
   ISSUE_STATUS_MEANINGS,
   ISSUE_WAITING_REASONS,
   type IssueClosingOutcome,
+  type IssueEntryAnswer,
+  type IssueFindingKind,
   type IssueHandledBy,
   type IssueOutcome,
   type IssuePriority,
@@ -41,6 +45,18 @@ import {
   readIssueHandlers,
   typesHandledWhere,
 } from "./issue-handlers";
+import { requireFindingTargetDate } from "./issue-finding-rule";
+import {
+  type EntryColumns,
+  type FindingRecord,
+  FINDING_SELECT,
+  type IssueEntryView,
+  type IssueFindingView,
+  type IssuePlaceRef,
+  NO_ENTRY_PERMISSION,
+  toEntryView,
+  toFindingView,
+} from "./issue-fit-views";
 import { type IssueTypeView, IssueTypeService } from "./issue-type.service";
 import { lockIssue, lockIssueForHandling, lockIssueType } from "./issue-lock";
 import { IssueError } from "./issue.error";
@@ -115,8 +131,19 @@ export interface OwnIssueView {
   typeId: string;
   typeName: string;
   location: string | null;
+  /**
+   * The common-area place it is about, from the association's list (decision
+   * 30), or null.
+   */
+  place: IssuePlaceRef | null;
   description: string;
   apartment: IssueApartmentView | null;
+  /**
+   * The resident's entry permission (decision 29), or null while nobody has
+   * answered. The reporter reads their own answer, and the handlers read it to
+   * send someone to the door.
+   */
+  entry: IssueEntryView | null;
   photos: IssuePhotoView[];
   /**
    * Whether a handler opened it on the reporter's behalf (decision 14). The
@@ -186,6 +213,8 @@ export type QueuedIssueView = OwnIssueView & {
   enteredBy: IssueHandlerView | null;
   /** Whether it is closed to every handler but the board on its own. */
   boardOnly: boolean;
+  /** The inspection it is a finding of (decision 31), or null. */
+  finding: IssueFindingView | null;
 } & (
     | { reporter: Exclude<IssueReporterView, { kind: "protected" }> }
     | {
@@ -216,6 +245,8 @@ export interface IssueQueueFilter {
   /** The meaning of the status the issue stands in. */
   meaning?: IssueStatusMeaning;
   typeId?: string;
+  /** The common-area place the issue is about (decision 30). */
+  placeId?: string;
   /** A group that may report the issue's type. */
   reporter?: IssueReporterGroup;
 }
@@ -250,6 +281,8 @@ export interface OpenIssueInput {
    */
   residencyId?: string | null;
   location?: string | null;
+  /** A common-area place from the association's list (decision 30). */
+  placeId?: string | null;
   description: string;
 }
 
@@ -292,6 +325,26 @@ export type IssueTimelineStep = {
   | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
+  | {
+      /** The common-area place set or changed; null when taken off. */
+      kind: "place";
+      placeId: string | null;
+    }
+  | {
+      /**
+       * The entry permission given (its answer) or withdrawn (null). By the
+       * reporter themselves, the step has no actor: a reporter is never named
+       * on the timeline.
+       */
+      kind: "entry";
+      answer: IssueEntryAnswer | null;
+      byReporter: boolean;
+    }
+  | {
+      /** Marked as a finding of this kind, or taken off (null). */
+      kind: "finding";
+      findingKind: IssueFindingKind | null;
+    }
 );
 
 /**
@@ -391,6 +444,8 @@ export interface ReportIssueInput {
   /** The reporter's own apartment, when the issue is in one. */
   apartmentId?: string | null;
   location?: string | null;
+  /** A common-area place from the association's list (decision 30). */
+  placeId?: string | null;
   description: string;
   /**
    * The post in the feed the report is made from ("Gör felanmälan"), when it
@@ -489,6 +544,7 @@ export class IssueService {
       statusId: type.newStatusId,
       reporterPersonId: principal.personId,
       apartmentId,
+      placeId: input.placeId ?? null,
       location: input.location ?? null,
       description: input.description,
     };
@@ -642,6 +698,7 @@ export class IssueService {
         enteredByPersonId: principal.personId,
         enteredByHandler: true,
         apartmentId: resident?.apartmentId ?? null,
+        placeId: input.placeId ?? null,
         location:
           input.location == null || input.location.trim() === ""
             ? null
@@ -688,7 +745,8 @@ export class IssueService {
       include: ISSUE_INCLUDE,
     });
 
-    return issues.map((issue) => toOwnView(issue));
+    const today = localDayOf(new Date());
+    return issues.map((issue) => toOwnView(issue, today));
   }
 
   /**
@@ -721,7 +779,7 @@ export class IssueService {
    */
   async listQueue(
     readerPersonId: string,
-    filter?: { meaning?: IssueStatusMeaning },
+    filter?: { meaning?: IssueStatusMeaning; placeId?: string },
   ): Promise<QueuedIssueView[]> {
     const scope = await this.readerScope(
       this.prisma,
@@ -729,7 +787,12 @@ export class IssueService {
       new Date(),
     );
     const issues = await this.readQueue(
-      issuesHandledWhere(scope),
+      {
+        AND: [
+          issuesHandledWhere(scope),
+          queueWhere({ placeId: filter?.placeId }),
+        ],
+      },
       meaningsOf(filter?.meaning),
       null,
       undefined,
@@ -892,6 +955,7 @@ export class IssueService {
           closedAt: true,
           waitingReason: true,
           outcome: true,
+          entryAnswer: true,
           status: { select: { id: true, meaning: true } },
         },
       });
@@ -925,6 +989,11 @@ export class IssueService {
         next.waitingReason !== existing.waitingReason ||
         next.outcome !== existing.outcome
       ) {
+        // Said on the entry so the timeline and the access report can show that
+        // an entry permission was cleared by the closing, as a fact and not the
+        // permission's content.
+        const clearedEntry =
+          existing.entryAnswer !== null && next.entryAnswer === null;
         await this.audit.record(
           {
             action: "ISSUE_STATUS_CHANGED",
@@ -941,6 +1010,7 @@ export class IssueService {
                 ? {}
                 : { waitingReason: next.waitingReason }),
               ...(next.outcome === null ? {} : { outcome: next.outcome }),
+              ...(clearedEntry ? { entryPermissionCleared: true } : {}),
             },
           },
           tx,
@@ -1075,6 +1145,15 @@ export class IssueService {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
       const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      // The target date of a finding is held to the inspection's rule, and a
+      // finding is never left without one.
+      if (existing.finding !== null) {
+        requireFindingTargetDate(
+          existing.finding.kind,
+          formatDateColumn(existing.finding.inspectedOn) ?? "",
+          targetDate,
+        );
+      }
       const from = formatDateColumn(existing.targetDate);
       const to = formatDateColumn(column);
       if (from !== to) {
@@ -1229,8 +1308,18 @@ export class IssueService {
       },
     });
 
+    // The reporter's own act - answering the entry question - is shown as the
+    // reporter's and never by name: the queue row says who reported the issue,
+    // masked as a reporter is.
+    const byReporter = (entry: (typeof entries)[number]): boolean =>
+      typeof entry.context === "object" &&
+      entry.context !== null &&
+      !Array.isArray(entry.context) &&
+      entry.context.byReporter === true;
     const viewOf = await readAuthors(this.prisma, [
-      ...entries.map((entry) => entry.actorPersonId),
+      ...entries
+        .filter((entry) => !byReporter(entry))
+        .map((entry) => entry.actorPersonId),
       ...entries
         .filter((entry) => entry.action === "ISSUE_ASSIGNED")
         .map((entry) => entry.targetPersonId),
@@ -1247,7 +1336,11 @@ export class IssueService {
     return [
       ...filed,
       ...entries.map((entry) =>
-        timelineStep(entry, person(entry.actorPersonId), person),
+        timelineStep(
+          entry,
+          byReporter(entry) ? null : person(entry.actorPersonId),
+          person,
+        ),
       ),
     ];
   }
@@ -1396,6 +1489,17 @@ export class IssueService {
     if (type === null) {
       throw new IssueError("No such issue type.", "type-not-found");
     }
+    if (data.placeId != null) {
+      // A place the board switched off is not offered, so a report naming it
+      // is answered as one naming a place that is not there.
+      const place = await tx.issuePlace.findFirst({
+        where: { id: data.placeId, active: true },
+        select: { id: true },
+      });
+      if (place === null) {
+        throw new IssueError("No such place.", "place-not-found");
+      }
+    }
     const assigneePersonId =
       type.defaultAssigneePersonId !== null &&
       (await handlesIssues(
@@ -1465,6 +1569,7 @@ export class IssueService {
         targetDate: true,
         createdAt: true,
         type: { select: { handledBy: true } },
+        finding: { select: { kind: true, inspectedOn: true } },
       },
     });
     if (issue === null) {
@@ -1790,6 +1895,8 @@ const ISSUE_INCLUDE = {
     select: { id: true, label: true, meaning: true, sortOrder: true },
   },
   apartment: { select: APARTMENT_SELECT },
+  place: { select: { id: true, name: true } },
+  finding: { select: FINDING_SELECT },
   photos: {
     orderBy: { sortOrder: "asc" },
     select: {
@@ -1822,6 +1929,7 @@ function meaningsOf(
 function queueWhere(filter: IssueQueueFilter): Prisma.IssueWhereInput {
   return {
     ...(filter.typeId === undefined ? {} : { typeId: filter.typeId }),
+    ...(filter.placeId === undefined ? {} : { placeId: filter.placeId }),
     ...(filter.reporter === undefined
       ? {}
       : { type: { reporters: { has: filter.reporter } } }),
@@ -1885,7 +1993,7 @@ function nextState(
   waitingReason: IssueWaitingReason | null;
   outcome: IssueOutcome | null;
   closedAt: Date | null;
-} {
+} & Partial<typeof NO_ENTRY_PERMISSION> {
   if (target.meaning !== "WAITING" && move.waitingReason !== undefined) {
     throw new IssueError(
       "A waiting reason belongs to a status that means waiting.",
@@ -1917,6 +2025,14 @@ function nextState(
     waitingReason: move.waitingReason ?? null,
     outcome,
     closedAt: closing ? (existing.closedAt ?? new Date()) : null,
+    /*
+     * The entry permission is cleared in the transaction that closes the issue
+     * (decision 29): what a resident said about getting into their home has no
+     * business outliving the work it was given for. A move between two DONE
+     * statuses finds it already gone, and a database constraint refuses a
+     * closed issue that holds one.
+     */
+    ...(closing ? NO_ENTRY_PERMISSION : {}),
   };
 }
 
@@ -1981,7 +2097,7 @@ function typeRemoved(cause: unknown): never {
   throw cause;
 }
 
-interface IssueRecord {
+interface IssueRecord extends EntryColumns {
   id: string;
   priority: IssuePriority;
   targetDate: Date | null;
@@ -2009,6 +2125,8 @@ interface IssueRecord {
     handledBy: IssueHandledBy;
   };
   apartment: ApartmentRecord | null;
+  place: IssuePlaceRef | null;
+  finding: FindingRecord | null;
   photos: {
     id: string;
     file: {
@@ -2035,7 +2153,7 @@ function toQueuedView(
 ): QueuedIssueView {
   const targetDate = formatDateColumn(issue.targetDate);
   const queued = {
-    ...toOwnView(issue),
+    ...toOwnView(issue, today),
     status: { id: issue.status.id, label: issue.status.label },
     waitingReason: issue.waitingReason,
     outcome: issue.outcome,
@@ -2051,6 +2169,7 @@ function toQueuedView(
     assignee: handlers.assignee,
     enteredBy: handlers.enteredBy,
     boardOnly: issue.boardOnly,
+    finding: toFindingView(issue.finding),
   };
   if (reporter.kind === "protected") {
     return { ...queued, apartment: null, reporter };
@@ -2058,16 +2177,18 @@ function toQueuedView(
   return { ...queued, reporter };
 }
 
-function toOwnView(issue: IssueRecord): OwnIssueView {
+function toOwnView(issue: IssueRecord, today: LocalDay): OwnIssueView {
   return {
     id: issue.id,
     meaning: issue.status.meaning,
     typeId: issue.type.id,
     typeName: issue.type.name,
     location: issue.location,
+    place: issue.place,
     description: issue.description,
     apartment:
       issue.apartment === null ? null : toApartmentView(issue.apartment),
+    entry: toEntryView(issue, today),
     enteredByHandler: issue.enteredByHandler,
     photos: issue.photos.map((photo) => ({
       id: photo.id,
@@ -2089,6 +2210,11 @@ const TIMELINE_ACTIONS = [
   "ISSUE_PRIORITY_CHANGED",
   "ISSUE_TARGET_DATE_CHANGED",
   "ISSUE_ACCESS_CHANGED",
+  "ISSUE_PLACE_CHANGED",
+  "ISSUE_ENTRY_PERMISSION_SET",
+  "ISSUE_ENTRY_PERMISSION_REMOVED",
+  "ISSUE_FINDING_MARKED",
+  "ISSUE_FINDING_REMOVED",
 ] as const satisfies readonly AuditAction[];
 
 /**
@@ -2155,6 +2281,33 @@ function timelineStep(
         actor,
         boardOnly: context.boardOnly === true,
       };
+    case "ISSUE_PLACE_CHANGED":
+      return { kind: "place", at, actor, placeId: text("to") };
+    case "ISSUE_ENTRY_PERMISSION_SET":
+      return {
+        kind: "entry",
+        at,
+        actor,
+        answer: oneOf(text("answer"), ISSUE_ENTRY_ANSWERS),
+        byReporter: context.byReporter === true,
+      };
+    case "ISSUE_ENTRY_PERMISSION_REMOVED":
+      return {
+        kind: "entry",
+        at,
+        actor,
+        answer: null,
+        byReporter: context.byReporter === true,
+      };
+    case "ISSUE_FINDING_MARKED":
+      return {
+        kind: "finding",
+        at,
+        actor,
+        findingKind: oneOf(text("kind"), ISSUE_FINDING_KINDS),
+      };
+    case "ISSUE_FINDING_REMOVED":
+      return { kind: "finding", at, actor, findingKind: null };
     default:
       return {
         kind: "status",

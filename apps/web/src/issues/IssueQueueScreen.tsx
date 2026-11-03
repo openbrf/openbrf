@@ -10,12 +10,15 @@ import { useTranslation } from "react-i18next";
 import type { Viewer } from "../api/instance";
 import {
   fetchHandlerIssueTypes,
+  fetchIssuePlaceCounts,
   fetchIssueQueue,
+  type IssuePlaceCount,
   type IssueTypeView,
   type QueuedIssue,
 } from "../api/issues";
 import { BoardPage } from "../ui/BoardPage";
 import { LoadFailure } from "../ui/LoadFailure";
+import { IssuePlaceCountsPanel } from "./IssuePlaceCountsPanel";
 import { IssueQueuePanel } from "./IssueQueuePanel";
 import { OpenIssuePanel } from "./OpenIssuePanel";
 
@@ -33,6 +36,11 @@ interface Loaded {
    * the panel says that nothing can be moved.
    */
   types: readonly IssueTypeView[] | null;
+  /**
+   * The common-area places with their counts. A failure here leaves the queue
+   * as it is, and the panel is not drawn.
+   */
+  places: readonly IssuePlaceCount[];
   loadFailed: boolean;
 }
 
@@ -40,6 +48,7 @@ const EMPTY: Loaded = {
   ready: false,
   queue: [],
   types: null,
+  places: [],
   loadFailed: false,
 };
 
@@ -63,6 +72,8 @@ export function IssueQueueScreen({
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   const currentRead = useRef(0);
+  /** The place the queue is narrowed to, or "" for all of it. */
+  const [placeId, setPlaceId] = useState("");
 
   /**
    * Reads, and applies the answer only while it is still the newest one, on
@@ -77,19 +88,22 @@ export function IssueQueueScreen({
     // Read together and applied together, so a row is never drawn against
     // the statuses of an earlier read: a status the board added since would
     // be missing from its form.
-    void Promise.all([fetchIssueQueue(), fetchHandlerIssueTypes()]).then(
-      ([queue, types]) => {
-        if (version === currentRead.current) {
-          setLoaded({
-            ready: true,
-            queue: queue.ok ? queue.value : [],
-            types: types.ok ? types.value : null,
-            loadFailed: !queue.ok,
-          });
-        }
-      },
-    );
-  }, [canHandle]);
+    void Promise.all([
+      fetchIssueQueue(placeId === "" ? undefined : { placeId }),
+      fetchHandlerIssueTypes(),
+      fetchIssuePlaceCounts(),
+    ]).then(([queue, types, places]) => {
+      if (version === currentRead.current) {
+        setLoaded({
+          ready: true,
+          queue: queue.ok ? queue.value : [],
+          types: types.ok ? types.value : null,
+          places: places.ok ? places.value : [],
+          loadFailed: !queue.ok,
+        });
+      }
+    });
+  }, [canHandle, placeId]);
 
   useEffect(() => {
     reload();
@@ -100,7 +114,7 @@ export function IssueQueueScreen({
     };
   }, [reload]);
 
-  const { ready, queue, types, loadFailed } = loaded;
+  const { ready, queue, types, places, loadFailed } = loaded;
 
   return (
     <BoardPage
@@ -124,6 +138,14 @@ export function IssueQueueScreen({
        */}
       {ready && !loadFailed && types !== null ? (
         <OpenIssuePanel types={types} onOpened={reload} />
+      ) : null}
+
+      {ready && !loadFailed ? (
+        <IssuePlaceCountsPanel
+          places={places}
+          selected={placeId}
+          onSelect={setPlaceId}
+        />
       ) : null}
 
       {ready && !loadFailed ? (

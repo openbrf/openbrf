@@ -15,6 +15,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
 import type { DataProtectionSeedService } from "../data-protection/data-protection-seed.service";
+import type { IssuePlaceService } from "../issues/issue-place.service";
 import type { IssueSavedReplyService } from "../issues/issue-saved-reply.service";
 import type { IssueTypeService } from "../issues/issue-type.service";
 import type { PagesService } from "../site/pages.service";
@@ -96,6 +97,7 @@ interface Fakes {
   dataProtection: { seedIfConfigured: ReturnType<typeof vi.fn> };
   issueTypes: { seedDefaultTypes: ReturnType<typeof vi.fn> };
   issueSavedReplies: { seedDefaults: ReturnType<typeof vi.fn> };
+  issuePlaces: { seedDefaults: ReturnType<typeof vi.fn> };
   encryption: FieldEncryptionService;
   claims: SetupClaimService;
 }
@@ -169,6 +171,10 @@ function build(
     seedDefaults: vi.fn().mockResolvedValue({ created: 2 }),
   };
 
+  const issuePlaces = {
+    seedDefaults: vi.fn().mockResolvedValue({ created: 9 }),
+  };
+
   const encryption = new FieldEncryptionService(TEST_ENV);
   // The real claim service over the same fake database, so the unclaimed rule
   // it holds is the one these tests turn the knobs of.
@@ -188,6 +194,7 @@ function build(
     claims,
     issueTypes as unknown as IssueTypeService,
     issueSavedReplies as unknown as IssueSavedReplyService,
+    issuePlaces as unknown as IssuePlaceService,
     TEST_ENV,
   );
 
@@ -201,6 +208,7 @@ function build(
     dataProtection,
     issueTypes,
     issueSavedReplies,
+    issuePlaces,
     encryption,
     claims,
   };
@@ -620,6 +628,39 @@ describe("completing setup", () => {
     await service.complete("person-1");
 
     expect(issueSavedReplies.seedDefaults).not.toHaveBeenCalled();
+  });
+
+  it("writes the starting common-area places, in the association's language", async () => {
+    // Decision 30. None of them is an apartment.
+    const { service, issuePlaces } = build();
+
+    await service.complete("person-1");
+
+    expect(issuePlaces.seedDefaults).toHaveBeenCalledTimes(1);
+    const [translator] = issuePlaces.seedDefaults.mock.calls[0] as [
+      (key: string) => string,
+    ];
+    expect(translator("issues.seededPlaces.laundryRoom")).toBe("Tvättstuga");
+  });
+
+  it("does not write the starting places again on a re-completion", async () => {
+    const { service, issuePlaces } = build({
+      accounts: 1,
+      setupCompletedAt: new Date("2026-08-01T10:00:00Z"),
+    });
+
+    await service.complete("person-1");
+
+    expect(issuePlaces.seedDefaults).not.toHaveBeenCalled();
+  });
+
+  it("still completes when the starting places cannot be written", async () => {
+    const { service, issuePlaces } = build();
+    issuePlaces.seedDefaults.mockRejectedValue(new Error("no database"));
+
+    await expect(service.complete("person-1")).resolves.toMatchObject({
+      completedAt: expect.any(Date) as Date,
+    });
   });
 
   it("still completes when the issue types cannot be written", async () => {

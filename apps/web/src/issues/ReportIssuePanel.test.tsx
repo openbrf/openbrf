@@ -4,7 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
-import type { IssueApartment, ReportableIssueType } from "../api/issues";
+import type {
+  IssueApartment,
+  IssuePlaceChoice,
+  ReportableIssueType,
+} from "../api/issues";
 import { ReportIssuePanel } from "./ReportIssuePanel";
 
 /**
@@ -38,9 +42,15 @@ const APARTMENTS: readonly IssueApartment[] = [
   { id: "apartment-1", number: "1401", address: "Storgatan 12" },
 ];
 
+const PLACES: readonly IssuePlaceChoice[] = [
+  { id: "place-laundry", name: "Tvättstuga" },
+  { id: "place-lift", name: "Hiss" },
+];
+
 function renderPanel(
   overrides: {
     types?: readonly ReportableIssueType[];
+    places?: readonly IssuePlaceChoice[];
     onReported?: () => void;
   } = {},
 ) {
@@ -48,6 +58,7 @@ function renderPanel(
     <ReportIssuePanel
       types={overrides.types ?? TYPES}
       apartments={APARTMENTS}
+      places={overrides.places ?? []}
       onReported={overrides.onReported ?? (() => undefined)}
     />,
   );
@@ -165,10 +176,76 @@ describe("filing a report", () => {
       expect(reportIssue).toHaveBeenCalledWith({
         typeId: "type-water",
         apartmentId: "apartment-1",
+        placeId: null,
         location: "Badrummet",
         description: "Det droppar.",
       });
     });
+  });
+
+  it("sends a common area chosen beside the free-text place", async () => {
+    const session = userEvent.setup();
+    renderPanel({ places: PLACES });
+
+    await session.selectOptions(
+      screen.getByLabelText(/vad gäller det/i),
+      "type-water",
+    );
+    await session.selectOptions(
+      screen.getByLabelText(/gemensamt utrymme/i),
+      "place-lift",
+    );
+    await session.type(screen.getByLabelText(/var i huset/i), "Port 14");
+    await session.type(screen.getByLabelText(/vad har hänt/i), "Hissen står.");
+    await session.click(
+      screen.getByRole("button", { name: /skicka anmälan/i }),
+    );
+
+    await waitFor(() => {
+      expect(reportIssue).toHaveBeenCalledWith({
+        typeId: "type-water",
+        apartmentId: null,
+        placeId: "place-lift",
+        location: "Port 14",
+        description: "Hissen står.",
+      });
+    });
+  });
+
+  it("offers no common area once an apartment is chosen, and sends none", async () => {
+    const session = userEvent.setup();
+    renderPanel({ places: PLACES });
+
+    await session.selectOptions(
+      screen.getByLabelText(/gemensamt utrymme/i),
+      "place-lift",
+    );
+    await session.selectOptions(
+      screen.getByLabelText(/^lägenhet$/i),
+      "apartment-1",
+    );
+    expect(screen.queryByLabelText(/gemensamt utrymme/i)).toBeNull();
+
+    await session.selectOptions(
+      screen.getByLabelText(/vad gäller det/i),
+      "type-water",
+    );
+    await session.type(screen.getByLabelText(/vad har hänt/i), "Läckan.");
+    await session.click(
+      screen.getByRole("button", { name: /skicka anmälan/i }),
+    );
+
+    await waitFor(() => {
+      expect(reportIssue).toHaveBeenCalledWith(
+        expect.objectContaining({ apartmentId: "apartment-1", placeId: null }),
+      );
+    });
+  });
+
+  it("offers no common area while the association keeps none", () => {
+    renderPanel();
+
+    expect(screen.queryByLabelText(/gemensamt utrymme/i)).toBeNull();
   });
 
   it("hangs the staged photographs on the report once it exists", async () => {
@@ -436,6 +513,7 @@ describe("a report made from a post", () => {
     expect(reportIssue).toHaveBeenCalledWith({
       typeId: "type-water",
       apartmentId: null,
+      placeId: null,
       location: null,
       description: "Hissen i port 14 står still igen.",
       postId: "post-1",

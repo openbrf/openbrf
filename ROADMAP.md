@@ -353,6 +353,18 @@ locally the application runs from source beside the PostgreSQL that
       is refused while it carries a personal identity number. No row stores a
       name, nothing of it is mailed, and no action offers it to a connected app
       or the AI package (ADR 0056)
+- [x] What is particular to a Swedish house on an issue: on an issue about an
+      apartment the resident answers whether the association or a contractor
+      may enter - yes or no, pets, whether the master key may be used, a note on
+      how to get in and the last day - and a handler can record the answer from
+      a telephone call. It is cleared when the issue closes, a door code is
+      refused rather than stored, and no action offers it to a connected app or
+      the AI package. The board keeps a short list of common areas beside the
+      free-text location, never apartments, so a fault that keeps coming back in
+      the lift or the laundry room is counted. A handler can mark an issue as an
+      OVK, lift or fire finding with its protocol and a target date, which a
+      lift's holds to a month from the inspection (BFS 2025:11 1 kap. 17 §);
+      the inspections' schedule stays with the 2027 reminders
 - [x] One page, one audience: the board's work on its own pages under the
       Styrelsen section, each signed on its own heading, the overview as the
       house's notice board with one line for whoever works a queue, and a phone

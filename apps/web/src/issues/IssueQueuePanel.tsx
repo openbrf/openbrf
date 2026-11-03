@@ -190,6 +190,20 @@ export function IssueQueuePanel({
                       issue.location
                     )}
                   </span>
+                  {issue.place === null ? null : (
+                    <span>
+                      {t("issues.mine.commonArea")} {issue.place.name}
+                    </span>
+                  )}
+                  {issue.finding === null ? null : (
+                    <span className="font-semibold text-ink">
+                      {t("issues.queue.finding", {
+                        kind: t(
+                          `issues.fit.finding.kinds.${issue.finding.kind}`,
+                        ),
+                      })}
+                    </span>
+                  )}
                 </p>
 
                 <p className="flex flex-wrap gap-4 text-small text-ink-muted">

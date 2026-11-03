@@ -1,10 +1,11 @@
 import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { OwnIssue } from "../api/issues";
+import { answerOwnEntry, type OwnIssue, withdrawOwnEntry } from "../api/issues";
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Panel } from "../ui/Panel";
+import { EntryPermissionForm } from "./EntryPermissionForm";
 import { IssueStatusChip } from "./IssueStatusChip";
 import { OwnIssueConversation } from "./OwnIssueConversation";
 
@@ -12,6 +13,8 @@ export interface OwnIssuesPanelProps {
   issues: readonly OwnIssue[];
   /** Told when a report turns out to be closed, so the list is read again. */
   onClosed: () => void;
+  /** Told when an answer about entering the apartment changed. */
+  onChanged: () => void;
 }
 
 /**
@@ -25,6 +28,7 @@ export interface OwnIssuesPanelProps {
 export function OwnIssuesPanel({
   issues,
   onClosed,
+  onChanged,
 }: OwnIssuesPanelProps): ReactElement {
   const { t } = useTranslation();
 
@@ -75,6 +79,11 @@ export function OwnIssuesPanel({
                     issue.location
                   )}
                 </span>
+                {issue.place === null ? null : (
+                  <span>
+                    {t("issues.mine.commonArea")} {issue.place.name}
+                  </span>
+                )}
                 {/* Told that a handler entered it, never which one: who
                     works an issue is internal (ADR 0054). */}
                 {issue.enteredByHandler ? (
@@ -97,6 +106,35 @@ export function OwnIssuesPanel({
                   ))}
                 </ul>
               )}
+
+              {/* Only on an issue about a home that is still being worked: the
+                  answer is cleared when it closes. */}
+              {issue.apartment !== null && issue.meaning !== "DONE" ? (
+                <details className="rounded-control border border-line px-3 py-2">
+                  <summary className="min-h-11 cursor-pointer py-2 text-small font-semibold">
+                    {t("issues.entry.title")}
+                    {issue.entry === null
+                      ? null
+                      : ` · ${t(
+                          issue.entry.answer === "YES"
+                            ? "issues.entry.answerYes"
+                            : "issues.entry.answerNo",
+                        )}`}
+                  </summary>
+                  <EntryPermissionForm
+                    // Read again with the answer it holds, so a draft never
+                    // offers to save what the report already says.
+                    key={JSON.stringify(issue.entry)}
+                    entry={issue.entry}
+                    audience="reporter"
+                    answer={(entry) =>
+                      answerOwnEntry({ issueId: issue.id, entry })
+                    }
+                    withdraw={() => withdrawOwnEntry(issue.id)}
+                    onChanged={onChanged}
+                  />
+                </details>
+              ) : null}
 
               <OwnIssueConversation issue={issue} onClosed={onClosed} />
             </li>

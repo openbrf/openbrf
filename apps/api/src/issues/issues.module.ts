@@ -4,12 +4,15 @@ import { ActionsModule } from "../actions/actions.module";
 import { MediaModule } from "../media/media.module";
 import { IssueActionsRegistrar } from "./issue-actions.registrar";
 import { IssueConversationService } from "./issue-conversation.service";
+import { IssueFitService } from "./issue-fit.service";
+import { IssuePlaceService } from "./issue-place.service";
 import { IssuePurgeService } from "./issue-purge.service";
 import { IssueResidentsService } from "./issue-residents.service";
 import { IssueSavedReplyService } from "./issue-saved-reply.service";
 import { IssueTypeService } from "./issue-type.service";
 import { IssueService } from "./issue.service";
 import {
+  IssuePlaceAdminController,
   IssueQueueController,
   IssueReportController,
   IssueSavedReplyAdminController,
@@ -43,6 +46,7 @@ import {
     IssueQueueController,
     IssueTypeAdminController,
     IssueSavedReplyAdminController,
+    IssuePlaceAdminController,
   ],
   providers: [
     IssueService,
@@ -51,8 +55,15 @@ import {
     IssueResidentsService,
     IssueConversationService,
     IssueSavedReplyService,
+    IssueFitService,
+    IssuePlaceService,
     IssueActionsRegistrar,
   ],
-  exports: [IssueService, IssueTypeService, IssueSavedReplyService],
+  exports: [
+    IssueService,
+    IssueTypeService,
+    IssueSavedReplyService,
+    IssuePlaceService,
+  ],
 })
 export class IssuesModule {}

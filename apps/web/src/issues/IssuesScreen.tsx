@@ -10,10 +10,12 @@ import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import {
+  fetchIssuePlaces,
   fetchOwnApartments,
   fetchOwnIssues,
   fetchReportableTypes,
   type IssueApartment,
+  type IssuePlaceChoice,
   type OwnIssue,
   type ReportableIssueType,
 } from "../api/issues";
@@ -44,6 +46,7 @@ interface Loaded {
   ready: boolean;
   types: readonly ReportableIssueType[];
   apartments: readonly IssueApartment[];
+  places: readonly IssuePlaceChoice[];
   own: readonly OwnIssue[];
   loadFailed: boolean;
 }
@@ -52,6 +55,7 @@ const EMPTY: Loaded = {
   ready: false,
   types: [],
   apartments: [],
+  places: [],
   own: [],
   loadFailed: false,
 };
@@ -129,18 +133,23 @@ export function IssuesScreen({
    * already shows in place instead of replacing it with an empty list.
    */
   const read = useCallback(async () => {
-    const [types, apartments, own] = await Promise.all([
+    const [types, apartments, places, own] = await Promise.all([
       canReport ? fetchReportableTypes() : null,
       canReport ? fetchOwnApartments() : null,
+      canReport ? fetchIssuePlaces() : null,
       canReport ? fetchOwnIssues() : null,
     ]);
 
     return {
       types: types?.ok === true ? types.value : null,
       apartments: apartments?.ok === true ? apartments.value : null,
+      places: places?.ok === true ? places.value : null,
       own: own?.ok === true ? own.value : null,
       loadFailed:
-        types?.ok === false || apartments?.ok === false || own?.ok === false,
+        types?.ok === false ||
+        apartments?.ok === false ||
+        places?.ok === false ||
+        own?.ok === false,
       /** Nothing was asked for: a viewer who cannot report has no lists. */
       asked: canReport,
     };
@@ -165,6 +174,7 @@ export function IssuesScreen({
           types: next.types ?? (next.asked ? previous.types : []),
           apartments:
             next.apartments ?? (next.asked ? previous.apartments : []),
+          places: next.places ?? (next.asked ? previous.places : []),
           own: next.own ?? (next.asked ? previous.own : []),
           loadFailed: next.loadFailed,
         }));
@@ -184,7 +194,7 @@ export function IssuesScreen({
     };
   }, [reload]);
 
-  const { ready, types, apartments, own, loadFailed } = loaded;
+  const { ready, types, apartments, places, own, loadFailed } = loaded;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -235,13 +245,14 @@ export function IssuesScreen({
             key={fromPost.kind === "read" ? fromPost.prefill.postId : "blank"}
             types={types}
             apartments={apartments}
+            places={places}
             {...(fromPost.kind === "read" ? { prefill: fromPost.prefill } : {})}
             onReported={(postId) => {
               setReportedFrom(postId);
               reload();
             }}
           />
-          <OwnIssuesPanel issues={own} onClosed={reload} />
+          <OwnIssuesPanel issues={own} onClosed={reload} onChanged={reload} />
         </>
       ) : null}
     </div>

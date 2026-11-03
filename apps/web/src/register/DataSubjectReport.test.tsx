@@ -374,6 +374,7 @@ const FULL_REPORT: Report = {
       waitingReason: null,
       location: "Storgatan 12, entren",
       description: ISSUE_DESCRIPTION,
+      entry: null,
       reportedAt: "2026-01-05T08:00:00.000Z",
       photographs: 2,
     },

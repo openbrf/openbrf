@@ -109,6 +109,19 @@ export type {
   IssueStatusMeaning,
   IssueWaitingReason,
 } from "./issue-status.ts";
+export {
+  findDoorCode,
+  ISSUE_ENTRY_ANSWERS,
+  ISSUE_FINDING_KINDS,
+  ISSUE_FIT_LIMITS,
+  latestFindingTargetDate,
+  LIFT_FINDING_MONTHS,
+} from "./issue-fit.ts";
+export type {
+  DoorCodeMatch,
+  IssueEntryAnswer,
+  IssueFindingKind,
+} from "./issue-fit.ts";
 export { DATA_PROTECTION_LIMITS } from "./data-protection-limits.ts";
 export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";
 export {

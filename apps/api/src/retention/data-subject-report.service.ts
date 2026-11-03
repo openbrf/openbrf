@@ -690,6 +690,11 @@ export class DataSubjectReportService {
         waitingReason: true,
         location: true,
         description: true,
+        entryAnswer: true,
+        entryNote: true,
+        entryPets: true,
+        entryMasterKey: true,
+        entryUntil: true,
         createdAt: true,
         type: { select: { name: true } },
         _count: { select: { photos: true } },
@@ -1720,6 +1725,16 @@ export class DataSubjectReportService {
         waitingReason: issue.waitingReason,
         location: issue.location,
         description: issue.description,
+        entry:
+          issue.entryAnswer === null
+            ? null
+            : {
+                answer: issue.entryAnswer,
+                note: issue.entryNote,
+                pets: issue.entryPets,
+                masterKey: issue.entryMasterKey,
+                until: formatDateColumn(issue.entryUntil),
+              },
         reportedAt: issue.createdAt.toISOString(),
         photographs: issue._count.photos,
       })),

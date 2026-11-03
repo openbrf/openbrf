@@ -625,6 +625,15 @@ const SAVED_REPLY = {
 const SAVED_REPLIES_CARD = "Sparade svar";
 
 /**
+ * A common area the board adds to its own card (decision 30): a room, never an
+ * apartment, and nobody's own words.
+ */
+const COMMON_AREA = "Bastu";
+
+/** The settings card the common areas are kept in. */
+const COMMON_AREAS_CARD = "Gemensamma utrymmen";
+
+/**
  * A "YYYY-MM-DD" date some whole days from today.
  *
  * Read on the association's clock rather than on this machine's, for the reason
@@ -2279,6 +2288,30 @@ export const SCREENS: readonly Screen[] = [
     // once the list has been read back with the reply in it.
     waitFor: { button: `Ta bort ${SAVED_REPLY.title}` },
     capture: { panel: SAVED_REPLIES_CARD },
+  },
+  {
+    /*
+     * The common areas an issue can name beside its free-text location.
+     *
+     * The same route as the cards above, and a card of its own. The board adds
+     * an area, so the marker is the row the save wrote rather than the card,
+     * which renders before its list is read.
+     */
+    name: "settings-issue-places",
+    as: "administrator",
+    goto: appPath("/board/settings/issues-bookings"),
+    prepare: [
+      { see: { panel: COMMON_AREAS_CARD } },
+      {
+        fill: { label: "Nytt gemensamt utrymme", within: COMMON_AREAS_CARD },
+        value: COMMON_AREA,
+      },
+      { click: { button: "Lägg till", within: COMMON_AREAS_CARD } },
+    ],
+    // The row the save wrote carries its own remove control, which exists only
+    // once the list has been read back with the area in it.
+    waitFor: { button: `Ta bort ${COMMON_AREA}` },
+    capture: { panel: COMMON_AREAS_CARD },
   },
   {
     /*

@@ -574,6 +574,13 @@ const AUDIT_ACTION_LABEL = {
   ISSUE_ACCESS_CHANGED: "register.person.report.action.ISSUE_ACCESS_CHANGED",
   ISSUE_MESSAGE_SENT: "register.person.report.action.ISSUE_MESSAGE_SENT",
   ISSUE_NOTE_ADDED: "register.person.report.action.ISSUE_NOTE_ADDED",
+  ISSUE_ENTRY_PERMISSION_SET:
+    "register.person.report.action.ISSUE_ENTRY_PERMISSION_SET",
+  ISSUE_ENTRY_PERMISSION_REMOVED:
+    "register.person.report.action.ISSUE_ENTRY_PERMISSION_REMOVED",
+  ISSUE_PLACE_CHANGED: "register.person.report.action.ISSUE_PLACE_CHANGED",
+  ISSUE_FINDING_MARKED: "register.person.report.action.ISSUE_FINDING_MARKED",
+  ISSUE_FINDING_REMOVED: "register.person.report.action.ISSUE_FINDING_REMOVED",
   ISSUE_RESIDENTS_LISTED:
     "register.person.report.action.ISSUE_RESIDENTS_LISTED",
   MOVE_IN_RECORDED: "register.person.report.action.MOVE_IN_RECORDED",
@@ -1641,6 +1648,37 @@ export function DataSubjectReport({
                       <span className="block whitespace-pre-line">
                         {issue.description}
                       </span>
+                      {issue.entry !== null && (
+                        <span className="mt-1 block whitespace-pre-line">
+                          {t("register.person.report.issueEntry", {
+                            answer: t(
+                              issue.entry.answer === "YES"
+                                ? "issues.entry.answerYes"
+                                : "issues.entry.answerNo",
+                            ),
+                            details: [
+                              issue.entry.pets === true
+                                ? t("issues.entry.petsShort")
+                                : null,
+                              issue.entry.masterKey === true
+                                ? t("issues.entry.masterKeyShort")
+                                : null,
+                              issue.entry.note,
+                            ]
+                              .filter((part) => part !== null)
+                              .join(" · "),
+                          })}
+                          {issue.entry.until === null ? null : (
+                            <>
+                              {" "}
+                              {t("issues.entry.untilLabel")}{" "}
+                              <span className="font-data text-data">
+                                {issue.entry.until}
+                              </span>
+                            </>
+                          )}
+                        </span>
+                      )}
                     </td>
                     <td className={DATA_CELL}>{String(issue.photographs)}</td>
                   </tr>

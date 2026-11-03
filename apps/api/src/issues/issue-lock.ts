@@ -91,3 +91,15 @@ export async function lockIssueSavedReplies(
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"issue-saved-replies"}))`;
 }
+
+/**
+ * The lock a transaction takes before it changes the association's list of
+ * common-area places: the bound on how many there are is a count followed by
+ * an insert, and a new instance's seed writes only into an empty list. One key
+ * for the whole list, which is the association's one list.
+ */
+export async function lockIssuePlaces(
+  tx: Prisma.TransactionClient,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"issue-places"}))`;
+}
