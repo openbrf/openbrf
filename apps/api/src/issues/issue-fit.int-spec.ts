@@ -38,6 +38,7 @@ let app: NestFastifyApplication;
 let prisma: PrismaService;
 let encryption: FieldEncryptionService;
 let registry: ActionRegistryService;
+let associationCreatedHere = false;
 
 const suffix = process.hrtime.bigint().toString(36);
 const PASSWORD = "a-long-enough-password";
@@ -244,6 +245,8 @@ beforeAll(async () => {
   encryption = app.get(FieldEncryptionService);
   registry = app.get(ActionRegistryService);
 
+  associationCreatedHere =
+    (await prisma.association.findUnique({ where: { id: 1 } })) === null;
   await prisma.association.upsert({
     where: { id: 1 },
     create: { id: 1, name: "Brf Eksemplet" },
@@ -362,6 +365,12 @@ afterAll(async () => {
   await prisma.person.deleteMany({ where: { id: { in: personIds } } });
   await prisma.apartment.deleteMany({ where: { id: apartmentId } });
   await prisma.address.deleteMany({ where: { id: `if-address-${suffix}` } });
+  // Restored rather than left as this suite wanted it: the suites on this
+  // worker share one database, and a later one that finds an association with
+  // no organisation number reads it as not set up.
+  if (associationCreatedHere) {
+    await prisma.association.deleteMany({ where: { id: 1 } });
+  }
   await app.close();
 });
 
