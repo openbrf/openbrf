@@ -131,6 +131,7 @@ export type SettingsPanelId =
   | "issueReporting"
   | "issueTypes"
   | "issueSavedReplies"
+  | "issueRetention"
   | "bookableResources"
   | "motionDeadline"
   | "meetingBylaws"
@@ -270,6 +271,14 @@ export const SETTINGS_PANELS: readonly SettingsPanel[] = [
   {
     // The board's words to reporters, written by whoever configures issues.
     id: "issueSavedReplies",
+    section: "issues-bookings",
+    needs: "settings",
+    shownTo: (access) => access.canRead && access.canConfigureIssues,
+  },
+  {
+    // How long an issue's free text is kept after it closes (ADR 0057): the
+    // board's decision, written by whoever configures issues.
+    id: "issueRetention",
     section: "issues-bookings",
     needs: "settings",
     shownTo: (access) => access.canRead && access.canConfigureIssues,

@@ -799,6 +799,11 @@ export class MediaService {
    * anywhere earlier, a hold committed in between would lose the file it was
    * placed to keep, because the bytes cannot be put back.
    *
+   * `onRemoved` is for a caller whose own record of the act belongs with the
+   * deletion: an issue's handler removing a photograph records it against the
+   * issue (ADR 0057). Called on the deleting transaction once the row is gone,
+   * so the caller's entry stands only if the file went.
+   *
    * Answers whether the file was removed: false for one already gone and for
    * one `keep` kept.
    */
@@ -812,6 +817,7 @@ export class MediaService {
         tx: Prisma.TransactionClient,
         file: RemovableFile,
       ) => Promise<boolean>;
+      onRemoved?: (tx: Prisma.TransactionClient) => Promise<void>;
     } = {},
   ): Promise<boolean> {
     const known = await this.prisma.mediaFile.findUnique({
@@ -849,6 +855,7 @@ export class MediaService {
       if (count === 0) {
         return null;
       }
+      await options.onRemoved?.(tx);
       await this.audit.record(
         {
           action: "MEDIA_DELETED",

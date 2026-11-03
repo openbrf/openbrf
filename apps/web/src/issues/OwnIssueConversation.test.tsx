@@ -34,6 +34,9 @@ function own(overrides: Partial<OwnIssue> = {}): OwnIssue {
     apartment: null,
     photos: [],
     enteredByHandler: false,
+    descriptionRedactedAt: null,
+    locationRedactedAt: null,
+    freeTextRemovedAt: null,
     createdAt: "2026-08-20T08:00:00.000Z",
     updatedAt: "2026-08-20T08:00:00.000Z",
     ...overrides,
@@ -45,6 +48,7 @@ const THREAD: OwnIssueMessage[] = [
     id: "m-1",
     side: "REPORTER",
     body: "Kommer någon i dag?",
+    redactedAt: null,
     createdAt: "2026-08-20T09:00:00.000Z",
   },
   {
@@ -52,6 +56,7 @@ const THREAD: OwnIssueMessage[] = [
     side: "HANDLER",
     signature: "PROPERTY_MANAGER",
     body: "I eftermiddag.",
+    redactedAt: null,
     createdAt: "2026-08-20T10:00:00.000Z",
   },
   {
@@ -59,6 +64,7 @@ const THREAD: OwnIssueMessage[] = [
     side: "HANDLER",
     signature: "BOARD",
     body: "Vi har bokat rörmokaren.",
+    redactedAt: null,
     createdAt: "2026-08-20T11:00:00.000Z",
   },
 ];

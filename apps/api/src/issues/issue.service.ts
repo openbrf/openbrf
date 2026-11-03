@@ -6,6 +6,7 @@ import {
   formatDateColumn,
   ISSUE_OUTCOMES,
   ISSUE_PRIORITIES,
+  ISSUE_REDACTION_TARGETS,
   ISSUE_STATUS_LIMITS,
   ISSUE_STATUS_MEANINGS,
   ISSUE_WAITING_REASONS,
@@ -13,6 +14,7 @@ import {
   type IssueHandledBy,
   type IssueOutcome,
   type IssuePriority,
+  type IssueRedactionTarget,
   type IssueReporterGroup,
   type IssueStatusMeaning,
   type IssueWaitingReason,
@@ -124,6 +126,18 @@ export interface OwnIssueView {
    * internal (ADR 0054).
    */
   enteredByHandler: boolean;
+  /**
+   * When a handler redacted the description or the location, or null (ADR
+   * 0057). The text is then empty, and the screen says it was taken out.
+   */
+  descriptionRedactedAt: string | null;
+  locationRedactedAt: string | null;
+  /**
+   * When the purge removed the free text - the description, the location, the
+   * conversation and the photographs - after the issue closed, or null. The
+   * screen says so with the date rather than showing an empty issue.
+   */
+  freeTextRemovedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -186,6 +200,11 @@ export type QueuedIssueView = OwnIssueView & {
   enteredBy: IssueHandlerView | null;
   /** Whether it is closed to every handler but the board on its own. */
   boardOnly: boolean;
+  /**
+   * Since when a legal hold stands on it, or null (ADR 0057). While one stands
+   * its free text outlasts its clock, and a handler may not redact it.
+   */
+  legalHoldAt: string | null;
 } & (
     | { reporter: Exclude<IssueReporterView, { kind: "protected" }> }
     | {
@@ -292,6 +311,9 @@ export type IssueTimelineStep = {
   | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
+  /** A handler redacted a text or removed a file (ADR 0057). */
+  | { kind: "redacted"; target: IssueRedactionTarget | null }
+  | { kind: "legalHold"; held: boolean }
 );
 
 /**
@@ -1999,6 +2021,10 @@ interface IssueRecord {
   outcome: IssueOutcome | null;
   location: string | null;
   description: string;
+  descriptionRedactedAt: Date | null;
+  locationRedactedAt: Date | null;
+  freeTextRemovedAt: Date | null;
+  legalHoldAt: Date | null;
   closedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -2051,6 +2077,7 @@ function toQueuedView(
     assignee: handlers.assignee,
     enteredBy: handlers.enteredBy,
     boardOnly: issue.boardOnly,
+    legalHoldAt: issue.legalHoldAt?.toISOString() ?? null,
   };
   if (reporter.kind === "protected") {
     return { ...queued, apartment: null, reporter };
@@ -2076,6 +2103,9 @@ function toOwnView(issue: IssueRecord): OwnIssueView {
       width: photo.file.width,
       height: photo.file.height,
     })),
+    descriptionRedactedAt: issue.descriptionRedactedAt?.toISOString() ?? null,
+    locationRedactedAt: issue.locationRedactedAt?.toISOString() ?? null,
+    freeTextRemovedAt: issue.freeTextRemovedAt?.toISOString() ?? null,
     createdAt: issue.createdAt.toISOString(),
     updatedAt: issue.updatedAt.toISOString(),
   };
@@ -2089,6 +2119,9 @@ const TIMELINE_ACTIONS = [
   "ISSUE_PRIORITY_CHANGED",
   "ISSUE_TARGET_DATE_CHANGED",
   "ISSUE_ACCESS_CHANGED",
+  "ISSUE_REDACTED",
+  "ISSUE_LEGAL_HOLD_PLACED",
+  "ISSUE_LEGAL_HOLD_RELEASED",
 ] as const satisfies readonly AuditAction[];
 
 /**
@@ -2154,6 +2187,21 @@ function timelineStep(
         at,
         actor,
         boardOnly: context.boardOnly === true,
+      };
+    case "ISSUE_REDACTED":
+      return {
+        kind: "redacted",
+        at,
+        actor,
+        target: oneOf(text("target"), ISSUE_REDACTION_TARGETS),
+      };
+    case "ISSUE_LEGAL_HOLD_PLACED":
+    case "ISSUE_LEGAL_HOLD_RELEASED":
+      return {
+        kind: "legalHold",
+        at,
+        actor,
+        held: entry.action === "ISSUE_LEGAL_HOLD_PLACED",
       };
     default:
       return {

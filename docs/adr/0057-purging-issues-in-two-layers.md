@@ -114,6 +114,11 @@ This is the board's own act that an art. 17 request about a description promises
 A granted request naming an issue (`DataSubjectRequest.issueId`) is carried out by
 a handler redacting what the decision covers.
 
+A redaction is refused while a legal hold stands on the case. The hold records
+that the association needs what the case holds for a claim (art. 17(3)(e)), and a
+redaction would remove it as surely as the clock the hold stops; the hold is
+released first, which is its own entry in the log.
+
 ### Erasure and the closing job
 
 The clock is case-keyed and reads no request, so its job is not an erasure
@@ -145,6 +150,14 @@ Should the implementation prefer it, an independent person-to-issue work record
 that survives detachment satisfies this equally, as long as it holds the case id
 and the state (text still standing, owed, kept and why, done) and never the text.
 Whichever is chosen, no case whose text still stands may lose its selector.
+
+As built, the person purge clears the reporter column, and only from a case whose
+free-text layer is gone. It runs at `53 3`, after the clock and the issue erasure
+job, so a case either job finishes loses its reporter the same night, once the
+person's window has run out or their request is executed, in the transaction that
+records the person's purge; a case a handler finishes by redaction loses it on
+the next night. The person purge's scan of reporter columns reads only finished
+cases, so a person whose case still waits is not selected for it night after night.
 
 Detaching is not erasing what the person wrote, and a clock that removes it
 later is no evidence that the erasure was carried out. The closing job marks a request executed and closes it, and

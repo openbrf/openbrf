@@ -128,6 +128,9 @@ function issue(
     createdAt: "2026-08-20T08:00:00.000Z",
     updatedAt: "2026-08-20T08:00:00.000Z",
     enteredByHandler: false,
+    descriptionRedactedAt: null,
+    locationRedactedAt: null,
+    freeTextRemovedAt: null,
     typeHandledBy: "EVERY_HANDLER",
     priority: "NORMAL",
     targetDate: null,
@@ -135,6 +138,7 @@ function issue(
     assignee: null,
     enteredBy: null,
     boardOnly: false,
+    legalHoldAt: null,
     ...overrides,
   } as QueuedIssue;
 }

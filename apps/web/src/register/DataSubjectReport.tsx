@@ -574,6 +574,13 @@ const AUDIT_ACTION_LABEL = {
   ISSUE_ACCESS_CHANGED: "register.person.report.action.ISSUE_ACCESS_CHANGED",
   ISSUE_MESSAGE_SENT: "register.person.report.action.ISSUE_MESSAGE_SENT",
   ISSUE_NOTE_ADDED: "register.person.report.action.ISSUE_NOTE_ADDED",
+  ISSUE_REDACTED: "register.person.report.action.ISSUE_REDACTED",
+  ISSUE_LEGAL_HOLD_PLACED:
+    "register.person.report.action.ISSUE_LEGAL_HOLD_PLACED",
+  ISSUE_LEGAL_HOLD_RELEASED:
+    "register.person.report.action.ISSUE_LEGAL_HOLD_RELEASED",
+  ISSUE_RETENTION_RECORDED:
+    "register.person.report.action.ISSUE_RETENTION_RECORDED",
   ISSUE_RESIDENTS_LISTED:
     "register.person.report.action.ISSUE_RESIDENTS_LISTED",
   MOVE_IN_RECORDED: "register.person.report.action.MOVE_IN_RECORDED",

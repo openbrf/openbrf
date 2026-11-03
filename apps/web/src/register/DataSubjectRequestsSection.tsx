@@ -135,6 +135,7 @@ const DOMAIN_LABEL: Record<ErasureDomain, TranslationKey> = {
   bookings: "register.person.requests.waitingOn.domain.bookings",
   eventSignups: "register.person.requests.waitingOn.domain.eventSignups",
   feed: "register.person.requests.waitingOn.domain.feed",
+  issues: "register.person.requests.waitingOn.domain.issues",
   keyOrders: "register.person.requests.waitingOn.domain.keyOrders",
   motions: "register.person.requests.waitingOn.domain.motions",
   pluginRecords: "register.person.requests.waitingOn.domain.pluginRecords",
@@ -146,6 +147,7 @@ const DOMAIN_LABEL: Record<ErasureDomain, TranslationKey> = {
 const KEPT_BECAUSE: Partial<Record<ErasureDomain, TranslationKey>> = {
   boardMailboxThreads:
     "register.person.requests.waitingOn.keptBecause.boardMailboxThreads",
+  issues: "register.person.requests.waitingOn.keptBecause.issues",
   keyOrders: "register.person.requests.waitingOn.keptBecause.keyOrders",
   motions: "register.person.requests.waitingOn.keptBecause.motions",
   subletApplications:
