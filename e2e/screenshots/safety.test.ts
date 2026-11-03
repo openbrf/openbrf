@@ -13,6 +13,13 @@ describe("findPhoneNumbers", () => {
     ).toEqual([]);
   });
 
+  it("lets an id through wherever the digits fall in it, and in a line of text", () => {
+    expect(findPhoneNumbers("id=cmw0a0761000506r118hutuv1.")).toEqual([]);
+    expect(findPhoneNumbers("cm0701234567abcdefghijkl1 (apartment)")).toEqual(
+      [],
+    );
+  });
+
   it.each([
     ["a label touching the number", "Mobil0701234567", "0701234567"],
     ["a letter after the number only", "0761000506r118hutuv1", "0761000506"],
@@ -20,6 +27,27 @@ describe("findPhoneNumbers", () => {
     ["a full stop after a label", "Mobil0701234567.", "0701234567"],
     ["a separator inside letters", "abc070-123 45 67def", "070-123 45 67"],
     ["upper-case letters around it", "ABC0701234567DEF", "0701234567"],
+    ["a label on each side", "Mobil0701234567privat", "0701234567"],
+    [
+      "a token one character short of an id",
+      "cmw0a0761000506r118hutuv",
+      "0761000506",
+    ],
+    [
+      "a token one character past an id",
+      "cmw0a0761000506r118hutuv12",
+      "0761000506",
+    ],
+    [
+      "a token of an id's length not starting with c",
+      "mmw0a0761000506r118hutuv1",
+      "0761000506",
+    ],
+    [
+      "an id's length with a capital in it",
+      "cmw0a0761000506R118hutuv1",
+      "0761000506",
+    ],
     ["the written form", "Telefon 070-123 45 67", "070-123 45 67"],
     ["the international form", "+46 70 123 45 67", "+46 70 123 45 67"],
   ])("still finds a number with %s", (_description, text, found) => {

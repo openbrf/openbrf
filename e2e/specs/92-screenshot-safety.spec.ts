@@ -238,6 +238,29 @@ test("refuses a mobile number right after a label of its own", async ({
   );
 });
 
+test("refuses a number set apart from a label on each side, which the text joins", async ({
+  page,
+}) => {
+  // Three inline elements: on the screen a label, a number with space around
+  // it and another label. The text of the page has no gap between them.
+  await page.setContent(`
+    <!doctype html>
+    <html lang="sv">
+      <body>
+        <h1>Adressbok</h1>
+        <p><span>Mobil</span><span style="margin: 0 2em">0701234567</span><span>privat</span></p>
+      </body>
+    </html>
+  `);
+
+  const written = await page.locator("body").innerText();
+  expect(written).toContain("Mobil0701234567privat");
+
+  await expect(
+    assertSafeToPublish(page, "phone-between-labels"),
+  ).rejects.toThrow(/phone number/);
+});
+
 test("lets a generated id through that holds ten digits shaped like a number", async ({
   page,
 }) => {

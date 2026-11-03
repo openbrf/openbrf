@@ -60,32 +60,55 @@ export async function freezeScripts(
  * Except inside an identifier. A generated id such as a cuid is lower-case
  * letters and digits from the clock and a counter, so ten digits starting 07
  * turn up in one now and then, and the access report prints the ids an audit
- * entry carries. A run of plain digits with a lower-case letter on both sides
- * is such a token and not a number: see `findPhoneNumbers`.
+ * entry carries. A number inside a token that is exactly the shape of a cuid is
+ * such an id and not a number: see `findPhoneNumbers`.
  */
 const PHONE_NUMBER =
   /(?<!\d)(?:(?:\+|00)46[\s-]?(?:\(0\)[\s-]?)?|0)7\d(?:[\s-]?\d){7}(?!\d)/g;
 
-const LOWER_CASE_LETTER = /[a-z]/;
+/**
+ * The shape of a cuid, which is what the product's ids are (Prisma's
+ * `cuid()`): a `c` and twenty-four lower-case letters and digits, nothing else
+ * around it. The whole token is tested rather than the characters beside the
+ * number, because rendered text joins inline elements without a gap: a label,
+ * a number and another label that the picture shows apart read as
+ * "Mobil0701234567privat", and letters on both sides of a number are no
+ * evidence of an id. A label and a number would have to add up to exactly
+ * twenty-five characters starting with `c` to pass as one.
+ */
+const GENERATED_ID = /^c[a-z0-9]{24}$/;
+
+const IDENTIFIER_CHARACTER = /[a-z0-9]/;
+
+/** The run of lower-case letters and digits that holds `[start, end)`. */
+function tokenAround(text: string, start: number, end: number): string {
+  let from = start;
+  while (from > 0 && IDENTIFIER_CHARACTER.test(text.charAt(from - 1))) {
+    from -= 1;
+  }
+  let to = end;
+  while (to < text.length && IDENTIFIER_CHARACTER.test(text.charAt(to))) {
+    to += 1;
+  }
+  return text.slice(from, to);
+}
 
 /**
  * What in `text` is shaped like a phone number.
  *
- * A match of digits only (no separator, no country code) that has a lower-case
- * letter right before it and another right after it is part of an identifier
- * and is left out. A label touching the number from one side
- * ("Mobil0701234567") or a number written with a separator still counts.
+ * A match of digits only (no separator, no country code) inside a token that
+ * has the shape of a generated id is part of that id and is left out. A label
+ * touching the number, on one side or both, or a number written with a
+ * separator still counts.
  */
 export function findPhoneNumbers(text: string): string[] {
   return [...text.matchAll(PHONE_NUMBER)]
     .filter((match) => {
-      const before = text.charAt(match.index - 1);
-      const after = text.charAt(match.index + match[0].length);
       const insideAnId =
         /^\d+$/.test(match[0]) &&
-        match[0].startsWith("07") &&
-        LOWER_CASE_LETTER.test(before) &&
-        LOWER_CASE_LETTER.test(after);
+        GENERATED_ID.test(
+          tokenAround(text, match.index, match.index + match[0].length),
+        );
       return !insideAnId;
     })
     .map((match) => match[0]);
