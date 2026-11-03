@@ -32,6 +32,16 @@ describe("findPhoneNumbers", () => {
       "cabcdefghijklmn0701234567PRIVAT",
       "0701234567",
     ],
+    [
+      "a Swedish letter after an id-shaped run",
+      "cabcdefghijklmn0701234567å",
+      "0701234567",
+    ],
+    [
+      "a Swedish letter before an id-shaped run",
+      "äcabcdefghijklmn0701234567",
+      "0701234567",
+    ],
     ["a label on each side", "Mobil0701234567privat", "0701234567"],
     [
       "a token one character short of an id",
