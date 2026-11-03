@@ -1115,6 +1115,22 @@ describe("a handler's write against erasure and standing ties", () => {
 });
 
 /**
+ * What a test of the lock order may spend waiting on the database, in all its
+ * polls together. It is shorter than the 30 s the held transactions and the
+ * test itself are given, so a slow run fails on the condition it was waiting
+ * for and not on a timeout that hides it.
+ */
+const QUEUE_WAIT_MS = 12_000;
+
+/** Waits for the condition within what is left of one shared deadline. */
+function waitWithin(
+  deadline: number,
+  condition: () => Promise<boolean>,
+): Promise<void> {
+  return waitFor(condition, Math.max(0, deadline - Date.now()));
+}
+
+/**
  * Plays a handler's write out against a contender that takes a key the write
  * holds.
  *
@@ -1147,6 +1163,7 @@ async function queuedBehindWrite<T>(options: {
     { timeout: 30_000 },
   );
   const holder = await holding;
+  const deadline = Date.now() + QUEUE_WAIT_MS;
 
   let answered = false;
   let contended = false;
@@ -1157,7 +1174,8 @@ async function queuedBehindWrite<T>(options: {
   let waited = false;
   try {
     // The write is queued behind the type's lock, holding its keys.
-    await waitFor(
+    await waitWithin(
+      deadline,
       async () => answered || (await waitersBehind(prisma, holder)) > 0,
     );
     expect(answered, "the write waits for the type's lock").toBe(false);
@@ -1168,7 +1186,8 @@ async function queuedBehindWrite<T>(options: {
         contended = true;
       });
     // Queued behind the write, which is itself queued behind the holder.
-    await waitFor(
+    await waitWithin(
+      deadline,
       async () => contended || (await waitersBehind(prisma, holder)) > 1,
     );
     waited = !contended;
@@ -1216,6 +1235,7 @@ async function behindHandingToBoard(
     { timeout: 30_000 },
   );
   const holder = await holding;
+  const deadline = Date.now() + QUEUE_WAIT_MS;
 
   let answered = false;
   const request = send().finally(() => {
@@ -1223,7 +1243,8 @@ async function behindHandingToBoard(
   });
   let waited = false;
   try {
-    await waitFor(
+    await waitWithin(
+      deadline,
       async () => answered || (await waitersBehind(prisma, holder)) > 0,
     );
     waited = !answered;
