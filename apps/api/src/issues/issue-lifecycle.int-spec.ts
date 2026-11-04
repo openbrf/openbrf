@@ -1178,6 +1178,59 @@ describe("a known fault", () => {
     ).toEqual({ knownFault: null, knownFaultSignature: null });
   });
 
+  it("is not merged, withdrawn or written to duplicates by a person who no longer holds issues:handle", async () => {
+    const kept = await filed(plain, neighbour);
+    const duplicate = await filed(plain);
+    const noted = await filed(plain);
+    // Past the route's guard, as a role withdrawn in between: each service
+    // answers from the database and acts for nobody. The person reads as the
+    // narrower scope, which admits every issue of an every-handler type.
+    await expect(
+      issues.merge(duplicate, kept, resident.personId),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: duplicate },
+        select: { mergedIntoIssueId: true, closedAt: true },
+      }),
+    ).toEqual({ mergedIntoIssueId: null, closedAt: null });
+
+    const published = await as(
+      board,
+      "PUT",
+      `/api/issue-queue/${noted}/known-fault`,
+      { body: notice() },
+    );
+    expect(published.statusCode).toBe(200);
+    await expect(
+      issues.withdrawKnownFault(noted, resident.personId),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    expect(
+      (
+        await prisma.issue.findUniqueOrThrow({
+          where: { id: noted },
+          select: { knownFaultPublishedAt: true },
+        })
+      ).knownFaultPublishedAt,
+    ).not.toBeNull();
+
+    // A duplicate with a reporter who has an account, merged by the board.
+    const merged = await filed(plain, neighbour);
+    expect(
+      (
+        await as(board, "POST", `/api/issue-queue/${merged}/merge`, {
+          intoIssueId: kept,
+        })
+      ).statusCode,
+    ).toBe(201);
+    await expect(
+      conversation.replyToDuplicates(resident.personId, kept, "Hej"),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    expect(
+      await prisma.issueMessage.count({ where: { issueId: merged } }),
+    ).toBe(0);
+  });
+
   it("withholds the name of a type only handlers report from the house", async () => {
     const NOTICE = notice();
     const issueId = await filed(internal, null);

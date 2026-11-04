@@ -3657,6 +3657,7 @@
       "message": "Write to the association",
       "messageHint": "Do not write personal identity numbers. Files cannot be attached here.",
       "send": "Send",
+      "reopensNotice": "This issue is closed. A message you send now opens it again.",
       "closedNotice": "This issue is closed and takes no more messages. If you have something new to report, make a new report on the association's website.",
       "private": "The link is personal, so do not share it. It stops working 30 days after the issue is closed or one year after the latest message in it, whichever comes first; until a message is written, the year counts from when the link was mailed.",
       "notFoundTitle": "This link opens no issue",

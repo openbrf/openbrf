@@ -11,7 +11,9 @@ What happens to an issue after it closes, merging duplicates, and known faults.
   closing reopens it. The issue goes back to its type's default in-progress
   status, keeps its assignee, and loses its outcome and closing date, which
   restarts nothing until it closes again. The timeline says the reporter
-  reopened it without naming them. Which status a reopened issue enters is
+  reopened it without naming them. A reporter without an account reads
+  and writes through their private link, and a message there reopens the issue
+  the same way, within the same 30 days, and alerts its assignee. Which status a reopened issue enters is
   still an open question for the owner (ADR 0054, question 2); in progress is
   the interim answer.
 - **A new report after the window.** After 30 days, or on a report merged into

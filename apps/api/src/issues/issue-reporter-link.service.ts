@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import type { IssueStatusMeaning } from "@openbrf/shared";
+import { replyReopensIssue, type IssueStatusMeaning } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
@@ -21,6 +21,7 @@ import {
 } from "./issue-conversation.service";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
 import { lockIssue, lockIssueForHandling } from "./issue-lock";
+import { IssueMailer } from "./issue-mailer.service";
 import {
   extendReporterLink,
   type LiveReporterLink,
@@ -31,6 +32,7 @@ import {
   mintReporterLinkToken,
   reporterLinkDigest,
 } from "./issue-reporter-link-token";
+import { reopenIssueByReply } from "./issue-reopening";
 import { IssueError } from "./issue.error";
 
 /**
@@ -107,8 +109,14 @@ export interface ReporterLinkPageView {
   /** Whether the page offers a field to write in. */
   acceptsMessages: boolean;
   /**
-   * Whether an open issue has all the messages a link takes: the page then
-   * offers no field and says so, rather than saying the issue is closed.
+   * Whether the issue is closed and a message now reopens it (within the
+   * reopening window, ADR 0054): the page says so beside the field.
+   */
+  reopensOnMessage: boolean;
+  /**
+   * Whether an issue that takes messages has all the messages a link takes:
+   * the page then offers no field and says so, rather than saying the issue is
+   * closed.
    */
   messageLimitReached: boolean;
   messages: ReporterIssueMessageView[];
@@ -160,6 +168,7 @@ export class IssueReporterLinkService implements OnModuleInit {
     private readonly mail: MailService,
     private readonly jobs: JobQueueService,
     private readonly audit: AuditLogService,
+    private readonly mailer: IssueMailer,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -538,12 +547,16 @@ export class IssueReporterLinkService implements OnModuleInit {
     }
     const digest = reporterLinkDigest(token);
 
+    // Before the transaction: a queue is made on the backend's own connection.
+    await this.mailer.ensureQueues();
     const outcome = await this.prisma.$transaction(async (tx) => {
       const first = await liveReporterLinkByDigest(tx, digest);
       if (first === null) {
         return { kind: "not-found" as const };
       }
-      await lockIssue(tx, first.issueId);
+      // The locks a status move takes: a reply that reopens the issue and a
+      // handler's move must not both decide what its closing date is.
+      await lockIssueForHandling(tx, first.issueId);
       const link = await liveReporterLinkByDigest(tx, digest);
       if (link === null) {
         return { kind: "not-found" as const };
@@ -551,9 +564,20 @@ export class IssueReporterLinkService implements OnModuleInit {
 
       const issue = await tx.issue.findUniqueOrThrow({
         where: { id: link.issueId },
-        select: { status: { select: { meaning: true } } },
+        select: {
+          id: true,
+          typeId: true,
+          closedAt: true,
+          mergedIntoIssueId: true,
+          status: { select: { id: true, meaning: true } },
+        },
       });
-      if (issue.status.meaning === "DONE") {
+      const reopens = issue.status.meaning === "DONE";
+      if (
+        reopens &&
+        (issue.mergedIntoIssueId !== null ||
+          !replyReopensIssue(issue.closedAt, new Date()))
+      ) {
         return { kind: "closed" as const };
       }
 
@@ -573,6 +597,16 @@ export class IssueReporterLinkService implements OnModuleInit {
         return { kind: "limited" as const };
       }
 
+      if (reopens) {
+        // Within the reopening window the reply reopens the issue, as a
+        // signed-in reporter's does (ADR 0054), and alerts its assignee.
+        await reopenIssueByReply(
+          { audit: this.audit, mailer: this.mailer },
+          tx,
+          issue,
+          { channel: "LINK", linkId: link.linkId },
+        );
+      }
       const message = await tx.issueMessage.create({
         data: {
           issueId: link.issueId,
@@ -596,12 +630,14 @@ export class IssueReporterLinkService implements OnModuleInit {
         },
         tx,
       );
-      return { kind: "sent" as const, issueId: link.issueId };
+      return { kind: "sent" as const, issueId: link.issueId, reopens };
     });
 
     if (outcome.kind === "sent") {
       this.logger.log(
-        `Issue ${outcome.issueId} has a message through its reporter's link`,
+        outcome.reopens
+          ? `Issue ${outcome.issueId} was reopened by a message through its reporter's link`
+          : `Issue ${outcome.issueId} has a message through its reporter's link`,
       );
     }
     return outcome.kind;
@@ -668,6 +704,8 @@ export class IssueReporterLinkService implements OnModuleInit {
       where: { id: link.issueId },
       select: {
         createdAt: true,
+        closedAt: true,
+        mergedIntoIssueId: true,
         type: { select: { name: true } },
         status: { select: { meaning: true } },
         messages: {
@@ -687,14 +725,21 @@ export class IssueReporterLinkService implements OnModuleInit {
     const reporterMessages = issue.messages.filter(
       (message) => message.side === "REPORTER",
     ).length;
+    const closed = issue.status.meaning === "DONE";
+    // A closed issue takes a message only while one still reopens it.
+    const reopensOnMessage =
+      closed &&
+      issue.mergedIntoIssueId === null &&
+      replyReopensIssue(issue.closedAt, new Date());
     const messageLimitReached =
-      issue.status.meaning !== "DONE" &&
+      (!closed || reopensOnMessage) &&
       reporterMessages >= REPORTER_LINK_MESSAGES_PER_ISSUE;
     return {
       typeName: issue.type.name,
       meaning: issue.status.meaning,
       createdAt: issue.createdAt,
-      acceptsMessages: issue.status.meaning !== "DONE" && !messageLimitReached,
+      acceptsMessages: (!closed || reopensOnMessage) && !messageLimitReached,
+      reopensOnMessage: reopensOnMessage && !messageLimitReached,
       messageLimitReached,
       messages: issue.messages.map(toReporterView),
     };

@@ -15,7 +15,11 @@ import { holdsBoardSeat } from "../mail/board-recipients";
 import { readImageHeader } from "../media/image-bytes";
 import { mediaUrl, MediaService } from "../media/media.service";
 import { lockErasureEligibility } from "../retention/erasure-lock";
-import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
+import {
+  handlesIssues,
+  issueReaderScope,
+  issuesHandledWhere,
+} from "./issue-handlers";
 import { lockIssueForHandling, lockIssuesForHandling } from "./issue-lock";
 import {
   extendReporterLink,
@@ -23,6 +27,7 @@ import {
 } from "./issue-reporter-link";
 import { IssueMailer } from "./issue-mailer.service";
 import { IssueError, type IssueTextLocation } from "./issue.error";
+import { reopenIssueByReply } from "./issue-reopening";
 import type { IssueHandlerView } from "./issue.service";
 
 /**
@@ -203,7 +208,15 @@ export class IssueConversationService {
             "issue-closed",
           );
         }
-        await this.reopenByReply(tx, issue, reporterPersonId);
+        await reopenIssueByReply(
+          { audit: this.audit, mailer: this.mailer },
+          tx,
+          issue,
+          {
+            channel: "WEB",
+            reporterPersonId,
+          },
+        );
         reopened = true;
       }
       const written = await tx.issueMessage.create({
@@ -309,6 +322,12 @@ export class IssueConversationService {
     // must not leave board-only duplicates in reach or the signature on BOARD.
     const now = new Date();
     await this.requireHandled(tx, issueId, handlerPersonId, now);
+    // `requireHandled` answers the narrower scope for a person who handles
+    // nothing, and the signature below would sign for them as the board: a
+    // role withdrawn since the route's check must not write.
+    if (!(await handlesIssues(tx, handlerPersonId, "EVERY_HANDLER", now))) {
+      throw new IssueError("No such issue.", "issue-not-found");
+    }
     const merged = await tx.issue.findMany({
       where: { mergedIntoIssueId: issueId },
       select: { id: true },
@@ -374,67 +393,6 @@ export class IssueConversationService {
       sent: readable.length,
       skipped: duplicates.length - readable.length,
     };
-  }
-
-  /**
-   * Reopens a closed issue on its reporter's reply (ADR 0054): onto its type's
-   * default in-progress status, with its outcome, closing date and waiting
-   * reason cleared, as a handler's move out of DONE clears them.
-   *
-   * Which status a reopened issue enters is open in ADR 0054 (question 2).
-   * The in-progress one is taken here: the reply is to whoever has the issue,
-   * who stays its assignee, and putting it back among the new would read as a
-   * report nobody has looked at.
-   *
-   * Recorded as the status change it is, with the reporter as its actor, so
-   * their own access report answers for it, and `byReporter` in its facts,
-   * so the timeline says the reporter reopened it without naming them.
-   */
-  private async reopenByReply(
-    tx: Prisma.TransactionClient,
-    issue: { id: string; typeId: string; status: { id: string } },
-    reporterPersonId: string,
-  ): Promise<void> {
-    const target = await tx.issueStatus.findFirst({
-      where: { typeId: issue.typeId, meaning: "IN_PROGRESS", isDefault: true },
-      select: { id: true },
-    });
-    if (target === null) {
-      // Every type keeps a default status of each meaning (ADR 0054).
-      throw new Error(
-        `Type ${issue.typeId} has no default IN_PROGRESS status.`,
-      );
-    }
-    await tx.issue.update({
-      where: { id: issue.id },
-      data: {
-        statusId: target.id,
-        outcome: null,
-        closedAt: null,
-        waitingReason: null,
-      },
-    });
-    await this.audit.record(
-      {
-        action: "ISSUE_STATUS_CHANGED",
-        channel: "WEB",
-        actorPersonId: reporterPersonId,
-        targetKind: "issue",
-        targetId: issue.id,
-        context: {
-          from: "DONE",
-          to: "IN_PROGRESS",
-          fromStatusId: issue.status.id,
-          toStatusId: target.id,
-          byReporter: true,
-        },
-      },
-      tx,
-    );
-    // The assignee, or every handler of an issue nobody has, is mailed that it
-    // is open again, never what the reply says. The reply's own message is
-    // mailed after this one by `replyAsReporter`.
-    await this.mailer.reopenedInTransaction(tx, issue.id, reporterPersonId);
   }
 
   /** The conversation with the reporter, as a handler reads it. */

@@ -1692,7 +1692,14 @@ export class IssueService {
     }
     const issue = await this.prisma.$transaction(async (tx) => {
       await lockIssuesForHandling(tx, [issueId, intoIssueId]);
-      const scope = await this.readerScope(tx, actorPersonId, new Date());
+      // After the lock waits. A person who handles nothing is read as the
+      // narrower scope, which admits every issue an every-handler type has: a
+      // role withdrawn since the route's check must not merge.
+      const now = new Date();
+      if (!(await handlesIssues(tx, actorPersonId, "EVERY_HANDLER", now))) {
+        throw new IssueError("No such issue.", "issue-not-found");
+      }
+      const scope = await this.readerScope(tx, actorPersonId, now);
       const [existing, into] = await Promise.all(
         [issueId, intoIssueId].map((id) =>
           tx.issue.findFirst({
@@ -1891,6 +1898,13 @@ export class IssueService {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
       const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      // As publishing does: a role withdrawn since the route's check must not
+      // clear a notice the board put up.
+      if (
+        !(await handlesIssues(tx, actorPersonId, "EVERY_HANDLER", new Date()))
+      ) {
+        throw new IssueError("No such issue.", "issue-not-found");
+      }
       if (existing.knownFaultPublishedAt === null) {
         return tx.issue.findUniqueOrThrow({
           where: { id: issueId },

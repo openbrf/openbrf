@@ -3657,6 +3657,7 @@
       "message": "Skriv till föreningen",
       "messageHint": "Skriv inga personnummer. Det går inte att bifoga filer här.",
       "send": "Skicka",
+      "reopensNotice": "Ärendet är avslutat. Skickar du ett meddelande nu öppnas det igen.",
       "closedNotice": "Ärendet är avslutat och tar inte emot fler meddelanden. Har du något nytt att anmäla gör du en ny anmälan på föreningens webbplats.",
       "private": "Länken är personlig, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats eller ett år efter det senaste meddelandet i det, det som inträffar först. Innan något meddelande har skrivits räknas året från att länken mejlades.",
       "notFoundTitle": "Länken öppnar inget ärende",

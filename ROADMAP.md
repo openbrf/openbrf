@@ -379,7 +379,8 @@ locally the application runs from source beside the PostgreSQL that
       or the AI package (ADR 0056)
 - [x] After an issue closes: a reply from its reporter within 30 days of
       closing reopens it, back to its type's in-progress status with its
-      outcome cleared, and after that the reporter is offered a new report
+      outcome cleared (the same through a private link, for a reporter
+      without an account), and after that the reporter is offered a new report
       linked to the old one. A handler merges a duplicate into another issue,
       which closes it as a duplicate; its reporter keeps their own report,
       follows where the other issue stands, and a handler writes to the
