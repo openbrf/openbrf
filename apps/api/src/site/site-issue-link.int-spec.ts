@@ -1051,7 +1051,13 @@ describe("D. rate limits and abuse", () => {
     try {
       await lockTaken;
       const delivering = links.deliver(id);
-      await new Promise((done) => setTimeout(done, 500));
+      // Until the delivery has issued its link and waits at the registry
+      // lock; releasing earlier would let it pass before it reaches the lock.
+      await waitFor(
+        async () =>
+          (await advisoryLockCount(prisma, "legal-hold:registry", false)) > 0n,
+        10_000,
+      );
       release();
       await granting;
 
