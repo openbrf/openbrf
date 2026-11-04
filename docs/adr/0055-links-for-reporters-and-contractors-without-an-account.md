@@ -310,10 +310,13 @@ sections above leave open, this is what was decided:
   removed from the list, its issue closed or ring-fenced, and a person with
   protected personal data having reported the issue or living in its
   apartment. Every one of them is read in the lookup on every request. A
-  redaction, a purge, a ring-fence and a contractor removed also revoke the
-  link in their own transaction, so lifting a ring-fence later brings no link
-  back. A decline and done are final: no new link is issued for such a work
-  order, and the handler writes a new one.
+  redaction, a purge, a ring-fence, a contractor removed and the issue closed
+  also revoke the link in their own transaction, so lifting a ring-fence or
+  reopening the issue later brings no link back; the handler issues a new one
+  if the work goes on. The handlers' record reads the same conditions, the
+  protected household included, so it never says a link opens what the
+  contractor is refused. A decline and done are final: no new link is issued
+  for such a work order, and the handler writes a new one.
 - **Question 4, for the link.** The mailed work order is not refused for a
   protected household (above), because nothing of the issue goes into it but
   what the handler writes. The link shows the board's photographs, which may
@@ -329,7 +332,9 @@ sections above leave open, this is what was decided:
 - **What the contractor sends.** Notes of at most 2,000 characters, scanned for
   personal identity numbers as the report form is, and photographs, identified
   from their bytes, stripped of their metadata, at most 40 megapixels, named
-  by the server (`work-order-photo.<ext>`) and declared as showing people. Both
+  by the server (`work-order-photo.<ext>`) and declared as showing people.
+  Every photograph read through the link, the board's as well, is served
+  under that server-made name, never under the name it was stored with. Both
   are part of the issue's free-text layer
   ([ADR 0057](0057-purging-issues-in-two-layers.md)): removed on the board's
   clock with the rest, and redacted by a handler as a note or a file is. The
@@ -352,7 +357,10 @@ sections above leave open, this is what was decided:
 - **The handlers are told.** An answer, a note or a photograph queues the
   handler notice of the issue mailer (decision 21: the issue's number and type,
   never a word the contractor wrote), to the assignee or, with none, to the
-  type's handlers, at most once an hour per person and issue. The answer is a
+  type's handlers. A note or a photograph is mailed at most once an hour per
+  person and issue; an answer is mailed every time, because a decline or done
+  is the act a handler must not miss and a link takes two answers at most.
+  The answer is a
   step on the issue's timeline. A reporter's data subject access report says,
   under each work order, whether a link was given and how many of the issue's
   photographs it shows, by number and never by file.

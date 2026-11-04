@@ -422,6 +422,7 @@ async function listed(issueId: string, on: NestFastifyApplication = app) {
   return response.json<{
     linksEnabled: boolean;
     choosablePhotos: { fileId: string }[];
+    protectedHousehold: boolean;
     workOrders: ListedWorkOrder[];
   }>();
 }
@@ -733,6 +734,29 @@ describe("a contractor with a link", () => {
     expect(mailed).toHaveLength(1);
     expect(JSON.stringify(mailed[0]?.props)).not.toContain(text);
     expect(JSON.stringify(mailed[0]?.props)).not.toContain(ids.token);
+  });
+
+  it("H7: notes in an hour are told of once, and the answer that ends the link after them is told of too", async () => {
+    const ids = await linked();
+    await act(ids.token, { act: "note", body: `Kommer klockan tio ${suffix}` });
+    await act(ids.token, { act: "note", body: `Blir lite sen ${suffix}` });
+    const done = await act(ids.token, { act: "done" });
+    expect(done.statusCode).toBe(200);
+
+    const jobs = await prisma.$queryRaw<{ data: IssueNoticeJob }[]>`
+      SELECT data FROM pgboss.job
+      WHERE name = 'issue-notice' AND data->>'issueId' = ${ids.issueId}
+      ORDER BY created_on`;
+    // One for the notes, the second note throttled; one for done.
+    expect(jobs.map((job) => [job.data.event, job.data.contractor])).toEqual([
+      ["contractor", "activity"],
+      ["contractor", "answer"],
+    ]);
+    const before = sent.length;
+    for (const job of jobs) {
+      expect(await app.get(IssueMailer).deliver(job.data)).toBe(true);
+    }
+    expect(sent.slice(before)).toHaveLength(2);
   });
 });
 
@@ -1068,8 +1092,39 @@ describe("B. lifetime and revocation", () => {
     expect(rows.every((row) => row.revokedAt !== null)).toBe(true);
   });
 
+  it("B1, B5: closing the issue revokes its links in that transaction, and reopening it brings none back", async () => {
+    const ids = await linked();
+    const move = (statusId: string, outcome?: string) =>
+      inject({
+        method: "POST",
+        url: `/api/issue-queue/${ids.issueId}/status`,
+        payload: outcome === undefined ? { statusId } : { statusId, outcome },
+        cookie: as(board),
+      });
+
+    expect((await move(plain.statusIds.DONE, "FIXED")).statusCode).toBe(201);
+    expect((await page(ids.token)).statusCode).toBe(404);
+    const rows = await prisma.workOrderLink.findMany({
+      where: { workOrderId: { in: [ids.workOrderId, ids.otherWorkOrderId] } },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows.every((row) => row.revokedAt !== null)).toBe(true);
+
+    expect((await move(plain.statusIds.IN_PROGRESS)).statusCode).toBe(201);
+    expect((await page(ids.token)).statusCode).toBe(404);
+    expect(
+      (await act(ids.token, { act: "note", body: "Hej igen" })).statusCode,
+    ).toBe(404);
+    expect(
+      (await listedOrder(ids.issueId, ids.workOrderId)).contractorLink.link
+        .state,
+    ).toBe("ended");
+  });
+
   it("B1: a closed issue, a removed contractor and a recipient erased each end the link", async () => {
     const closed = await linked();
+    // Closed under the handlers' feet, with no revocation: the lookup refuses
+    // it all the same.
     await prisma.issue.update({
       where: { id: closed.issueId },
       data: { statusId: plain.statusIds.DONE, closedAt: new Date() },
@@ -1113,6 +1168,14 @@ describe("B. lifetime and revocation", () => {
     });
     try {
       expect((await page(before.token)).statusCode).toBe(404);
+      // The handlers' record says so too, and offers no withdrawal of a link
+      // that opens nothing.
+      const list = await listed(before.issueId);
+      expect(list.protectedHousehold).toBe(true);
+      expect(
+        list.workOrders.find((row) => row.id === before.workOrderId)
+          ?.contractorLink.link,
+      ).toEqual({ state: "ended", expiresAt: null });
       const ids = await arrange();
       const refused = await inject({
         method: "POST",
@@ -1128,6 +1191,76 @@ describe("B. lifetime and revocation", () => {
         where: { id: resident.personId },
         data: { protectedPersonalData: false },
       });
+    }
+  });
+});
+
+describe("H4. a protected household", () => {
+  it("a protected resident of the apartment ends the link, and the handlers' record says it has ended", async () => {
+    const ids = await linked();
+    const addressId = `wl-address-${suffix}`;
+    const apartmentId = `wl-apartment-${suffix}`;
+    const neighbourId = `wl-neighbour-${suffix}`;
+    await prisma.address.create({
+      data: {
+        id: addressId,
+        street: "Länkgatan",
+        number: suffix,
+        postalCode: "11122",
+        city: "Stockholm",
+        sortOrder: 921,
+      },
+    });
+    await prisma.apartment.create({
+      data: { id: apartmentId, addressId, number: "1201", floor: 2 },
+    });
+    await prisma.issue.update({
+      where: { id: ids.issueId },
+      data: { apartmentId },
+    });
+    try {
+      expect((await page(ids.token)).statusCode).toBe(200);
+      const live = await listed(ids.issueId);
+      expect(live.protectedHousehold).toBe(false);
+      expect(
+        live.workOrders.find((row) => row.id === ids.workOrderId)
+          ?.contractorLink.link.state,
+      ).toBe("live");
+
+      // Somebody moves in whose personal data is protected; the reporter is not.
+      await prisma.person.create({
+        data: {
+          id: neighbourId,
+          firstName: "Nora",
+          lastName: `Granne${suffix}`,
+          protectedPersonalData: true,
+        },
+      });
+      await prisma.residency.create({
+        data: {
+          personId: neighbourId,
+          apartmentId,
+          role: "RESIDENT",
+          movedInOn: new Date("2024-01-01T00:00:00.000Z"),
+        },
+      });
+
+      expect((await page(ids.token)).statusCode).toBe(404);
+      const after = await listed(ids.issueId);
+      expect(after.protectedHousehold).toBe(true);
+      expect(
+        after.workOrders.find((row) => row.id === ids.workOrderId)
+          ?.contractorLink.link,
+      ).toEqual({ state: "ended", expiresAt: null });
+    } finally {
+      await prisma.residency.deleteMany({ where: { personId: neighbourId } });
+      await prisma.person.deleteMany({ where: { id: neighbourId } });
+      await prisma.issue.update({
+        where: { id: ids.issueId },
+        data: { apartmentId: null },
+      });
+      await prisma.apartment.deleteMany({ where: { id: apartmentId } });
+      await prisma.address.deleteMany({ where: { id: addressId } });
     }
   });
 });
@@ -1368,6 +1501,13 @@ describe("D. rate limits and abuse", () => {
       body: "Ring 19121212-1212 om porten",
     });
     expect(identity.headers.location).toContain("svar=identity");
+    // Measured as it would be stored: nothing but a zero-width space is
+    // empty, and 1,000 ellipses are 3,000 characters once NFKC has them.
+    for (const body of ["\u200b", "\u2026".repeat(1000)]) {
+      const normalized = await act(ids.token, { act: "note", body });
+      expect(normalized.statusCode).toBe(303);
+      expect(normalized.headers.location).toContain("svar=refused");
+    }
     const huge = await act(ids.token, {
       act: "note",
       body: "x".repeat(70_000),
@@ -1819,6 +1959,26 @@ describe("G. the contractor's photographs", () => {
 });
 
 describe("H. what the page shows", () => {
+  it("H1, J2: a photograph of the report is served under the server's name, never the one the reporter's file had", async () => {
+    const ids = await linked();
+    const served = await inject({
+      method: "GET",
+      url: `/arbetsorder/${ids.token}/foto/${ids.chosenFileId}`,
+    });
+    expect(served.statusCode).toBe(200);
+    // Stored under a name made of the canary, as a reporter's phone might
+    // name it after the apartment.
+    const stored = await prisma.mediaFile.findUniqueOrThrow({
+      where: { id: ids.chosenFileId },
+      select: { fileName: true },
+    });
+    expect(stored.fileName).toContain(CANARY.location);
+    expect(JSON.stringify(served.headers)).not.toContain(CANARY.location);
+    expect(served.headers["content-disposition"]).toContain(
+      "work-order-photo.png",
+    );
+  });
+
   it("H5: taking a photograph out of the choice, or off the issue, ends access to it on the next request", async () => {
     const ids = await linked();
     const photo = () =>

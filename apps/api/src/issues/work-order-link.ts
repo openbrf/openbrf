@@ -30,6 +30,7 @@ import { issuesReportedByProtectedPersons } from "./issue-reporter-protection";
  *   issue reaches a contractor, by a link issued before the type was
  *   ring-fenced either.
  * - **the issue is not closed.** A closed issue has no work left to answer.
+ *   Closing it revokes its links as well, so reopening it brings none back.
  *
  * And one more, asked beside the query in the same transaction because it
  * reads the register: **nobody with protected personal data reported the
@@ -96,8 +97,10 @@ export async function liveWorkOrderLinkByDigest(
 }
 
 /**
- * The live links of an issue's work orders, with when each ends: how the
- * handlers' record says which work orders a contractor can open now.
+ * The links of an issue's work orders that the lookup would open, with when
+ * each ends. Not the protected household, which is asked of the issue once
+ * (`showsProtectedHousehold`): the handlers' record asks both, as `resolve`
+ * does on every request.
  */
 export async function liveWorkOrderLinksOfIssue(
   db: Db,
@@ -116,10 +119,10 @@ export async function liveWorkOrderLinksOfIssue(
  *
  * What makes a work order one a contractor may no longer see revokes its links
  * in the same transaction (control B5 of the threat review): a redaction or the
- * purge of its text, its type ring-fenced, its contractor removed. The lookup
- * would refuse such a link anyway; the revocation makes the end a fact on the
- * row, so a later change back (a ring-fence lifted) does not bring the link
- * back to life.
+ * purge of its text, its type ring-fenced, its contractor removed, its issue
+ * closed. The lookup would refuse such a link anyway; the revocation makes the
+ * end a fact on the row, so a later change back (a ring-fence lifted, the
+ * issue reopened) does not bring the link back to life.
  */
 export async function revokeWorkOrderLinks(
   tx: Prisma.TransactionClient,

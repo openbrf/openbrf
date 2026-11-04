@@ -193,7 +193,7 @@
       "contractor": {
         "subject": "En entreprenör har svarat i ärende {{number}}: {{type}}",
         "heading": "En entreprenör har svarat på en arbetsorder",
-        "body": "Entreprenören för en arbetsorder i ärende {{number}}, {{type}}, har svarat, skrivit en anteckning eller lagt till ett foto via arbetsorderns länk. Det de skickade finns i ärendekön, inte i det här mejlet."
+        "body": "Entreprenören för en arbetsorder i ärende {{number}}, {{type}}, har svarat, skrivit en anteckning eller lagt till ett foto via arbetsorderlänken. Det de skickade finns i ärendekön, inte i det här mejlet."
       }
     },
     "issueReporterNotice": {
@@ -893,7 +893,7 @@
           "ISSUE_WORK_ORDER_ANSWERED": "En entreprenör svarade på en arbetsorder i ett ärende via länken",
           "ISSUE_WORK_ORDER_NOTE_ADDED": "En entreprenör skrev en anteckning på en arbetsorder i ett ärende via länken",
           "ISSUE_WORK_ORDER_PHOTO_ADDED": "En entreprenör lade till ett foto på en arbetsorder i ett ärende via länken",
-          "ISSUE_WORK_ORDER_PHOTOS_CHOSEN": "Fotona som en arbetsorders länk visar valdes",
+          "ISSUE_WORK_ORDER_PHOTOS_CHOSEN": "Fotona som en arbetsorderlänk visar valdes",
           "CONTRACTOR_LIST_CHANGED": "En entreprenör lades till, ändrades eller togs bort i entreprenörslistan",
           "ISSUE_TYPE_RING_FENCE_CHANGED": "En ärendetyp stängdes för entreprenörer, eller öppnades igen",
           "ISSUE_MESSAGE_SENT": "Ett meddelande skrevs i ett ärende",
@@ -4132,12 +4132,12 @@
         "titleUnnamed": "Entreprenörens länk: arbetsordern från {{at}}",
         "live": "Länken öppnar arbetsordern till <data>{{date}}</data>.",
         "liveUndated": "Länken öppnar arbetsordern.",
-        "ended": "Länken öppnar inte längre arbetsordern: den har dragits tillbaka eller ersatts, gått ut, eller så är arbetet markerat som klart.",
+        "ended": "Länken öppnar inte längre arbetsordern: den har dragits tillbaka, ersatts eller gått ut, entreprenören har tackat nej eller markerat den som klar, eller så har arbetsordern eller ärendet ändrats så att den inte längre får nå en entreprenör.",
         "none": "Entreprenören har inte fått någon länk till den här arbetsordern.",
         "hint": "Via länken ser entreprenören den här arbetsordern och fotona som väljs nedan, inget annat från ärendet. Där kan de tacka ja eller nej, markera arbetet som klart och lägga till anteckningar och foton.",
         "answered": "Entreprenören har tackat nej till arbetsordern eller markerat den som klar, så ingen ny länk ges.",
         "unavailable": "Arbetsordern kan inte få någon länk: dess text eller entreprenör finns inte längre kvar.",
-        "protected": "Den som anmälde har skyddade personuppgifter, så ingen arbetsorder i ärendet får någon länk. Ge entreprenören det de behöver på annat sätt.",
+        "protected": "Någon som ärendet gäller, den som anmälde eller någon som bor i lägenheten, har skyddade personuppgifter, så ingen arbetsorder i ärendet får någon länk och en länk som getts tidigare öppnar den inte längre. Ge entreprenören det de behöver på annat sätt.",
         "issue": "Ge entreprenören en länk",
         "issueNamed": "Ge entreprenören en länk till arbetsordern till {{name}} från {{at}}",
         "issueAgain": "Ge en ny länk",

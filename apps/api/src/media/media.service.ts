@@ -658,48 +658,12 @@ export class MediaService {
    * per serve would bury the accesses the log exists for.
    */
   async openForPlugin(id: string): Promise<ServedFile | null> {
-    const file = await this.prisma.mediaFile.findFirst({
-      where: {
-        id,
-        visibility: { in: ["PUBLIC", "MEMBER"] },
-        contentType: { in: [...IMAGE_CONTENT_TYPES] },
-        showsIdentifiablePersons: false,
-      },
-      select: {
-        id: true,
-        storageKey: true,
-        encryption: true,
-        dataKeyCipher: true,
-        byteSize: true,
-        contentType: true,
-        fileName: true,
-        checksum: true,
-        visibility: true,
-      },
+    return this.openWhere({
+      id,
+      visibility: { in: ["PUBLIC", "MEMBER"] },
+      contentType: { in: [...IMAGE_CONTENT_TYPES] },
+      showsIdentifiablePersons: false,
     });
-    if (file === null) {
-      return null;
-    }
-
-    let stream: Readable;
-    try {
-      stream = await this.openSealed(file);
-    } catch (error) {
-      // Already logged by the file's id; to the plugin it is a missing file.
-      if (error instanceof MediaError) {
-        return null;
-      }
-      throw error;
-    }
-
-    return {
-      stream,
-      contentType: file.contentType,
-      byteSize: file.byteSize,
-      fileName: file.fileName,
-      checksum: file.checksum,
-      visibility: file.visibility,
-    };
   }
 
   /**
@@ -719,13 +683,25 @@ export class MediaService {
    * not leave a row, and a contractor has no person to name.
    */
   async openForWorkOrderLink(id: string): Promise<ServedFile | null> {
+    return this.openWhere({
+      id,
+      visibility: "INTERNAL",
+      requiredCapability: "issues:handle",
+      contentType: { in: [...IMAGE_CONTENT_TYPES] },
+    });
+  }
+
+  /**
+   * The one file a rule with no viewer names, opened, or null: for a caller
+   * whose whole rule is the `where`, so a row outside it is never read. A file
+   * whose bytes cannot be served is null as well, already logged by its id,
+   * so the caller learns nothing from the answer about a file it may not read.
+   */
+  private async openWhere(
+    where: Prisma.MediaFileWhereInput,
+  ): Promise<ServedFile | null> {
     const file = await this.prisma.mediaFile.findFirst({
-      where: {
-        id,
-        visibility: "INTERNAL",
-        requiredCapability: "issues:handle",
-        contentType: { in: [...IMAGE_CONTENT_TYPES] },
-      },
+      where,
       select: {
         id: true,
         storageKey: true,

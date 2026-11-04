@@ -20,6 +20,15 @@ const EXTENSIONS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * The extension a content type is written with, or undefined for a type that
+ * has none here. For any name the server makes from an identified type, a
+ * stored key's or a file's, so the two never disagree on what a type is.
+ */
+export function extensionOf(contentType: string): string | undefined {
+  return EXTENSIONS[contentType];
+}
+
+/**
  * Where a new object is stored.
  *
  * Every part is generated here. The prefix names the feature that owns the
@@ -50,7 +59,7 @@ export function generateStorageKey(
 ): string {
   const year = String(now.getUTCFullYear());
   const month = String(now.getUTCMonth() + 1).padStart(2, "0");
-  const extension = EXTENSIONS[contentType];
+  const extension = extensionOf(contentType);
   const name =
     extension === undefined ? randomUUID() : `${randomUUID()}.${extension}`;
 

@@ -127,6 +127,12 @@ export interface IssueWorkOrders {
   linksEnabled: boolean;
   /** Empty while the switch is off or the issue is ring-fenced. */
   choosablePhotos: ChoosablePhoto[];
+  /**
+   * Somebody the issue concerns, its reporter or a resident of its apartment,
+   * has protected personal data: no link is given, and any given before is
+   * ended.
+   */
+  protectedHousehold: boolean;
   workOrders: WorkOrder[];
 }
 

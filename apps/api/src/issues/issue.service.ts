@@ -60,6 +60,7 @@ import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import { IssueMailer } from "./issue-mailer.service";
 import { IssueError } from "./issue.error";
 import { workOrderKnownNotSent } from "./work-order-delivery";
+import { revokeWorkOrderLinks } from "./work-order-link";
 
 /**
  * How many photographs one report may carry.
@@ -1227,6 +1228,12 @@ export class IssueService {
         data: next,
         include: ISSUE_INCLUDE,
       });
+      // Into done ends every contractor's link to the issue's work orders, as a
+      // fact on the row (ADR 0055): reopening it later brings none back, and a
+      // handler gives the contractor a new link if the work goes on.
+      if (target.meaning === "DONE") {
+        await revokeWorkOrderLinks(tx, { issueId });
+      }
       // Out of done is a reopening, which the assignee is told of (decision 8).
       if (existing.status.meaning === "DONE" && target.meaning !== "DONE") {
         await this.mailer.reopenedInTransaction(tx, issueId, actorPersonId);

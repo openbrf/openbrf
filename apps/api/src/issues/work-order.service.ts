@@ -141,6 +141,12 @@ export interface IssueWorkOrdersView {
    * is on; none while it is off.
    */
   choosablePhotos: ChoosablePhotoView[];
+  /**
+   * Whether somebody the issue concerns, its reporter or a person who lives
+   * in its apartment today, has protected personal data. No link is given
+   * then, and every link given before is ended (ADR 0055).
+   */
+  protectedHousehold: boolean;
   workOrders: WorkOrderView[];
 }
 
@@ -233,7 +239,8 @@ export class WorkOrderService {
       closed: issue.closed,
       linksEnabled: this.links.enabled,
       choosablePhotos: choosable,
-      workOrders: await this.views(rows, linkViews),
+      protectedHousehold: linkViews.protectedHousehold,
+      workOrders: await this.views(rows, linkViews.views),
     };
   }
 

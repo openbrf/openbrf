@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import {
+  normalizeFreeText,
   scanForPersonalIdentityNumbers,
   WORK_ORDER_LIMITS,
 } from "@openbrf/shared";
@@ -67,8 +68,11 @@ export const WORK_ORDER_LINK_UPLOADS_PER_MINUTE = 3;
 
 /**
  * An act as the page's forms post it: which button, and for a note its text,
- * its line breaks counted as one character as the form counts them, trimmed,
- * and within the bound.
+ * its line breaks counted as one character as the form counts them,
+ * normalized as it is stored (`normalizeFreeText`), trimmed, and within the
+ * bound. Normalized before it is measured, so a note that is only invisible
+ * characters, or one that NFKC lengthens past the bound, is refused here as
+ * the form would, never past the service's own check.
  */
 const actSchema = z.discriminatedUnion(WORK_ORDER_LINK_ACT_FIELD, [
   z.object({
@@ -78,7 +82,9 @@ const actSchema = z.discriminatedUnion(WORK_ORDER_LINK_ACT_FIELD, [
     [WORK_ORDER_LINK_ACT_FIELD]: z.literal("note"),
     [WORK_ORDER_LINK_BODY_FIELD]: z
       .string()
-      .transform((value) => value.replace(/\r\n?/g, "\n").trim())
+      .transform((value) =>
+        normalizeFreeText(value.replace(/\r\n?/g, "\n")).trim(),
+      )
       .refine((value) => value !== "")
       .refine((value) => value.length <= WORK_ORDER_LIMITS.note),
   }),

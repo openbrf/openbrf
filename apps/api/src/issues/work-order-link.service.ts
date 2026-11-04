@@ -13,6 +13,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { failureName } from "../logging/failure";
 import { readImageHeader } from "../media/image-bytes";
+import { extensionOf } from "../storage/storage-key";
 import {
   MediaError,
   MediaService,
@@ -21,7 +22,7 @@ import {
 } from "../media/media.service";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
 import { lockIssue, lockIssueForHandling, lockIssueType } from "./issue-lock";
-import { IssueMailer } from "./issue-mailer.service";
+import { type ContractorNoticeKind, IssueMailer } from "./issue-mailer.service";
 import { IssueError } from "./issue.error";
 import {
   type LiveWorkOrderLink,
@@ -131,6 +132,15 @@ export type WorkOrderLinkOutcome =
   | "full"
   /** The token opens nothing: the same answer for every reason. */
   | "not-found";
+
+/**
+ * What became of an answer: an answer is never bounded, because a link takes
+ * at most two (an acceptance, then a decline or done) and the second ends it.
+ */
+export type WorkOrderLinkAnswerOutcome = Extract<
+  WorkOrderLinkOutcome,
+  "done" | "unchanged" | "not-found"
+>;
 
 /** What became of a photograph sent through the link. */
 export type WorkOrderLinkUploadOutcome =
@@ -481,14 +491,28 @@ export class WorkOrderLinkService {
   /**
    * What the handlers' record shows of each work order's link, by work order,
    * read in the caller's transaction: where the link stands, the answer, the
-   * notes, the contractor's photographs and the photographs chosen.
+   * notes, the contractor's photographs and the photographs chosen. And
+   * whether somebody the issue concerns has protected personal data, which
+   * ends every link to it as `resolve` does on every request: such a link is
+   * `ended` here, so the record never says it opens what the contractor is
+   * refused.
    */
   async recordViews(
     tx: Prisma.TransactionClient,
     issueId: string,
     workOrderIds: readonly string[],
-  ): Promise<Map<string, WorkOrderLinkRecordView>> {
-    const live = await liveWorkOrderLinksOfIssue(tx, issueId, this.enabled);
+  ): Promise<{
+    protectedHousehold: boolean;
+    views: Map<string, WorkOrderLinkRecordView>;
+  }> {
+    const protectedHousehold = await showsProtectedHousehold(
+      tx,
+      issueId,
+      localDayOf(new Date()),
+    );
+    const live = protectedHousehold
+      ? new Map<string, Date>()
+      : await liveWorkOrderLinksOfIssue(tx, issueId, this.enabled);
     const ordered = await tx.workOrder.findMany({
       where: { id: { in: [...workOrderIds] }, issueId },
       select: {
@@ -516,8 +540,8 @@ export class WorkOrderLinkService {
         },
       },
     });
-    return new Map(
-      ordered.map((order) => {
+    const views = new Map(
+      ordered.map((order): [string, WorkOrderLinkRecordView] => {
         const expiresAt = live.get(order.id);
         return [
           order.id,
@@ -552,6 +576,7 @@ export class WorkOrderLinkService {
         ];
       }),
     );
+    return { protectedHousehold, views };
   }
 
   /**
@@ -617,6 +642,10 @@ export class WorkOrderLinkService {
    * identifier, of another work order, another issue, a photograph of the
    * report not chosen, or no file at all, is answered null alike (control
    * C3). Reads, and writes nothing.
+   *
+   * Served under the server's name for its type, never the stored one: a
+   * photograph of the report is stored under the name the reporter's device
+   * gave it, which is free text and may name the apartment or the person.
    */
   async photo(token: string, fileId: string): Promise<ServedFile | null> {
     if (!hasWorkOrderLinkTokenForm(token)) {
@@ -633,7 +662,13 @@ export class WorkOrderLinkService {
       },
       { isolationLevel: "RepeatableRead" },
     );
-    return granted ? this.media.openForWorkOrderLink(fileId) : null;
+    if (!granted) {
+      return null;
+    }
+    const served = await this.media.openForWorkOrderLink(fileId);
+    return served === null
+      ? null
+      : { ...served, fileName: workOrderPhotoName(served.contentType) };
   }
 
   /**
@@ -648,8 +683,8 @@ export class WorkOrderLinkService {
   async answer(
     token: string,
     answer: WorkOrderLinkAnswer,
-  ): Promise<WorkOrderLinkOutcome> {
-    return this.write<WorkOrderLinkOutcome>(token, async (tx, link) => {
+  ): Promise<WorkOrderLinkAnswerOutcome> {
+    return this.write(token, "answer", async (tx, link) => {
       const order = await tx.workOrder.findUniqueOrThrow({
         where: { id: link.workOrderId },
         select: { answer: true },
@@ -661,7 +696,7 @@ export class WorkOrderLinkService {
             ? ("DECLINED" as const)
             : ("DONE" as const);
       if (order.answer === value) {
-        return "unchanged";
+        return "unchanged" as const;
       }
       await tx.workOrder.update({
         where: { id: link.workOrderId },
@@ -670,7 +705,7 @@ export class WorkOrderLinkService {
       await this.recordLinkAct(tx, link, "ISSUE_WORK_ORDER_ANSWERED", {
         answer: value,
       });
-      return "done";
+      return "done" as const;
     });
   }
 
@@ -688,7 +723,7 @@ export class WorkOrderLinkService {
     ) {
       throw new Error("A note reached the service the form refuses.");
     }
-    return this.write<WorkOrderLinkOutcome>(token, async (tx, link) => {
+    return this.write(token, "activity", async (tx, link) => {
       const [counts] = await tx.$queryRaw<
         { lastHour: bigint; total: bigint }[]
       >`
@@ -699,10 +734,10 @@ export class WorkOrderLinkService {
         WHERE "workOrderId" = ${link.workOrderId}`;
       // The total first: it never drops, so it is the answer that stays true.
       if (Number(counts?.total ?? 0) >= WORK_ORDER_LINK_NOTES_PER_WORK_ORDER) {
-        return "full";
+        return "full" as const;
       }
       if (Number(counts?.lastHour ?? 0) >= WORK_ORDER_LINK_NOTES_PER_HOUR) {
-        return "limited";
+        return "limited" as const;
       }
       const note = await tx.workOrderNote.create({
         data: { workOrderId: link.workOrderId, body: text },
@@ -711,7 +746,7 @@ export class WorkOrderLinkService {
       await this.recordLinkAct(tx, link, "ISSUE_WORK_ORDER_NOTE_ADDED", {
         noteId: note.id,
       });
-      return "done";
+      return "done" as const;
     });
   }
 
@@ -773,7 +808,7 @@ export class WorkOrderLinkService {
         bytes: file.bytes,
         // The server's name, never the contractor's: the stored name is shown
         // to handlers and goes into the download's disposition (G7).
-        fileName: `work-order-photo.${extensionOf(header.contentType)}`,
+        fileName: workOrderPhotoName(header.contentType),
         visibility: "INTERNAL",
         requiredCapability: "issues:handle",
         // Nobody knows what a contractor photographed, so it is recorded as if
@@ -794,6 +829,7 @@ export class WorkOrderLinkService {
     try {
       outcome = await this.write<WorkOrderLinkUploadOutcome>(
         token,
+        "activity",
         async (tx, link) => {
           const room = await this.photoRoom(
             tx,
@@ -836,10 +872,12 @@ export class WorkOrderLinkService {
    * takes, the work order's row locked, and the token resolved again under
    * them, so the write is decided against the link as it is now. A refusal at
    * either resolution is `not-found`. The handlers are told, with no free
-   * text, of every act that changed something.
+   * text, of every act that changed something: of an answer every time, of a
+   * note or a photograph once an hour (`IssueMailer.contractorInTransaction`).
    */
   private async write<T extends string>(
     token: string,
+    notice: ContractorNoticeKind,
     act: (tx: Prisma.TransactionClient, link: LiveWorkOrderLink) => Promise<T>,
   ): Promise<T | "not-found"> {
     if (!hasWorkOrderLinkTokenForm(token)) {
@@ -864,7 +902,7 @@ export class WorkOrderLinkService {
       }
       const outcome = await act(tx, link);
       if (outcome === "done") {
-        await this.mailer.contractorInTransaction(tx, link.issueId);
+        await this.mailer.contractorInTransaction(tx, link.issueId, notice);
       }
       return { outcome, issueId: link.issueId };
     });
@@ -1128,18 +1166,15 @@ export function workOrderLinkUrl(appUrl: string, token: string): string {
   return `${appUrl.replace(/\/+$/, "")}${WORK_ORDER_LINK_PATH}/${token}`;
 }
 
-/** The extension the server names a photograph by, from its identified type. */
-function extensionOf(contentType: string): string {
-  switch (contentType) {
-    case "image/jpeg":
-      return "jpg";
-    case "image/png":
-      return "png";
-    case "image/webp":
-      return "webp";
-    case "image/gif":
-      return "gif";
-    default:
-      return "img";
-  }
+/**
+ * The name the server gives a photograph on a link's side, from its identified
+ * type: what a contractor's upload is stored under (control G7), and what every
+ * photograph read through a link is served as, so no name somebody chose, the
+ * reporter's included, reaches the contractor.
+ */
+export function workOrderPhotoName(contentType: string): string {
+  const extension = extensionOf(contentType);
+  return extension === undefined
+    ? "work-order-photo"
+    : `work-order-photo.${extension}`;
 }

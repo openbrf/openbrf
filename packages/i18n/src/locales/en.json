@@ -193,7 +193,7 @@
       "contractor": {
         "subject": "A contractor has answered on issue {{number}}: {{type}}",
         "heading": "A contractor has answered a work order",
-        "body": "The contractor of a work order on issue {{number}}, {{type}}, has answered it, written a note or added a photograph through the work order's link. What they sent is in the issue queue, not in this email."
+        "body": "The contractor of a work order on issue {{number}}, {{type}}, has answered it, written a note or added a photograph through the contractor's link. What they sent is in the issue queue, not in this email."
       }
     },
     "issueReporterNotice": {
@@ -893,7 +893,7 @@
           "ISSUE_WORK_ORDER_ANSWERED": "A contractor answered a work order on an issue through its link",
           "ISSUE_WORK_ORDER_NOTE_ADDED": "A contractor wrote a note on a work order on an issue through its link",
           "ISSUE_WORK_ORDER_PHOTO_ADDED": "A contractor added a photograph to a work order on an issue through its link",
-          "ISSUE_WORK_ORDER_PHOTOS_CHOSEN": "The photographs a work order's link shows were chosen",
+          "ISSUE_WORK_ORDER_PHOTOS_CHOSEN": "The photographs a contractor's link to a work order shows were chosen",
           "CONTRACTOR_LIST_CHANGED": "A contractor was added to, changed on or removed from the contractor list",
           "ISSUE_TYPE_RING_FENCE_CHANGED": "An issue type was ring-fenced from contractors, or its ring-fence was lifted",
           "ISSUE_MESSAGE_SENT": "A message was written on an issue",
@@ -4132,12 +4132,12 @@
         "titleUnnamed": "Contractor's link: the work order of {{at}}",
         "live": "The link opens the work order until <data>{{date}}</data>.",
         "liveUndated": "The link opens the work order.",
-        "ended": "The link no longer opens the work order: it was withdrawn or replaced, it expired, or the work was marked done.",
+        "ended": "The link no longer opens the work order: it was withdrawn, replaced or expired, the contractor declined it or marked it done, or the work order or its issue changed so that it may no longer reach a contractor.",
         "none": "The contractor has not been given a link to this work order.",
         "hint": "Through the link the contractor sees this work order and the photographs chosen below, and nothing else from the issue. They can accept or decline it, mark it done, and add notes and photographs.",
         "answered": "The contractor has declined this work order or marked it done, so it is given no new link.",
         "unavailable": "This work order is given no link: its text or its contractor is no longer on the record.",
-        "protected": "The reporter has protected personal data, so no work order on this issue is given a link. Give the contractor what they need another way.",
+        "protected": "Somebody this issue concerns, its reporter or somebody living in its apartment, has protected personal data, so no work order on this issue is given a link and a link given before no longer opens it. Give the contractor what they need another way.",
         "issue": "Give the contractor a link",
         "issueNamed": "Give the contractor a link to the work order to {{name}} of {{at}}",
         "issueAgain": "Give a new link",

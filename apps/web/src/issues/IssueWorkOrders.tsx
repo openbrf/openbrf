@@ -541,7 +541,7 @@ export function IssueWorkOrders({
       ? null
       : {
           offered: !data.ringFenced && !data.closed,
-          protectedReporter: issue.reporter.kind === "protected",
+          protectedHousehold: data.protectedHousehold,
           choosable: data.choosablePhotos,
           shown: shown?.issueId === issue.id ? shown : null,
           busy: linking.pending,
@@ -910,7 +910,11 @@ function WorkOrderLog({
 interface ContractorLinkControl {
   /** False on a ring-fenced or closed issue: only a withdrawal is offered. */
   offered: boolean;
-  protectedReporter: boolean;
+  /**
+   * Somebody the issue concerns has protected personal data: no link is
+   * given, and one given before is shown as ended.
+   */
+  protectedHousehold: boolean;
   choosable: readonly ChoosablePhoto[];
   shown: ShownLink | null;
   busy: boolean;
@@ -1083,7 +1087,10 @@ function ContractorLinkPanel({
     order.redactedAt !== null ||
     order.recipientName === null;
   const issuable =
-    link.offered && !answeredForGood && !unavailable && !link.protectedReporter;
+    link.offered &&
+    !answeredForGood &&
+    !unavailable &&
+    !link.protectedHousehold;
   const shown = link.shown?.workOrderId === order.id ? link.shown : null;
   const asked = link.asked?.workOrderId === order.id ? link.asked : null;
   const saving = asked !== null && link.state.kind === "saving";
@@ -1140,7 +1147,7 @@ function ContractorLinkPanel({
           <p className={HINT}>{t("issues.workOrders.link.answered")}</p>
         ) : unavailable ? (
           <p className={HINT}>{t("issues.workOrders.link.unavailable")}</p>
-        ) : link.protectedReporter ? (
+        ) : link.protectedHousehold ? (
           <p className={HINT}>{t("issues.workOrders.link.protected")}</p>
         ) : (
           <p className={HINT}>{t("issues.workOrders.link.hint")}</p>

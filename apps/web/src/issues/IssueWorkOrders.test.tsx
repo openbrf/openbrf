@@ -102,6 +102,7 @@ function orders(
     closed: false,
     linksEnabled: false,
     choosablePhotos: [],
+    protectedHousehold: false,
     workOrders: [],
     ...overrides,
   };
@@ -1151,6 +1152,39 @@ describe("a contractor's link", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByDisplayValue(ISSUED.url)).toBeNull();
+  });
+
+  it("offers no link, and shows the one given before as ended, while a resident has protected personal data", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        linksEnabled: true,
+        // The reporter is not protected; somebody living in the apartment is.
+        protectedHousehold: true,
+        workOrders: [
+          {
+            ...DELIVERED,
+            contractorLink: {
+              ...NO_LINK,
+              link: { state: "ended", expiresAt: null },
+            },
+          },
+        ],
+      }),
+    });
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    expect(
+      await screen.findByText(
+        /^Någon som ärendet gäller, den som anmälde eller någon som bor i lägenheten, har skyddade personuppgifter/,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/^Länken öppnar inte längre arbetsordern/),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", give)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Ge en ny länk/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Dra tillbaka/ })).toBeNull();
   });
 
   it("offers no new link for a work order the contractor marked done", async () => {
