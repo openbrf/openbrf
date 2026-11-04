@@ -722,6 +722,14 @@ describe("a save that finishes under another view or filter", () => {
       document.querySelector("details fieldset")?.hasAttribute("disabled"),
     ).toBe(false);
 
+    // A save made while the filter is read goes through, not only the form's
+    // look: a submit handler that refused it would leave the form enabled.
+    await userEvent.selectOptions(status, "s-doing");
+    await userEvent.click(screen.getByRole("button", { name: "Spara status" }));
+    await waitFor(() => {
+      expect(setIssueStatus).toHaveBeenCalledTimes(1);
+    });
+
     answerFiltered(answer([issue()]));
     await waitFor(() => {
       expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
