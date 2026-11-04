@@ -323,6 +323,12 @@ describe("a read that fails", () => {
 /** The views' navigation. */
 const views = () => screen.getByRole("navigation", { name: "Vyer" });
 
+/** The views' links as they read, numbers and all. */
+const viewNames = () =>
+  within(views())
+    .getAllByRole("link")
+    .map((link) => link.textContent);
+
 /** One of the filter's fields, by its label. */
 const field = (label: string) =>
   within(
@@ -411,6 +417,13 @@ describe("the four views", () => {
 
 describe("the filter and the search", () => {
   it("narrows the list and the counts alike by status, type and priority", async () => {
+    // The filtered request is answered with counts of its own, so counts kept
+    // from the filter before it would show.
+    fetchIssueQueueSnapshot.mockImplementation(async (input) =>
+      (input as { priority?: string }).priority === "LOW"
+        ? answer([issue()], { mine: 0, unassigned: 0, overdue: 0, all: 1 })
+        : answer([issue()]),
+    );
     render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} view="ALL" />);
     await screen.findByText("Det droppar i taket.");
 
@@ -425,6 +438,14 @@ describe("the filter and the search", () => {
         typeId: "type-water",
         priority: "LOW",
       });
+    });
+    await waitFor(() => {
+      expect(viewNames()).toEqual([
+        "Mina 0",
+        "Ej tilldelade 0",
+        "Försenade 0",
+        "Alla 1",
+      ]);
     });
   });
 
@@ -520,12 +541,6 @@ describe("a save that finishes under another view or filter", () => {
     });
     return finish;
   }
-
-  /** The views' links as they read, numbers and all. */
-  const viewNames = () =>
-    within(views())
-      .getAllByRole("link")
-      .map((link) => link.textContent);
 
   it("marks the list busy while the read after a save is out", async () => {
     render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);

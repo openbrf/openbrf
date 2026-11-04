@@ -201,7 +201,10 @@ message in its conversation with the reporter or an internal note on it. It
 reads the first six different words and ignores any after them. Case does not
 matter, and each word is matched in both Unicode forms, composed and decomposed,
 because text is stored as it was sent. A word that mixes the two forms within
-itself is found in neither. A percent sign, an underscore or a backslash matches
+itself is found in neither. Invisible format characters are dropped from the
+search words but not from stored text, so a description with a zero-width space
+inside a word is not found by that word; the search does not clean stored text,
+and it is not changed on write. A percent sign, an underscore or a backslash matches
 itself and nothing else. It searches only
 the issues the reader handles. It never matches what the reader is not shown: a
 protected reporter's name and apartment match nothing, so a search cannot reveal

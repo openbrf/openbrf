@@ -820,21 +820,34 @@ export class IssueService {
     view: IssueQueueView = "ALL",
     filter: IssueBoardFilter = {},
   ): Promise<QueuedIssueView[]> {
-    const now = new Date();
     const meanings = meaningsInView(view, filter.meaning);
     if (meanings.length === 0) {
       return [];
     }
-    const narrowed = this.boardWhere(readerPersonId, filter, now);
-    const inView = viewWhere(view, readerPersonId, localDayOf(now));
-    const issues = await this.readQueue(
-      async (tx) => ({ AND: [await narrowed(tx), inView] }),
-      meanings,
-      null,
-      undefined,
+    const narrowed = this.boardWhere(readerPersonId, filter);
+
+    // The clock is read inside the transaction, so the seat the reader holds
+    // and the day the view and the overdue flag count from are one instant.
+    const { issues, today } = await this.prisma.$transaction(
+      async (tx) => {
+        const now = new Date();
+        const day = localDayOf(now);
+        const where = await narrowed(tx, now);
+        return {
+          issues: await readQueueIn(
+            tx,
+            { AND: [where, viewWhere(view, readerPersonId, day)] },
+            meanings,
+            null,
+            undefined,
+          ),
+          today: day,
+        };
+      },
+      { isolationLevel: "RepeatableRead" },
     );
 
-    return this.queuedViews(issues, "show", localDayOf(now));
+    return this.queuedViews(issues, "show", today);
   }
 
   /**
@@ -851,19 +864,20 @@ export class IssueService {
     readerPersonId: string,
     filter: IssueBoardFilter = {},
   ): Promise<IssueQueueCounts> {
-    const now = new Date();
-    const today = localDayOf(now);
-    const narrowed = this.boardWhere(readerPersonId, filter, now);
+    const narrowed = this.boardWhere(readerPersonId, filter);
 
     return this.prisma.$transaction(
-      async (tx) =>
-        countQueueIn(
+      async (tx) => {
+        // The clock is read inside the transaction, as in `listQueue`.
+        const now = new Date();
+        return countQueueIn(
           tx,
-          await narrowed(tx),
+          await narrowed(tx, now),
           readerPersonId,
-          today,
+          localDayOf(now),
           filter.meaning,
-        ),
+        );
+      },
       { isolationLevel: "RepeatableRead" },
     );
   }
@@ -883,21 +897,22 @@ export class IssueService {
     view: IssueQueueView,
     filter: IssueBoardFilter = {},
   ): Promise<IssueQueueSnapshot> {
-    const now = new Date();
-    const today = localDayOf(now);
-    const narrowed = this.boardWhere(readerPersonId, filter, now);
+    const narrowed = this.boardWhere(readerPersonId, filter);
     const meanings = meaningsInView(view, filter.meaning);
 
-    const { rows, counts } = await this.prisma.$transaction(
+    const { rows, counts, today } = await this.prisma.$transaction(
       async (tx) => {
-        const where = await narrowed(tx);
+        // The clock is read inside the transaction, as in `listQueue`.
+        const now = new Date();
+        const day = localDayOf(now);
+        const where = await narrowed(tx, now);
         // One after another: a transaction runs one statement at a time.
         const read =
           meanings.length === 0
             ? []
             : await readQueueIn(
                 tx,
-                { AND: [where, viewWhere(view, readerPersonId, today)] },
+                { AND: [where, viewWhere(view, readerPersonId, day)] },
                 meanings,
                 null,
                 undefined,
@@ -908,9 +923,10 @@ export class IssueService {
             tx,
             where,
             readerPersonId,
-            today,
+            day,
             filter.meaning,
           ),
+          today: day,
         };
       },
       { isolationLevel: "RepeatableRead" },
@@ -1715,15 +1731,18 @@ export class IssueService {
    * runs in, because which issues the reader handles and who has protected
    * personal data have to be read at the moment the issues are: a board seat
    * that ends just before the read does not still show the board's own
-   * issues.
+   * issues. The instant it is read at is given by the caller, who takes it
+   * inside the transaction.
    */
   private boardWhere(
     readerPersonId: string,
     filter: IssueBoardFilter,
+  ): (
+    db: Prisma.TransactionClient,
     now: Date,
-  ): (db: Prisma.TransactionClient) => Promise<Prisma.IssueWhereInput> {
+  ) => Promise<Prisma.IssueWhereInput> {
     const terms = searchTermsOf(filter.search ?? "");
-    return async (db) => ({
+    return async (db, now) => ({
       AND: [
         // One after another: a transaction runs one statement at a time.
         issuesHandledWhere(await this.readerScope(db, readerPersonId, now)),
@@ -1958,27 +1977,16 @@ export class IssueService {
    * them sees the queue as it stood at one moment. At READ COMMITTED each
    * statement takes its own snapshot: an issue moved from new to in progress
    * between two of them would be read in both, and one moved the other way in
-   * neither. A condition that has to be read at that moment as well, such as
-   * who a search may match (`searchWhere`), is given as a function of the
-   * transaction and built inside it.
+   * neither.
    */
   private async readQueue(
-    whereOf:
-      | Prisma.IssueWhereInput
-      | ((tx: Prisma.TransactionClient) => Promise<Prisma.IssueWhereInput>),
+    where: Prisma.IssueWhereInput,
     meanings: readonly IssueStatusMeaning[],
     after: IssueQueueCursor | null,
     take: number | undefined,
   ): Promise<QueueRecord[]> {
     return this.prisma.$transaction(
-      async (tx) =>
-        readQueueIn(
-          tx,
-          typeof whereOf === "function" ? await whereOf(tx) : whereOf,
-          meanings,
-          after,
-          take,
-        ),
+      async (tx) => readQueueIn(tx, where, meanings, after, take),
       { isolationLevel: "RepeatableRead" },
     );
   }
@@ -2307,6 +2315,9 @@ async function countQueueIn(
  * nor keep the word they cling to from matching. The zero-width joiner and
  * non-joiner stay: they change what a word is in emoji and in some scripts,
  * and stored text keeps them.
+ *
+ * Stored text is not cleaned the same way: a description holding a zero-width
+ * space inside a word is not found by that word without it (ADR 0054).
  */
 export function searchTermsOf(search: string): string[] {
   const words = search
