@@ -171,6 +171,7 @@ function issue(
     place: null,
     description: "Det droppar i taket.",
     apartment: { id: "a-1", number: "1401", address: "Storgatan 12" },
+    aboutApartment: true,
     entry: null,
     finding: null,
     photos: [],
@@ -675,6 +676,25 @@ describe("handling an issue", () => {
     expect(screen.getByText("Försenat")).toBeTruthy();
     expect(screen.getByText("Bara styrelsen")).toBeTruthy();
     expect(screen.getByText("Bea Styrelse")).toBeTruthy();
+  });
+
+  it("draws the permission to enter on an open issue about an apartment", async () => {
+    const session = userEvent.setup();
+    show();
+    await openHandling(session);
+
+    expect(await screen.findByText("Tillträde")).toBeTruthy();
+  });
+
+  it("draws no permission to enter on an issue about the building", async () => {
+    const session = userEvent.setup();
+    show(issue({ apartment: null, aboutApartment: false }));
+    await openHandling(session);
+
+    await waitFor(() => {
+      expect(fetchIssueHandlers).toHaveBeenCalled();
+    });
+    expect(screen.queryByText("Tillträde")).toBeNull();
   });
 
   it("sets an overdue issue's row apart by its edge as well as its words", () => {
