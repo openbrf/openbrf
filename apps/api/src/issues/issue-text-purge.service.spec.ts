@@ -185,5 +185,15 @@ describe("one run of the issue text purge", () => {
         "0 of which did not finish (0 failed removals, 0 issues with a file still standing; the rest were removed or kept)",
       ),
     );
+    // Nothing failed or stayed due, so nothing waits behind an attempt: the
+    // next run reaches the issues behind these.
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "the issues behind them are reached by the next run.",
+      ),
+    );
+    expect(logged).not.toHaveBeenCalledWith(
+      expect.stringContaining("issues behind the ones that did not succeed"),
+    );
   });
 });

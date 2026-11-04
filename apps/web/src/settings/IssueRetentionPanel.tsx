@@ -29,7 +29,8 @@ interface Loaded {
  * The panel says what the number reaches and what it does not. The building
  * record - what, where, when and the outcome - stays with the issue; the
  * description, the location, the conversation, the notes and the files go,
- * unless a legal hold stands on the issue. And it says that the purge reads
+ * unless a legal hold stands on the issue or a legal hold or a restriction
+ * on its reporter. And it says that the purge reads
  * the number when it runs, so a board shortening it learns before saving that
  * the nights that follow remove what is already past the new clock, at most
  * 500 issues in each run.

@@ -2424,6 +2424,12 @@ describe("an issue a work order's text still stands on", () => {
         select: { body: true, redactedAt: true },
       }),
     ).resolves.toEqual({ body: "", redactedAt: expect.any(Date) });
+    await expect(
+      prisma.issueNote.findUniqueOrThrow({
+        where: { id: note.id },
+        select: { body: true, redactedAt: true },
+      }),
+    ).resolves.toEqual({ body: "", redactedAt: expect.any(Date) });
 
     const entries = await prisma.auditLogEntry.findMany({
       where: { action: "ISSUE_REDACTED", targetId: messageRedactedId },
