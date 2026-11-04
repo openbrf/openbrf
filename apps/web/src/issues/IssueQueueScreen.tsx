@@ -363,7 +363,8 @@ export function IssueQueueScreen({
   // this one, until this read's answer lands.
   const reading = loaded.key !== key || loaded.readCount !== readCount;
   // Of those, the read a change on the queue asked for, which the rows'
-  // controls wait for (`IssueQueuePanel`'s `rereading`).
+  // status forms wait for (`IssueQueuePanel`'s `rereading`); the handling
+  // under a row waits for every read (`reading`).
   const rereading = loaded.readCount !== readCount;
   const { queue, counts, loadFailed } = loaded;
   const narrowed =
@@ -525,6 +526,7 @@ export function IssueQueueScreen({
             announceTypesFailure={typesRead.by !== "arrival"}
             focusTypesRetry={typesRead.by === "retry"}
             rereading={rereading}
+            reading={reading}
             canManageCharges={viewer.capabilities.includes(
               "memberCharges:manage",
             )}

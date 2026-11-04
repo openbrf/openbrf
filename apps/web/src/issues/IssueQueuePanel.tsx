@@ -107,9 +107,19 @@ export interface IssueQueuePanelProps {
    * Not set for a read that only follows the view, the filter or the search:
    * the rows on screen are then as current as when they were read, and
    * turning their controls off under each word typed would take the keyboard
-   * focus out of the row the handler is working in.
+   * focus out of the row the handler is working in. The status forms stay on
+   * for that reason; the handling under a row does not (`reading`).
    */
   rereading?: boolean;
+  /**
+   * Whether the queue is being read for any reason, the view, the filter or
+   * the search included. Turns the handling under each row off, which a
+   * refusal of a handling action is shown in: a filtered answer that drops the
+   * row would take the refusal with it, and the handler would not learn the
+   * action was not made. A status form's refusal is shown above the rows, so
+   * it outlives its row and the form stays on.
+   */
+  reading?: boolean;
 }
 
 /**
@@ -144,6 +154,7 @@ export function IssueQueuePanel({
   emptyMessage,
   canManageCharges = false,
   rereading = false,
+  reading = false,
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
   const move = useSaveAction(setIssueStatus, onChanged, (failure) => {
@@ -366,7 +377,7 @@ export function IssueQueuePanel({
                   type={type}
                   workOrdersSent={workOrdersSent[issue.id] ?? 0}
                   canManageCharges={canManageCharges}
-                  rereading={rereading}
+                  locked={reading || rereading}
                   onChanged={onChanged}
                 />
 
@@ -400,14 +411,14 @@ function HandlingDisclosure({
   type,
   workOrdersSent,
   canManageCharges,
-  rereading,
+  locked,
   onChanged,
 }: {
   issue: QueuedIssue;
   type: IssueTypeView | undefined;
   workOrdersSent: number;
   canManageCharges: boolean;
-  rereading: boolean;
+  locked: boolean;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -431,7 +442,7 @@ function HandlingDisclosure({
       </summary>
       {open ? (
         <fieldset
-          disabled={rereading}
+          disabled={locked}
           className="m-0 flex min-w-0 flex-col gap-6 border-0 px-0 pt-2 pb-0"
         >
           <IssueHandling
