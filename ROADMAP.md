@@ -341,6 +341,21 @@ locally the application runs from source beside the PostgreSQL that
       of who did what and when, read from the audit log. The people an issue
       can be assigned to are named and nothing more, so the property manager is
       never shown the address book (ADR 0054)
+- [x] Contractors and work orders: the board keeps a list of the firms it
+      hires, with a name, a trade, a telephone number and an address, and a
+      handler writes a work order to one of them from an issue. The handler
+      previews the mail before it is sent, and the work order is recorded on
+      the issue - whom it went to, when and what it said - before it is mailed,
+      so the association can say who received a person's data (GDPR art.
+      15(1)(c) and 19) whether or not the mail went out. The mail carries the
+      handler's text and nothing else from the issue: not the report, not who
+      made it, not the photographs, and no link. A ring-fenced issue type
+      reaches no contractor, refused in the service, the preview included.
+      The text of a work order is erased ten years after its issue was closed,
+      when a claim about the work becomes time-barred, and the record of whom
+      it went to and when stays, except that removing a contractor from the
+      list clears their name and address from the work orders sent them. This is how a work order travels while the
+      contractor's own link waits for its legal review (ADR 0055)
 - [x] Mail about issues: a new issue to its assignee, or to the type's handlers
       when it lands unassigned; an urgent one to every handler of its type; an
       assignment to the new assignee; a reopened one to its assignee; and one

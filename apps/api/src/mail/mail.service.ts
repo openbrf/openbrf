@@ -135,8 +135,16 @@ export class MailService {
    *
    * The identifier is the caller's own unless the transport writes its own; a
    * caller that threads replies records what this returns (SentMail).
+   *
+   * `suppressed`, when set, says nothing was handed to a mail server: no mail is
+   * configured, outside production, where the message is dropped rather than
+   * refused. A caller that records whether a message went out reads it,
+   * because a null identifier alone also means a transport that accepted the
+   * message and reported none.
    */
-  async send<Props>(input: SendMailInput<Props>): Promise<SentMail> {
+  async send<Props>(
+    input: SendMailInput<Props>,
+  ): Promise<SentMail & { suppressed?: true }> {
     const association = await this.loadAssociation();
     const rendered = await this.renderWith(input, this.brandOf(association));
     const mail = await this.mailSettings.currentFrom(association);
@@ -153,7 +161,7 @@ export class MailService {
         this.logger.warn(
           `No mail configured. Would send "${input.template.id}" to ${input.to}:\n${rendered.text}`,
         );
-        return { messageId: null };
+        return { messageId: null, suppressed: true };
       }
 
       // The template and nothing else. A subject names people and apartments
@@ -162,7 +170,7 @@ export class MailService {
         `No mail configured. Suppressed a "${input.template.id}" message; ` +
           "set OPENBRF_MAIL_LOG_BODY=true on a development machine to print it.",
       );
-      return { messageId: null };
+      return { messageId: null, suppressed: true };
     }
 
     const sender = this.senderFor(mail, association);

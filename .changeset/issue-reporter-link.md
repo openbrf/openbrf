@@ -23,7 +23,7 @@ through a private link (ADR 0055).
   in the record of processing activities now names the mail server.
 - **How long it works.** The link ends at the first of: 30 days after the
   issue is closed, a year after the issue's latest message (or after the link
-  was mailed, if no message came), and a handler withdrawing it. A handler sees on the issue whether the reporter's link still
+  was issued, if no message came), and a handler withdrawing it. A handler sees on the issue whether the reporter's link still
   works, writes to the reporter while it does, and can withdraw it. Every link
   that opens nothing gets the same page.
 - **Limits.** Thirty page reads and five messages a minute from one address,

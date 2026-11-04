@@ -4,6 +4,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { MediaService } from "../media/media.service";
+import { detachErasedReporter } from "./issue-retention";
 
 /**
  * Why one issue's free-text layer is being removed, and the test that decides,
@@ -72,7 +73,10 @@ export type FreeTextRemovalOutcome =
  * after both jobs on the same night and detaches a reporter only from an issue
  * whose free text is gone (`retention/purge.service.ts`): an issue whose text
  * still stands has to keep the one reference that lets a later erasure request
- * find it.
+ * find it. The exception is a reporter whose erasure request has already been
+ * carried out, whom no run of the person purge selects again: the removal
+ * detaches them itself once no work order's text stands either
+ * (`detachErasedReporter`).
  */
 @Injectable()
 export class IssueFreeTextService {
@@ -128,7 +132,7 @@ export class IssueFreeTextService {
 
       const current = await tx.issue.findUnique({
         where: { id: issueId },
-        select: { description: true, location: true },
+        select: { description: true, location: true, reporterPersonId: true },
       });
       if (current === null) {
         return kept();
@@ -170,6 +174,13 @@ export class IssueFreeTextService {
           ...(standing === 0 ? { freeTextRemovedAt: now } : {}),
         },
       });
+      // The reporter of a request already carried out, whom no run of the
+      // person purge selects again, once no work order's text stands either.
+      const reporterDetached = await detachErasedReporter(
+        tx,
+        issueId,
+        current.reporterPersonId,
+      );
 
       await this.audit.record(
         {
@@ -188,6 +199,7 @@ export class IssueFreeTextService {
             issueMessages: messages,
             internalNotes: notes,
             files: filesRemoved,
+            ...(reporterDetached ? { reporterDetached: true } : {}),
             ...removal.context,
           },
         },

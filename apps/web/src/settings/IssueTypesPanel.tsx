@@ -25,6 +25,7 @@ import {
   type IssueTypeInput,
   type IssueTypeView,
   removeIssueType,
+  setIssueTypeRingFence,
   updateIssueType,
 } from "../api/issues";
 import type { TranslationKey } from "../i18n/translation-key";
@@ -222,8 +223,11 @@ export function IssueTypesPanel(): ReactElement {
   const changeStatus = useSaveAction(changeIssueStatus, () => {
     reread();
   });
+  const fence = useSaveAction(setIssueTypeRingFence, () => {
+    reread();
+  });
 
-  const actions = [add, change, remove, addStatus, changeStatus];
+  const actions = [add, change, remove, addStatus, changeStatus, fence];
   const failed = actions.find((action) => action.state.kind === "failed");
   const failure = failed?.state.kind === "failed" ? failed.state.failure : null;
   const busy = actions.some((action) => action.state.kind === "saving");
@@ -350,6 +354,25 @@ export function IssueTypesPanel(): ReactElement {
                   className="size-4"
                 />
                 {t("settings.issueTypes.active")}
+              </label>
+
+              <label className="flex min-h-11 items-center gap-2 text-small">
+                <input
+                  type="checkbox"
+                  aria-label={t("settings.issueTypes.ringFencedNamed", {
+                    name: type.name,
+                  })}
+                  checked={type.ringFenced}
+                  disabled={busy}
+                  onChange={(event) => {
+                    void fence.submit({
+                      id: type.id,
+                      ringFenced: event.target.checked,
+                    });
+                  }}
+                  className="size-4"
+                />
+                {t("settings.issueTypes.ringFenced")}
               </label>
 
               <span className="ml-auto font-data text-data text-ink-muted">

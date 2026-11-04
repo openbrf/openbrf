@@ -41,6 +41,9 @@ export type EncryptedFieldId =
   | "association.boardMailboxPop3Password"
   | "boardMailboxThread.correspondentName"
   | "boardMailboxThread.correspondentEmail"
+  | "contractor.phone"
+  | "contractor.email"
+  | "workOrder.recipientEmail"
   | "importSession.rows"
   | "importSession.preview"
   | "importSession.sender"
@@ -236,6 +239,34 @@ const FIELD_SPECS: Record<EncryptedFieldId, FieldSpec> = {
     indexed: true,
     fastHash: true,
     normalize: (value) => emptyToNull(normalizeEmail(value)),
+  },
+  /*
+   * A contractor's telephone number and address on the association's list,
+   * and the address a work order was mailed to. A sole trader's are personal
+   * data, held for the one purpose of reaching them about a job. Read back by
+   * the row alone - nothing looks a contractor up by number or address - so
+   * no index.
+   */
+  "contractor.phone": {
+    table: "contractor",
+    field: "phone",
+    indexed: false,
+    fastHash: true,
+    normalize: () => null,
+  },
+  "contractor.email": {
+    table: "contractor",
+    field: "email",
+    indexed: false,
+    fastHash: true,
+    normalize: () => null,
+  },
+  "workOrder.recipientEmail": {
+    table: "work_order",
+    field: "recipientEmail",
+    indexed: false,
+    fastHash: true,
+    normalize: () => null,
   },
   // An uploaded member list, held between the mapping and apply steps of an
   // import. Not indexed: nothing searches an upload, and the value is a whole

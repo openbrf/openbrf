@@ -31,9 +31,9 @@ number.
   skipped because the assignee was restricted or had no email address at that
   moment: it is not sent later otherwise.
 - **Reopened.** A done issue that is opened again is mailed to its assignee, or
-  to everybody who handles it when it has no assignee. Reopened twice within the
-  same clock hour mails once, unless the first mail was not sent because the issue was
-  closed again by then.
+  to everybody who handles it when it has no assignee. Reopened twice within
+  the same clock hour mails once, unless the first mail was not sent because
+  the issue was closed again by then.
 - **A new message.** A reporter's message mails the assignee, or everybody who
   handles the issue when it has none. A handler's message mails the reporter
   when they have an account. A handler's internal note mails nobody. A mail
