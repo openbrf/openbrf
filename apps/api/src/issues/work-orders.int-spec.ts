@@ -1593,7 +1593,9 @@ describe("the sending", () => {
     );
     let sending: ReturnType<typeof workOrder> | undefined;
     try {
-      await holding.reached;
+      // A rejected holder (its lock or update failed) fails the test here, not
+      // after the gate times out.
+      await Promise.race([holding.reached, held]);
       sending = workOrder(as(board), issueId, { ...payload, previewToken });
       await waitFor(
         async () => (await advisoryLockCount(prisma, key, false)) > 0n,
@@ -1638,7 +1640,9 @@ describe("the sending", () => {
     );
     let sending: ReturnType<typeof workOrder> | undefined;
     try {
-      await holding.reached;
+      // A rejected holder (its lock or update failed) fails the test here, not
+      // after the gate times out.
+      await Promise.race([holding.reached, held]);
       sending = workOrder(as(board), issueId, { ...payload, previewToken });
       await waitFor(
         async () => (await advisoryLockCount(prisma, key, false)) > 0n,
