@@ -1213,6 +1213,7 @@ describe("the search", () => {
     expect(row?.reporter).toMatchObject({
       kind: "resident",
       personId: resident.personId,
+      name: `${resident.firstName} ${resident.lastName}`,
     });
     // Restored: the search finds the issue by the name again.
     expect(await search(board, `Rune ${resident.lastName}`)).toEqual([
@@ -1234,6 +1235,7 @@ describe("the search", () => {
     expect(row?.reporter).toMatchObject({
       kind: "resident",
       personId: resident.personId,
+      name: `${resident.firstName} ${resident.lastName}`,
     });
     expect(await search(board, `Rune ${resident.lastName}`)).toEqual([
       filed.leak,
