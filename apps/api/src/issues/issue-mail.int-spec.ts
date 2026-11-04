@@ -1203,6 +1203,16 @@ describe("an issue message", () => {
       },
       select: { id: true },
     });
+    const keptByHandler = await prisma.issueMessage.create({
+      data: {
+        issueId,
+        side: "HANDLER",
+        authorPersonId: manager.personId,
+        signature: "PROPERTY_MANAGER",
+        body: "A handler reply that stays.",
+      },
+      select: { id: true },
+    });
     const before = (await notices(issueId)).length;
     await prisma.$transaction(async (tx) => {
       await mailer.messageInTransaction(tx, issueId, {
@@ -1215,9 +1225,13 @@ describe("an issue message", () => {
         messageId: written.id,
       });
       await mailer.messageInTransaction(tx, issueId, {
+        kind: "reporter",
+        messageId: kept.id,
+      });
+      await mailer.messageInTransaction(tx, issueId, {
         kind: "handler",
         personId: manager.personId,
-        messageId: kept.id,
+        messageId: keptByHandler.id,
       });
     });
     const queued = (await notices(issueId)).slice(before);
@@ -1230,7 +1244,7 @@ describe("an issue message", () => {
       }
       return found;
     };
-    expect(queued).toHaveLength(3);
+    expect(queued).toHaveLength(4);
 
     try {
       await prisma.issueMessage.delete({ where: { id: written.id } });
@@ -1240,14 +1254,18 @@ describe("an issue message", () => {
         await mailer.deliver(noticeOf(written.id, "reporterMessage")),
       ).toBe(false);
       expect(sent).toHaveLength(0);
-      expect(await mailer.deliver(noticeOf(kept.id, "reporterMessage"))).toBe(
-        true,
-      );
-      expect(sent.map((input) => input.to)).toEqual([resident.email]);
+      expect(await mailer.deliver(noticeOf(kept.id, "message"))).toBe(true);
+      expect(
+        await mailer.deliver(noticeOf(keptByHandler.id, "reporterMessage")),
+      ).toBe(true);
+      expect(sent.map((input) => input.to)).toEqual([
+        manager.email,
+        resident.email,
+      ]);
     } finally {
       // The reporter's hourly budget counts their messages across the suite.
       await prisma.issueMessage.deleteMany({
-        where: { id: { in: [written.id, kept.id] } },
+        where: { id: { in: [written.id, kept.id, keptByHandler.id] } },
       });
     }
   });
