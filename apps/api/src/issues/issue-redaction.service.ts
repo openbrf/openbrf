@@ -168,10 +168,9 @@ export class IssueRedactionService {
     redaction: IssueRedaction,
   ): Promise<boolean> {
     // The reporter's legal hold key comes before the issue's own lock, the
-    // order the person purge takes them in, for a work order's text: the last
-    // one may detach the reporter, which a hold on them forbids.
-    const reporterPersonId =
-      redaction.target === "workOrder" ? await this.reporterOf(issueId) : null;
+    // order the person purge takes them in: the redaction of the last text may
+    // detach the reporter, which a hold on them forbids.
+    const reporterPersonId = await this.reporterOf(issueId);
     return this.prisma.$transaction(async (tx) => {
       if (reporterPersonId !== null) {
         await lockLegalHold(tx, reporterPersonId);
@@ -181,7 +180,6 @@ export class IssueRedactionService {
       const now = new Date();
 
       let rowId: string | null = null;
-      let reporterDetached = false;
       switch (redaction.target) {
         case "description": {
           const { count } = await tx.issue.updateMany({
@@ -255,16 +253,17 @@ export class IssueRedactionService {
             where: { id: redaction.id },
             data: { body: null, redactedAt: now },
           });
-          reporterDetached = await this.detachIfFinished(
-            tx,
-            issueId,
-            reporterPersonId,
-          );
           break;
         }
         default:
           throw targetNotFound();
       }
+
+      const reporterDetached = await this.detachIfFinished(
+        tx,
+        issueId,
+        reporterPersonId,
+      );
 
       await this.record(
         tx,

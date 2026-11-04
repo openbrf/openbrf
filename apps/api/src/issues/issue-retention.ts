@@ -31,6 +31,7 @@
  */
 
 import type { Prisma } from "../generated/prisma/client";
+import { ISSUE_FREE_TEXT_STANDING } from "./issue-free-text";
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -98,26 +99,28 @@ export const WORK_ORDER_TEXT_STANDING = {
 } as const satisfies Prisma.IssueWhereInput;
 
 /**
- * Detaches an issue's reporter once the last text that kept them on it is
- * gone, when that person's erasure request has been carried out, and answers
- * whether it did.
+ * Detaches an issue's reporter once their erasure request has been carried
+ * out and no text stands on the issue, and answers whether it did.
  *
- * No job selects such a person again, so nothing else would clear the column:
- * the transaction that erases the last text does, whether the clock erased it
- * (`IssuePurgeService.purgeWorkOrderTexts`) or a handler redacted it
- * (`IssueRedactionService`). A reporter whose own window ran out is detached by
- * the person purge on its next run instead, which selects them again once no
- * text stands; the issue's lock, which that purge takes on every issue it
- * detaches and which the caller holds, orders the two.
+ * Called by what removes text, the free-text layer's removal and the
+ * work-order text purge, in the transaction that removes it and under the
+ * issue's lock. The person purge detaches a reporter only from an issue on
+ * which neither text stands, and no run selects a person after their request
+ * is executed, so the job that removes the last text is the one left to clear
+ * the link. While either text stands the link stays (ADR 0057: no case whose
+ * text stands may lose its selector): a hold or a restriction placed later on
+ * the person reaches that text only through it.
  *
- * The caller has made sure no text stands on the issue and that no legal hold
- * or restriction keeps the reporter, under the legal hold registry's lock.
+ * The columns the person purge clears when it detaches, all four of them.
  */
 export async function detachErasedReporter(
   tx: Prisma.TransactionClient,
   issueId: string,
-  reporterPersonId: string,
+  reporterPersonId: string | null,
 ): Promise<boolean> {
+  if (reporterPersonId === null) {
+    return false;
+  }
   const executed = await tx.dataSubjectRequest.count({
     where: {
       personId: reporterPersonId,
@@ -129,8 +132,17 @@ export async function detachErasedReporter(
     return false;
   }
   const { count } = await tx.issue.updateMany({
-    where: { id: issueId, reporterPersonId },
-    data: { reporterPersonId: null },
+    where: {
+      id: issueId,
+      reporterPersonId,
+      NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
+    },
+    data: {
+      reporterPersonId: null,
+      reporterNameCipher: null,
+      reporterEmailCipher: null,
+      reporterEmailIndex: null,
+    },
   });
   return count > 0;
 }

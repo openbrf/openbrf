@@ -91,7 +91,10 @@ no case whose text stands may lose its selector). A case reported by a person
 in the register keeps its reporter column the same way: the person purge does
 not detach it while a work order's text stands, and detaches it on a later run
 once the text is gone. For a person whose erasure request has been executed,
-whom no later run selects, the transaction that erases the last text clears it.
+whom no later run selects, the transaction that removes the last text on the
+case clears it: the work-order text purge once the free-text layer is gone too,
+or the removal of the free-text layer (by the clock, the issue erasure job or a
+handler's redaction) once no work order's text stands.
 
 A case reopened before its date stops the clock, because reopening clears
 `closedAt`. The 30 days in which a reply reopens a case (ADR 0054) are inside the
