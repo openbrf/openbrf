@@ -6,6 +6,7 @@ import { IssueActionsRegistrar } from "./issue-actions.registrar";
 import { IssueConversationService } from "./issue-conversation.service";
 import { IssueErasureService } from "./issue-erasure.service";
 import { IssueFreeTextService } from "./issue-free-text.service";
+import { IssueMailer } from "./issue-mailer.service";
 import { IssuePurgeService } from "./issue-purge.service";
 import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import { IssueRedactionService } from "./issue-redaction.service";
@@ -33,8 +34,9 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
  * queue whoever handles issues works from, the resident picker a handler
  * names a resident from on an issue they open, the conversation on an
  * issue - its messages, the handlers' notes and files, and the saved replies -
- * and the association's responsibility guide, read before filing and when
- * deciding who pays.
+ * the association's responsibility guide, read before filing and when
+ * deciding who pays, and the mail and the overdue reminder that tell
+ * handlers of their issues (`IssueMailer`).
  *
  * MediaModule is imported for the photographs, and ActionsModule for the
  * queue's read actions (ADR 0040), which is not global because the registry is
@@ -64,6 +66,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
   ],
   providers: [
     IssueService,
+    IssueMailer,
     IssueTypeService,
     IssuePurgeService,
     IssueResidentsService,

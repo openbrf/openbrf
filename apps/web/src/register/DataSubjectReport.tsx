@@ -1,6 +1,7 @@
-import type {
-  AuditChannelName,
-  DataSubjectReportSection,
+import {
+  type AuditChannelName,
+  type DataSubjectReportSection,
+  ISSUE_REDACTION_TARGETS,
 } from "@openbrf/shared";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
@@ -3160,16 +3161,6 @@ function pluginValueText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
-/** The targets of a redaction an entry's detail names in words. */
-const REDACTION_TARGETS = [
-  "description",
-  "location",
-  "message",
-  "note",
-  "photo",
-  "attachment",
-] as const;
-
 /**
  * What one audit entry's detail column says.
  *
@@ -3186,7 +3177,9 @@ function auditDetail(
 ): string | null {
   const context = entry.context;
   if (entry.action === "ISSUE_REDACTED") {
-    const target = REDACTION_TARGETS.find(
+    // The list the API checks a redaction against: a target added there fails
+    // the type check here until the report has words for it.
+    const target = ISSUE_REDACTION_TARGETS.find(
       (known) => known === context?.["target"],
     );
     return target === undefined
