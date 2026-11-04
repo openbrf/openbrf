@@ -36,6 +36,7 @@ const LIFECYCLE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "merge-into-duplicate": "issues.lifecycle.errors.mergeIntoDuplicate",
   "merge-has-duplicates": "issues.lifecycle.errors.mergeHasDuplicates",
   "merge-into-closed": "issues.lifecycle.errors.mergeIntoClosed",
+  "merge-limit": "issues.lifecycle.errors.mergeLimit",
   "personal-identity-number": "issues.lifecycle.errors.personalIdentityNumber",
   "invalid-body": "issues.lifecycle.errors.unknown",
 };
@@ -55,6 +56,7 @@ const STALE_REASONS: ReadonlySet<string> = new Set([
   "merge-into-duplicate",
   "merge-has-duplicates",
   "merge-into-closed",
+  "merge-limit",
   "known-fault-board-only",
 ]);
 
@@ -395,6 +397,14 @@ function LinksSection({ links }: { links: IssueLinks }): ReactElement | null {
           </li>
         ))}
       </ul>
+      {links.followUpCount > links.followUps.length ? (
+        <p className="text-small text-ink-muted">
+          {t("issues.lifecycle.followUpsMore", {
+            shown: links.followUps.length,
+            count: links.followUpCount,
+          })}
+        </p>
+      ) : null}
     </section>
   );
 }

@@ -58,3 +58,20 @@ export const ISSUE_KNOWN_FAULT_LIMITS = {
    */
   body: 280,
 } as const;
+
+/** How many issues one issue is linked to by a merge or a follow-up. */
+export const ISSUE_LINK_LIMITS = {
+  /**
+   * The issues that may be merged into one. A message to their reporters is
+   * written in one transaction, so that all of them hear it or none does, and
+   * that is only safe within its time budget; a fault reported by more people
+   * than this is one a known fault (känt fel) answers better.
+   */
+  duplicates: 200,
+  /**
+   * The follow-ups of one issue a handler's screen lists. A reporter may file
+   * any number against one closed issue, so the list is a page and the screen
+   * says how many there are.
+   */
+  followUpsListed: 50,
+} as const;

@@ -68,6 +68,7 @@ vi.mock("../api/issues", async (importOriginal) => ({
         duplicateCount: 0,
         follows: null,
         followUps: [],
+        followUpCount: 0,
       },
     }),
   setIssueCostResponsibility: (input: unknown) =>

@@ -23,10 +23,11 @@ What happens to an issue after it closes, merging duplicates, and known faults.
   and reopened first if it is the one wanted. The issue merged may be done
   already, and then keeps its closing date. The duplicate closes with the outcome Duplicate, which only merging writes.
   Its reporter keeps their own report and sees where the other issue stands. A
-  handler can write one message to every reporter of the merged reports: each
-  gets it on their own report, signed by the board or the property manager,
-  and the handler is told how many merged reports were not reached because
-  their reporter has no account. No reporter reads another's report, and a reporter with protected personal
+  handler can write one message to the reporters of the merged reports they
+  handle: each gets it on their own report, signed by the board or the
+  property manager, and the handler is told how many merged reports were not
+  reached because none has a reporter with an account. At most 200 issues can
+  be merged into one. No reporter reads another's report, and a reporter with protected personal
   data stays masked. Reopening a duplicate, or closing it again with another
   outcome, undoes the merge.
 - **Known faults.** A handler publishes a short known fault on an open issue,

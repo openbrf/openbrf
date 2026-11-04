@@ -246,6 +246,44 @@ describe("the reporter's conversation", () => {
     expect(onFollowUp).toHaveBeenCalledWith("Det läcker igen");
   });
 
+  it("keeps the refused reply when the conversation is collapsed and opened again", async () => {
+    sendOwnIssueMessage.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "issue-closed" },
+    });
+    const onFollowUp = vi.fn();
+    const session = userEvent.setup();
+    const { rerender } = render(
+      <OwnIssueConversation
+        issue={own()}
+        onChanged={() => undefined}
+        onFollowUp={onFollowUp}
+      />,
+    );
+    await openConversation(session);
+    await session.type(
+      await screen.findByLabelText("Vatten: ditt meddelande"),
+      "Det läcker igen",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+    await screen.findByText(/Anmälan avslutades medan du skrev/);
+    rerender(
+      <OwnIssueConversation
+        issue={own({ meaning: "DONE", replyMode: "NEW_REPORT" })}
+        onChanged={() => undefined}
+        onFollowUp={onFollowUp}
+      />,
+    );
+
+    // Collapsing unmounts the thread; opening it again must not lose the text.
+    await session.click(screen.getByText("Meddelanden om Vatten"));
+    await session.click(screen.getByText("Meddelanden om Vatten"));
+    await session.click(
+      await screen.findByRole("button", { name: "Gör en ny anmälan om detta" }),
+    );
+    expect(onFollowUp).toHaveBeenCalledWith("Det läcker igen");
+  });
+
   it("says a merged report is handled with another, and offers a new report", async () => {
     const session = userEvent.setup();
     render(

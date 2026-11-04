@@ -61,6 +61,8 @@ import { DomainError } from "../http/domain-error";
  * were already merged into, which is merged the other way instead.
  * `merge-into-closed` is an issue merged into one that is done, which would
  * leave its reporter following a report nobody is working on.
+ * `merge-limit` is an issue merged into one that already has as many
+ * duplicates as `ISSUE_LINK_LIMITS` allows.
  * `known-fault-board-only` is a known fault on an issue the board keeps to
  * itself, which never reaches the house. `follow-up-of-open-issue` is a new
  * report filed as the follow-up of one's own issue that is still open, which
@@ -95,6 +97,7 @@ export type IssueReason =
   | "merge-into-duplicate"
   | "merge-has-duplicates"
   | "merge-into-closed"
+  | "merge-limit"
   | "known-fault-board-only"
   | "follow-up-of-open-issue"
   | "redaction-target-not-found"
@@ -131,6 +134,7 @@ export class IssueError extends DomainError {
       reason === "merge-into-duplicate" ||
       reason === "merge-has-duplicates" ||
       reason === "merge-into-closed" ||
+      reason === "merge-limit" ||
       reason === "known-fault-board-only" ||
       reason === "legal-hold"
         ? HttpStatus.CONFLICT

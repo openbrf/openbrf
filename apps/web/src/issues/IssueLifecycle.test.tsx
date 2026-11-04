@@ -37,6 +37,7 @@ const NO_LINKS: IssueLinks = {
   duplicateCount: 0,
   follows: null,
   followUps: [],
+  followUpCount: 0,
 };
 
 function issue(overrides: Partial<QueuedIssue> = {}): QueuedIssue {
@@ -398,6 +399,68 @@ describe("merging", () => {
     await waitFor(() => {
       expect(screen.queryByText(/Skickat till 1 anmälare\./)).toBeNull();
     });
+  });
+
+  it("says how many follow-ups there are when only a page of them is listed", async () => {
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: {
+        ...NO_LINKS,
+        followUps: [
+          {
+            kind: "issue",
+            id: "issue-5",
+            typeName: "Hiss",
+            meaning: "NEW",
+            createdAt: "2026-08-19T08:00:00.000Z",
+          },
+        ],
+        followUpCount: 51,
+      },
+    });
+    render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER]}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(
+      await screen.findByText("Visar de första 1 av 51 uppföljningar."),
+    ).toBeTruthy();
+  });
+
+  it("explains a merge refused because the issue merged into has as many duplicates as one may, and reads the queue again", async () => {
+    mergeIssue.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "merge-limit" },
+    });
+    const onChanged = vi.fn();
+    const session = userEvent.setup();
+    render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER]}
+        onChanged={onChanged}
+      />,
+    );
+
+    await session.selectOptions(
+      await screen.findByLabelText("Hiss: slå samman med ett annat ärende"),
+      "issue-2",
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Slå samman som dublett" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Ja, avsluta som dublett" }),
+    );
+
+    expect(
+      await screen.findByText(/redan så många dubletter som det får ha/),
+    ).toBeTruthy();
+    expect(onChanged).toHaveBeenCalled();
   });
 
   it("does not offer a merge while issues this handler does not see were merged into it", async () => {

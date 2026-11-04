@@ -304,12 +304,13 @@ export class IssueConversationService {
     const duplicates = await tx.issue.findMany({
       where: {
         mergedIntoIssueId: issueId,
-        reporterPersonId: { not: null },
         ...issuesHandledWhere(scope),
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: { id: true, reporterPersonId: true },
     });
+    // A duplicate with no reporter, or one without an account, is reached by
+    // nobody; both count as skipped, so the total matches the merged reports.
     const accounts = await tx.user.findMany({
       where: {
         personId: {

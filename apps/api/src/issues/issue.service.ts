@@ -5,6 +5,7 @@ import {
   dateColumnOf,
   formatDateColumn,
   ISSUE_COST_RESPONSIBILITIES,
+  ISSUE_LINK_LIMITS,
   ISSUE_OUTCOMES,
   ISSUE_PRIORITIES,
   ISSUE_REDACTION_TARGETS,
@@ -217,8 +218,13 @@ export interface IssueLinksView {
   duplicateCount: number;
   /** The earlier issue this one follows up, when it does. */
   follows: IssueReferenceView | null;
-  /** The later issues that follow this one up, that the reader handles. */
+  /**
+   * The first later issues that follow this one up that the reader handles, at
+   * most `ISSUE_LINK_LIMITS.followUpsListed` of them.
+   */
   followUps: Extract<IssueReferenceView, { kind: "issue" }>[];
+  /** How many follow-ups the reader handles, those not listed included. */
+  followUpCount: number;
 }
 
 /**
@@ -1492,6 +1498,13 @@ export class IssueService {
         );
       }
 
+      if (into._count.duplicates >= ISSUE_LINK_LIMITS.duplicates) {
+        throw new IssueError(
+          "That issue already has as many duplicates as one may.",
+          "merge-limit",
+        );
+      }
+
       const target = await tx.issueStatus.findFirst({
         where: { typeId: existing.typeId, meaning: "DONE", isDefault: true },
         select: { id: true, meaning: true },
@@ -1567,8 +1580,10 @@ export class IssueService {
   ): Promise<QueuedIssueView> {
     refusePersonalIdentityNumbers({ body });
     const issue = await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
       await this.lockForAssignment(tx, issueId);
+      // After the lock wait: a board seat that ended during it must not sign
+      // the notice as BOARD.
+      const now = new Date();
       const existing = await this.requireHandled(tx, issueId, actorPersonId);
       if (existing.status.meaning === "DONE") {
         throw new IssueError(
@@ -1675,13 +1690,14 @@ export class IssueService {
         if (issue === null) {
           throw new IssueError("No such issue.", "issue-not-found");
         }
-        const read = (where: Prisma.IssueWhereInput) =>
+        const read = (where: Prisma.IssueWhereInput, take?: number) =>
           tx.issue.findMany({
             where: { AND: [where, handled] },
             orderBy: [{ createdAt: "asc" }, { id: "asc" }],
             select: REFERENCE_SELECT,
+            ...(take === undefined ? {} : { take }),
           });
-        const [linked, duplicates, followUps, duplicateCount] =
+        const [linked, duplicates, followUps, duplicateCount, followUpCount] =
           await Promise.all([
             read({
               id: {
@@ -1691,8 +1707,14 @@ export class IssueService {
               },
             }),
             read({ mergedIntoIssueId: issueId }),
-            read({ followsIssueId: issueId }),
+            read(
+              { followsIssueId: issueId },
+              ISSUE_LINK_LIMITS.followUpsListed,
+            ),
             tx.issue.count({ where: { mergedIntoIssueId: issueId } }),
+            tx.issue.count({
+              where: { AND: [{ followsIssueId: issueId }, handled] },
+            }),
           ]);
         const named = (id: string | null): IssueReferenceView | null => {
           if (id === null) {
@@ -1707,6 +1729,7 @@ export class IssueService {
           duplicateCount,
           follows: named(issue.followsIssueId),
           followUps: followUps.map(toReference),
+          followUpCount,
         };
       },
       { isolationLevel: "RepeatableRead" },

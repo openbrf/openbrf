@@ -556,12 +556,14 @@ describe("known faults and a report that follows up another", () => {
     await waitFor(() => {
       expect(reportIssue).toHaveBeenCalledWith(
         expect.objectContaining({
-          postId: "post-1",
           followsIssueId: "issue-old",
           description: "Det står still igen sedan i morse.",
         }),
       );
     });
+    // The post may already name the report followed up, which the server
+    // refuses to name a second one: a follow-up carries no post.
+    expect(reportIssue.mock.calls.at(-1)?.[0]).not.toHaveProperty("postId");
   });
 
   it("keeps the notice and the failed-photograph warning after a follow-up is filed", async () => {

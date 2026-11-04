@@ -186,7 +186,10 @@ export interface IssueLinks {
    */
   duplicateCount: number;
   follows: IssueReference | null;
+  /** The first follow-ups the reader handles, a page of them. */
   followUps: Extract<IssueReference, { kind: "issue" }>[];
+  /** How many follow-ups the reader handles, those not listed included. */
+  followUpCount: number;
 }
 
 /**

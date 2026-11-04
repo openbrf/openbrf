@@ -3,6 +3,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
+import { ISSUE_LINK_LIMITS } from "@openbrf/shared";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
@@ -703,11 +704,12 @@ describe("merging duplicates", () => {
     expect(page.body.includes(shielded.lastName)).toBe(false);
   });
 
-  it("counts a reporter without an account as not reached, and reaches a duplicate of another type", async () => {
+  it("counts a reporter without an account, and an issue without a reporter, as not reached, and reaches a duplicate of another type", async () => {
     const kept = await filed(plain, neighbour);
     const reached = await filed(boardOnly, resident);
     const unreached = await filed(plain, accountless);
-    for (const id of [reached, unreached]) {
+    const nobody = await filed(plain, null);
+    for (const id of [reached, unreached, nobody]) {
       const merged = await as(board, "POST", `/api/issue-queue/${id}/merge`, {
         intoIssueId: kept,
       });
@@ -721,7 +723,9 @@ describe("merging duplicates", () => {
       { body: "Hissen är lagad." },
     );
     expect(sent.statusCode).toBe(201);
-    expect(sent.json()).toEqual({ sent: 1, skipped: 1 });
+    // The issue with no reporter at all is skipped too, so the two counts add
+    // up to the merged reports the handler handles.
+    expect(sent.json()).toEqual({ sent: 1, skipped: 2 });
     expect(
       await prisma.issueMessage.count({ where: { issueId: reached } }),
     ).toBe(1);
@@ -886,6 +890,7 @@ describe("merging duplicates", () => {
       duplicateCount: 0,
       follows: null,
       followUps: [],
+      followUpCount: 0,
     });
   });
 
@@ -900,6 +905,62 @@ describe("merging duplicates", () => {
     const links = await as(manager, "GET", `/api/issue-queue/${kept}/links`);
     expect(links.statusCode).toBe(200);
     expect(links.json()).toMatchObject({ duplicates: [], duplicateCount: 1 });
+  });
+
+  it("refuses a merge into an issue that already has as many duplicates as one may", async () => {
+    const kept = await filed(plain, neighbour);
+    const extra = await filed(plain, resident);
+    await prisma.issue.createMany({
+      data: Array.from(
+        { length: ISSUE_LINK_LIMITS.duplicates },
+        (_, index) => ({
+          id: `il-dup-${String(index)}-${suffix}`,
+          typeId: plain.id,
+          statusId: plain.statusIds.DONE,
+          outcome: "DUPLICATE" as const,
+          closedAt: new Date(),
+          mergedIntoIssueId: kept,
+          reporterPersonId: null,
+          description: `Dublett ${String(index)} ${suffix}`,
+          location: `Plats ${String(index)} ${suffix}`,
+        }),
+      ),
+    });
+
+    const refused = await as(board, "POST", `/api/issue-queue/${extra}/merge`, {
+      intoIssueId: kept,
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ reason: "merge-limit" });
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: extra },
+        select: { mergedIntoIssueId: true },
+      }),
+    ).toEqual({ mergedIntoIssueId: null });
+  });
+
+  it("lists a page of the follow-ups of an issue and counts them all", async () => {
+    const earlier = await filed(plain);
+    await close(earlier, plain);
+    const total = ISSUE_LINK_LIMITS.followUpsListed + 2;
+    await prisma.issue.createMany({
+      data: Array.from({ length: total }, (_, index) => ({
+        id: `il-fu-${String(index)}-${suffix}`,
+        typeId: plain.id,
+        statusId: plain.statusIds.NEW,
+        followsIssueId: earlier,
+        reporterPersonId: null,
+        description: `Uppföljning ${String(index)} ${suffix}`,
+        location: `Plats ${String(index)} ${suffix}`,
+      })),
+    });
+
+    const links = await as(board, "GET", `/api/issue-queue/${earlier}/links`);
+    expect(links.statusCode).toBe(200);
+    const body = links.json<{ followUps: unknown[]; followUpCount: number }>();
+    expect(body.followUps).toHaveLength(ISSUE_LINK_LIMITS.followUpsListed);
+    expect(body.followUpCount).toBe(total);
   });
 
   it("leaves the issue merged into when the duplicate is reopened", async () => {

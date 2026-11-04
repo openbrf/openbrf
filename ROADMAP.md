@@ -371,7 +371,7 @@ locally the application runs from source beside the PostgreSQL that
       linked to the old one. A handler merges a duplicate into another issue,
       which closes it as a duplicate; its reporter keeps their own report,
       follows where the other issue stands, and is written to with every other
-      reporter of the merged reports, each on their own report, so nobody reads
+      reporter of the merged reports the handler handles, each on their own report, so nobody reads
       another's report and a protected reporter stays masked. A handler
       publishes a short known fault on an open issue, signed by the board or
       the property manager, which signed-in residents see on their report form

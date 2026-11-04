@@ -147,7 +147,7 @@ export function ReportIssuePanel({
         ? followUp.typeId
         : "",
     // The reporter's own refused reply before a post's text: it is what they
-    // wrote about this fault, and the post is still linked either way.
+    // wrote about this fault.
     description:
       followUpDraft !== "" || prefill === undefined
         ? followUpDraft
@@ -233,7 +233,10 @@ export function ReportIssuePanel({
       location: draft.location.trim() === "" ? null : draft.location.trim(),
       description: draft.description.trim(),
       photos,
-      postId: fromPostId,
+      // A follow-up is not linked to the post it was started from: the post
+      // may already name the report being followed up, and the server refuses
+      // a second report on a post that names one. The post keeps its link.
+      postId: followUp === undefined ? fromPostId : null,
       followsIssueId: followUp?.id ?? null,
     });
   };

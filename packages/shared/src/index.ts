@@ -92,6 +92,7 @@ export {
 export type { IssueMessageSide, IssueSignature } from "./issue-conversation.ts";
 export {
   ISSUE_KNOWN_FAULT_LIMITS,
+  ISSUE_LINK_LIMITS,
   ISSUE_REOPEN_WINDOW_DAYS,
   ISSUE_REPLY_MODES,
   replyReopensIssue,

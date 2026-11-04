@@ -56,6 +56,13 @@ export function OwnIssueConversation({
 }): ReactElement {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  /*
+   * The reply the server refused as closed. Past the reopening window the
+   * field gives way to the follow-up button and its draft goes with it, so
+   * the text is kept here, beside `open`: collapsing the conversation unmounts
+   * the thread, and the text must outlive that.
+   */
+  const [refusedReply, setRefusedReply] = useState("");
   return (
     <details
       className="flex flex-col gap-3"
@@ -67,7 +74,13 @@ export function OwnIssueConversation({
         {t("issues.conversation.openOwn", { type: issue.typeName })}
       </summary>
       {open ? (
-        <Thread issue={issue} onChanged={onChanged} onFollowUp={onFollowUp} />
+        <Thread
+          issue={issue}
+          onChanged={onChanged}
+          onFollowUp={onFollowUp}
+          refusedReply={refusedReply}
+          onRefusedReply={setRefusedReply}
+        />
       ) : null}
     </details>
   );
@@ -77,18 +90,16 @@ function Thread({
   issue,
   onChanged,
   onFollowUp,
+  refusedReply,
+  onRefusedReply,
 }: {
   issue: OwnIssue;
   onChanged: () => void;
   onFollowUp: (refusedReply: string) => void;
+  refusedReply: string;
+  onRefusedReply: (refusedReply: string) => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
-  /*
-   * The reply the server refused as closed. Past the reopening window the
-   * field gives way to the follow-up button and its draft goes with it, so
-   * the text is kept here, in the thread that outlives the field.
-   */
-  const [refusedReply, setRefusedReply] = useState("");
   const [messages, setMessages] = useState<OwnIssueMessage[] | null>(null);
   const [readFailed, setReadFailed] = useState(false);
   /** Bumped after a send, which reads the conversation again. */
@@ -199,7 +210,7 @@ function Thread({
           }}
           onRefused={(reason, body) => {
             if (reason === "issue-closed") {
-              setRefusedReply(body);
+              onRefusedReply(body);
               onChanged();
             }
           }}
