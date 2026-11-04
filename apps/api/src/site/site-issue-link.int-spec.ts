@@ -1072,7 +1072,19 @@ describe("D. rate limits and abuse", () => {
     try {
       await lockTaken;
       const delivering = links.deliver(id);
-      await new Promise((done) => setTimeout(done, 500));
+      // Wait until the first transaction has committed the link.
+      const deadline = Date.now() + 10_000;
+      while (
+        (await prisma.issueReporterLink.findUnique({
+          where: { issueId: id },
+          select: { id: true },
+        })) === null
+      ) {
+        if (Date.now() > deadline) {
+          throw new Error("The private link was not issued in time.");
+        }
+        await new Promise((done) => setTimeout(done, 20));
+      }
       // The link is issued and not yet mailed: the first transaction is done.
       expect(
         await prisma.issueReporterLink.findUnique({
@@ -1096,6 +1108,63 @@ describe("D. rate limits and abuse", () => {
     } finally {
       release();
       await holding.catch(() => undefined);
+    }
+  });
+
+  it("D6: an issue closed while the mail is being sent waits for the stamp", async () => {
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Stängd medan mejlet skickas",
+      reporterName: null,
+      reporterEmail: `rl-closed-sending-${suffix}@exempel.se`,
+    });
+    const before = sent.length;
+
+    // The mail server holds the message until released.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const sendEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    vi.spyOn(mail, "send").mockImplementation(async (input) => {
+      entered();
+      await held;
+      sent.push(input as SendMailInput<unknown>);
+      return {
+        messageId: `<rl-${String(sent.length)}@exempel.se>`,
+      } as SentMail;
+    });
+
+    try {
+      const delivering = links.deliver(id);
+      await sendEntered;
+
+      let closeSettled = false;
+      const closing = issues
+        .setStatus(
+          id,
+          { statusId: publicType.statusIds.DONE, outcome: "FIXED" },
+          board.personId,
+        )
+        .finally(() => {
+          closeSettled = true;
+        });
+      // Neither of the two awaits the other here: the delivery holds the
+      // issue's lock until the send is released, so awaiting the close first
+      // would never return.
+      await new Promise((done) => setTimeout(done, 500));
+      expect(closeSettled).toBe(false);
+
+      release();
+      expect(await delivering).toBe(true);
+      await closing;
+      expect(sent.length).toBe(before + 1);
+    } finally {
+      release();
     }
   });
 

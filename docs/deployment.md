@@ -1166,7 +1166,8 @@ the same path. A proxy log that keeps the full path holds a working link until
 the link ends, at the first of: 30 days after its issue is closed, a year after
 the issue's latest message (or after the link was mailed, if no message came),
 and a handler withdrawing it. Keep such a log
-for less time than that, or treat it as holding personal data.
+for less time than that and limit who can read it, or treat it as holding
+personal data.
 
 The same budget per client address that guards the forms guards these paths
 too, so `TRUSTED_PROXIES` matters here as well: thirty page reads and five
