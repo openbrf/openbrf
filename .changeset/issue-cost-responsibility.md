@@ -12,8 +12,8 @@ a responsibility guide from its own bylaws (ADR 0054).
   association, by the tenant-owner, or is unclear. Any handler can, the property
   manager included. It is on the issue's timeline and in the audit log. It is
   internal like the assignee: the reporter is not shown it on the issue, but it
-  is listed in their access report, as the data subject report lists what is
-  held about them. An issue never carries an amount.
+  is listed in their data subject access report, which lists what is held about
+  them. An issue never carries an amount.
 - **A charge made from an issue.** "Create a charge" on an issue opens the
   charges screen with the form filled in: the issue's apartment, or the resident
   who reported it, and a reason naming the issue's type. The board enters the
@@ -25,7 +25,7 @@ a responsibility guide from its own bylaws (ADR 0054).
   amount. The printed debiting list and its file do not name the issue. While
   the person who reported an issue has protected personal data, its charges are
   shown as withheld, and the debiting list on screen does not link those charges
-  to the issue, so neither leads to who reported it. An access report masks the
+  to the issue, so neither leads to who reported it. A data subject access report masks the
   issue link of a charge in the same case.
 - **Responsibility guide.** The board edits a table of who maintains which part
   of the home and the building, under the association's own bylaws, in the

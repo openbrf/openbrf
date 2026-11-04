@@ -228,6 +228,16 @@ model Association {
   /// page.
   issueReportingPublic Boolean @default(true)
 
+  /// How many whole years after an issue closes its free-text layer is kept:
+  /// the description, the free-text location, the conversation, the internal
+  /// notes and every photograph and file (ADR 0057, decision 33). The building
+  /// record - what, where, when and the outcome - stays. The board sets it from
+  /// 1 to 10, held by a CHECK; two by default, which has no legal source and
+  /// matches motions, subletting and the board mailbox. Read when the nightly
+  /// purge runs, never stamped on an issue, so a change moves every pending
+  /// date at once.
+  issueTextRetentionYears Int @default(2)
+
   /// The deadline the bylaws (stadgar) set for motions to the general meeting,
   /// as a recurring month and day.
   ///
@@ -1847,6 +1857,14 @@ enum AuditAction {
   ISSUE_MESSAGE_SENT
   /// A handler wrote an internal note on an issue. The entry names the issue, the note and the handler as its actor, never the text.
   ISSUE_NOTE_ADDED
+  /// A handler redacted a text on an issue or removed one of its files (ADR 0057). The entry names the issue, what was reached and the row's identifier, never the text or the file's name.
+  ISSUE_REDACTED
+  /// A legal hold was placed on an issue, so its free text outlasts its purge clock (ADR 0057).
+  ISSUE_LEGAL_HOLD_PLACED
+  /// The legal hold on an issue was released, and its purge clock runs again.
+  ISSUE_LEGAL_HOLD_RELEASED
+  /// The board set how many years after closing an issue's free text is kept. The entry names the number either side.
+  ISSUE_RETENTION_RECORDED
   /// A person was moved into an apartment.
   MOVE_IN_RECORDED
   /// A residency was given its move-out date.
@@ -4575,6 +4593,28 @@ model Issue {
 
   description String
 
+  /// When a handler redacted the description or the location (ADR 0057): the
+  /// text is emptied, and this says it was taken out and when, so the issue
+  /// reads as redacted rather than as one somebody filed blank. Nothing keeps
+  /// the earlier text. A CHECK holds the text empty while its mark stands.
+  descriptionRedactedAt DateTime?
+  locationRedactedAt    DateTime?
+
+  /// When the nightly purge removed the issue's free-text layer, on its clock
+  /// or on its reporter's granted erasure request (ADR 0057). The board's
+  /// screen says so with the date rather than showing an empty issue. Not a
+  /// selector: what the purge reaches is whatever free text still stands, so
+  /// text written after a reopening is reached on the next closing's clock.
+  freeTextRemovedAt DateTime?
+
+  /// Since when a legal hold stands on the issue, or null when none does
+  /// (rättsligt bevarandekrav, ADR 0057). While it stands, neither the clock
+  /// nor a granted erasure request removes the free-text layer: a damage case
+  /// and an inspection finding place one, and a handler may. Released by
+  /// clearing it; the audit log holds when each hold was placed and released,
+  /// as `ISSUE_LEGAL_HOLD_PLACED` and `ISSUE_LEGAL_HOLD_RELEASED`.
+  legalHoldAt DateTime?
+
   photos IssuePhoto[]
 
   /// The conversation with the reporter (svar), and the handlers' own notes
@@ -4604,6 +4644,7 @@ model Issue {
   @@index([reporterEmailIndex])
   @@index([assigneePersonId])
   @@index([enteredByPersonId])
+  @@index([closedAt])
   @@map("issue")
 }
 
@@ -4732,8 +4773,13 @@ model IssueMessage {
 
   /// The text. The reporter's is stored as written, as the description is. A
   /// handler's is refused while it carries a personal identity number, as
-  /// every text the board writes back to a resident is.
+  /// every text the board writes back to a resident is. Empty once redacted.
   body String
+
+  /// When a handler redacted the text (ADR 0057), which empties `body`; null
+  /// while it stands. The message stays in its place in the conversation and
+  /// says it was taken out and when.
+  redactedAt DateTime?
 
   createdAt DateTime @default(now())
 
@@ -4763,8 +4809,12 @@ model IssueNote {
   /// names them as its actor.
   authorPersonId String?
 
-  /// The text, refused while it carries a personal identity number.
+  /// The text, refused while it carries a personal identity number. Empty
+  /// once redacted.
   body String
+
+  /// When a handler redacted the text (ADR 0057), as on an issue message.
+  redactedAt DateTime?
 
   createdAt DateTime @default(now())
 
