@@ -7,6 +7,7 @@ import {
   ISSUE_COST_RESPONSIBILITIES,
   ISSUE_OUTCOMES,
   ISSUE_PRIORITIES,
+  ISSUE_REDACTION_TARGETS,
   ISSUE_STATUS_LIMITS,
   ISSUE_STATUS_MEANINGS,
   ISSUE_WAITING_REASONS,
@@ -16,6 +17,7 @@ import {
   type IssueOutcome,
   type IssuePriority,
   type IssueReplyMode,
+  type IssueRedactionTarget,
   type IssueReporterGroup,
   type IssueSignature,
   type IssueStatusMeaning,
@@ -145,6 +147,18 @@ export interface IssueRowView {
    * internal (ADR 0054).
    */
   enteredByHandler: boolean;
+  /**
+   * When a handler redacted the description or the location, or null (ADR
+   * 0057). The text is then empty, and the screen says it was taken out.
+   */
+  descriptionRedactedAt: string | null;
+  locationRedactedAt: string | null;
+  /**
+   * When the purge removed the free text - the description, the location, the
+   * conversation and the photographs - after the issue closed, or null. The
+   * screen says so with the date rather than showing an empty issue.
+   */
+  freeTextRemovedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -271,6 +285,11 @@ export type QueuedIssueView = IssueRowView & {
    */
   knownFault: Omit<KnownFaultView, "typeName"> | null;
   /**
+   * Since when a legal hold stands on it, or null (ADR 0057). While one stands
+   * its free text outlasts its clock, and a handler may not redact it.
+   */
+  legalHoldAt: string | null;
+  /**
    * Who pays for it, or null while nobody has said (decision 26). Never an
    * amount: a charge made from the issue is read from the charges, by those
    * who may read charges, and the property manager may not.
@@ -386,6 +405,9 @@ export type IssueTimelineStep = {
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
   | { kind: "knownFault"; published: boolean }
+  /** A handler redacted a text or removed a file (ADR 0057). */
+  | { kind: "redacted"; target: IssueRedactionTarget | null }
+  | { kind: "legalHold"; held: boolean }
   | {
       kind: "costResponsibility";
       from: IssueCostResponsibility | null;
@@ -612,7 +634,7 @@ export class IssueService {
       statusId: type.newStatusId,
       reporterPersonId: principal.personId,
       apartmentId,
-      location: input.location ?? null,
+      location: locationOrNull(input.location),
       description: input.description,
       followsIssueId,
     };
@@ -685,14 +707,11 @@ export class IssueService {
         reporterNameCipher: name?.cipher ?? null,
         reporterEmailCipher: email?.cipher ?? null,
         reporterEmailIndex: email?.index ?? null,
-        // Empty is nothing, exactly as it is for the name and the address
-        // above: the form's location field is optional, so a visitor who
-        // touched it and thought better of it must not leave the board an
-        // issue whose location is present and blank.
-        location:
-          input.location == null || input.location === ""
-            ? null
-            : input.location,
+        // Empty is nothing, as it is for the name and the address above: the
+        // form's location field is optional, so a visitor who touched it and
+        // thought better of it must not leave the board an issue whose
+        // location is present and blank.
+        location: locationOrNull(input.location),
         description: input.description,
       }),
     );
@@ -774,10 +793,7 @@ export class IssueService {
         enteredByPersonId: principal.personId,
         enteredByHandler: true,
         apartmentId: resident?.apartmentId ?? null,
-        location:
-          input.location == null || input.location.trim() === ""
-            ? null
-            : input.location,
+        location: locationOrNull(input.location),
         description: input.description,
       });
       /*
@@ -1873,6 +1889,10 @@ export class IssueService {
       showsIdentifiablePersons: true,
       uploadedByPersonId: input.reporterPersonId,
       channel: "WEB",
+      // A name somebody gave a photograph of their home is free text, and the
+      // log is append-only: the purge that removes the photograph cannot
+      // remove the name (ADR 0057).
+      recordFileName: false,
     });
 
     /*
@@ -1908,7 +1928,9 @@ export class IssueService {
       // with nothing in the logs to say so. The original failure is still the
       // one raised.
       await this.media
-        .remove(file.id, input.reporterPersonId, "WEB")
+        .remove(file.id, input.reporterPersonId, "WEB", {
+          recordFileName: false,
+        })
         .catch((removal: unknown) => {
           this.logger.error(
             `Could not remove file ${file.id} after its photograph was refused: ` +
@@ -2622,6 +2644,16 @@ function refuseUnlinked(outcome: IssueLinkOutcome): void {
  * a 500. The apartment's key cannot be the one: the reporter's residency holds
  * the apartment in the register.
  */
+/**
+ * A location as it is filed: null where none was given, and where the field
+ * holds only blanks. Every way an issue is filed reads it through this, so a
+ * blank location is never stored, and a handler's redaction or the purge never
+ * records the removal of one nobody wrote.
+ */
+function locationOrNull(location: string | null | undefined): string | null {
+  return location == null || location.trim() === "" ? null : location;
+}
+
 function typeRemoved(cause: unknown): never {
   if (
     cause instanceof Prisma.PrismaClientKnownRequestError &&
@@ -2656,6 +2688,10 @@ interface IssueRecord {
   knownFaultPublishedAt: Date | null;
   location: string | null;
   description: string;
+  descriptionRedactedAt: Date | null;
+  locationRedactedAt: Date | null;
+  freeTextRemovedAt: Date | null;
+  legalHoldAt: Date | null;
   closedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -2709,6 +2745,7 @@ function toQueuedView(
     enteredBy: handlers.enteredBy,
     boardOnly: issue.boardOnly,
     knownFault: knownFaultOf(issue),
+    legalHoldAt: issue.legalHoldAt?.toISOString() ?? null,
     costResponsibility: issue.costResponsibility,
   };
   if (reporter.kind === "protected") {
@@ -2753,6 +2790,9 @@ function toIssueRowView(issue: IssueRecord): IssueRowView {
       width: photo.file.width,
       height: photo.file.height,
     })),
+    descriptionRedactedAt: issue.descriptionRedactedAt?.toISOString() ?? null,
+    locationRedactedAt: issue.locationRedactedAt?.toISOString() ?? null,
+    freeTextRemovedAt: issue.freeTextRemovedAt?.toISOString() ?? null,
     createdAt: issue.createdAt.toISOString(),
     updatedAt: issue.updatedAt.toISOString(),
   };
@@ -2767,6 +2807,9 @@ const TIMELINE_ACTIONS = [
   "ISSUE_TARGET_DATE_CHANGED",
   "ISSUE_ACCESS_CHANGED",
   "ISSUE_KNOWN_FAULT_CHANGED",
+  "ISSUE_REDACTED",
+  "ISSUE_LEGAL_HOLD_PLACED",
+  "ISSUE_LEGAL_HOLD_RELEASED",
   "ISSUE_COST_RESPONSIBILITY_CHANGED",
 ] as const satisfies readonly AuditAction[];
 
@@ -2840,6 +2883,21 @@ function timelineStep(
         at,
         actor,
         published: context.published === true,
+      };
+    case "ISSUE_REDACTED":
+      return {
+        kind: "redacted",
+        at,
+        actor,
+        target: oneOf(text("target"), ISSUE_REDACTION_TARGETS),
+      };
+    case "ISSUE_LEGAL_HOLD_PLACED":
+    case "ISSUE_LEGAL_HOLD_RELEASED":
+      return {
+        kind: "legalHold",
+        at,
+        actor,
+        held: entry.action === "ISSUE_LEGAL_HOLD_PLACED",
       };
     case "ISSUE_COST_RESPONSIBILITY_CHANGED":
       return {

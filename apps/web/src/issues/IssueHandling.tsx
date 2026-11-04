@@ -3,6 +3,7 @@ import {
   ISSUE_PRIORITIES,
   type IssueCostResponsibility,
   type IssuePriority,
+  type IssueRedactionTarget,
 } from "@openbrf/shared";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactElement } from "react";
@@ -767,6 +768,24 @@ function TimelineSentence({
             : t("issues.timeline.knownFaultWithdrawn")}
         </>
       );
+    case "redacted":
+      return (
+        <>
+          {t(
+            step.target === null
+              ? "issues.timeline.redacted.unknown"
+              : REDACTED_STEP[step.target],
+          )}
+        </>
+      );
+    case "legalHold":
+      return (
+        <>
+          {step.held
+            ? t("issues.timeline.legalHoldPlaced")
+            : t("issues.timeline.legalHoldReleased")}
+        </>
+      );
     case "costResponsibility":
       return (
         <>
@@ -779,3 +798,13 @@ function TimelineSentence({
       );
   }
 }
+
+/** What a removal on the timeline reached. */
+const REDACTED_STEP: Readonly<Record<IssueRedactionTarget, TranslationKey>> = {
+  description: "issues.timeline.redacted.description",
+  location: "issues.timeline.redacted.location",
+  message: "issues.timeline.redacted.message",
+  note: "issues.timeline.redacted.note",
+  photo: "issues.timeline.redacted.photo",
+  attachment: "issues.timeline.redacted.attachment",
+};

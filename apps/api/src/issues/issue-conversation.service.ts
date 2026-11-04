@@ -30,7 +30,10 @@ import type { IssueHandlerView } from "./issue.service";
  */
 export type ReporterIssueMessageView = {
   id: string;
+  /** Empty once a handler redacted it. */
   body: string;
+  /** When a handler redacted it (ADR 0057), or null while it stands. */
+  redactedAt: string | null;
   createdAt: string;
 } & ({ side: "REPORTER" } | { side: "HANDLER"; signature: IssueSignature });
 
@@ -46,7 +49,10 @@ export type ReporterIssueMessageView = {
  */
 export type HandlerIssueMessageView = {
   id: string;
+  /** Empty once a handler redacted it. */
   body: string;
+  /** When a handler redacted it (ADR 0057), or null while it stands. */
+  redactedAt: string | null;
   createdAt: string;
 } & (
   | { side: "REPORTER" }
@@ -57,7 +63,10 @@ export type HandlerIssueMessageView = {
 export interface IssueNoteView {
   id: string;
   author: IssueHandlerView;
+  /** Empty once a handler redacted it. */
   body: string;
+  /** When a handler redacted it (ADR 0057), or null while it stands. */
+  redactedAt: string | null;
   createdAt: string;
 }
 
@@ -749,6 +758,7 @@ export class IssueConversationService {
       const base = {
         id: message.id,
         body: message.body,
+        redactedAt: message.redactedAt?.toISOString() ?? null,
         createdAt: message.createdAt.toISOString(),
       };
       if (message.side === "REPORTER" || message.signature === null) {
@@ -774,6 +784,7 @@ export class IssueConversationService {
       id: note.id,
       author: authorOf(note.authorPersonId, viewOf),
       body: note.body,
+      redactedAt: note.redactedAt?.toISOString() ?? null,
       createdAt: note.createdAt.toISOString(),
     }));
   }
@@ -865,6 +876,7 @@ const MESSAGE_SELECT = {
   authorPersonId: true,
   signature: true,
   body: true,
+  redactedAt: true,
   createdAt: true,
 } as const;
 
@@ -876,6 +888,7 @@ const NOTE_SELECT = {
   id: true,
   authorPersonId: true,
   body: true,
+  redactedAt: true,
   createdAt: true,
 } as const;
 
@@ -904,6 +917,7 @@ function toReporterView(message: MessageRecord): ReporterIssueMessageView {
   const base = {
     id: message.id,
     body: message.body,
+    redactedAt: message.redactedAt?.toISOString() ?? null,
     createdAt: message.createdAt.toISOString(),
   };
   return message.side === "HANDLER" && message.signature !== null

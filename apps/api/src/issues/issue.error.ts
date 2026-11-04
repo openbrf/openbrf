@@ -96,7 +96,9 @@ export type IssueReason =
   | "merge-has-duplicates"
   | "merge-into-closed"
   | "known-fault-board-only"
-  | "follow-up-of-open-issue";
+  | "follow-up-of-open-issue"
+  | "redaction-target-not-found"
+  | "legal-hold";
 
 /**
  * Where in a message, a note or a saved reply a refused value sits: a part and
@@ -129,7 +131,8 @@ export class IssueError extends DomainError {
       reason === "merge-into-duplicate" ||
       reason === "merge-has-duplicates" ||
       reason === "merge-into-closed" ||
-      reason === "known-fault-board-only"
+      reason === "known-fault-board-only" ||
+      reason === "legal-hold"
         ? HttpStatus.CONFLICT
         : reason === "public-reporting-disabled"
           ? HttpStatus.FORBIDDEN

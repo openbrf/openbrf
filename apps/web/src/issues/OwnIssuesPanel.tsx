@@ -5,6 +5,7 @@ import type { OwnIssue } from "../api/issues";
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Panel } from "../ui/Panel";
+import { IssueDescription, IssueLocation } from "./IssueFreeText";
 import { IssueStatusChip } from "./IssueStatusChip";
 import { OwnIssueConversation } from "./OwnIssueConversation";
 
@@ -67,9 +68,7 @@ export function OwnIssuesPanel({
                 </p>
               )}
 
-              <p className="text-small whitespace-pre-line">
-                {issue.description}
-              </p>
+              <IssueDescription issue={issue} />
 
               <p className="flex flex-wrap gap-4 text-small text-ink-muted">
                 <span>
@@ -83,12 +82,7 @@ export function OwnIssuesPanel({
                   )}
                 </span>
                 <span>
-                  {t("issues.mine.place")}{" "}
-                  {issue.location === null ? (
-                    <NotRecorded meaning={t("issues.mine.noPlace")} />
-                  ) : (
-                    issue.location
-                  )}
+                  {t("issues.mine.place")} <IssueLocation issue={issue} />
                 </span>
                 {/* Told that a handler entered it, never which one: who
                     works an issue is internal (ADR 0054). */}
