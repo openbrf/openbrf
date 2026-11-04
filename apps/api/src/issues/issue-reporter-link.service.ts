@@ -146,8 +146,9 @@ export type ReporterLinkReplyOutcome =
  *   "last used", no audit entry. Mail scanners and link previews open every
  *   link in a message, and must not be able to do anything by it.
  * - **The form cannot mail a stranger at will.** One link mail per issue,
- *   never sent again, and at most three a day to one address, counted in the
- *   database. There is no way to ask for the link again.
+ *   not sent again (save the one failure `deliver` names), and at most three
+ *   a day to one address, counted in the database. There is no way to ask for
+ *   the link again.
  */
 @Injectable()
 export class IssueReporterLinkService implements OnModuleInit {

@@ -1410,6 +1410,9 @@ describe("D. rate limits and abuse", () => {
         .finally(() => {
           closeSettled = true;
         });
+      // Awaited below; this keeps a failed close from surfacing as an
+      // unhandled rejection when an expectation before that throws first.
+      closing.catch(() => undefined);
       // Neither of the two awaits the other here: the delivery holds the
       // issue's lock until the send is released, so awaiting the close first
       // would never return. The close is seen queued on that lock, which a
@@ -1471,6 +1474,8 @@ describe("D. rate limits and abuse", () => {
 
       expect(await delivering).toBe(true);
       await closing;
+      // The close went through once the stamp had landed: one mail, a link
+      // that records it, and a closed issue.
       expect(sent.length).toBe(before + 1);
       expect(
         await prisma.issueReporterLink.findUnique({
@@ -1478,6 +1483,12 @@ describe("D. rate limits and abuse", () => {
           select: { mailedAt: true },
         }),
       ).toEqual({ mailedAt: expect.any(Date) });
+      expect(
+        await prisma.issue.findUniqueOrThrow({
+          where: { id },
+          select: { closedAt: true },
+        }),
+      ).toEqual({ closedAt: expect.any(Date) });
     } finally {
       release();
     }
