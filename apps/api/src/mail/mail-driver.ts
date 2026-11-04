@@ -77,9 +77,64 @@ export interface SentMail {
  */
 export type MailHandover = "not-handed-over" | "may-have-been-handed-over";
 
+/**
+ * The system and TLS codes a transport reports for a connection that was never
+ * made or never became a secure one, so nothing was sent over it: no address
+ * for the name, a server that refuses, no route to it, and a certificate the
+ * handshake could not accept (expired, self-signed, no chain to a trusted
+ * root, or one issued for another name).
+ *
+ * Not a reset, a broken pipe or a timeout on an open connection, which can come
+ * at any point of the exchange, the end of the message included. A mail server
+ * with an expired certificate is a common fault, and it is one the board can
+ * name, so it is listed rather than left to read as unconfirmed.
+ */
+export const NEVER_CONNECTED_SYSTEM_CODES: ReadonlySet<string> = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "CERT_HAS_EXPIRED",
+  "CERT_NOT_YET_VALID",
+  "CERT_REVOKED",
+  "CERT_UNTRUSTED",
+  "CERT_REJECTED",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+]);
+
 /** A failed send that says how far it had got. */
 export interface MailHandoverFailure {
   readonly handover: MailHandover;
+}
+
+/**
+ * The failure with how far the send had got stated on it
+ * (`MailHandoverFailure`).
+ *
+ * The same error rather than a new one, so its class and code stay what the
+ * callers and the log already read. One that states it already is left as it
+ * is. A thrown value that is not an object is wrapped, since it has nowhere to
+ * carry the field.
+ */
+export function withHandover(
+  error: unknown,
+  handover: MailHandover,
+): MailHandoverFailure {
+  if (typeof error !== "object" || error === null) {
+    return Object.assign(new Error("Mail send failed", { cause: error }), {
+      handover,
+    });
+  }
+  if ("handover" in error) {
+    return error as MailHandoverFailure;
+  }
+  return Object.assign(error, { handover });
 }
 
 /**

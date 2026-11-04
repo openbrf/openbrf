@@ -29,6 +29,8 @@ const REPLY = {
   body: "Tack for ditt brev.",
   messageId: MINTED,
   inReplyTo: "fraga-1@utanfor.example",
+  deliveryStatus: "PENDING",
+  sentAt: null,
   thread: {
     subject: "Fraga om balkongen",
     correspondentEmailCipher: "brf:email",
@@ -205,6 +207,44 @@ describe("a reply another attempt claimed", () => {
       });
 
     expect(await mailer.sendReply("reply-1")).toBe("skipped");
+    expect(mail.send).not.toHaveBeenCalled();
+  });
+});
+
+describe("a reply that was settled or claimed before the job ran", () => {
+  it.each([
+    [
+      "sent",
+      { deliveryStatus: "SENT", sentAt: new Date("2026-10-05T08:00:00Z") },
+    ],
+    ["failed", { deliveryStatus: "FAILED", sentAt: null }],
+  ])(
+    "skips a reply already %s without reading the correspondent's address",
+    async (_what, row) => {
+      const { mailer, mail, prisma, encryption } = build({ messageId: null });
+      prisma.boardMailboxMessage.findUnique.mockResolvedValueOnce({
+        ...REPLY,
+        ...row,
+      });
+
+      expect(await mailer.sendReply("reply-1")).toBe("skipped");
+      // Personal data a job with nothing to send has no use for, which is
+      // also what could no longer be decrypted and retried the job five times.
+      expect(encryption.decrypt).not.toHaveBeenCalled();
+      expect(prisma.boardMailboxMessage.updateMany).not.toHaveBeenCalled();
+      expect(mail.send).not.toHaveBeenCalled();
+    },
+  );
+
+  it("fails the job for a reply claimed and unsettled, also without reading the address", async () => {
+    const { mailer, mail, prisma, encryption } = build({ messageId: null });
+    prisma.boardMailboxMessage.findUnique.mockResolvedValueOnce({
+      ...REPLY,
+      sentAt: new Date("2026-10-05T08:00:00Z"),
+    });
+
+    await expect(mailer.sendReply("reply-1")).rejects.toThrow(/claimed/);
+    expect(encryption.decrypt).not.toHaveBeenCalled();
     expect(mail.send).not.toHaveBeenCalled();
   });
 });

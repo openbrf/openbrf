@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 
-import type {
-  MailDriver,
-  MailHandover,
-  MailHandoverFailure,
-  OutgoingMail,
-  SentMail,
+import {
+  type MailDriver,
+  type MailHandover,
+  type MailHandoverFailure,
+  NEVER_CONNECTED_SYSTEM_CODES,
+  type OutgoingMail,
+  type SentMail,
 } from "./mail-driver";
 
 /**
@@ -79,14 +80,12 @@ export interface MailApiConfig {
 
 /**
  * The system codes, on the cause of a request that got no answer, that only a
- * connection never made can raise: refused, a name that did not resolve, or
- * the connect running out of time. The request was never sent. Not a reset, or
+ * connection never made can raise: refused, a name that did not resolve, no
+ * route, a certificate not accepted, or the connect running out of time. The request was never sent. Not a reset, or
  * the deadline below, which can come after the service read the request.
  */
 const NEVER_CONNECTED_CODES: ReadonlySet<string> = new Set([
-  "ECONNREFUSED",
-  "ENOTFOUND",
-  "EAI_AGAIN",
+  ...NEVER_CONNECTED_SYSTEM_CODES,
   "UND_ERR_CONNECT_TIMEOUT",
 ]);
 

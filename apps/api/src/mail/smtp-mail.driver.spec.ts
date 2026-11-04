@@ -292,6 +292,30 @@ describe("a failed send", () => {
       "a connection refused",
       { code: "ESOCKET", originalCode: "ECONNREFUSED", command: "CONN" },
     ],
+    [
+      "no route to the server",
+      { code: "ESOCKET", originalCode: "EHOSTUNREACH", command: "CONN" },
+    ],
+    [
+      "an expired certificate",
+      { code: "ESOCKET", originalCode: "CERT_HAS_EXPIRED", command: "CONN" },
+    ],
+    [
+      "a certificate with no chain to a trusted root",
+      {
+        code: "ESOCKET",
+        originalCode: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+        command: "CONN",
+      },
+    ],
+    [
+      "a certificate issued for another name",
+      {
+        code: "ESOCKET",
+        originalCode: "ERR_TLS_CERT_ALTNAME_INVALID",
+        command: "CONN",
+      },
+    ],
   ])("says %s was not handed over", async (_what, fields) => {
     transport.sendMail.mockRejectedValue(nodemailerError(fields));
 

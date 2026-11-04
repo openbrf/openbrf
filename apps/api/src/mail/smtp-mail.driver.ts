@@ -11,12 +11,14 @@ import {
   type ResolvedAddress,
   resolvePublicAddresses,
 } from "../network/outbound-address";
-import type {
-  MailDriver,
-  MailHandover,
-  MailHandoverFailure,
-  OutgoingMail,
-  SentMail,
+import {
+  type MailDriver,
+  type MailHandover,
+  type MailHandoverFailure,
+  NEVER_CONNECTED_SYSTEM_CODES,
+  type OutgoingMail,
+  type SentMail,
+  withHandover,
 } from "./mail-driver";
 
 /**
@@ -67,8 +69,9 @@ const SOCKET_TIMEOUT_MS = 20_000;
  *
  * A certificate the server presents and this process does not trust is not
  * among them. Nodemailer reports it as `ESOCKET`, the code a refused connection
- * has too, having written over the code that told them apart, so it stays the
- * generic failure rather than a guess from the wording of a message.
+ * has too, so it stays the generic failure. The record of the send still reads
+ * it as not handed over, from the code nodemailer keeps under its own
+ * (`NEVER_CONNECTED_SYSTEM_CODES`).
  *
  * A 502: the fault is at the mail server, not in the request.
  */
@@ -148,17 +151,6 @@ const BEFORE_HANDOVER_TIMEOUTS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The system codes nodemailer keeps under its own (`originalCode`) that only a
- * connection never made can raise: refused, or a name that did not resolve. Not
- * a reset, which an open connection raises at any point.
- */
-const BEFORE_HANDOVER_SYSTEM_CODES: ReadonlySet<string> = new Set([
-  "ECONNREFUSED",
-  "ENOTFOUND",
-  "EAI_AGAIN",
-]);
-
-/**
  * How far a send nodemailer failed had got, from the fields it gives its
  * errors.
  *
@@ -166,7 +158,10 @@ const BEFORE_HANDOVER_SYSTEM_CODES: ReadonlySet<string> = new Set([
  * command (`CONN`) whatever the conversation had reached, and the end of the
  * message is one of those points: the server may have taken it and its answer
  * been lost. So such a failure may have been handed over, unless the field it
- * carries places it before the connection was made.
+ * carries places it before the connection was made. Nodemailer keeps the
+ * system or TLS code it wrapped under its own (`originalCode`), which is how a
+ * refused connection and an expired certificate, both reported as `ESOCKET`,
+ * are told from a reset.
  */
 function smtpHandover(error: unknown): MailHandover {
   if (typeof error !== "object" || error === null) {
@@ -183,23 +178,8 @@ function smtpHandover(error: unknown): MailHandover {
       typeof timeoutType === "string" &&
       BEFORE_HANDOVER_TIMEOUTS.has(timeoutType)) ||
     (typeof originalCode === "string" &&
-      BEFORE_HANDOVER_SYSTEM_CODES.has(originalCode));
+      NEVER_CONNECTED_SYSTEM_CODES.has(originalCode));
   return before ? "not-handed-over" : "may-have-been-handed-over";
-}
-
-/**
- * The failure as nodemailer threw it, with how far the send had got stated on
- * it (`MailHandoverFailure`).
- *
- * The same error rather than a new one, so its class and code stay what the
- * callers and the log already read. One of this driver's own errors states it
- * already, and is left as it is.
- */
-function withHandover(error: unknown): unknown {
-  if (typeof error !== "object" || error === null || "handover" in error) {
-    return error;
-  }
-  return Object.assign(error, { handover: smtpHandover(error) });
 }
 
 /** Whether nodemailer failed to set up TLS, which it reports as `ETLS`. */
@@ -252,9 +232,11 @@ export class SmtpMailDriver implements MailDriver {
     private readonly server: SmtpServer,
     /** The resolver, for a suite that cannot depend on somebody's DNS zone. */
     private readonly resolve?: ResolveAddresses,
+    /** The greeting timeout, for a suite that cannot wait ten seconds for it. */
+    private readonly timeouts: { greetingTimeoutMs?: number } = {},
   ) {
     this.transporter = server.allowPrivateHosts
-      ? createTransport(transportOptions(server))
+      ? createTransport(transportOptions(server, undefined, timeouts))
       : null;
   }
 
@@ -266,7 +248,7 @@ export class SmtpMailDriver implements MailDriver {
       if (isTlsFailure(error)) {
         throw new MailTlsUnavailableError({ cause: error });
       }
-      throw withHandover(error);
+      throw withHandover(error, smtpHandover(error));
     }
 
     // Reported as the one delivered, which holds for a relay that keeps the
@@ -315,7 +297,7 @@ export class SmtpMailDriver implements MailDriver {
       addresses.find((answer) => answer.family === 4) ?? addresses[0];
     return {
       transporter: createTransport(
-        transportOptions(this.server, address?.address),
+        transportOptions(this.server, address?.address, this.timeouts),
       ),
       own: true,
     };
@@ -366,6 +348,7 @@ export class SmtpMailDriver implements MailDriver {
 function transportOptions(
   server: SmtpServer,
   address?: string,
+  timeouts: { greetingTimeoutMs?: number } = {},
 ): SMTPTransportOptions {
   return {
     host: address ?? server.host,
@@ -376,7 +359,7 @@ function transportOptions(
     secure: server.secure,
     requireTLS: server.requireTls,
     connectionTimeout: CONNECTION_TIMEOUT_MS,
-    greetingTimeout: GREETING_TIMEOUT_MS,
+    greetingTimeout: timeouts.greetingTimeoutMs ?? GREETING_TIMEOUT_MS,
     socketTimeout: SOCKET_TIMEOUT_MS,
     auth:
       server.user === null

@@ -178,6 +178,8 @@ export class BoardMailboxMailerService implements OnModuleInit {
         body: true,
         messageId: true,
         inReplyTo: true,
+        deliveryStatus: true,
+        sentAt: true,
         thread: {
           select: {
             subject: true,
@@ -194,6 +196,16 @@ export class BoardMailboxMailerService implements OnModuleInit {
       this.logger.warn(
         `Board mailbox reply ${messageId} was gone before it was sent.`,
       );
+      return "skipped";
+    }
+
+    // Settled or claimed by an earlier run, a duplicate or a redelivered job:
+    // decided from the row just read, before the address is decrypted. A job
+    // that has nothing to send has no use for the correspondent's address, and
+    // one that can no longer be decrypted would otherwise fail and retry five
+    // times over a reply that is already answered.
+    if (message.deliveryStatus !== "PENDING" || message.sentAt !== null) {
+      this.refuseUnsettledClaim(messageId, message);
       return "skipped";
     }
 
@@ -225,7 +237,13 @@ export class BoardMailboxMailerService implements OnModuleInit {
       data: { sentAt: new Date() },
     });
     if (claimed.count === 0) {
-      await this.refuseUnsettledClaim(messageId);
+      this.refuseUnsettledClaim(
+        messageId,
+        await this.prisma.boardMailboxMessage.findUnique({
+          where: { id: messageId },
+          select: { deliveryStatus: true, sentAt: true },
+        }),
+      );
       return "skipped";
     }
 
@@ -395,11 +413,10 @@ export class BoardMailboxMailerService implements OnModuleInit {
    * dead-letter handler, which settles it. An attempt still running settles
    * the row first, and the handler then leaves it alone.
    */
-  private async refuseUnsettledClaim(messageId: string): Promise<void> {
-    const row = await this.prisma.boardMailboxMessage.findUnique({
-      where: { id: messageId },
-      select: { deliveryStatus: true, sentAt: true },
-    });
+  private refuseUnsettledClaim(
+    messageId: string,
+    row: { deliveryStatus: string | null; sentAt: Date | null } | null,
+  ): void {
     if (row?.deliveryStatus === "PENDING" && row.sentAt !== null) {
       throw new Error(
         `Board mailbox reply ${messageId} is claimed by an attempt that has not recorded its outcome.`,
