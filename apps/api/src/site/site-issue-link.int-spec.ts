@@ -393,7 +393,9 @@ describe("a reporter without an account", () => {
     ).toBe(0);
     await expect(
       conversation.replyAsHandler(board.personId, id, "Hej"),
-    ).rejects.toMatchObject({ reason: "no-reporter" });
+    ).rejects.toMatchObject({
+      reason: "no-reporter",
+    });
     // And nothing was queued to mail anybody.
     const jobs = await prisma.$queryRaw<{ count: bigint }[]>`
       SELECT count(*) AS "count" FROM pgboss.job
@@ -824,6 +826,23 @@ describe("the link's path, as the router reads it", () => {
       expect(refused.body).toBe(unknown.body);
       expectLinkHeaders(refused.headers);
     }
+  });
+
+  it("carries the link's headers on an escaped slash before a token, and leaves a kept slug's form to the website", async () => {
+    const { token } = await reported();
+
+    // The router reads `arende%2F<token>` as one segment and matches the
+    // website's /:slug route, whose 404 still answers a URL with a live token.
+    for (const url of [`/arende%2F${token}`, `/arende%2f${token}`]) {
+      const refused = await inject({ method: "GET", url });
+      expect(refused.statusCode).toBe(404);
+      expectLinkHeaders(refused.headers);
+    }
+
+    const website = await inject({ method: "GET", url: "/arende%2Fkontakt" });
+    expect(website.statusCode).toBe(404);
+    expect(website.headers["cache-control"]).not.toBe("no-store");
+    expect(website.headers["x-robots-tag"]).not.toBe("noindex, nofollow");
   });
 
   it("F1: a post below the path that is not a token's carries the link's headers", async () => {

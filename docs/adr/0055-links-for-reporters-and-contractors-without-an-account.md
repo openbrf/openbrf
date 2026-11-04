@@ -95,13 +95,15 @@ application bundle, no cookie and no third-party request.
   `Cache-Control: no-store` and `X-Robots-Tag: noindex`, so the token leaves in
   no `Referer`, stays in no shared cache and is listed by no search engine. No
   log line records the path of these routes. The headers are set by a hook on
-  the route the router matched, or on the decoded path where no route did, so a
-  percent-encoded spelling of the path carries them as well and the refusals the
-  rate limit and the exception filters build carry them too, and none of these answers carries an `ETag`, a CORS header or a
-  cookie. Under `no-referrer` a browser posts the page's own form with
-  `Origin: null`, so a post is accepted with that origin or the instance's own
-  and refused with any other: the token, not the origin, is what stops a forged
-  post, because there is no cookie for one to ride on.
+  the decoded path where it is a token's address, else the route the router
+  matched, or the decoded path where no route did, so a percent-encoded
+  spelling of the path (an escaped slash included) carries them as well and the
+  refusals the rate limit and the exception filters build carry them too, and
+  none of these answers carries an `ETag`, a CORS header or a cookie. Under
+  `no-referrer` a browser posts the page's own form with `Origin: null`, so a
+  post is accepted with that origin or the instance's own and refused with any
+  other: the token, not the origin, is what stops a forged post, because there
+  is no cookie for one to ride on.
 
 ### Expiry and revocation
 
