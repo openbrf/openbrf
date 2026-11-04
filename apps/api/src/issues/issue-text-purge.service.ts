@@ -209,9 +209,11 @@ export class IssueTextPurgeService implements OnModuleInit {
         this.logger.error(
           `Issue text purge stopped at its bound of ${String(
             MAX_ATTEMPTS_PER_RUN,
-          )} attempts with ${String(failed)} failed removals and ${String(
+          )} attempts, ${String(
+            considered - purged,
+          )} of which removed nothing (${String(failed)} failed removals, ${String(
             unfinished,
-          )} unfinished issues; issues behind the ones that did not succeed wait until those do.`,
+          )} unfinished issues, the rest kept); issues behind the ones that did not succeed wait until those do.`,
         );
       } else {
         this.logger.log(
