@@ -694,6 +694,9 @@ export class DataSubjectReportService {
         costResponsibility: true,
         location: true,
         description: true,
+        descriptionRedactedAt: true,
+        locationRedactedAt: true,
+        freeTextRemovedAt: true,
         createdAt: true,
         type: { select: { name: true } },
         _count: { select: { photos: true } },
@@ -1749,6 +1752,10 @@ export class DataSubjectReportService {
         costResponsibility: issue.costResponsibility,
         location: issue.location,
         description: issue.description,
+        descriptionRedactedAt:
+          issue.descriptionRedactedAt?.toISOString() ?? null,
+        locationRedactedAt: issue.locationRedactedAt?.toISOString() ?? null,
+        freeTextRemovedAt: issue.freeTextRemovedAt?.toISOString() ?? null,
         reportedAt: issue.createdAt.toISOString(),
         photographs: issue._count.photos,
         workOrders: issue.workOrders.map((order) => ({

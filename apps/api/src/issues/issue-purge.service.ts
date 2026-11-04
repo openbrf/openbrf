@@ -76,18 +76,18 @@ export interface IssuePurgeRunSummary {
  *
  * The three reporter columns and nothing else, the address index excepted on a
  * report a work order's text still stands on (see Work-order text, below). The
- * issue, its description and
- * its photographs stay: they are the association's own record of a problem with
- * its building, and the person who reported it having gone does not make the
- * damp patch less real. This is the same detachment the residency purge
- * performs, reached from the other end.
+ * issue stays, and so does its free text until the issue's own clock removes it
+ * (`issue-text-purge.service.ts`, ADR 0057): the description, the conversation
+ * and the photographs are the association's record of a problem with its
+ * building for as many years as the board set. This is the same detachment the
+ * residency purge performs, reached from the other end, and on a shorter clock:
+ * a stranger's address is not kept for as long as the words about the damp
+ * patch.
  *
  * What is left is still personal data, and the word for it is a detachment
  * rather than anything stronger: the description is free text somebody wrote
  * and may name a neighbour, so Recital 26 has nothing to say about a row that
- * still identifies somebody. A person named in one makes an art. 17 request,
- * which the board decides; a job rewriting prose on a schedule would be the
- * association quietly editing its own history.
+ * still identifies somebody.
  *
  * ## The clock
  *

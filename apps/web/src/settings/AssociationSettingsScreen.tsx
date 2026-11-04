@@ -29,6 +29,7 @@ import { ContactInboxPanel } from "./ContactInboxPanel";
 import { HousingCooperativePanel } from "./HousingCooperativePanel";
 import { IssueReportingPanel } from "./IssueReportingPanel";
 import { ContractorsPanel } from "./ContractorsPanel";
+import { IssueRetentionPanel } from "./IssueRetentionPanel";
 import { IssueSavedRepliesPanel } from "./IssueSavedRepliesPanel";
 import { IssueTypesPanel } from "./IssueTypesPanel";
 import { ResponsibilityGuidePanel } from "./ResponsibilityGuidePanel";
@@ -438,6 +439,11 @@ export function AssociationSettingsScreen({
         /* Beside the catalogue: what a handler answers a reporter with is the
            board's vocabulary as much as the types are. */
         return <IssueSavedRepliesPanel />;
+      case "issueRetention":
+        /* Beside the catalogue: how long what is reported is kept is the
+           board's own decision about its data, as the types are its
+           vocabulary. */
+        return <IssueRetentionPanel />;
       case "bookableResources":
         /* What the house offers and how much of it one household may take.
            The board's own policy for its own building, which is why it shares

@@ -108,7 +108,9 @@ export type IssueReason =
   | "personal-identity-number"
   | "too-many-attachments"
   | "saved-reply-not-found"
-  | "too-many-saved-replies";
+  | "too-many-saved-replies"
+  | "redaction-target-not-found"
+  | "legal-hold";
 
 /**
  * Where in a message, a note or a saved reply a refused value sits: a part and
@@ -139,7 +141,8 @@ export class IssueError extends DomainError {
       reason === "default-status-required" ||
       reason === "too-many-statuses" ||
       reason === "work-order-preview-stale" ||
-      reason === "work-order-duplicate"
+      reason === "work-order-duplicate" ||
+      reason === "legal-hold"
         ? HttpStatus.CONFLICT
         : reason === "work-order-budget-spent"
           ? HttpStatus.TOO_MANY_REQUESTS

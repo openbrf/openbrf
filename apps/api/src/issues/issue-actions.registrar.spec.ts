@@ -49,6 +49,9 @@ const QUEUED: QueuedIssueView = {
   ],
   reporter: { kind: "resident", personId: "person-rut", name: "Rut Ek" },
   enteredByHandler: false,
+  descriptionRedactedAt: null,
+  locationRedactedAt: null,
+  freeTextRemovedAt: null,
   createdAt: "2027-01-20T09:00:00.000Z",
   updatedAt: "2027-01-20T09:00:00.000Z",
   closedAt: null,
@@ -59,6 +62,7 @@ const QUEUED: QueuedIssueView = {
   assignee: null,
   enteredBy: null,
   boardOnly: false,
+  legalHoldAt: null,
   costResponsibility: null,
 };
 

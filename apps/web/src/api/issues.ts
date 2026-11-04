@@ -5,6 +5,7 @@ import type {
   IssueHandledBy,
   IssueOutcome,
   IssuePriority,
+  IssueRedactionTarget,
   IssueReporterGroup,
   IssueSignature,
   IssueStatusMeaning,
@@ -123,6 +124,17 @@ export interface OwnIssue {
   photos: IssuePhoto[];
   /** Whether a handler opened it on the reporter's behalf; never which one. */
   enteredByHandler: boolean;
+  /**
+   * When a handler redacted the description or the location (ADR 0057). The
+   * text is then empty, and the screen says it was removed instead.
+   */
+  descriptionRedactedAt: string | null;
+  locationRedactedAt: string | null;
+  /**
+   * When the nightly purge removed the free text, the conversation and the
+   * photographs after the issue closed, or null while they stand.
+   */
+  freeTextRemovedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -162,6 +174,8 @@ export type QueuedIssue = OwnIssue & {
   enteredBy: IssueHandler | null;
   /** Closed to every handler but the board on its own. */
   boardOnly: boolean;
+  /** Since when a legal hold stands on the issue, or null. */
+  legalHoldAt: string | null;
   /**
    * Who pays, or null while nobody has said. Never an amount: a charge made
    * from the issue is read from the charges, by those who may read them.
@@ -241,6 +255,8 @@ export type IssueTimelineStep = {
   | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
+  | { kind: "redacted"; target: IssueRedactionTarget | null }
+  | { kind: "legalHold"; held: boolean }
   | {
       kind: "workOrder";
       delivery: "pending" | "sent" | "failed" | "unconfirmed" | null;
@@ -516,6 +532,53 @@ export function setIssueBoardOnly(input: {
   );
 }
 
+/**
+ * What a handler redacts (ADR 0057): the description or the location, or a
+ * message, a note, a photograph or a handler's file by its identifier. A
+ * redaction takes no replacement text.
+ */
+export type IssueRedaction =
+  | { target: Extract<IssueRedactionTarget, "description" | "location"> }
+  | {
+      target: Exclude<IssueRedactionTarget, "description" | "location">;
+      id: string;
+    };
+
+/** Empties a text, or removes a file from storage. It cannot be undone. */
+export function redactIssue(input: {
+  issueId: string;
+  redaction: IssueRedaction;
+}): Promise<ApiResult<undefined>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/redactions`,
+    input.redaction,
+  );
+}
+
+/** Places or releases the legal hold on an issue. */
+export function setIssueLegalHold(input: {
+  issueId: string;
+  held: boolean;
+}): Promise<ApiResult<{ legalHoldAt: string | null }>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/legal-hold`,
+    { held: input.held },
+  );
+}
+
+/** How many years after closing an issue's free text is kept. */
+export function fetchIssueRetention(): Promise<ApiResult<{ years: number }>> {
+  return apiRequest("GET", "/api/issue-retention");
+}
+
+export function saveIssueRetention(input: {
+  years: number;
+}): Promise<ApiResult<{ years: number }>> {
+  return apiRequest("PUT", "/api/issue-retention", input);
+}
+
 export function fetchIssueTypes(): Promise<ApiResult<ConfiguredIssueType[]>> {
   return apiRequest("GET", "/api/issue-types");
 }
@@ -601,7 +664,9 @@ export function saveIssueReporting(input: {
  */
 export type OwnIssueMessage = {
   id: string;
+  /** Empty once a handler redacted it. */
   body: string;
+  redactedAt: string | null;
   createdAt: string;
 } & ({ side: "REPORTER" } | { side: "HANDLER"; signature: IssueSignature });
 
@@ -612,7 +677,9 @@ export type OwnIssueMessage = {
  */
 export type IssueMessage = {
   id: string;
+  /** Empty once a handler redacted it. */
   body: string;
+  redactedAt: string | null;
   createdAt: string;
 } & (
   | { side: "REPORTER" }
@@ -623,7 +690,9 @@ export type IssueMessage = {
 export interface IssueNote {
   id: string;
   author: IssueHandler;
+  /** Empty once a handler redacted it. */
   body: string;
+  redactedAt: string | null;
   createdAt: string;
 }
 
