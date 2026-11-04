@@ -34,6 +34,7 @@ import {
   issueReporterLinkMail,
 } from "../mail/templates";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   createIssueTypeFixture,
@@ -1155,14 +1156,74 @@ describe("D. rate limits and abuse", () => {
         });
       // Neither of the two awaits the other here: the delivery holds the
       // issue's lock until the send is released, so awaiting the close first
-      // would never return.
-      await new Promise((done) => setTimeout(done, 500));
+      // would never return. The close is seen queued on that lock, which a
+      // delay could not tell from a close that is merely slow.
+      await waitFor(
+        async () =>
+          (await advisoryLockCount(prisma, `issue:${id}`, false)) > 0n,
+        10_000,
+      );
       expect(closeSettled).toBe(false);
 
-      release();
+      // A second transaction holds the link's row, so the stamp that follows
+      // the send waits on it: the close must stay behind the stamp, not only
+      // behind the send.
+      let letStampGo: () => void = () => undefined;
+      const stampHeld = new Promise<void>((resolve) => {
+        letStampGo = resolve;
+      });
+      let holderPid = 0;
+      let holderLocked: () => void = () => undefined;
+      const holderHasRow = new Promise<void>((resolve) => {
+        holderLocked = resolve;
+      });
+      const holder = prisma.$transaction(
+        async (tx) => {
+          const [row] = await tx.$queryRaw<{ pid: number }[]>`
+            SELECT pg_backend_pid() AS pid`;
+          holderPid = row?.pid ?? 0;
+          await tx.$queryRaw`
+            SELECT id FROM issue_reporter_link
+            WHERE "issueId" = ${id} FOR UPDATE`;
+          holderLocked();
+          await stampHeld;
+        },
+        { timeout: 30_000 },
+      );
+      try {
+        await holderHasRow;
+        release();
+        // The stamp is queued behind the holder.
+        await waitFor(async () => {
+          const [row] = await prisma.$queryRaw<{ blocked: bigint }[]>`
+            SELECT count(*) AS blocked FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND pg_blocking_pids(pid) @> ARRAY[${holderPid}::int]`;
+          return (row?.blocked ?? 0n) > 0n;
+        }, 10_000);
+        expect(closeSettled).toBe(false);
+        expect(
+          await prisma.issueReporterLink.findUnique({
+            where: { issueId: id },
+            select: { mailedAt: true },
+          }),
+        ).toEqual({ mailedAt: null });
+      } finally {
+        letStampGo();
+        await holder;
+      }
+
       expect(await delivering).toBe(true);
       await closing;
       expect(sent.length).toBe(before + 1);
+      expect(
+        (
+          await prisma.issueReporterLink.findUnique({
+            where: { issueId: id },
+            select: { mailedAt: true },
+          })
+        )?.mailedAt,
+      ).not.toBeNull();
     } finally {
       release();
     }
