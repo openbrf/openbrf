@@ -32,6 +32,7 @@ import {
   mintReporterLinkToken,
   reporterLinkDigest,
 } from "./issue-reporter-link-token";
+import { lockedNow } from "../fees/fee-lock";
 import { reopenIssueByReply } from "./issue-reopening";
 import { IssueError } from "./issue.error";
 
@@ -573,10 +574,12 @@ export class IssueReporterLinkService implements OnModuleInit {
         },
       });
       const reopens = issue.status.meaning === "DONE";
+      // The database's clock, as the link's own liveness is judged on: an API
+      // clock ahead of it must not refuse a reply to a link that still opens.
       if (
         reopens &&
         (issue.mergedIntoIssueId !== null ||
-          !replyReopensIssue(issue.closedAt, new Date()))
+          !replyReopensIssue(issue.closedAt, await lockedNow(tx)))
       ) {
         return { kind: "closed" as const };
       }
@@ -727,10 +730,11 @@ export class IssueReporterLinkService implements OnModuleInit {
     ).length;
     const closed = issue.status.meaning === "DONE";
     // A closed issue takes a message only while one still reopens it.
+    // Judged on the database's clock, as the link is (see `lockedNow`).
     const reopensOnMessage =
       closed &&
       issue.mergedIntoIssueId === null &&
-      replyReopensIssue(issue.closedAt, new Date());
+      replyReopensIssue(issue.closedAt, await lockedNow(tx));
     const messageLimitReached =
       (!closed || reopensOnMessage) &&
       reporterMessages >= REPORTER_LINK_MESSAGES_PER_ISSUE;

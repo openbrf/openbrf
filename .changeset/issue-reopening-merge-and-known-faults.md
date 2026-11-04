@@ -19,7 +19,10 @@ What happens to an issue after it closes, merging duplicates, and known faults.
 - **A new report after the window.** After 30 days, or on a report merged into
   another, the reply field gives way to a new report linked to the old one.
   The link is the reporter's own closed issue and nobody else's, and it
-  survives the old issue being purged. Handlers see both issues linked.
+  survives the old issue being purged. Handlers see both issues linked. A
+  reporter without an account, who writes through a private link, is told to
+  make a new report on the association's website instead, and that report is
+  not linked to the old one.
 - **Merging duplicates.** A handler merges an issue into another it handles
   that is still being handled: a done issue is refused as the one merged into,
   and reopened first if it is the one wanted. The issue merged may be done
