@@ -2,7 +2,6 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
-import { Logger } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
@@ -797,17 +796,21 @@ describe("a free-text removal that is refused after files went", () => {
     };
   }
 
-  /** The lines this run logged about one issue's partial removal. */
+  /**
+   * Every line the free-text service logged during one issue's removal. The
+   * spy is on the service's own logger, as for the redaction log, so a check
+   * for no lines does not depend on the words of one.
+   */
   async function partialLines(
     issueId: string,
     removal: FreeTextRemoval,
   ): Promise<{ outcome: string; lines: string[] }> {
-    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => {});
+    const log = vi
+      .spyOn(freeText["logger"], "log")
+      .mockImplementation(() => {});
     try {
       const outcome = await freeText.remove(issueId, new Date(), removal);
-      const lines = log.mock.calls
-        .map(([message]) => String(message))
-        .filter((message) => message.includes(`Issue ${issueId} kept`));
+      const lines = log.mock.calls.map(([message]) => String(message));
       return { outcome, lines };
     } finally {
       log.mockRestore();
