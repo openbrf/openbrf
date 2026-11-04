@@ -236,6 +236,12 @@ export interface IssueNoticeJob {
    * on, give back the slot this job holds and no other job's.
    */
   jobId?: string;
+  /**
+   * The message a `message` or `reporterMessage` notice tells of. A delivery
+   * that finds the message gone, as the free-text purge of a closed issue
+   * leaves it, sends nothing: the link would open an empty conversation.
+   */
+  messageId?: string;
   [key: string]: unknown;
 }
 
@@ -258,7 +264,8 @@ export interface IssueOverdueJob {
 
 /** Who wrote an issue message, for the mail that says there is a new one. */
 export type IssueMessageAuthor =
-  { kind: "reporter" } | { kind: "handler"; personId: string };
+  | { kind: "reporter"; messageId?: string }
+  | { kind: "handler"; personId: string; messageId?: string };
 
 /** What every decision here reads of an issue. */
 const ISSUE_SELECT = {
@@ -569,6 +576,7 @@ export class IssueMailer implements OnModuleInit {
         issueId,
         await this.assigneeOrHandlers(tx, issue, "message", now),
         issue.reporterPersonId,
+        author.messageId,
       );
     }
     const reporter = issue.reporterPersonId;
@@ -580,6 +588,7 @@ export class IssueMailer implements OnModuleInit {
       issueId,
       new Map([[reporter, "reporterMessage"]]),
       author.personId,
+      author.messageId,
     );
   }
 
@@ -805,10 +814,29 @@ export class IssueMailer implements OnModuleInit {
     });
   }
 
+  /**
+   * Whether the message a notice tells of still exists. A notice that names no
+   * message stands. A message is erased with the free text of a closed issue.
+   */
+  private async messageStands(job: IssueNoticeJob): Promise<boolean> {
+    if (job.messageId === undefined) {
+      return true;
+    }
+    const found = await this.prisma.issueMessage.findFirst({
+      where: { id: job.messageId, issueId: job.issueId },
+      select: { id: true },
+    });
+    return found !== null;
+  }
+
   /** One look at a delivery: sends the mail when it is owed. */
   private async send(job: IssueNoticeJob, now: Date): Promise<Delivery> {
     const issue = await this.readIssue(this.prisma, job.issueId);
-    if (issue === null || !stillSo(issue, job, now)) {
+    if (
+      issue === null ||
+      !stillSo(issue, job, now) ||
+      !(await this.messageStands(job))
+    ) {
       return "notOwed";
     }
 
@@ -844,7 +872,9 @@ export class IssueMailer implements OnModuleInit {
     const handoffAt = new Date(Math.max(now.getTime(), Date.now()));
     const current = await this.readIssue(this.prisma, job.issueId);
     const stillRecipient =
-      current !== null && stillSo(current, job, handoffAt)
+      current !== null &&
+      stillSo(current, job, handoffAt) &&
+      (await this.messageStands(job))
         ? await this.prisma.person.findFirst({
             where: recipientWhereOf(current, job, handoffAt),
             select: { emailCipher: true },
@@ -1042,7 +1072,9 @@ export class IssueMailer implements OnModuleInit {
     issueId: string,
     deliveries: ReadonlyMap<string, IssueNoticeEvent>,
     except: string | null,
+    messageId?: string,
   ): Promise<number> {
+    const about = messageId === undefined ? {} : { messageId };
     let queued = 0;
     for (const [personId, event] of deliveries) {
       if (personId === except) {
@@ -1054,7 +1086,7 @@ export class IssueMailer implements OnModuleInit {
         id = await this.jobs.sendInTransaction<IssueNoticeJob>(
           tx,
           ISSUE_NOTICE_QUEUE,
-          { issueId, personId, event },
+          { issueId, personId, event, ...about },
           NOTICE_JOB_OPTIONS,
         );
       } else {
@@ -1063,7 +1095,7 @@ export class IssueMailer implements OnModuleInit {
         id = await this.jobs.sendInTransaction<IssueNoticeJob>(
           tx,
           ISSUE_NOTICE_QUEUE,
-          { issueId, personId, event, jobId },
+          { issueId, personId, event, jobId, ...about },
           {
             ...NOTICE_JOB_OPTIONS,
             id: jobId,

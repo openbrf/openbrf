@@ -179,6 +179,7 @@ export class IssueConversationService {
       await this.recordMessage(tx, written.id, issueId, reporterPersonId);
       await this.mailer.messageInTransaction(tx, issueId, {
         kind: "reporter",
+        messageId: written.id,
       });
       return written;
     });
@@ -256,6 +257,7 @@ export class IssueConversationService {
       await this.mailer.messageInTransaction(tx, issueId, {
         kind: "handler",
         personId: handlerPersonId,
+        messageId: written.id,
       });
       return written;
     });

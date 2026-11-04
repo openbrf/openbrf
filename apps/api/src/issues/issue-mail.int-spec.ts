@@ -1182,6 +1182,76 @@ describe("an issue message", () => {
     ]);
   });
 
+  it("is not mailed about once the free-text purge has erased it, from either side", async () => {
+    const issueId = await report(assignedType);
+    await mailer.ensureQueues();
+    const written = await prisma.issueMessage.create({
+      data: {
+        issueId,
+        side: "REPORTER",
+        authorPersonId: resident.personId,
+        body: "A message the purge will erase.",
+      },
+      select: { id: true },
+    });
+    const kept = await prisma.issueMessage.create({
+      data: {
+        issueId,
+        side: "REPORTER",
+        authorPersonId: resident.personId,
+        body: "A message that stays.",
+      },
+      select: { id: true },
+    });
+    const before = (await notices(issueId)).length;
+    await prisma.$transaction(async (tx) => {
+      await mailer.messageInTransaction(tx, issueId, {
+        kind: "reporter",
+        messageId: written.id,
+      });
+      await mailer.messageInTransaction(tx, issueId, {
+        kind: "handler",
+        personId: manager.personId,
+        messageId: written.id,
+      });
+      await mailer.messageInTransaction(tx, issueId, {
+        kind: "handler",
+        personId: manager.personId,
+        messageId: kept.id,
+      });
+    });
+    const queued = (await notices(issueId)).slice(before);
+    const noticeOf = (messageId: string, event: string): IssueNoticeJob => {
+      const found = queued.find(
+        (job) => job.messageId === messageId && job.event === event,
+      );
+      if (found === undefined) {
+        throw new Error(`No ${event} notice for message ${messageId}.`);
+      }
+      return found;
+    };
+    expect(queued).toHaveLength(3);
+
+    try {
+      await prisma.issueMessage.delete({ where: { id: written.id } });
+      const sent = captureSends();
+      expect(await mailer.deliver(noticeOf(written.id, "message"))).toBe(false);
+      expect(
+        await mailer.deliver(noticeOf(written.id, "reporterMessage")),
+      ).toBe(false);
+      expect(sent).toHaveLength(0);
+      expect(await mailer.deliver(noticeOf(kept.id, "reporterMessage"))).toBe(
+        true,
+      );
+      expect(sent.map((input) => input.to)).toEqual([resident.email]);
+    } finally {
+      // The reporter's hourly budget counts their messages across the suite.
+      await prisma.issueMessage.deleteMany({
+        where: { id: { in: [written.id, kept.id] } },
+      });
+    }
+  });
+
   it("from one reporter is mailed about up to their hour's budget across their issues, written at once or not, and stored past it", async () => {
     const conversation = app.get(IssueConversationService);
     const first = await report(assignedType);

@@ -33,7 +33,9 @@ number.
   closed again by then.
 - **A new message.** A reporter's message mails the assignee, or everybody who
   handles the issue when it has none. A handler's message mails the reporter
-  when they have an account. A handler's internal note mails nobody.
+  when they have an account. A handler's internal note mails nobody. A mail
+  about a message that has been erased by the time it would go out, as the
+  free text of a closed issue is, is not sent.
 - Nobody is mailed about their own action. A board-only issue is never mailed to
   the property manager. A person whose processing is restricted (GDPR art. 18)
   is not mailed: the restriction is checked when the mail is queued, when it is
