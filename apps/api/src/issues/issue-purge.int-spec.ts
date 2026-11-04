@@ -10,10 +10,15 @@ import { AuthService } from "../auth/auth.service";
 import { ENV } from "../config/config.module";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { createIssueTypeFixture } from "../testing/issue-fixtures";
+import { lockIssueForHandling } from "./issue-lock";
 import { IssuePurgeService } from "./issue-purge.service";
-import { ISSUE_RETENTION_DAYS } from "./issue-retention";
+import {
+  ISSUE_RETENTION_DAYS,
+  WORK_ORDER_BODY_RETENTION_DAYS,
+} from "./issue-retention";
 import { IssueService } from "./issue.service";
 
 /**
@@ -765,5 +770,414 @@ describe("a report whose address is a withheld person's", () => {
     } finally {
       await restrict(false);
     }
+  });
+});
+
+describe("the text of a work order", () => {
+  /** A work order on the issue, as the sending writes one. */
+  async function workOrderOn(issueId: string, body: string): Promise<string> {
+    const order = await prisma.workOrder.create({
+      data: {
+        issueId,
+        recipientName: `Rormokare ${suffix}`,
+        recipientEmailCipher: "kept-as-it-was",
+        body,
+        sentByPersonId: board.personId,
+        deliveryStatus: "SENT",
+      },
+      select: { id: true },
+    });
+    return order.id;
+  }
+
+  async function readOrder(id: string) {
+    return prisma.workOrder.findUniqueOrThrow({
+      where: { id },
+      select: { body: true, recipientName: true, recipientEmailCipher: true },
+    });
+  }
+
+  /** A resident's own report, closed the given number of days ago. */
+  async function residentIssueClosed(
+    description: string,
+    days: number,
+  ): Promise<string> {
+    const response = await inject({
+      method: "POST",
+      url: "/api/issues",
+      headers: { cookie: residentCookie },
+      payload: { typeId: memberTypeId, description },
+    });
+    expect(response.statusCode).toBe(201);
+    const { id: issueId } = JSON.parse(response.body) as { id: string };
+    await close(issueId);
+    await closedDaysAgo(issueId, days);
+    return issueId;
+  }
+
+  it("is erased past its window after the issue closed, and the record of whom it went to stays", async () => {
+    // A resident's report as well as the public form's: the text is erased
+    // on every issue, because no person-keyed purge ever reads it.
+    const issueId = await residentIssueClosed(
+      "Stopp i avloppet i tvattstugan.",
+      WORK_ORDER_BODY_RETENTION_DAYS + 1,
+    );
+    const orderId = await workOrderOn(issueId, "Spola avloppet, fragan Eva.");
+
+    const summary = await purge.run();
+    expect(summary.workOrderTexts.failed).toBe(0);
+    expect(summary.workOrderTexts.purged).toBeGreaterThanOrEqual(1);
+
+    const after = await readOrder(orderId);
+    expect(after.body).toBeNull();
+    expect(after.recipientName).toBe(`Rormokare ${suffix}`);
+    expect(after.recipientEmailCipher).toBe("kept-as-it-was");
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "SERVICE_DATA_PURGED",
+        targetKind: "issue",
+        targetId: issueId,
+      },
+      select: { actorPersonId: true, context: true },
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.actorPersonId).toBeNull();
+    expect(entries[0]?.context).toEqual({
+      workOrderTexts: 1,
+      retentionDaysAfterClosing: WORK_ORDER_BODY_RETENTION_DAYS,
+    });
+    expect(JSON.stringify(entries[0]?.context)).not.toContain("Spola");
+
+    // Nothing left to erase, so nothing is selected or written again.
+    expect(
+      await purge.eligibleWorkOrderTexts(
+        new Date(),
+        WORK_ORDER_BODY_RETENTION_DAYS,
+      ),
+    ).not.toContain(issueId);
+  });
+
+  it("is kept while the issue is open, however old", async () => {
+    const issueId = await reportPublicly("Fukt i kallaren.");
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        createdAt: new Date(
+          Date.now() - 2 * WORK_ORDER_BODY_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+        ),
+      },
+    });
+    const orderId = await workOrderOn(issueId, "Mat fukten i kallaren.");
+
+    await purge.run();
+
+    expect((await readOrder(orderId)).body).toBe("Mat fukten i kallaren.");
+  });
+
+  it("is kept on an issue closed inside its window", async () => {
+    const issueId = await residentIssueClosed(
+      "Glodlampan i trappan ar trasig.",
+      WORK_ORDER_BODY_RETENTION_DAYS - 7,
+    );
+    const orderId = await workOrderOn(issueId, "Byt lampan i trappan.");
+
+    await purge.run();
+
+    expect((await readOrder(orderId)).body).toBe("Byt lampan i trappan.");
+  });
+
+  it("is kept on an issue reopened since the scan", async () => {
+    const issueId = await residentIssueClosed(
+      "Dorren till soprummet gar inte i las.",
+      WORK_ORDER_BODY_RETENTION_DAYS + 1,
+    );
+    const orderId = await workOrderOn(issueId, "Justera stangaren.");
+    expect(
+      await purge.eligibleWorkOrderTexts(
+        new Date(),
+        WORK_ORDER_BODY_RETENTION_DAYS,
+      ),
+    ).toContain(issueId);
+
+    await reopen(issueId);
+
+    // Asked directly, so the closing read inside the transaction is shown.
+    await expect(purge.purgeWorkOrderTexts(issueId)).resolves.toBe(false);
+    expect((await readOrder(orderId)).body).toBe("Justera stangaren.");
+  });
+
+  it("is kept while a legal hold stands on the issue, and erased once it is released", async () => {
+    const issueId = await residentIssueClosed(
+      "Vattenskada i taket efter stammen.",
+      WORK_ORDER_BODY_RETENTION_DAYS + 1,
+    );
+    const orderId = await workOrderOn(issueId, "Riv ut den vata skivan.");
+    expect(
+      await purge.eligibleWorkOrderTexts(
+        new Date(),
+        WORK_ORDER_BODY_RETENTION_DAYS,
+      ),
+    ).toContain(issueId);
+
+    async function setHold(held: boolean): Promise<void> {
+      const response = await inject({
+        method: "POST",
+        url: `/api/issue-queue/${issueId}/legal-hold`,
+        headers: { cookie: boardCookie },
+        payload: { held },
+      });
+      expect(response.statusCode).toBe(201);
+    }
+
+    // Placed after the scan above, as a handler's hold may land while a run
+    // is in flight: the transaction that erases reads it again.
+    await setHold(true);
+    await expect(purge.purgeWorkOrderTexts(issueId)).resolves.toBe(false);
+    expect(
+      await purge.eligibleWorkOrderTexts(
+        new Date(),
+        WORK_ORDER_BODY_RETENTION_DAYS,
+      ),
+    ).not.toContain(issueId);
+    await purge.run();
+    expect((await readOrder(orderId)).body).toBe("Riv ut den vata skivan.");
+
+    await setHold(false);
+    const summary = await purge.run();
+    expect(summary.workOrderTexts.failed).toBe(0);
+    expect((await readOrder(orderId)).body).toBeNull();
+  });
+
+  it("is kept by a hold on the issue placed while the purge waits for the issue", async () => {
+    /*
+     * A handler's hold takes the issue's lock (`lockIssueForHandling`) before
+     * it writes `legalHoldAt`, and the purge reads the hold again under that
+     * lock. Held open here with the hold written, the purge queues behind it;
+     * the hold commits as the lock goes, so the purge finds it. A resident's
+     * report, with no address index, so the purge writes nothing to the issue
+     * before the lock and the wait is on the advisory key, which `pg_locks`
+     * shows, rather than a row.
+     */
+    const issueId = await residentIssueClosed(
+      "Sprucken ruta i portdorren.",
+      WORK_ORDER_BODY_RETENTION_DAYS + 1,
+    );
+    const orderId = await workOrderOn(issueId, "Byt rutan i portdorren.");
+    const key = `issue:${issueId}`;
+
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    let holder: Promise<void> | undefined;
+    let running: Promise<boolean> | undefined;
+
+    try {
+      // Longer than the waits below, so the transaction held open on purpose
+      // is not aborted by the five-second default and its lock released early.
+      holder = prisma.$transaction(
+        async (tx) => {
+          await lockIssueForHandling(tx, issueId);
+          await tx.issue.update({
+            where: { id: issueId },
+            data: { legalHoldAt: new Date() },
+          });
+          await holderDone;
+        },
+        { timeout: 60_000, maxWait: 20_000 },
+      );
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, true)) > 0n,
+      );
+
+      running = purge.purgeWorkOrderTexts(issueId);
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, false)) > 0n,
+      );
+
+      releaseHolder?.();
+      await holder;
+
+      await expect(running).resolves.toBe(false);
+      expect((await readOrder(orderId)).body).toBe("Byt rutan i portdorren.");
+    } finally {
+      releaseHolder?.();
+      await holder?.catch(() => undefined);
+      await running?.catch(() => undefined);
+      await prisma.issue.update({
+        where: { id: issueId },
+        data: { legalHoldAt: null },
+      });
+    }
+  }, 60_000);
+
+  it("is kept while a legal hold stands against the reporter", async () => {
+    const issueId = await reportPublicly(
+      "Skadat racke pa balkongen.",
+      withheld.email,
+    );
+    await close(issueId);
+    await closedDaysAgo(issueId, WORK_ORDER_BODY_RETENTION_DAYS + 1);
+    const orderId = await workOrderOn(issueId, "Laga racket pa balkongen.");
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: withheld.personId,
+        reason: `Tvist om racket ${suffix}`,
+        placedByPersonId: board.personId,
+      },
+    });
+
+    try {
+      expect(
+        await purge.eligibleWorkOrderTexts(
+          new Date(),
+          WORK_ORDER_BODY_RETENTION_DAYS,
+        ),
+      ).not.toContain(issueId);
+      await expect(purge.purgeWorkOrderTexts(issueId)).resolves.toBe(false);
+
+      expect((await readOrder(orderId)).body).toBe("Laga racket pa balkongen.");
+    } finally {
+      await prisma.legalHold.delete({ where: { id: hold.id } });
+    }
+  });
+
+  describe("on a public-form report", () => {
+    async function purgeEntries(issueId: string) {
+      return prisma.auditLogEntry.findMany({
+        where: {
+          action: "SERVICE_DATA_PURGED",
+          targetKind: "issue",
+          targetId: issueId,
+        },
+        orderBy: { createdAt: "asc" },
+        select: { context: true },
+      });
+    }
+
+    async function restrict(restricted: boolean): Promise<void> {
+      await prisma.person.update({
+        where: { id: withheld.personId },
+        data: { processingRestrictedAt: restricted ? new Date() : null },
+      });
+    }
+
+    it("keeps the address index past the year, so a restriction placed later still keeps the text", async () => {
+      /*
+       * The index is all a hold or a restriction can reach a public-form
+       * reporter by (ADR 0057). Cleared with the name a year after closing, a
+       * restriction placed in year three would match nothing and the text
+       * would go at year ten regardless.
+       */
+      const issueId = await reportPublicly(
+        "Mogel bakom kylskapet.",
+        withheld.email,
+      );
+      await close(issueId);
+      await closedDaysAgo(issueId, ISSUE_RETENTION_DAYS + 1);
+      const orderId = await workOrderOn(issueId, "Sanera bakom kylskapet.");
+
+      try {
+        // The year passes with nobody withheld: name and address go, the
+        // index stays.
+        await purge.run();
+        const afterYear = await read(issueId);
+        expect(afterYear.reporterNameCipher).toBeNull();
+        expect(afterYear.reporterEmailCipher).toBeNull();
+        expect(afterYear.reporterEmailIndex).not.toBeNull();
+        expect((await purgeEntries(issueId)).map((e) => e.context)).toEqual([
+          {
+            retentionDaysAfterClosing: ISSUE_RETENTION_DAYS,
+            addressIndexKept: true,
+          },
+        ]);
+
+        // A report left with only its kept index is not selected again, and
+        // asked directly it detaches nothing and writes nothing.
+        expect(
+          await purge.eligible(new Date(), ISSUE_RETENTION_DAYS),
+        ).not.toContain(issueId);
+        await expect(purge.purgeIssue(issueId)).resolves.toBe(false);
+        await purge.run();
+        expect(await purgeEntries(issueId)).toHaveLength(1);
+
+        // Years later the person who wrote in is restricted, and then the
+        // work order's ten years run out.
+        await restrict(true);
+        await closedDaysAgo(issueId, WORK_ORDER_BODY_RETENTION_DAYS + 1);
+
+        expect(
+          await purge.eligibleWorkOrderTexts(
+            new Date(),
+            WORK_ORDER_BODY_RETENTION_DAYS,
+          ),
+        ).not.toContain(issueId);
+        await expect(purge.purgeWorkOrderTexts(issueId)).resolves.toBe(false);
+        await purge.run();
+        expect((await readOrder(orderId)).body).toBe("Sanera bakom kylskapet.");
+        expect((await read(issueId)).reporterEmailIndex).not.toBeNull();
+        expect(await purgeEntries(issueId)).toHaveLength(1);
+      } finally {
+        await restrict(false);
+      }
+
+      // Lifted, the text goes and the index with it, in one entry.
+      await purge.run();
+      expect((await readOrder(orderId)).body).toBeNull();
+      expect((await read(issueId)).reporterEmailIndex).toBeNull();
+      expect((await purgeEntries(issueId)).map((e) => e.context)).toEqual([
+        {
+          retentionDaysAfterClosing: ISSUE_RETENTION_DAYS,
+          addressIndexKept: true,
+        },
+        {
+          workOrderTexts: 1,
+          retentionDaysAfterClosing: WORK_ORDER_BODY_RETENTION_DAYS,
+          addressIndexCleared: true,
+        },
+      ]);
+
+      // And nothing is left for either purge to select.
+      expect(
+        await purge.eligible(new Date(), ISSUE_RETENTION_DAYS),
+      ).not.toContain(issueId);
+      expect(
+        await purge.eligibleWorkOrderTexts(
+          new Date(),
+          WORK_ORDER_BODY_RETENTION_DAYS,
+        ),
+      ).not.toContain(issueId);
+    });
+
+    it("clears a kept index once no text stands, however the text went", async () => {
+      // Erased by something other than the clock, the text no longer needs
+      // the index, and the year's purge takes it on its next run.
+      const issueId = await reportPublicly("Trasig ruta i entren.");
+      await close(issueId);
+      await closedDaysAgo(issueId, ISSUE_RETENTION_DAYS + 1);
+      const orderId = await workOrderOn(issueId, "Byt rutan i entren.");
+
+      await purge.run();
+      expect((await read(issueId)).reporterEmailIndex).not.toBeNull();
+
+      await prisma.workOrder.update({
+        where: { id: orderId },
+        data: { body: null },
+      });
+      expect(await purge.eligible(new Date(), ISSUE_RETENTION_DAYS)).toContain(
+        issueId,
+      );
+      await purge.run();
+
+      expect((await read(issueId)).reporterEmailIndex).toBeNull();
+      expect((await purgeEntries(issueId)).map((e) => e.context)).toEqual([
+        {
+          retentionDaysAfterClosing: ISSUE_RETENTION_DAYS,
+          addressIndexKept: true,
+        },
+        { retentionDaysAfterClosing: ISSUE_RETENTION_DAYS },
+      ]);
+    });
   });
 });

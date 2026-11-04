@@ -75,6 +75,12 @@ export interface IssueTypeView {
  */
 export type ConfiguredIssueTypeView = IssueTypeView & {
   defaultAssignee: AuthorView | null;
+  /**
+   * Whether its issues are ring-fenced: nothing about them reaches a
+   * contractor, and no work order is written on them (ADR 0055). Set by
+   * `setRingFence`, never by the type's other settings.
+   */
+  ringFenced: boolean;
 };
 
 /**
@@ -598,6 +604,58 @@ export class IssueTypeService {
   }
 
   /**
+   * Ring-fences a type, or lifts its ring-fence (decision 32 of the issue
+   * module's plan, ADR 0055): while it holds, no work order is written or
+   * previewed on the type's issues, whoever handles them.
+   *
+   * A route of its own rather than a field of the type's settings, so the one
+   * setting that decides what may leave the association is changed only by a
+   * request that names it, and is audited with the board member who changed
+   * it. Under the type's lock, which a sending takes too, and so does the mail
+   * worker before it claims a work order (`WorkOrderMailerService`): a work
+   * order being written, or about to be mailed, while the board ring-fences
+   * its type is decided either before the change or after it. One written
+   * before and still queued is refused at its claim and recorded as not sent.
+   * A request that changes nothing writes nothing.
+   *
+   * Not a recall: a work order claimed before the type was ring-fenced is on
+   * its way, and may have left.
+   */
+  async setRingFence(
+    id: string,
+    ringFenced: boolean,
+    actorPersonId: string,
+  ): Promise<ConfiguredIssueTypeView> {
+    await this.prisma.$transaction(async (tx) => {
+      await lockIssueType(tx, id);
+      const type = await tx.issueType.findUnique({
+        where: { id },
+        select: { ringFenced: true },
+      });
+      if (type === null) {
+        throw notFound();
+      }
+      if (type.ringFenced === ringFenced) {
+        return;
+      }
+      await tx.issueType.update({ where: { id }, data: { ringFenced } });
+      await this.audit.record(
+        {
+          action: "ISSUE_TYPE_RING_FENCE_CHANGED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "issueType",
+          targetId: id,
+          context: { ringFenced },
+        },
+        tx,
+      );
+    });
+    this.logger.log(`Set the ring-fence of issue type ${id}`);
+    return this.view(id);
+  }
+
+  /**
    * Adds a status to a type, last within its meaning.
    *
    * The meaning is chosen here and never changes: a status that moved from one
@@ -786,6 +844,7 @@ export class IssueTypeService {
     );
     return types.map((type) => ({
       ...toView(type),
+      ringFenced: type.ringFenced,
       defaultAssignee:
         type.defaultAssigneePersonId === null
           ? null
