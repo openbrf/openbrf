@@ -421,6 +421,7 @@ describe("a damage case", () => {
         422,
         "personal-identity-number",
       ],
+      [{ ...CLAIM, insurer: "19121212-1212" }, 422, "personal-identity-number"],
       [{ ...CLAIM, occurredOn: tomorrow }, 422, "damage-date-invalid"],
       [{ ...CLAIM, occurredOn: "2026-02-30" }, 422, "damage-date-invalid"],
       [{ ...CLAIM, cause: "FLOOD" }, 400, null],

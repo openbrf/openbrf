@@ -18,6 +18,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { registerMultipart } from "../http/multipart";
 import { PrismaService } from "../database/prisma.service";
 import { IssueConversationService } from "../issues/issue-conversation.service";
+import { lockIssueType } from "../issues/issue-lock";
 import { IssuePurgeService } from "../issues/issue-purge.service";
 import {
   REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY,
@@ -26,6 +27,7 @@ import {
   REPORTER_LINK_QUEUE,
   IssueReporterLinkService,
 } from "../issues/issue-reporter-link.service";
+import { IssueError } from "../issues/issue.error";
 import { IssueService } from "../issues/issue.service";
 import type { SendMailInput } from "../mail/mail.service";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
@@ -1045,6 +1047,73 @@ describe("D. rate limits and abuse", () => {
       await prisma.person.update({
         where: { id: personId },
         data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
+  it("D6: a report waits for the type's lock and is refused when the board took the type off the form meanwhile", async () => {
+    const type = await prisma.issueType.findUniqueOrThrow({
+      where: { id: publicType.id },
+      select: { reporters: true },
+    });
+    const before = await prisma.issue.count({
+      where: { typeId: publicType.id },
+    });
+
+    // Stands in for the board's change of the type, which holds the type's lock
+    // until it commits.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let locked: () => void = () => undefined;
+    const lockTaken = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const changing = prisma.$transaction(async (tx) => {
+      await lockIssueType(tx, publicType.id);
+      locked();
+      await held;
+      await tx.issueType.update({
+        where: { id: publicType.id },
+        data: { reporters: ["RESIDENTS"] },
+      });
+    });
+    try {
+      await lockTaken;
+      const reporting = issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Efter att formuläret togs bort",
+        reporterName: null,
+        reporterEmail: null,
+      });
+      const settled = reporting.then(
+        () => "filed",
+        (error: unknown) => (error instanceof IssueError ? error.reason : "?"),
+      );
+      await waitFor(
+        async () =>
+          (await advisoryLockCount(
+            prisma,
+            `issue-type:${publicType.id}`,
+            false,
+          )) > 0n,
+        10_000,
+      );
+      release();
+      await changing;
+
+      expect(await settled).toBe("type-not-found");
+      expect(
+        await prisma.issue.count({ where: { typeId: publicType.id } }),
+      ).toBe(before);
+    } finally {
+      release();
+      await changing.catch(() => undefined);
+      await prisma.issueType.update({
+        where: { id: publicType.id },
+        data: { reporters: type.reporters },
       });
     }
   });

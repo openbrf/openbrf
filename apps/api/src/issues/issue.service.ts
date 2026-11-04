@@ -791,10 +791,11 @@ export class IssueService {
         location: locationOrNull(input.location),
         description: input.description,
       });
-      // A type the board ring-fenced since the form was resolved, under the
-      // lock `file` took: the website's form offers none (`ring-fenced-public`),
-      // so it is answered as the type that is no longer offered.
-      if (filed.ringFenced) {
+      // A type the board ring-fenced, or took off the form, since the form was
+      // resolved, under the lock `file` took: the website's form offers no
+      // ring-fenced type (`ring-fenced-public`), so it is answered as the type
+      // that is no longer offered.
+      if (filed.ringFenced || !filed.reporters.includes("PUBLIC")) {
         throw new IssueError("No such issue type.", "type-not-found");
       }
       /*
@@ -2090,7 +2091,11 @@ export class IssueService {
       Prisma.IssueUncheckedCreateInput,
       "priority" | "assigneePersonId"
     >,
-  ): Promise<{ id: string; ringFenced: boolean }> {
+  ): Promise<{
+    id: string;
+    ringFenced: boolean;
+    reporters: readonly string[];
+  }> {
     // Under the type's lock, which a change to who handles the type takes too
     // (`IssueTypeService.update`): a default assignee the change shuts out is
     // never given an issue filed while it commits. Ring-fencing takes it as
@@ -2104,6 +2109,7 @@ export class IssueService {
         defaultPriority: true,
         defaultAssigneePersonId: true,
         ringFenced: true,
+        reporters: true,
       },
     });
     if (type === null) {
@@ -2143,7 +2149,11 @@ export class IssueService {
     }
     // Store, then tell: the mail is a job this transaction writes (decision 12).
     await this.mailer.filedInTransaction(tx, filed.id);
-    return { id: filed.id, ringFenced: type.ringFenced };
+    return {
+      id: filed.id,
+      ringFenced: type.ringFenced,
+      reporters: type.reporters,
+    };
   }
 
   /**
