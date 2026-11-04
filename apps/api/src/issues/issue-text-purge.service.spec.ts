@@ -107,7 +107,7 @@ describe("one run of the issue text purge", () => {
     // The run says that the issues behind the failures wait, as an error.
     expect(logged).toHaveBeenCalledWith(
       expect.stringContaining(
-        "1000 of which did not finish (1000 failed removals, 0 issues with a file still standing, the rest kept)",
+        "1000 of which did not finish (1000 failed removals, 0 issues with a file still standing; the rest were removed or kept)",
       ),
     );
     expect(logged).toHaveBeenCalledWith(
@@ -125,7 +125,7 @@ describe("one run of the issue text purge", () => {
     expect(summary).toEqual({ considered: 1000, purged: 1, failed: 999 });
     expect(logged).toHaveBeenCalledWith(
       expect.stringContaining(
-        "999 of which did not finish (999 failed removals, 0 issues with a file still standing, the rest kept)",
+        "999 of which did not finish (999 failed removals, 0 issues with a file still standing; the rest were removed or kept)",
       ),
     );
   });
@@ -167,7 +167,7 @@ describe("one run of the issue text purge", () => {
     expect(summary).toEqual({ considered: 1000, purged: 0, failed: 0 });
     expect(logged).toHaveBeenCalledWith(
       expect.stringContaining(
-        "1000 of which did not finish (0 failed removals, 1000 issues with a file still standing, the rest kept)",
+        "1000 of which did not finish (0 failed removals, 1000 issues with a file still standing; the rest were removed or kept)",
       ),
     );
   });
@@ -182,7 +182,7 @@ describe("one run of the issue text purge", () => {
     expect(summary).toEqual({ considered: 1000, purged: 0, failed: 0 });
     expect(logged).toHaveBeenCalledWith(
       expect.stringContaining(
-        "1000 of which did not finish (0 failed removals, 0 issues with a file still standing, the rest kept)",
+        "0 of which did not finish (0 failed removals, 0 issues with a file still standing; the rest were removed or kept)",
       ),
     );
   });
