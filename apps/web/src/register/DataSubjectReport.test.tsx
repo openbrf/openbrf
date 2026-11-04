@@ -380,6 +380,7 @@ const FULL_REPORT: Report = {
       freeTextRemovedAt: null,
       reportedAt: "2026-01-05T08:00:00.000Z",
       photographs: 2,
+      workOrders: [],
     },
   ],
   issueAssignments: [
@@ -1201,6 +1202,33 @@ describe("what the document prints", () => {
     ]);
   });
 
+  it("labels the redaction of a work order's text and prints no text", async () => {
+    // A work order's text is a target of its own, and an entry for it has to
+    // read as words like the others rather than as "Inget registrerat".
+    const [entry] = FULL_REPORT.auditEntries;
+    if (entry === undefined) {
+      throw new Error("The fixture has no audit entry.");
+    }
+    renderReport({
+      ...FULL_REPORT,
+      auditEntries: [
+        {
+          ...entry,
+          entryId: "w",
+          action: "ISSUE_REDACTED",
+          context: { target: "workOrder", id: "work-order-row-1" },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const details = [
+      ...sectionOf("Granskningsloggen").querySelectorAll("tbody tr"),
+    ].map((row) => row.querySelectorAll("td")[4]?.textContent);
+    expect(details).toEqual(["Texten i en arbetsorder"]);
+    expect(screen.queryByText("work-order-row-1")).toBeNull();
+  });
+
   it("says which way each act reached the records", async () => {
     // The same board member acting in the web interface and acting through a
     // connected app is one person reaching the records two ways, and the
@@ -1851,6 +1879,57 @@ describe("what the document prints", () => {
     ).toBeTruthy();
   });
 
+  it("names whom an issue was sent to, and a removed contractor as one", async () => {
+    // Art. 15(1)(c): the recipients of the reporter's issue, with the date and
+    // whether the mail went out. A failure is not said to be certain, because
+    // one that was never confirmed may have gone out.
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          workOrders: [
+            {
+              recipientName: "Rörmokare Ab",
+              writtenAt: "2026-01-06T09:00:00.000Z",
+              deliveryStatus: "SENT",
+              notSent: false,
+            },
+            {
+              recipientName: null,
+              writtenAt: "2026-01-07T09:00:00.000Z",
+              deliveryStatus: "FAILED",
+              notSent: false,
+            },
+            {
+              recipientName: "Elektriker Ab",
+              writtenAt: "2026-01-08T09:00:00.000Z",
+              deliveryStatus: "FAILED",
+              notSent: true,
+            },
+          ],
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const row = screen.getByText(/Rörmokare Ab/).closest("tr");
+    expect(row).not.toBeNull();
+    const cell = within(row as HTMLElement);
+    expect(cell.getByText(/Rörmokare Ab · Skickad/)).toBeTruthy();
+    expect(cell.getByText(/2026-01-06/)).toBeTruthy();
+    expect(
+      cell.getByText(
+        /En entreprenör som sedan tagits bort från listan · Inte bekräftad som skickad/,
+      ),
+    ).toBeTruthy();
+    expect(cell.getByText(/2026-01-07/)).toBeTruthy();
+    // A failure known not to have gone out is said to be that.
+    expect(cell.getByText(/Elektriker Ab · Inte skickad/)).toBeTruthy();
+  });
+
   it("says an issue's text was removed instead of printing it blank", async () => {
     // Removed text is empty on the issue. Printed as stored, the copy would
     // read as an issue filed with no words and no place.
@@ -1996,6 +2075,50 @@ describe("what the document prints", () => {
        */
       const document_ = screen.getByText("Personen").closest("article");
       expect(document_?.getAttribute("lang")).toBe("sv");
+    } finally {
+      await i18n.changeLanguage("sv");
+    }
+  });
+
+  it("says an issue's text was removed in the subject's language, not the reader's", async () => {
+    /*
+     * The marks that stand in place of a removed text are written into the
+     * document, so they take the document's translator like every label around
+     * them: the reader is on English and the subject has asked for Swedish.
+     */
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    await i18n.changeLanguage("en");
+    try {
+      renderReport({
+        ...FULL_REPORT,
+        person: { ...FULL_REPORT.person, preferredLocale: "sv" },
+        issues: [
+          {
+            ...issue,
+            issueId: "issue-redacted",
+            location: null,
+            description: "",
+            descriptionRedactedAt: "2026-10-01T09:00:00.000Z",
+            locationRedactedAt: "2026-10-02T09:00:00.000Z",
+          },
+          {
+            ...issue,
+            issueId: "issue-purged",
+            location: null,
+            description: "",
+            freeTextRemovedAt: "2026-11-03T03:21:00.000Z",
+          },
+        ],
+      });
+      await screen.findByText("Brf Eksemplet");
+
+      expect(screen.getAllByText(/Borttaget av en handläggare/)).toHaveLength(
+        2,
+      );
+      expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(2);
+      expect(screen.queryByText(/Removed by a handler/)).toBeNull();
+      expect(screen.queryByText(/Free text removed on/)).toBeNull();
     } finally {
       await i18n.changeLanguage("sv");
     }

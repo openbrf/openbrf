@@ -16,6 +16,10 @@ import { mediaUrl, MediaService } from "../media/media.service";
 import { lockErasureEligibility } from "../retention/erasure-lock";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
 import { lockIssue, lockIssueForHandling } from "./issue-lock";
+import {
+  extendReporterLink,
+  liveReporterLinkOfIssue,
+} from "./issue-reporter-link";
 import { IssueMailer } from "./issue-mailer.service";
 import { IssueError, type IssueTextLocation } from "./issue.error";
 import type { IssueHandlerView } from "./issue.service";
@@ -208,13 +212,18 @@ export class IssueConversationService {
    * (decision 19).
    *
    * Refused on an issue nobody can read the answer on (`no-reporter`), rather
-   * than stored as a message to nobody. Only a reporter with an account reads
-   * the conversation, so one who left an email address alone, as a report from
-   * the website's form may, has no one to write to either. The reporter is
-   * mailed that there is a new message, never what it says (decision 21). The
-   * issue lets the writer in under the locks a handling write takes
+   * than stored as a message to nobody. A reporter with an account reads the
+   * conversation signed in; one who left an email address on the website's form
+   * reads it through the private link mailed to them, while that link opens
+   * the issue (ADR 0055). A report with no address, one whose link was never
+   * mailed, withdrawn or has ended, and one whose reporter was purged have
+   * nobody to write to. A reporter with an account is mailed that there is a
+   * new message, never what it says (decision 21); one reading through the
+   * private link is not, as the link is mailed once. The issue lets
+   * the writer in under the locks a handling write takes
    * (`lockIssueForHandling`), so a message never lands on an issue the board
-   * took to itself while it was written.
+   * took to itself while it was written, and a link withdrawn meanwhile is
+   * read as withdrawn.
    */
   async replyAsHandler(
     handlerPersonId: string,
@@ -237,7 +246,11 @@ export class IssueConversationService {
               where: { personId: issue.reporterPersonId },
               select: { id: true },
             });
-      if (reporterAccount === null) {
+      const link =
+        issue.reporterPersonId === null
+          ? await liveReporterLinkOfIssue(tx, issueId)
+          : null;
+      if (reporterAccount === null && link === null) {
         throw new IssueError(
           "Nobody can read an answer on this issue.",
           "no-reporter",
@@ -253,6 +266,10 @@ export class IssueConversationService {
         },
         select: MESSAGE_SELECT,
       });
+      if (link !== null) {
+        // A conversation going on keeps the reporter's way to it open.
+        await extendReporterLink(tx, link.linkId);
+      }
       await this.recordMessage(tx, written.id, issueId, handlerPersonId);
       await this.mailer.messageInTransaction(tx, issueId, {
         kind: "handler",
@@ -691,7 +708,9 @@ const ATTACHMENT_SELECT = {
  * no person on either. Built from the columns alone, so there is no person on
  * the row to leak.
  */
-function toReporterView(message: MessageRecord): ReporterIssueMessageView {
+export function toReporterView(
+  message: MessageRecord,
+): ReporterIssueMessageView {
   const base = {
     id: message.id,
     body: message.body,

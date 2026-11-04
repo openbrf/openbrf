@@ -35,6 +35,7 @@ import { IssueHandling } from "./IssueHandling";
 import { IssuePriorityChip } from "./IssuePriorityChip";
 import { IssueFreeTextSection, useIssueRedaction } from "./IssueRedaction";
 import { IssueStatusChip } from "./IssueStatusChip";
+import { IssueWorkOrders } from "./IssueWorkOrders";
 
 const QUEUE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.queue.errors.issueNotFound",
@@ -161,6 +162,14 @@ export function IssueQueuePanel({
     },
     [],
   );
+  /*
+   * How many work orders each issue has sent while the queue is open. The
+   * work orders and the timeline sit under two disclosures, and a sending in
+   * one is a step the other has to read again.
+   */
+  const [workOrdersSent, setWorkOrdersSent] = useState<
+    Readonly<Record<string, number>>
+  >({});
   const saving = move.state.kind === "saving";
   const typeById = new Map((types ?? []).map((type) => [type.id, type]));
 
@@ -343,10 +352,22 @@ export function IssueQueuePanel({
                 <HandlingDisclosure
                   issue={issue}
                   type={type}
+                  workOrdersSent={workOrdersSent[issue.id] ?? 0}
                   canManageCharges={canManageCharges}
                   remedyNoticeInForm={remedyNoticeInForm.has(issue.id)}
                   reading={reading}
                   onChanged={onChanged}
+                />
+
+                <WorkOrdersDisclosure
+                  issue={issue}
+                  onChanged={onChanged}
+                  onSent={() => {
+                    setWorkOrdersSent((counts) => ({
+                      ...counts,
+                      [issue.id]: (counts[issue.id] ?? 0) + 1,
+                    }));
+                  }}
                 />
               </li>
             );
@@ -366,6 +387,7 @@ export function IssueQueuePanel({
 function HandlingDisclosure({
   issue,
   type,
+  workOrdersSent,
   canManageCharges,
   remedyNoticeInForm,
   reading,
@@ -373,6 +395,7 @@ function HandlingDisclosure({
 }: {
   issue: QueuedIssue;
   type: IssueTypeView | undefined;
+  workOrdersSent: number;
   canManageCharges: boolean;
   /** The status form above already says a reply is not a notice to remedy. */
   remedyNoticeInForm: boolean;
@@ -400,6 +423,7 @@ function HandlingDisclosure({
           <IssueHandling
             issue={issue}
             type={type}
+            workOrdersSent={workOrdersSent}
             canManageCharges={canManageCharges}
             remedyNoticeInForm={remedyNoticeInForm}
             onChanged={onChanged}
@@ -411,6 +435,48 @@ function HandlingDisclosure({
             redaction={redaction}
           />
         </fieldset>
+      ) : null}
+    </details>
+  );
+}
+
+/**
+ * The work orders on one issue, under a disclosure of their own: read only
+ * while it is open, as the handling is, and apart from it because a work order
+ * is the one act on an issue that leaves the instance. A work order's text is
+ * removed here, where it is shown, and the queue is read again after it as
+ * after any other removal.
+ */
+function WorkOrdersDisclosure({
+  issue,
+  onChanged,
+  onSent,
+}: {
+  issue: QueuedIssue;
+  onChanged: () => void;
+  onSent: () => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const redaction = useIssueRedaction(issue, onChanged);
+  return (
+    <details
+      className="flex flex-col gap-3"
+      onToggle={(event) => {
+        setOpen(event.currentTarget.open);
+      }}
+    >
+      <summary className="flex min-h-11 cursor-pointer items-center text-small font-semibold">
+        {t("issues.workOrders.open", { type: issue.typeName })}
+      </summary>
+      {open ? (
+        <div className="pt-2">
+          <IssueWorkOrders
+            issue={issue}
+            onSent={onSent}
+            redaction={redaction}
+          />
+        </div>
       ) : null}
     </details>
   );

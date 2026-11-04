@@ -8,6 +8,7 @@ import {
   DocumentsService,
 } from "../documents/documents.service";
 import { I18nService } from "../i18n/i18n.service";
+import type { ReporterLinkPageView } from "../issues/issue-reporter-link.service";
 import { IssueTypeService } from "../issues/issue-type.service";
 import { ResponsibilityGuideService } from "../issues/responsibility-guide.service";
 import { mediaUrl } from "../media/media.service";
@@ -42,6 +43,11 @@ import {
 } from "./site-html";
 import { failureName } from "../logging/failure";
 import { SiteBlocksService } from "./site-blocks.service";
+import {
+  type IssueLinkNotice,
+  renderIssueLinkNotFound,
+  renderIssueLinkPage,
+} from "./site-issue-link";
 import { renderNewsArticle, renderNewsIndex } from "./site-news";
 import {
   type SiteNewsArticle,
@@ -225,6 +231,11 @@ export class SiteRenderer {
      * where the form's fields will be shown, and is not cached: a board that
      * withdraws its adoption means the guide to stop appearing on the next
      * page, not on the next but one.
+     *
+     * Whether the fields will show is known only once the types are, so a page
+     * whose form is shut (reporting off, or no type to report under) reads the
+     * guide for nothing. That is the rare page; asking after the types instead
+     * would add the guide's round trips to every page that does show the form.
      */
     const reading =
       offersIssueForm && submission.sent !== "issue"
@@ -370,6 +381,42 @@ export class SiteRenderer {
    */
   async notFound(acceptLanguage: string | undefined): Promise<string> {
     return renderNotFound(await this.chrome(acceptLanguage, false));
+  }
+
+  /**
+   * The page a reporter's private link opens (ADR 0055).
+   *
+   * With the anonymous chrome and no menu at all: the page is a reporter's
+   * window onto one issue, not a way into the website, and a menu entry the
+   * board pointed at another host would be the one address on the page that
+   * leaves this origin. Nothing else on it can.
+   */
+  async issueLink(
+    acceptLanguage: string | undefined,
+    view: ReporterLinkPageView,
+    notice: IssueLinkNotice | null,
+    pagePath: string,
+  ): Promise<string> {
+    return renderIssueLinkPage(
+      await this.issueLinkChrome(acceptLanguage),
+      view,
+      notice,
+      pagePath,
+    );
+  }
+
+  /**
+   * What every reporter's link that opens nothing gets, whatever the reason.
+   * Built from the same chrome as the page, and from nothing about the link.
+   */
+  async issueLinkNotFound(acceptLanguage: string | undefined): Promise<string> {
+    return renderIssueLinkNotFound(await this.issueLinkChrome(acceptLanguage));
+  }
+
+  private async issueLinkChrome(
+    acceptLanguage: string | undefined,
+  ): Promise<SiteChrome> {
+    return { ...(await this.chrome(acceptLanguage, false)), menu: [] };
   }
 
   /**

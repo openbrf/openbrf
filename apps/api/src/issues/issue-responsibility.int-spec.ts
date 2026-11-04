@@ -140,7 +140,12 @@ const manager = person("manager", "Frida", "Forvaltare");
 const resident = person("resident", "Rune", "Boende");
 /** Reports one issue, and is given protected personal data after it. */
 const shielded = person("shielded", "Siv", "Skyddad");
-const people = [board, manager, resident, shielded];
+/**
+ * Handles issues by a board seat alone, which the test that needs it gives and
+ * takes away: no administrator or property manager role stands in for it.
+ */
+const seated = person("seated", "Sture", "Ledamot");
+const people = [board, manager, resident, shielded, seated];
 const personIds = people.map((entry) => entry.personId);
 
 const addressId = `ir-address-${suffix}`;
@@ -508,6 +513,35 @@ describe("a charge made from an issue", () => {
     expect(entry.context).toMatchObject({ issueId });
   });
 
+  it("answers the basis alone to the board, as the issue read whole shows it, and refuses it to those who may not make a charge", async () => {
+    const issueId = await filed("basis-alone");
+    await chargeFrom(issueId, "321.00");
+
+    const whole = await inject({
+      method: "GET",
+      url: `/api/member-charges/issues/${issueId}`,
+      cookie: cookies[board.personId],
+    });
+    const basis = await inject({
+      method: "GET",
+      url: `/api/member-charges/issues/${issueId}/basis`,
+      cookie: cookies[board.personId],
+    });
+    expect(basis.statusCode).toBe(200);
+    expect(basis.json()).toEqual(whole.json<{ issue: unknown }>().issue);
+    // The basis says nothing of the charges made from the issue.
+    expect(basis.json()).not.toHaveProperty("charges");
+
+    for (const person of [manager, resident]) {
+      const refused = await inject({
+        method: "GET",
+        url: `/api/member-charges/issues/${issueId}/basis`,
+        cookie: cookies[person.personId],
+      });
+      expect(refused.statusCode).toBe(403);
+    }
+  });
+
   it("never shows the property manager an amount", async () => {
     const issueId = await filed("manager-blind");
     await chargeFrom(issueId, "987.65");
@@ -648,6 +682,80 @@ describe("a charge made from an issue", () => {
       expect((await request).issueId).toBe(issueId);
     } finally {
       release();
+    }
+  });
+
+  it("reads who handles the issue after the lock, so a charge from an actor whose seat is taken away while it waits is refused", async () => {
+    /*
+     * The wait above only shows that the charge takes the lock. A handling read
+     * made before it would still see the seat, as the change that takes it
+     * away commits only once the lock is released, and the charge would link.
+     * The seat is the actor's only way to handle issues, so it is the read
+     * after the lock that refuses.
+     */
+    const issueId = await filed("charge-after-seat-removed");
+    const seat = await prisma.boardPosition.create({
+      data: {
+        personId: seated.personId,
+        position: "BOARD_MEMBER",
+        electedOn: new Date("2025-05-15"),
+      },
+    });
+    let reached: (pid: number) => void = () => undefined;
+    const holding = new Promise<number>((resolve) => {
+      reached = resolve;
+    });
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      const other = prisma.$transaction(
+        async (tx) => {
+          await lockIssueForHandling(tx, issueId);
+          await tx.boardPosition.delete({ where: { id: seat.id } });
+          reached(await backendPid(tx));
+          await gate;
+        },
+        { timeout: 30_000 },
+      );
+      const holder = await holding;
+
+      let answered = false;
+      const request = inject({
+        method: "POST",
+        url: "/api/member-charges",
+        cookie: cookies[seated.personId],
+        payload: {
+          apartmentId,
+          chargedOn: today(),
+          amount: "88.00",
+          reason: "Ärende: Vattenläcka",
+          vatTreatment: "EXEMPT",
+          issueId,
+        },
+      }).finally(() => {
+        answered = true;
+      });
+      try {
+        await waitFor(
+          async () => answered || (await waitersBehind(prisma, holder)) > 0,
+        );
+      } finally {
+        release();
+        await other;
+      }
+      const response = await request;
+      expect(response.statusCode).toBe(404);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "issue-not-found",
+      );
+      expect(await prisma.memberCharge.count({ where: { issueId } })).toBe(0);
+    } finally {
+      release();
+      await prisma.boardPosition.deleteMany({
+        where: { personId: seated.personId },
+      });
     }
   });
 
