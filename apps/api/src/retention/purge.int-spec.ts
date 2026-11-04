@@ -2272,7 +2272,7 @@ describe("an issue a work order's text still stands on", () => {
    * Each test carries the request out itself when no earlier test did, so one
    * run alone (a name filter) fails on what it tests and not on its set-up.
    */
-  async function laterIssueWithFreeText(id: string): Promise<void> {
+  async function requesterErased(): Promise<void> {
     const executed = () =>
       prisma.dataSubjectRequest.count({
         where: {
@@ -2285,6 +2285,10 @@ describe("an issue a work order's text still stands on", () => {
       await purge.purgePerson(requester, notDueAt, retentionDays);
     }
     await expect(executed()).resolves.toBe(1);
+  }
+
+  async function laterIssueWithFreeText(id: string): Promise<void> {
+    await requesterErased();
     await reportedWithWorkOrder(id, requester);
     await prisma.issueNote.create({
       data: { issueId: id, body: "Grannen i 1202 var inte hemma." },
@@ -2355,6 +2359,7 @@ describe("an issue a work order's text still stands on", () => {
   });
 
   it("clears the reporter of an executed request when a handler redacts the last text", async () => {
+    await requesterErased();
     await reportedWithWorkOrder(redactedId, requester);
     await prisma.workOrder.updateMany({
       where: { issueId: redactedId },

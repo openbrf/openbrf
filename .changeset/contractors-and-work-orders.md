@@ -21,9 +21,11 @@ a preview, and the issue keeps the record of it (ADR 0055).
 - **Writing and previewing.** On an issue, a handler chooses a contractor,
   writes what is to be done and where, and previews the mail as the contractor
   will receive it before sending. Changing the text or the contractor drops the
-  preview, and the server sends only what was previewed: if the contractor's
-  name or address changed after the preview, or the preview is over half an
-  hour old, the handler is asked to preview again. The same work order sent
+  preview, and the server sends the text to the recipient that was previewed
+  and nothing else: if the contractor's name or address changed after the
+  preview, or the preview is over half an hour old, the handler is asked to
+  preview again. The mail's subject, heading and language follow the
+  association's settings when it is sent. The same work order sent
   twice within half an hour is refused, also when the first one's text has been
   removed in between, and one person may send twenty work
   orders an hour. An issue that is closed is offered no work order until it

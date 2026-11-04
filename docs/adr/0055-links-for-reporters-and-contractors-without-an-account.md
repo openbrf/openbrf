@@ -275,10 +275,14 @@ sent at most once; a sending that fails says so on the work order with a code,
 and one that may have gone out says that nobody knows rather than that it did
 not.
 
-What is sent is what was previewed, and the server holds the sending to it.
-The preview returns a signature over the case, the handler, the contractor,
-the recipient's name and address and the text, valid for half an hour, and the
-sending is refused unless what it would send now matches it. The contractor's
+Who receives the work order and what it says are what was previewed, and the
+server holds the sending to them. The preview returns a signature over the
+case, the handler, the contractor, the recipient's name and address and the
+text, valid for half an hour, and the sending is refused unless what it would
+send now matches it. The rest of the mail is not signed: its subject, its
+heading and its language are rendered when it is sent, from the association's
+settings at that moment, so a change to the association's name or default
+language in between shows in the mail and does not refuse it. The contractor's
 row is locked while the sending reads it, so a board member who changes the
 address at the same moment changes it either before the sending, which is then
 refused and previewed again, or after it. The same text to the same contractor
@@ -299,7 +303,8 @@ contractor removed from the register is erased from them as well: the copy of
 the name and address on each is cleared, and the work order stays, saying that
 it went out, when and what it said. That is how a sole trader's erasure is
 honoured; the owner confirmed both on 2026-11-03. The text of a work order is
-erased ten years after its case was closed, by the nightly purge, unless a
+erased 3,653 days after its case was closed, so never before the tenth
+anniversary and up to a day after it, by the nightly purge, unless a
 handler redacts it before then ([ADR 0057](0057-purging-issues-in-two-layers.md#redaction)),
 which leaves the work order with whom it went to and when. The owner
 asked for it to be kept as long as the law allows, to keep the history of what
@@ -314,8 +319,8 @@ longer, and so does a legal hold on the case itself, which a handler places at
 `POST /api/issue-queue/:id/legal-hold` (ADR 0057): the purge skips the text
 while it stands, and a redaction is refused. A dispute with the contractor that
 interrupts the limitation starts ten years again, and the clock does not see
-it: unless a handler places the hold on the case, the text is erased on the
-tenth anniversary, and a claim still open under preskriptionslagen (1981:130)
+it: unless a handler places the hold on the case, the text is erased when its
+3,653 days have run, and a claim still open under preskriptionslagen (1981:130)
 2 § loses its evidence. Placing the hold is the handler's act, not the system's. A
 reporter's data subject access report lists, under each of their cases, the
 work orders sent about it: to whom, when, and whether the mail went out, not

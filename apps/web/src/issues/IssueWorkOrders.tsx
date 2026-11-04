@@ -129,9 +129,21 @@ export function IssueWorkOrders({
   const [contractors, setContractors] = useState<ContractorChoice[] | null>(
     null,
   );
-  const [readFailed, setReadFailed] = useState(false);
+  const [ordersFailed, setOrdersFailed] = useState(false);
+  const [choicesFailed, setChoicesFailed] = useState(false);
+  const readFailed = ordersFailed || choicesFailed;
   /** Bumped after a send and after a refusal that says the screen is stale. */
   const [reads, setReads] = useState(0);
+  /*
+   * The reads an answer is matched to. Moved in the same step as `reads`, never
+   * in a later effect: an answer asked before a removal and arriving in between
+   * would otherwise pass as current and put the removed words back.
+   */
+  const readsRef = useRef(reads);
+  const readAgain = (): void => {
+    readsRef.current += 1;
+    setReads(readsRef.current);
+  };
 
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   /**
@@ -186,22 +198,30 @@ export function IssueWorkOrders({
       // were that read to fail or be slow, the words just removed would stand
       // in the log beside the notice, as the conversation's lists are dropped.
       setData(null);
-      setReads((count) => count + 1);
+      // As `readAgain` does, written out here so the effect needs no function
+      // made in render.
+      readsRef.current += 1;
+      setReads(readsRef.current);
     }
   }, [redactionRevision]);
 
+  /*
+   * The record and the contractors to choose from are read apart, so a slow or
+   * failed list of contractors never holds back the log or its removal.
+   */
   useEffect(() => {
     let active = true;
-    void Promise.all([
-      fetchIssueWorkOrders(issue.id),
-      fetchContractorChoices(),
-    ]).then(([orders, choices]) => {
-      if (!active) {
-        return;
+    void fetchIssueWorkOrders(issue.id).then((orders) => {
+      if (active) {
+        setData(orders.ok ? orders.value : null);
+        setOrdersFailed(!orders.ok);
       }
-      setData(orders.ok ? orders.value : null);
-      setContractors(choices.ok ? choices.value : null);
-      setReadFailed(!orders.ok || !choices.ok);
+    });
+    void fetchContractorChoices().then((choices) => {
+      if (active) {
+        setContractors(choices.ok ? choices.value : null);
+        setChoicesFailed(!choices.ok);
+      }
     });
     return () => {
       active = false;
@@ -217,10 +237,6 @@ export function IssueWorkOrders({
    * has since superseded is dropped; a failed attempt keeps what is shown, and
    * the next attempt asks again.
    */
-  const readsRef = useRef(reads);
-  useEffect(() => {
-    readsRef.current = reads;
-  }, [reads]);
   usePoll(
     async (stillWanted) => {
       const askedUnder = readsRef.current;
@@ -236,7 +252,7 @@ export function IssueWorkOrders({
     ownOutcome();
     if (STALE_REASONS.has(failure.reason)) {
       setPreview(null);
-      setReads((count) => count + 1);
+      readAgain();
     }
   };
 
@@ -270,7 +286,7 @@ export function IssueWorkOrders({
       draftRef.current = EMPTY_DRAFT;
       setDraft(EMPTY_DRAFT);
       setSentTo(sent.recipientName);
-      setReads((count) => count + 1);
+      readAgain();
       onSent?.();
     },
     onRefused,

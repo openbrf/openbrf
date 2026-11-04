@@ -60,6 +60,13 @@ const PLUMBER: ContractorChoice = {
   phone: "08-123 45 67",
   email: "ror@firma.test",
 };
+const ELECTRICIAN: ContractorChoice = {
+  id: "c-el",
+  name: "Elfirman",
+  trade: "Elektriker",
+  phone: null,
+  email: "el@firma.test",
+};
 const PHONE_ONLY: ContractorChoice = {
   id: "c-tel",
   name: "Telefonfirman",
@@ -204,6 +211,47 @@ describe("IssueWorkOrders", () => {
       screen.queryByRole("button", { name: "Skicka till Rörfirman" }),
     ).toBeNull();
     expect(sendWorkOrder).not.toHaveBeenCalled();
+  });
+
+  it("drops the preview when the contractor changes, so it is not sent to the one previewed", async () => {
+    fetchContractorChoices.mockResolvedValue({
+      ok: true,
+      value: [PLUMBER, ELECTRICIAN, PHONE_ONLY],
+    });
+    previewWorkOrder.mockImplementation((input: { body: string }) =>
+      Promise.resolve({ ok: true, value: preview(input.body) }),
+    );
+    const user = userEvent.setup();
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    await writeDraft("Byt packningen.");
+    await user.click(screen.getByRole("button", { name: "Förhandsgranska" }));
+    expect(
+      await screen.findByRole("button", { name: "Skicka till Rörfirman" }),
+    ).toBeTruthy();
+
+    await user.selectOptions(
+      screen.getByLabelText("Vatten: entreprenör"),
+      ELECTRICIAN.id,
+    );
+    expect(screen.queryByRole("button", { name: /^Skicka till/ })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Förhandsgranska" }),
+    ).toBeTruthy();
+    expect(sendWorkOrder).not.toHaveBeenCalled();
+  });
+
+  it("shows the record while the contractors to choose from are still being read", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ workOrders: [SENT] }),
+    });
+    // The list of contractors never answers within the test.
+    fetchContractorChoices.mockReturnValue(new Promise(() => undefined));
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    expect(await screen.findByText("Byt packningen.")).toBeTruthy();
+    expect(screen.queryByText("Hämtar arbetsorder...")).toBeNull();
   });
 
   it("offers a contractor with no address but will not mail them", async () => {
@@ -455,6 +503,67 @@ describe("removing a work order's text", () => {
         name: /^Ta bort texten i arbetsordern till Rörfirman från/,
       }),
     ).toBeNull();
+  });
+
+  it("keeps the text removed when a read asked before the removal answers after it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const onWay: WorkOrder = {
+      ...SENT,
+      deliveryStatus: "PENDING",
+      deliveryFailure: null,
+    };
+    let answerPoll: (value: unknown) => void = () => undefined;
+    fetchIssueWorkOrders
+      .mockResolvedValueOnce({
+        ok: true,
+        value: orders({ workOrders: [onWay] }),
+      })
+      // The poll's read, held until after the removal.
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          answerPoll = resolve;
+        }),
+      )
+      .mockResolvedValue({
+        ok: true,
+        value: orders({
+          workOrders: [
+            {
+              ...SENT,
+              body: null,
+              redactedAt: "2026-11-04T08:00:00.000Z",
+              deliveryStatus: "SENT",
+              deliveryFailure: null,
+            },
+          ],
+        }),
+      });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<WithRedaction of={UNHELD} onChanged={vi.fn()} />);
+    expect(await screen.findByText("Byt packningen.")).toBeTruthy();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(fetchIssueWorkOrders).toHaveBeenCalledTimes(2);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /^Ta bort texten i arbetsordern till Rörfirman från/,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Ta bort för gott" }));
+    expect(
+      await screen.findByText(/^Borttaget av en handläggare/),
+    ).toBeTruthy();
+
+    // The poll's answer, asked before the removal, carries the old text.
+    await act(async () => {
+      answerPoll({ ok: true, value: orders({ workOrders: [onWay] }) });
+      await Promise.resolve();
+    });
+    expect(screen.queryByText("Byt packningen.")).toBeNull();
+    expect(screen.getByText(/^Borttaget av en handläggare/)).toBeTruthy();
   });
 
   it("drops the text on screen when the read after a removal fails", async () => {

@@ -166,21 +166,28 @@ export class WorkOrderService {
     this.previewKey = previewKey(env.BETTER_AUTH_SECRET);
   }
 
-  /** The work orders on an issue the reader handles, oldest first. */
+  /**
+   * The work orders on an issue the reader handles, oldest first. The handler
+   * check and the read share one snapshot, as the conversation's reads do
+   * (`readHandled`), so a board-only change or a handover committed between
+   * them cannot hand back work orders the check did not cover.
+   */
   async list(
     readerPersonId: string,
     issueId: string,
   ): Promise<IssueWorkOrdersView> {
-    const issue = await this.requireHandled(
-      this.prisma,
-      issueId,
-      readerPersonId,
+    const { issue, rows } = await this.prisma.$transaction(
+      async (tx) => {
+        const handled = await this.requireHandled(tx, issueId, readerPersonId);
+        const found = await tx.workOrder.findMany({
+          where: { issueId: handled.id },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: WORK_ORDER_SELECT,
+        });
+        return { issue: handled, rows: found };
+      },
+      { isolationLevel: "RepeatableRead" },
     );
-    const rows = await this.prisma.workOrder.findMany({
-      where: { issueId: issue.id },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      select: WORK_ORDER_SELECT,
-    });
     return {
       ringFenced: issue.type.ringFenced,
       closed: issue.closed,
