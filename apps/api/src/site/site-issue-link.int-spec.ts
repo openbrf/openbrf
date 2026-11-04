@@ -943,6 +943,15 @@ describe("D. rate limits and abuse", () => {
     expect(
       await prisma.issueMessage.count({ where: { issueId, side: "REPORTER" } }),
     ).toBe(REPORTER_LINK_MESSAGES_PER_ISSUE);
+
+    // The page offers no field, and says why: the issue is open, not closed.
+    const read = await page(token);
+    expect(read.statusCode).toBe(200);
+    expect(read.body).not.toContain("<textarea");
+    expect(read.body).toContain(
+      "Fler meddelanden kan inte skickas via länken.",
+    );
+    expect(read.body).not.toContain("är avslutat");
   });
 
   it("D5: strangers' failed guesses never lock a live link", async () => {
@@ -1182,6 +1191,34 @@ describe("D. rate limits and abuse", () => {
     const before = sent.length;
     expect(await links.deliver(blocked)).toBe(true);
     expect(sent.length).toBe(before + 1);
+  });
+
+  it("B1: a retried mail runs the link's year from the mail that went", async () => {
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Mejlet skickas på andra försöket",
+      reporterName: null,
+      reporterEmail: `rl-retried-${suffix}@exempel.se`,
+    });
+    vi.spyOn(mail, "send").mockRejectedValueOnce(new Error("connection reset"));
+    await expect(links.deliver(id)).rejects.toThrow("connection reset");
+
+    // The first attempt set the end; the retry comes later. Make the gap long.
+    const soon = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await prisma.issueReporterLink.update({
+      where: { issueId: id },
+      data: { expiresAt: soon },
+    });
+
+    expect(await links.deliver(id)).toBe(true);
+    const link = await prisma.issueReporterLink.findUniqueOrThrow({
+      where: { issueId: id },
+      select: { expiresAt: true },
+    });
+    expect(link.expiresAt.getTime()).toBeGreaterThan(
+      Date.now() + 360 * 24 * 60 * 60 * 1000,
+    );
   });
 
   it("D6: an instance without mail settings issues no link that holds a slot", async () => {

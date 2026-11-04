@@ -131,6 +131,8 @@ export function renderIssueLinkPage(
           </label>
           <button type="submit">{t("site.issueLink.send")}</button>
         </form>
+      ) : view.messageLimitReached ? (
+        <p>{t("site.issueLink.notice.full")}</p>
       ) : (
         <p>{t("site.issueLink.closedNotice")}</p>
       )}

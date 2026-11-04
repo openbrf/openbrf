@@ -106,6 +106,11 @@ export interface ReporterLinkPageView {
   createdAt: Date;
   /** Whether the page offers a field to write in. */
   acceptsMessages: boolean;
+  /**
+   * Whether an open issue has all the messages a link takes: the page then
+   * offers no field and says so, rather than saying the issue is closed.
+   */
+  messageLimitReached: boolean;
   messages: ReporterIssueMessageView[];
 }
 
@@ -337,13 +342,14 @@ export class IssueReporterLinkService implements OnModuleInit {
               data: { tokenDigest },
               select: { id: true },
             });
-      if (existing === null) {
-        await extendReporterLink(tx, link.id);
-      } else {
+      if (existing !== null) {
         await tx.$executeRaw`
           UPDATE "issue_reporter_link" SET "issuedAt" = now()
           WHERE "id" = ${link.id}`;
       }
+      // A retried mail is a mailing too: the year runs from this one, not
+      // from the attempt that failed.
+      await extendReporterLink(tx, link.id);
 
       return {
         linkId: link.id,
@@ -678,11 +684,18 @@ export class IssueReporterLinkService implements OnModuleInit {
         },
       },
     });
+    const reporterMessages = issue.messages.filter(
+      (message) => message.side === "REPORTER",
+    ).length;
+    const messageLimitReached =
+      issue.status.meaning !== "DONE" &&
+      reporterMessages >= REPORTER_LINK_MESSAGES_PER_ISSUE;
     return {
       typeName: issue.type.name,
       meaning: issue.status.meaning,
       createdAt: issue.createdAt,
-      acceptsMessages: issue.status.meaning !== "DONE",
+      acceptsMessages: issue.status.meaning !== "DONE" && !messageLimitReached,
+      messageLimitReached,
       messages: issue.messages.map(toReporterView),
     };
   }
