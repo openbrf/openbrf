@@ -352,9 +352,10 @@ locally the application runs from source beside the PostgreSQL that
       made it, not the photographs, and no link. A ring-fenced issue type
       reaches no contractor, refused in the service, the preview included.
       The text of a work order is erased ten years after its issue was closed,
-      when a claim about the work becomes time-barred, and the record of whom
-      it went to and when stays, except that removing a contractor from the
-      list clears their name and address from the work orders sent them. This is how a work order travels while the
+      the ordinary limitation period for a claim about the work, unless a legal
+      hold stands. The record of whom it went to and when stays, except that
+      removing a contractor from the list clears their name and address from
+      the work orders sent them. This is how a work order travels while the
       contractor's own link waits for its legal review (ADR 0055)
 - [x] Mail about issues: a new issue to its assignee, or to the type's handlers
       when it lands unassigned; an urgent one to every handler of its type; an

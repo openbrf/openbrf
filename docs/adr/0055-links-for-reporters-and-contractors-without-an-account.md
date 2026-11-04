@@ -291,7 +291,7 @@ the owner, and is answered:
   one is listed and offered for no work order.
 - **Question 3, answered by the owner on 2026-11-03.** The mail is the work
   order: the handler's text, the contractor's name in the greeting and the
-  association's in the heading, and nothing else from the case; a text holding
+  association's in the heading, and nothing else from the issue; a text holding
   a personal identity number is refused. The issue module's plan says both that
   no mail carries free text, the reporter's or the handler's, so that nothing a
   person wrote passes through the mail provider (decision 21), and that a work
@@ -301,11 +301,11 @@ the owner, and is answered:
   order to a contractor is an exception to decision 21, and the only one. It is
   narrow by construction, and stays an exception only while it stays narrow: the
   server sends only what the handler previewed, the mail carries nothing else
-  from the case (no report, no reporter, no photographs, no link), and a text
+  from the issue (no report, no reporter, no photographs, no link), and a text
   with a personal identity number is refused. Every other mail about an issue
   keeps to decision 21.
-- **Question 4.** A work order on a case whose reporter has protected personal
-  data is not refused. Nothing of the case goes into it but what the handler
+- **Question 4.** A work order on an issue whose reporter has protected personal
+  data is not refused. Nothing of the issue goes into it but what the handler
   writes, and the form tells the handler to keep the reporter's name and home
   out of it and arrange access through the board.
 
@@ -317,7 +317,7 @@ not.
 
 Who receives the work order and what it says are what was previewed, and the
 server holds the sending to them. The preview returns a signature over the
-case, the handler, the contractor, the recipient's name and address and the
+issue, the handler, the contractor, the recipient's name and address and the
 text, valid for half an hour, and the sending is refused unless what it would
 send now matches it. The rest of the mail is not signed: its subject, its
 heading and its language are rendered when it is sent, from the association's
@@ -326,12 +326,12 @@ language in between shows in the mail and does not refuse it. The contractor's
 row is locked while the sending reads it, so a board member who changes the
 address at the same moment changes it either before the sending, which is then
 refused and previewed again, or after it. The same text to the same contractor
-on the same case within half an hour, as long as a preview lasts, is refused
+on the same issue within half an hour, as long as a preview lasts, is refused
 as a second press, also after a handler has redacted the text of the first (its
 words are gone, and sending again would mail them), and one
 handler may send twenty work orders an hour.
 
-The audit entry names the case, the work order, the contractor and the sender,
+The audit entry names the issue, the work order, the contractor and the sender,
 with the length of the text and none of its words. Each change to the
 contractor register is audited too, by the contractor's id and the fields it
 touched, because an address changed there changes who receives what a handler
@@ -343,26 +343,30 @@ contractor removed from the register is erased from them as well: the copy of
 the name and address on each is cleared, and the work order stays, saying that
 it went out, when and what it said. That is how a sole trader's erasure is
 honoured; the owner confirmed both on 2026-11-03. The text of a work order is
-erased 3,653 days after its case was closed, so never before the tenth
+erased 3,653 days after its issue was closed, so never before the tenth
 anniversary and up to a day after it, by the nightly purge, unless a
 handler redacts it before then ([ADR 0057](0057-purging-issues-in-two-layers.md#redaction)),
 which leaves the work order with whom it went to and when. The owner
 asked for it to be kept as long as the law allows, to keep the history of what
-was asked of whom, and ten years is that bound: the text is the association's
-evidence of what it ordered, a claim about the work becomes time-barred ten
-years after it arose (preskriptionslagen (1981:130) 2 §), and the work is done
-before the case is closed. Bookkeeping needs less, to the end of the seventh
-year after the financial year (bokföringslagen (1999:1078) 7 kap. 2 §), and
-past ten years storage limitation (GDPR art. 5(1)(e)) leaves the text no
-purpose. A legal hold or a restriction against the case's reporter keeps it
-longer, and so does a legal hold on the case itself, which a handler places at
-`POST /api/issue-queue/:id/legal-hold` (ADR 0057): the purge skips the text
+was asked of whom. Ten years is the ordinary retention window chosen for that,
+not a period the law sets for this text: the text is the association's evidence
+of what it ordered, and the general limitation period for a claim about the
+work is ten years (preskriptionslagen (1981:130) 2 §), so the window is sized
+to a claim made in the ordinary course. It runs from the closing of the issue,
+and the system knows neither when the work was done nor when a claim arose.
+Bookkeeping needs less, to the end of the seventh year after the financial year
+(bokföringslagen (1999:1078) 7 kap. 2 §). Storage limitation (GDPR art.
+5(1)(e)) asks for a purpose, not a number of years, and the purpose here is
+that evidence; the window is the association's answer for the ordinary case,
+and the exceptions below are where it does not hold. A legal hold or a
+restriction against the issue's reporter keeps it longer, and so does a legal
+hold on the issue itself, which a handler places at `POST /api/issue-queue/:id/legal-hold` (ADR 0057): the purge skips the text
 while it stands, and a redaction is refused. A dispute with the contractor that
-interrupts the limitation starts ten years again, and the clock does not see
-it: unless a handler places the hold on the case, the text is erased when its
-3,653 days have run, and a claim still open under preskriptionslagen (1981:130)
-2 § loses its evidence. Placing the hold is the handler's act, not the system's. A
-reporter's data subject access report lists, under each of their cases, the
+interrupts the limitation, which starts a new period (preskriptionslagen 5-7
+§§), is not seen by the clock: unless a handler places the hold on the issue,
+the text is erased when its 3,653 days have run, and a claim still open under
+preskriptionslagen loses its evidence. Placing the hold is the handler's act,
+not the system's. A reporter's data subject access report lists, under each of their issues, the
 work orders sent about it: to whom, when, and whether the mail went out, not
 the text, which may be about other people.
 
@@ -374,7 +378,7 @@ the work order is recorded as not sent, with the code for the contractor
 removed or for the text erased. An erasure that commits after the claim cannot
 recall a mail already being sent, which is the one case the claim leaves open.
 
-The claim also refuses a work order whose case is ring-fenced, and takes the
+The claim also refuses a work order whose issue is ring-fenced, and takes the
 issue type's lock before it does, the lock under which the board ring-fences a
 type. A ring-fence that commits while a work order waits on the queue is
 therefore read by its claim: the work order is not mailed, and is recorded as
