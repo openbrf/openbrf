@@ -818,7 +818,7 @@
           "ISSUE_RESIDENTS_LISTED": "Någon som hanterar ärenden visades vilka som bor i en lägenhet, för att lägga upp ett ärende",
           "ISSUE_MESSAGE_SENT": "Ett meddelande skrevs i ett ärende",
           "ISSUE_NOTE_ADDED": "En intern anteckning skrevs i ett ärende",
-          "ISSUE_REDACTED": "Text eller en fil togs bort från ett ärende",
+          "ISSUE_REDACTED": "Text, en bild eller en fil togs bort från ett ärende",
           "ISSUE_LEGAL_HOLD_PLACED": "Ett rättsligt bevarandekrav lades på ett ärende",
           "ISSUE_LEGAL_HOLD_RELEASED": "Det rättsliga bevarandekravet på ett ärende hävdes",
           "ISSUE_RETENTION_RECORDED": "Hur länge fritexten i stängda ärenden sparas ändrades",
@@ -885,6 +885,18 @@
           "TRANSFER": "Överlåtelse",
           "TERMINATION": "Upphörande",
           "TRANSFER_REVERSAL": "Hävd eller återgången överlåtelse"
+        },
+        "auditDetail": {
+          "redacted": {
+            "description": "Beskrivningen",
+            "location": "Platsen",
+            "message": "Ett svar",
+            "note": "En intern anteckning",
+            "photo": "En bild",
+            "attachment": "En fil"
+          },
+          "legalHoldSince": "Kravet gällde sedan {{date}}",
+          "retentionChanged": "Från {{from}} till {{to}} år efter stängning"
         },
         "auditRole": {
           "subject": "Om den här personen",
@@ -3957,7 +3969,7 @@
       "purgedOn": "Fritexten togs bort <data>{{date}}</data>",
       "freeTextRemoved": "Fritexten, svaren och bilderna togs bort <data>{{date}}</data>. Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, finns kvar.",
       "title": "Fritext och rättsligt bevarandekrav",
-      "intro": "En handläggare kan när som helst ta bort beskrivningen, platsen, ett svar, en intern anteckning, en bild eller en fil, till exempel när en person som nämns där har fått radering beviljad. Det som tas bort är borta: ingenting sparar texten, och ingenting skrivs i dess ställe.",
+      "intro": "Så länge inget rättsligt bevarandekrav gäller för själva ärendet kan en handläggare när som helst ta bort beskrivningen, platsen, ett svar, en intern anteckning, en bild eller en fil, till exempel när en person som nämns där har fått radering beviljad. Det som tas bort är borta: ingenting sparar texten, och ingenting skrivs i dess ställe.",
       "remove": "Ta bort",
       "removeDescription": "{{type}}: ta bort beskrivningen",
       "removeLocation": "{{type}}: ta bort platsen",
@@ -3968,7 +3980,7 @@
       "description": "Beskrivning",
       "location": "Plats",
       "photos": "Anmälarens bilder",
-      "nothingLeft": "Beskrivningen, platsen och anmälarens foton är redan borttagna.",
+      "nothingLeft": "Beskrivningen, platsen och bilderna är redan borttagna.",
       "confirm": "Ta bort för gott",
       "keep": "Behåll",
       "confirmHint": "Det går inte att ångra. Ingenting sparar texten eller filen, och ingenting skrivs i dess ställe.",

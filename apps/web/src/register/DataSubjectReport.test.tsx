@@ -1157,6 +1157,50 @@ describe("what the document prints", () => {
     expect(screen.queryByText("ASSOCIATION_FACTS_RECORDED")).toBeNull();
   });
 
+  it("puts the acts of an issue's second layer in words rather than as stored codes", async () => {
+    // The detail column prints the context of most entries as stored. These
+    // acts hold codes - a target, a row, a date, a capability - that a person
+    // handed the document cannot read, so each says what it means in the
+    // document's language, and which row or capability stays out of it.
+    const [entry] = FULL_REPORT.auditEntries;
+    if (entry === undefined) {
+      throw new Error("The fixture has no audit entry.");
+    }
+    renderReport({
+      ...FULL_REPORT,
+      auditEntries: [
+        {
+          ...entry,
+          entryId: "r",
+          action: "ISSUE_REDACTED",
+          context: { target: "photo", id: "photo-row-1" },
+        },
+        {
+          ...entry,
+          entryId: "h",
+          action: "ISSUE_LEGAL_HOLD_RELEASED",
+          context: { placedAt: "2026-10-15T08:00:00.000Z" },
+        },
+        {
+          ...entry,
+          entryId: "u",
+          action: "MEDIA_UPLOADED",
+          context: { requiredCapability: "issues:handle", size: 3 },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const details = [
+      ...sectionOf("Granskningsloggen").querySelectorAll("tbody tr"),
+    ].map((row) => row.querySelectorAll("td")[4]?.textContent);
+    expect(details).toEqual([
+      "En bild",
+      "Kravet gällde sedan 2026-10-15",
+      "size: 3",
+    ]);
+  });
+
   it("says which way each act reached the records", async () => {
     // The same board member acting in the web interface and acting through a
     // connected app is one person reaching the records two ways, and the

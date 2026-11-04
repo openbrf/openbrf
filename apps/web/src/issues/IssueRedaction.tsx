@@ -220,52 +220,54 @@ export function IssueFreeTextSection({
 
       {control.offered ? (
         <>
-          <p className={HINT}>{t("issues.redaction.intro")}</p>
           {nothingLeft ? (
             <p className={HINT}>{t("issues.redaction.nothingLeft")}</p>
           ) : (
-            <ul className="flex flex-col gap-2">
-              {describes ? (
-                <li className="flex flex-wrap items-center gap-3 text-small">
-                  <span>{t("issues.redaction.description")}</span>
-                  <RedactAct
-                    control={control}
-                    redaction={{ target: "description" }}
-                    label={t("issues.redaction.removeDescription", named)}
-                  />
-                </li>
-              ) : null}
-              {locates ? (
-                <li className="flex flex-wrap items-center gap-3 text-small">
-                  <span>{t("issues.redaction.location")}</span>
-                  <RedactAct
-                    control={control}
-                    redaction={{ target: "location" }}
-                    label={t("issues.redaction.removeLocation", named)}
-                  />
-                </li>
-              ) : null}
-              {issue.photos.map((photo) => (
-                <li
-                  key={photo.id}
-                  className="flex flex-wrap items-center gap-3 text-small"
-                >
-                  <img
-                    src={photo.url}
-                    alt={t("issues.photos.alt", { name: photo.fileName })}
-                    className="size-12 rounded-control border border-line object-cover"
-                  />
-                  <span>{photo.fileName}</span>
-                  <RedactAct
-                    control={control}
-                    redaction={{ target: "photo", id: photo.id }}
-                    label={t("issues.redaction.removePhoto", {
-                      name: photo.fileName,
-                    })}
-                  />
-                </li>
-              ))}
-            </ul>
+            <>
+              <p className={HINT}>{t("issues.redaction.intro")}</p>
+              <ul className="flex flex-col gap-2">
+                {describes ? (
+                  <li className="flex flex-wrap items-center gap-3 text-small">
+                    <span>{t("issues.redaction.description")}</span>
+                    <RedactAct
+                      control={control}
+                      redaction={{ target: "description" }}
+                      label={t("issues.redaction.removeDescription", named)}
+                    />
+                  </li>
+                ) : null}
+                {locates ? (
+                  <li className="flex flex-wrap items-center gap-3 text-small">
+                    <span>{t("issues.redaction.location")}</span>
+                    <RedactAct
+                      control={control}
+                      redaction={{ target: "location" }}
+                      label={t("issues.redaction.removeLocation", named)}
+                    />
+                  </li>
+                ) : null}
+                {issue.photos.map((photo) => (
+                  <li
+                    key={photo.id}
+                    className="flex flex-wrap items-center gap-3 text-small"
+                  >
+                    <img
+                      src={photo.url}
+                      alt={t("issues.photos.alt", { name: photo.fileName })}
+                      className="size-12 rounded-control border border-line object-cover"
+                    />
+                    <span>{photo.fileName}</span>
+                    <RedactAct
+                      control={control}
+                      redaction={{ target: "photo", id: photo.id }}
+                      label={t("issues.redaction.removePhoto", {
+                        name: photo.fileName,
+                      })}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </>
       ) : (

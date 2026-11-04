@@ -239,6 +239,52 @@ describe("a redacted message", () => {
   });
 });
 
+describe("the explanation above the removals", () => {
+  const INTRO =
+    /Så länge inget rättsligt bevarandekrav gäller för själva ärendet/;
+
+  it("names the exception of the hold and shows while something can be removed", async () => {
+    render(<Harness of={issue()} onChanged={vi.fn()} />);
+    await screen.findByText("Det luktar fukt.");
+
+    expect(screen.getByText(INTRO)).toBeTruthy();
+  });
+
+  it("is left out on a held issue, which says why instead", async () => {
+    render(
+      <Harness
+        of={issue({ legalHoldAt: "2026-10-15T08:00:00.000Z" })}
+        onChanged={vi.fn()}
+      />,
+    );
+    await screen.findByText("Det luktar fukt.");
+
+    expect(screen.queryByText(INTRO)).toBeNull();
+  });
+
+  it("is left out when nothing is left, so that only the removal is said", async () => {
+    render(
+      <Harness
+        of={issue({
+          description: "",
+          location: null,
+          photos: [],
+          freeTextRemovedAt: "2026-10-01T08:00:00.000Z",
+        })}
+        onChanged={vi.fn()}
+      />,
+    );
+    await screen.findByText("Det luktar fukt.");
+
+    expect(screen.queryByText(INTRO)).toBeNull();
+    expect(
+      screen.getByText(
+        "Beskrivningen, platsen och bilderna är redan borttagna.",
+      ),
+    ).toBeTruthy();
+  });
+});
+
 describe("a legal hold", () => {
   it("takes every removal away and says why", async () => {
     render(

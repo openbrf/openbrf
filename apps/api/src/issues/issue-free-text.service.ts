@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
@@ -34,7 +34,11 @@ export interface FreeTextRemoval {
 export type FreeTextRemovalOutcome =
   /** The layer is gone: the text, the conversation, the notes and the files. */
   | "removed"
-  /** Something refused it under the locks, and nothing more went. */
+  /**
+   * Something refused it under the locks, and nothing more went. Files taken
+   * before the refusal stay taken, each with its own `MEDIA_DELETED` entry, and
+   * the run says so in the log.
+   */
   | "kept"
   /**
    * The text went, and a file attached while the run was in flight stands. The
@@ -72,6 +76,8 @@ export type FreeTextRemovalOutcome =
  */
 @Injectable()
 export class IssueFreeTextService {
+  private readonly logger = new Logger(IssueFreeTextService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly media: MediaService,
@@ -98,6 +104,13 @@ export class IssueFreeTextService {
         },
       });
       if (kept) {
+        if (filesRemoved > 0) {
+          // The refusal came after files had gone, and those cannot be put
+          // back: say so, since the outcome reads as if the run took nothing.
+          this.logger.log(
+            `Issue ${issueId} kept its free text after ${String(filesRemoved)} files were removed`,
+          );
+        }
         return "kept";
       }
       if (removed) {

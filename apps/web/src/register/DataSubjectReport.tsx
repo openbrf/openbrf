@@ -2865,7 +2865,7 @@ export function DataSubjectReport({
                       {t(`register.person.report.auditRole.${entry.role}`)}
                     </td>
                     <td className={DATA_CELL}>
-                      {contextLine(entry.context) ?? nothing}
+                      {auditDetail(t, entry) ?? nothing}
                     </td>
                   </tr>
                 ))}
@@ -3154,6 +3154,65 @@ function pluginTextIn(
  */
 function pluginValueText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+/** The targets of a redaction an entry's detail names in words. */
+const REDACTION_TARGETS = [
+  "description",
+  "location",
+  "message",
+  "note",
+  "photo",
+  "attachment",
+] as const;
+
+/**
+ * What one audit entry's detail column says.
+ *
+ * The acts of the issue module's second layer are put in words, because their
+ * context holds codes - which part was removed, since when a hold stood - that
+ * read as a database column to the person handed this document. A removal says
+ * which part, and never which row. Any other entry prints its context as
+ * stored, without `requiredCapability`: which capability may read a file is
+ * an access rule of the association and says nothing about the person.
+ */
+function auditDetail(
+  t: TFunction,
+  entry: Report["auditEntries"][number],
+): string | null {
+  const context = entry.context;
+  if (entry.action === "ISSUE_REDACTED") {
+    const target = REDACTION_TARGETS.find(
+      (known) => known === context?.["target"],
+    );
+    return target === undefined
+      ? null
+      : t(`register.person.report.auditDetail.redacted.${target}`);
+  }
+  if (entry.action === "ISSUE_LEGAL_HOLD_RELEASED") {
+    const placedAt = context?.["placedAt"];
+    const since = typeof placedAt === "string" ? day(placedAt) : null;
+    return since === null
+      ? null
+      : t("register.person.report.auditDetail.legalHoldSince", {
+          date: since,
+        });
+  }
+  if (entry.action === "ISSUE_LEGAL_HOLD_PLACED") {
+    return null;
+  }
+  if (entry.action === "ISSUE_RETENTION_RECORDED") {
+    const from = context?.["yearsAfterClosingFrom"];
+    const to = context?.["yearsAfterClosingTo"];
+    return typeof from === "number" && typeof to === "number"
+      ? t("register.person.report.auditDetail.retentionChanged", { from, to })
+      : null;
+  }
+  if (context === null) {
+    return null;
+  }
+  const { requiredCapability: _hidden, ...shown } = context;
+  return contextLine(shown);
 }
 
 /**

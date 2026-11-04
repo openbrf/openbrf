@@ -818,7 +818,7 @@
           "ISSUE_RESIDENTS_LISTED": "A handler was shown who lives in an apartment, to open an issue",
           "ISSUE_MESSAGE_SENT": "A message was written on an issue",
           "ISSUE_NOTE_ADDED": "An internal note was written on an issue",
-          "ISSUE_REDACTED": "Text was removed from an issue, or one of its files",
+          "ISSUE_REDACTED": "Text, a photograph or a file was removed from an issue",
           "ISSUE_LEGAL_HOLD_PLACED": "A legal hold was placed on an issue",
           "ISSUE_LEGAL_HOLD_RELEASED": "The legal hold on an issue was released",
           "ISSUE_RETENTION_RECORDED": "How long the free text of closed issues is kept was changed",
@@ -885,6 +885,18 @@
           "TRANSFER": "Transfer",
           "TERMINATION": "Termination",
           "TRANSFER_REVERSAL": "Transfer reversal"
+        },
+        "auditDetail": {
+          "redacted": {
+            "description": "The description",
+            "location": "The location",
+            "message": "A message",
+            "note": "An internal note",
+            "photo": "A photograph",
+            "attachment": "A file"
+          },
+          "legalHoldSince": "The hold stood since {{date}}",
+          "retentionChanged": "From {{from}} to {{to}} years after closing"
         },
         "auditRole": {
           "subject": "About this person",
@@ -3957,7 +3969,7 @@
       "purgedOn": "Free text removed on <data>{{date}}</data>",
       "freeTextRemoved": "The free text, the conversation and the photographs were removed on <data>{{date}}</data>. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, remain.",
       "title": "Free text and legal hold",
-      "intro": "A handler can remove the description, the location, a message, an internal note, a photograph or a file at any time, for instance when a person named in it has been granted erasure. What is removed is gone: nothing keeps the text, and nothing is written in its place.",
+      "intro": "Unless a legal hold stands on the issue itself, a handler can remove the description, the location, a message, an internal note, a photograph or a file at any time, for instance when a person named in it has been granted erasure. What is removed is gone: nothing keeps the text, and nothing is written in its place.",
       "remove": "Remove",
       "removeDescription": "{{type}}: remove the description",
       "removeLocation": "{{type}}: remove the location",
