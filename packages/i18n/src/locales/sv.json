@@ -4281,7 +4281,7 @@
       "masterKeyNone": "huvudnyckel får inte användas",
       "noteLabel": "Hur man kommer in",
       "noteHint": "Till exempel vem man ringer, eller när någon är hemma. Skriv aldrig en portkod här.",
-      "doorCodeWarning": "Det här ser ut som en portkod. Portkoder sparas aldrig, eftersom alla som hanterar ärendet skulle kunna läsa den. Skriv i stället vem man ringer eller när någon är hemma.",
+      "doorCodeWarning": "Det här ser ut som en portkod. Portkoder sparas aldrig i den här anteckningen, eftersom alla som hanterar ärendet skulle kunna läsa den. Skriv i stället vem man ringer eller när någon är hemma.",
       "untilLabel": "Gäller till och med",
       "clearedAtClosing": "Svaret rensas när ärendet avslutas.",
       "save": "Spara svar",

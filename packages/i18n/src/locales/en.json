@@ -4281,7 +4281,7 @@
       "masterKeyNone": "master key may not be used",
       "noteLabel": "How to get in",
       "noteHint": "For example who to ring, or when someone is at home. Never write a door code here.",
-      "doorCodeWarning": "This reads like a door code. Door codes are never stored, because everyone who handles the issue could read it. Say who to ring or when someone is at home instead.",
+      "doorCodeWarning": "This reads like a door code. Door codes are never stored in this note, because everyone who handles the issue could read it. Say who to ring or when someone is at home instead.",
       "untilLabel": "Applies until and including",
       "clearedAtClosing": "The answer is cleared when the issue is closed.",
       "save": "Save answer",

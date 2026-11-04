@@ -1148,6 +1148,39 @@ describe("common-area places", () => {
     expect(byManager.statusCode).toBe(403);
   });
 
+  it("keep their place in the list when a sort order is null, empty or text", async () => {
+    const id = await place("Ordning");
+    await prisma.issuePlace.update({ where: { id }, data: { sortOrder: 7 } });
+
+    // Number(null) and Number("") are 0: coerced, these would move the place
+    // to the top of the list instead of being refused.
+    for (const sortOrder of [null, "", "3", -1, 1000, 1.5]) {
+      const refused = await call(admin, "PUT", `/api/issue-places/${id}`, {
+        name: `Ordning ${suffix}`,
+        sortOrder,
+      });
+      expect(refused.statusCode, JSON.stringify(sortOrder)).toBe(400);
+    }
+    const created = await call(admin, "POST", "/api/issue-places", {
+      name: `Ordning ny ${suffix}`,
+      sortOrder: null,
+    });
+    expect(created.statusCode).toBe(400);
+    expect(
+      await prisma.issuePlace.findUnique({
+        where: { id },
+        select: { sortOrder: true },
+      }),
+    ).toEqual({ sortOrder: 7 });
+
+    const moved = await call(admin, "PUT", `/api/issue-places/${id}`, {
+      name: `Ordning ${suffix}`,
+      sortOrder: 0,
+    });
+    expect(moved.statusCode).toBe(200);
+    expect(moved.json()).toMatchObject({ sortOrder: 0 });
+  });
+
   it("are offered to a reporter as they stand, switched-off ones left out", async () => {
     const offered = await place("Hiss");
     const off = await place("Bastu", false);

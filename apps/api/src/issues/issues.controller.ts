@@ -220,10 +220,15 @@ const findingSchema = z.strictObject({
   targetDate: calendarDay,
 });
 
+/**
+ * Not coerced: `Number(null)` and `Number("")` are 0, so a coerced `sortOrder`
+ * would move a place to the top of the list on a null or an empty string. The
+ * field is a number or it is left out.
+ */
 const placeInputSchema = z.strictObject({
   name: z.string().trim().min(1).max(ISSUE_FIT_LIMITS.placeName),
   active: z.boolean().optional(),
-  sortOrder: z.coerce.number().int().min(0).max(999).optional(),
+  sortOrder: z.number().int().min(0).max(999).optional(),
 });
 
 /** Strict: the ring-fence is changed by a request that names it and nothing else. */
