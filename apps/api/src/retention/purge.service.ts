@@ -7,6 +7,7 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { ISSUE_FREE_TEXT_STANDING } from "../issues/issue-free-text";
 import { lockIssue } from "../issues/issue-lock";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
@@ -212,10 +213,13 @@ export interface PurgeRunSummary {
  * neighbour, so the result still identifies a person within the meaning of
  * GDPR Recital 26 - which is why the operation is named for what it does to
  * the link rather than for what it fails to do to the text. The
- * description is never rewritten by this job: a person named in one has an
- * art. 17 request like anybody else, which the board decides on its merits, and
- * a purge editing prose on a schedule would be the association silently
- * rewriting its own records.
+ * description is never rewritten by this job. An issue's free text - the
+ * description, the location, the conversation, the notes and the photographs -
+ * is removed by jobs of its own: on the board's clock after the issue closes,
+ * and on its reporter's granted erasure request (ADR 0057). A person named in
+ * an issue somebody else reported makes an art. 17 request, which a handler
+ * carries out by redacting the text. This job detaches a reporter only from an
+ * issue whose free text is gone, and runs after both of those jobs.
  *
  * ## Erasure requests and restrictions
  *
@@ -665,9 +669,15 @@ export class PurgeService implements OnModuleInit {
       media,
       binderEntries,
     ] = await Promise.all([
+      // Only where the free text is gone: an issue whose text still stands
+      // keeps its reporter, so naming them here would select somebody this
+      // job then leaves as it found them.
       this.prisma.issue.groupBy({
         by: ["reporterPersonId"],
-        where: { reporterPersonId: { not: null } },
+        where: {
+          reporterPersonId: { not: null },
+          NOT: ISSUE_FREE_TEXT_STANDING,
+        },
       }),
       this.prisma.issue.groupBy({
         by: ["assigneePersonId"],
@@ -929,12 +939,10 @@ export class PurgeService implements OnModuleInit {
        * record of a problem with its building, the document in its archive, and
        * every photograph.
        *
-       * The description is not touched. It is free text somebody wrote about
-       * the building, it is the record of what was wrong, and it may name a
-       * neighbour - which is why this is a detachment and why the result is
-       * not anonymous. A person named in one makes an art. 17 request, which
-       * the board decides; a job rewriting prose on a schedule would be the
-       * association quietly editing its own history.
+       * The description is not touched here. The issue's free text goes on
+       * its own clock or on its reporter's granted request, by the issue jobs
+       * that run before this one (ADR 0057), and a person named in an issue
+       * somebody else reported has it redacted by a handler.
        */
       /*
        * The locks a reporter's reply takes, taken first. A reply reads the
@@ -953,8 +961,18 @@ export class PurgeService implements OnModuleInit {
         await lockIssue(tx, reported.id);
       }
 
+      /*
+       * Only from an issue whose free-text layer is gone (ADR 0057). While the
+       * text stands - the issue is open, waits on its clock or on a hold of its
+       * own, or the issue erasure job still owes it - the reporter column is
+       * what ties it to this person: for a request granted later, for the
+       * closing job's count and for the access report. Detached tonight, a
+       * request granted afterwards would find no issue and close with the text
+       * still there. The clock, the issue erasure job and a handler's
+       * redaction remove the text; this job, on a later night, the reference.
+       */
       const { count: issuesDetachedFromPerson } = await tx.issue.updateMany({
-        where: { reporterPersonId: personId },
+        where: { reporterPersonId: personId, NOT: ISSUE_FREE_TEXT_STANDING },
         data: {
           reporterPersonId: null,
           reporterNameCipher: null,
@@ -1024,11 +1042,10 @@ export class PurgeService implements OnModuleInit {
         });
 
       /*
-       * Every file the person uploaded, an issue photograph included. Nothing
-       * is removed from storage: a photograph of a leaking pipe is the record
-       * of the problem, and the flag saying it may show somebody is a default
-       * the upload path writes about every issue photograph rather than a
-       * finding about the picture.
+       * Every file the person uploaded, an issue photograph included. This
+       * job removes nothing from storage: a photograph of a leaking pipe is the
+       * record of the problem until the issue's own clock, or its reporter's
+       * granted request, removes it with the issue's free text (ADR 0057).
        */
       const { count: mediaDetachedFromPerson } = await tx.mediaFile.updateMany({
         where: { uploadedByPersonId: personId },

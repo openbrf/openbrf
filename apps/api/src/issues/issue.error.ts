@@ -80,7 +80,9 @@ export type IssueReason =
   | "too-many-attachments"
   | "saved-reply-not-found"
   | "too-many-saved-replies"
-  | "no-reporter-link";
+  | "no-reporter-link"
+  | "redaction-target-not-found"
+  | "legal-hold";
 
 /**
  * Where in a message, a note or a saved reply a refused value sits: a part and
@@ -110,7 +112,8 @@ export class IssueError extends DomainError {
       reason === "no-reporter-link" ||
       reason === "post-already-reported" ||
       reason === "default-status-required" ||
-      reason === "too-many-statuses"
+      reason === "too-many-statuses" ||
+      reason === "legal-hold"
         ? HttpStatus.CONFLICT
         : reason === "public-reporting-disabled"
           ? HttpStatus.FORBIDDEN

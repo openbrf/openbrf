@@ -375,6 +375,9 @@ const FULL_REPORT: Report = {
       costResponsibility: null,
       location: "Storgatan 12, entren",
       description: ISSUE_DESCRIPTION,
+      descriptionRedactedAt: null,
+      locationRedactedAt: null,
+      freeTextRemovedAt: null,
       reportedAt: "2026-01-05T08:00:00.000Z",
       photographs: 2,
     },
@@ -1154,6 +1157,50 @@ describe("what the document prints", () => {
     expect(screen.queryByText("ASSOCIATION_FACTS_RECORDED")).toBeNull();
   });
 
+  it("puts the acts of an issue's second layer in words rather than as stored codes", async () => {
+    // The detail column prints the context of most entries as stored. These
+    // acts hold codes - a target, a row, a date, a capability - that a person
+    // handed the document cannot read, so each says what it means in the
+    // document's language, and which row or capability stays out of it.
+    const [entry] = FULL_REPORT.auditEntries;
+    if (entry === undefined) {
+      throw new Error("The fixture has no audit entry.");
+    }
+    renderReport({
+      ...FULL_REPORT,
+      auditEntries: [
+        {
+          ...entry,
+          entryId: "r",
+          action: "ISSUE_REDACTED",
+          context: { target: "photo", id: "photo-row-1" },
+        },
+        {
+          ...entry,
+          entryId: "h",
+          action: "ISSUE_LEGAL_HOLD_RELEASED",
+          context: { placedAt: "2026-10-15T08:00:00.000Z" },
+        },
+        {
+          ...entry,
+          entryId: "u",
+          action: "MEDIA_UPLOADED",
+          context: { requiredCapability: "issues:handle", size: 3 },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const details = [
+      ...sectionOf("Granskningsloggen").querySelectorAll("tbody tr"),
+    ].map((row) => row.querySelectorAll("td")[4]?.textContent);
+    expect(details).toEqual([
+      "En bild",
+      "Kravet gällde sedan 2026-10-15",
+      "size: 3",
+    ]);
+  });
+
   it("says which way each act reached the records", async () => {
     // The same board member acting in the web interface and acting through a
     // connected app is one person reaching the records two ways, and the
@@ -1802,6 +1849,40 @@ describe("what the document prints", () => {
     expect(
       within(done as HTMLElement).getByText("Vem betalar: Bostadsrättshavaren"),
     ).toBeTruthy();
+  });
+
+  it("says an issue's text was removed instead of printing it blank", async () => {
+    // Removed text is empty on the issue. Printed as stored, the copy would
+    // read as an issue filed with no words and no place.
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          issueId: "issue-redacted",
+          location: null,
+          description: "",
+          descriptionRedactedAt: "2026-10-01T09:00:00.000Z",
+          locationRedactedAt: "2026-10-02T09:00:00.000Z",
+        },
+        {
+          ...issue,
+          issueId: "issue-purged",
+          location: null,
+          description: "",
+          freeTextRemovedAt: "2026-11-03T03:21:00.000Z",
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText("2026-10-01")).toBeTruthy();
+    expect(screen.getByText("2026-10-02")).toBeTruthy();
+    expect(screen.getAllByText(/Borttaget av en handläggare/)).toHaveLength(2);
+    expect(screen.getAllByText("2026-11-03")).toHaveLength(2);
+    expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(2);
   });
 
   it("names the capacity somebody was present at a general meeting in", async () => {

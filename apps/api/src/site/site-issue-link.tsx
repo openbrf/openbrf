@@ -101,7 +101,13 @@ export function renderIssueLinkPage(
                     {`${formatNewsDate(new Date(message.createdAt), locale)} ${formatEventTime(new Date(message.createdAt), locale)}`}
                   </time>
                 </p>
-                <p className="site-issue-message">{message.body}</p>
+                {message.redactedAt === null ? (
+                  <p className="site-issue-message">{message.body}</p>
+                ) : (
+                  <p className="site-issue-message">
+                    <em>{t("site.issueLink.removed")}</em>
+                  </p>
+                )}
               </li>
             ))}
           </ol>

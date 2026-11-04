@@ -630,6 +630,7 @@ export class IssueReporterLinkService implements OnModuleInit {
             authorPersonId: true,
             signature: true,
             body: true,
+            redactedAt: true,
             createdAt: true,
           },
         },

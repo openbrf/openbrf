@@ -1405,6 +1405,26 @@ describe("H. what the page shows", () => {
     expect(read.body).toContain("**fet**");
     expect(read.body).not.toContain('href="https://elak.example');
   });
+
+  it("H7: a message a handler redacted is shown as removed, with no text", async () => {
+    const { issueId, token } = await reported();
+    await conversation.replyAsHandler(
+      board.personId,
+      issueId,
+      `Gallrad${suffix}`,
+    );
+    await prisma.issueMessage.updateMany({
+      where: { issueId, side: "HANDLER" },
+      data: { body: "", redactedAt: new Date() },
+    });
+
+    const read = await page(token);
+    expect(read.statusCode).toBe(200);
+    expect(read.body).not.toContain(`Gallrad${suffix}`);
+    expect(read.body).toContain(
+      "Föreningen har tagit bort det här meddelandet.",
+    );
+  });
 });
 
 describe("J. logging and audit", () => {

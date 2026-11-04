@@ -23,6 +23,7 @@ import {
   ISSUE_WAITING_REASON_LABEL,
 } from "../issues/issue-labels";
 import { AUDIT_CHANNEL_LABEL } from "./audit-channel-label";
+import { PurgedMark, RedactedMark } from "../issues/IssueFreeText";
 import { ExtensionNote } from "./ExtensionNote";
 import {
   DATA_CELL,
@@ -581,6 +582,13 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ISSUE_REPORTER_LINK_ISSUED",
   ISSUE_REPORTER_LINK_REVOKED:
     "register.person.report.action.ISSUE_REPORTER_LINK_REVOKED",
+  ISSUE_REDACTED: "register.person.report.action.ISSUE_REDACTED",
+  ISSUE_LEGAL_HOLD_PLACED:
+    "register.person.report.action.ISSUE_LEGAL_HOLD_PLACED",
+  ISSUE_LEGAL_HOLD_RELEASED:
+    "register.person.report.action.ISSUE_LEGAL_HOLD_RELEASED",
+  ISSUE_RETENTION_RECORDED:
+    "register.person.report.action.ISSUE_RETENTION_RECORDED",
   ISSUE_RESIDENTS_LISTED:
     "register.person.report.action.ISSUE_RESIDENTS_LISTED",
   MOVE_IN_RECORDED: "register.person.report.action.MOVE_IN_RECORDED",
@@ -1648,7 +1656,16 @@ export function DataSubjectReport({
                       )}
                     </td>
                     <td className={DATA_CELL}>{day(issue.reportedAt)}</td>
-                    <td className={TEXT_CELL}>{issue.location ?? nothing}</td>
+                    <td className={TEXT_CELL}>
+                      {issue.locationRedactedAt !== null ? (
+                        <RedactedMark at={issue.locationRedactedAt} t={t} />
+                      ) : issue.location === null &&
+                        issue.freeTextRemovedAt !== null ? (
+                        <PurgedMark at={issue.freeTextRemovedAt} t={t} />
+                      ) : (
+                        (issue.location ?? nothing)
+                      )}
+                    </td>
                     {/* Line breaks kept, as the motion and comment bodies
                       below keep them and as both issue panels already do.
                       A report is the person's own words handed back to
@@ -1656,9 +1673,15 @@ export function DataSubjectReport({
                       observations reads as one sentence once the breaks
                       collapse. */}
                     <td className={TEXT_CELL}>
-                      <span className="block whitespace-pre-line">
-                        {issue.description}
-                      </span>
+                      {issue.freeTextRemovedAt !== null ? (
+                        <PurgedMark at={issue.freeTextRemovedAt} t={t} />
+                      ) : issue.descriptionRedactedAt !== null ? (
+                        <RedactedMark at={issue.descriptionRedactedAt} t={t} />
+                      ) : (
+                        <span className="block whitespace-pre-line">
+                          {issue.description}
+                        </span>
+                      )}
                     </td>
                     <td className={DATA_CELL}>{String(issue.photographs)}</td>
                   </tr>
@@ -2846,7 +2869,7 @@ export function DataSubjectReport({
                       {t(`register.person.report.auditRole.${entry.role}`)}
                     </td>
                     <td className={DATA_CELL}>
-                      {contextLine(entry.context) ?? nothing}
+                      {auditDetail(t, entry) ?? nothing}
                     </td>
                   </tr>
                 ))}
@@ -3135,6 +3158,65 @@ function pluginTextIn(
  */
 function pluginValueText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+/** The targets of a redaction an entry's detail names in words. */
+const REDACTION_TARGETS = [
+  "description",
+  "location",
+  "message",
+  "note",
+  "photo",
+  "attachment",
+] as const;
+
+/**
+ * What one audit entry's detail column says.
+ *
+ * The acts of the issue module's second layer are put in words, because their
+ * context holds codes - which part was removed, since when a hold stood - that
+ * read as a database column to the person handed this document. A removal says
+ * which part, and never which row. Any other entry prints its context as
+ * stored, without `requiredCapability`: which capability may read a file is
+ * an access rule of the association and says nothing about the person.
+ */
+function auditDetail(
+  t: TFunction,
+  entry: Report["auditEntries"][number],
+): string | null {
+  const context = entry.context;
+  if (entry.action === "ISSUE_REDACTED") {
+    const target = REDACTION_TARGETS.find(
+      (known) => known === context?.["target"],
+    );
+    return target === undefined
+      ? null
+      : t(`register.person.report.auditDetail.redacted.${target}`);
+  }
+  if (entry.action === "ISSUE_LEGAL_HOLD_RELEASED") {
+    const placedAt = context?.["placedAt"];
+    const since = typeof placedAt === "string" ? day(placedAt) : null;
+    return since === null
+      ? null
+      : t("register.person.report.auditDetail.legalHoldSince", {
+          date: since,
+        });
+  }
+  if (entry.action === "ISSUE_LEGAL_HOLD_PLACED") {
+    return null;
+  }
+  if (entry.action === "ISSUE_RETENTION_RECORDED") {
+    const from = context?.["yearsAfterClosingFrom"];
+    const to = context?.["yearsAfterClosingTo"];
+    return typeof from === "number" && typeof to === "number"
+      ? t("register.person.report.auditDetail.retentionChanged", { from, to })
+      : null;
+  }
+  if (context === null) {
+    return null;
+  }
+  const { requiredCapability: _hidden, ...shown } = context;
+  return contextLine(shown);
 }
 
 /**
