@@ -8,6 +8,7 @@ import { activeBoardSeatWhere } from "../mail/board-recipients";
 import {
   issueHandledBy,
   issueHandlersWhere,
+  issueRecipientsWhere,
   issuesHandledWhere,
   typesHandledWhere,
 } from "./issue-handlers";
@@ -69,6 +70,23 @@ describe("who handles an issue", () => {
     expect(issueHandlersWhere("BOARD", now)).toStrictEqual({
       OR: [ADMIN, activeBoardSeatWhere(now)],
     });
+  });
+
+  it("mails the handlers of a scope and nobody else, only those with an address and no restriction", () => {
+    /*
+     * The mail goes to the handler rule above and narrows it, never widens it:
+     * a role that came to handle issues is mailed about them, and a person
+     * whose processing is restricted (GDPR art. 18) or who has no address is
+     * still a handler but is mailed nothing.
+     */
+    for (const handledBy of ["EVERY_HANDLER", "BOARD"] as const) {
+      expect(issueRecipientsWhere(handledBy, now)).toStrictEqual({
+        AND: [
+          issueHandlersWhere(handledBy, now),
+          { emailCipher: { not: null }, processingRestrictedAt: null },
+        ],
+      });
+    }
   });
 
   it("lets into the board's types exactly whoever could open them to every handler", () => {

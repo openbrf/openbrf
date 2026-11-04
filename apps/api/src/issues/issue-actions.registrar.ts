@@ -123,6 +123,13 @@ const reporterSchema = z.discriminatedUnion("kind", [
 
 const issueSchema = z.strictObject({
   id: idSchema.describe("The issue, as this platform named it."),
+  number: z
+    .number()
+    .int()
+    .positive()
+    .describe(
+      "The issue number the queue, the reporter's own list and every mail about the issue call it by. A label only: no action looks an issue up by it.",
+    ),
   status: z
     .strictObject({
       id: idSchema.describe("The status, as this platform named it."),
@@ -267,6 +274,7 @@ function published(issue: QueuedIssueView) {
   const reporter = issue.reporter;
   return {
     id: issue.id,
+    number: issue.number,
     status: {
       id: issue.status.id,
       meaning: issue.meaning,

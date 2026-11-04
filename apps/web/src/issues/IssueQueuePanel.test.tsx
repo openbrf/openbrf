@@ -1,7 +1,14 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import "../i18n";
 import type {
@@ -154,6 +161,7 @@ function issue(
     outcome: null,
     typeReporters: ["RESIDENTS"],
     closedAt: null,
+    number: 7,
     typeId: "type-water",
     typeName: "Vatten",
     location: null,
@@ -256,6 +264,21 @@ beforeEach(() => {
   }
 });
 
+describe("the issue number", () => {
+  it("is shown on the row, as the mail about the issue names it", () => {
+    render(
+      <IssueQueuePanel
+        issues={[issue(), issue({ id: "issue-2", number: 8 })]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText("Ärende 7")).toBeTruthy();
+    expect(screen.getByText("Ärende 8")).toBeTruthy();
+  });
+});
+
 describe("who reported it", () => {
   it("names an ordinary reporter", () => {
     render(
@@ -330,6 +353,7 @@ describe("who reported it", () => {
               kind: "external",
               name: "Grannen",
               email: "granne@exempel.se",
+              link: "none",
             },
           }),
         ]}
@@ -562,6 +586,22 @@ describe("moving a report to another status", () => {
     expect(screen.getByText(/statusarna kunde inte läsas/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Spara status" })).toBeNull();
   });
+
+  it("offers a retry of the types when the caller can read them again", async () => {
+    const onRetryTypes = vi.fn();
+    render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={null}
+        onChanged={() => undefined}
+        onRetryTypes={onRetryTypes}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(onRetryTypes).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("the status of a report", () => {
@@ -586,6 +626,10 @@ describe("the status of a report", () => {
 });
 
 describe("handling an issue", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   function show(queued: QueuedIssue = issue(), onChanged = vi.fn()) {
     render(
       <IssueQueuePanel issues={[queued]} types={TYPES} onChanged={onChanged} />,
@@ -624,6 +668,18 @@ describe("handling an issue", () => {
     expect(screen.getByText("Försenat")).toBeTruthy();
     expect(screen.getByText("Bara styrelsen")).toBeTruthy();
     expect(screen.getByText("Bea Styrelse")).toBeTruthy();
+  });
+
+  it("sets an overdue issue's row apart by its edge as well as its words", () => {
+    show(issue({ targetDate: "2026-08-25", overdue: true }));
+    expect(screen.getByRole("listitem").className).toContain("border-l-danger");
+  });
+
+  it("gives an issue on time no such edge", () => {
+    show(issue({ targetDate: "2026-08-25", overdue: false }));
+    expect(screen.getByRole("listitem").className).not.toContain(
+      "border-l-danger",
+    );
   });
 
   it("reads the handlers and the timeline only once the issue is opened", async () => {
@@ -1001,6 +1057,12 @@ describe("handling an issue", () => {
           waitingReason: "CONTRACTOR",
           outcome: null,
         },
+        {
+          kind: "workOrder",
+          at: "2026-08-21T10:00:00.000Z",
+          actor: null,
+          delivery: "failed",
+        },
       ],
     });
     const session = userEvent.setup();
@@ -1018,6 +1080,53 @@ describe("handling an issue", () => {
     // The board's own name for the status, from the type.
     expect(steps[2]).toContain("Flyttat till Hos rörmokaren");
     expect(steps[2]).toContain("Namnet visas inte (skyddade personuppgifter)");
+    // A work order whose mail did not go is not said to have been sent.
+    expect(steps[3]).toContain("skickades inte");
+  });
+
+  it("reads the timeline again while a work order's mail is on its way, and then stops", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reported = {
+      kind: "reported",
+      at: "2026-08-20T08:00:00.000Z",
+      actor: null,
+    };
+    const workOrder = {
+      kind: "workOrder",
+      at: "2026-08-21T10:00:00.000Z",
+      actor: null,
+    };
+    fetchIssueTimeline.mockResolvedValue({
+      ok: true,
+      value: [reported, { ...workOrder, delivery: "pending" }],
+    });
+    const session = userEvent.setup({
+      advanceTimers: (ms) => vi.advanceTimersByTime(ms),
+    });
+    show();
+    await openHandling(session);
+    expect(
+      await screen.findByText("En arbetsorder är på väg till en entreprenör"),
+    ).toBeTruthy();
+
+    // The mail worker hands it to the mail server; nothing on the screen
+    // changes, so only the poll can bring the new state.
+    fetchIssueTimeline.mockResolvedValue({
+      ok: true,
+      value: [reported, { ...workOrder, delivery: "sent" }],
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(
+      await screen.findByText("En arbetsorder skickades till en entreprenör"),
+    ).toBeTruthy();
+
+    const settled = fetchIssueTimeline.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    expect(fetchIssueTimeline).toHaveBeenCalledTimes(settled);
   });
 
   it("adds a status just saved to the timeline while it stays open", async () => {

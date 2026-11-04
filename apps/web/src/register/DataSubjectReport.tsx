@@ -1,6 +1,7 @@
-import type {
-  AuditChannelName,
-  DataSubjectReportSection,
+import {
+  type AuditChannelName,
+  type DataSubjectReportSection,
+  ISSUE_REDACTION_TARGETS,
 } from "@openbrf/shared";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
@@ -164,6 +165,20 @@ const CONSENT_SCOPE_LABEL = {
   NAME_IN_BUILDING: "register.person.consentScope.nameInBuilding",
   BOARD_ROSTER: "register.person.consentScope.boardRoster",
 } as const satisfies Record<ConsentScope, TranslationKey>;
+
+/**
+ * Whether a work order's mail went out, in words that keep a failure open
+ * unless it is known not to have gone out (`notSent`).
+ */
+const WORK_ORDER_DELIVERY_LABEL = {
+  PENDING: "register.person.report.workOrder.delivery.PENDING",
+  SENT: "register.person.report.workOrder.delivery.SENT",
+  FAILED: "register.person.report.workOrder.delivery.FAILED",
+  NOT_SENT: "register.person.report.workOrder.delivery.NOT_SENT",
+} as const satisfies Record<
+  "PENDING" | "SENT" | "FAILED" | "NOT_SENT",
+  TranslationKey
+>;
 
 /**
  * What each scope on a grant to a connected app lets the app do, in words.
@@ -578,6 +593,10 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ISSUE_COST_RESPONSIBILITY_CHANGED",
   ISSUE_MESSAGE_SENT: "register.person.report.action.ISSUE_MESSAGE_SENT",
   ISSUE_NOTE_ADDED: "register.person.report.action.ISSUE_NOTE_ADDED",
+  ISSUE_REPORTER_LINK_ISSUED:
+    "register.person.report.action.ISSUE_REPORTER_LINK_ISSUED",
+  ISSUE_REPORTER_LINK_REVOKED:
+    "register.person.report.action.ISSUE_REPORTER_LINK_REVOKED",
   ISSUE_REDACTED: "register.person.report.action.ISSUE_REDACTED",
   ISSUE_LEGAL_HOLD_PLACED:
     "register.person.report.action.ISSUE_LEGAL_HOLD_PLACED",
@@ -587,6 +606,11 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ISSUE_RETENTION_RECORDED",
   ISSUE_RESIDENTS_LISTED:
     "register.person.report.action.ISSUE_RESIDENTS_LISTED",
+  ISSUE_WORK_ORDER_SENT: "register.person.report.action.ISSUE_WORK_ORDER_SENT",
+  CONTRACTOR_LIST_CHANGED:
+    "register.person.report.action.CONTRACTOR_LIST_CHANGED",
+  ISSUE_TYPE_RING_FENCE_CHANGED:
+    "register.person.report.action.ISSUE_TYPE_RING_FENCE_CHANGED",
   MOVE_IN_RECORDED: "register.person.report.action.MOVE_IN_RECORDED",
   MOVE_OUT_RECORDED: "register.person.report.action.MOVE_OUT_RECORDED",
   PLUGIN_ENABLED: "register.person.report.action.PLUGIN_ENABLED",
@@ -1622,6 +1646,7 @@ export function DataSubjectReport({
                   "register.person.report.field.location",
                   "register.person.report.field.description",
                   "register.person.report.field.photographs",
+                  "register.person.report.field.workOrders",
                 ]}
               >
                 {report.issues.map((issue) => (
@@ -1680,6 +1705,32 @@ export function DataSubjectReport({
                       )}
                     </td>
                     <td className={DATA_CELL}>{String(issue.photographs)}</td>
+                    {/* Whom the issue was sent to and when (art. 15(1)(c)):
+                      never the work order's text, which is the handler's and
+                      may name somebody else. */}
+                    <td className={TEXT_CELL}>
+                      {issue.workOrders.length === 0
+                        ? nothing
+                        : issue.workOrders.map((order, index) => (
+                            <span key={index} className="block">
+                              <span className="font-data text-data">
+                                {day(order.writtenAt)}
+                              </span>{" "}
+                              {order.recipientName ??
+                                t(
+                                  "register.person.report.workOrder.removedContractor",
+                                )}
+                              {" · "}
+                              {t(
+                                WORK_ORDER_DELIVERY_LABEL[
+                                  order.notSent
+                                    ? "NOT_SENT"
+                                    : order.deliveryStatus
+                                ],
+                              )}
+                            </span>
+                          ))}
+                    </td>
                   </tr>
                 ))}
               </Rows>
@@ -3156,16 +3207,6 @@ function pluginValueText(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
-/** The targets of a redaction an entry's detail names in words. */
-const REDACTION_TARGETS = [
-  "description",
-  "location",
-  "message",
-  "note",
-  "photo",
-  "attachment",
-] as const;
-
 /**
  * What one audit entry's detail column says.
  *
@@ -3182,7 +3223,9 @@ function auditDetail(
 ): string | null {
   const context = entry.context;
   if (entry.action === "ISSUE_REDACTED") {
-    const target = REDACTION_TARGETS.find(
+    // The list the API checks a redaction against: a target added there fails
+    // the type check here until the report has words for it.
+    const target = ISSUE_REDACTION_TARGETS.find(
       (known) => known === context?.["target"],
     );
     return target === undefined

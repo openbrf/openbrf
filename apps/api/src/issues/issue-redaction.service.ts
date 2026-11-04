@@ -12,17 +12,26 @@ import {
 } from "../retention/legal-hold-lock";
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
 import { isPersonWithheld } from "../retention/withheld-persons";
+import { ISSUE_FREE_TEXT_STANDING } from "./issue-free-text";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
 import { lockIssueForHandling } from "./issue-lock";
+import {
+  detachErasedReporter,
+  WORK_ORDER_TEXT_STANDING,
+} from "./issue-retention";
 import { IssueError } from "./issue.error";
 
 /**
  * What a handler redacts: the issue's description or location, or one of its
- * messages, notes, photographs or handler's files by its identifier.
+ * messages, notes, photographs, handler's files or work orders by its
+ * identifier.
  */
 export type IssueRedaction =
   | { target: "description" | "location" }
-  | { target: "message" | "note" | "photo" | "attachment"; id: string };
+  | {
+      target: "message" | "note" | "photo" | "attachment" | "workOrder";
+      id: string;
+    };
 
 /** Whether a legal hold stands on an issue, and since when. */
 export interface IssueLegalHoldView {
@@ -36,12 +45,21 @@ export interface IssueLegalHoldView {
  * ## Redaction
  *
  * A handler the issue lets in may at any time redact the description, the
- * location, an issue message or an internal note, and remove a photograph or a
- * handler's file. A text is emptied and marked with the date, so the issue and
- * the conversation read as redacted rather than as written blank; nothing keeps
- * the earlier words, so a redaction is not an edit with a history, and no
- * replacement text is taken, because a field for new words would be an edit. A
- * file is removed from storage, not only from the issue.
+ * location, an issue message, an internal note or the text of a work order,
+ * and remove a photograph or a handler's file. A text is emptied and marked
+ * with the date, so the issue and the conversation read as redacted rather
+ * than as written blank; nothing keeps the earlier words, so a redaction is not
+ * an edit with a history, and no replacement text is taken, because a field for
+ * new words would be an edit. A file is removed from storage, not only from
+ * the issue.
+ *
+ * A work order's text is erased as its clock erases it, and the work order
+ * stays with whom it went to and when, which is the record of the disclosure.
+ * One whose mail has not gone out yet is then not sent, and is recorded as not
+ * sent (`WorkOrderMailerService`); one already on its way cannot be called
+ * back. The redaction that leaves the issue with no text at all detaches a
+ * reporter whose erasure request was carried out, as the clock does when it
+ * erases the last text (`detachErasedReporter`).
  *
  * This is the board's own act that an art. 17 request naming an issue
  * promises (`DataSubjectRequest.issueId`): a person named in somebody else's
@@ -99,12 +117,10 @@ export class IssueRedactionService {
     issueId: string,
     redaction: IssueRedaction,
   ): Promise<void> {
-    let changed = true;
-    if (redaction.target === "photo" || redaction.target === "attachment") {
-      changed = await this.removeFile(handlerPersonId, issueId, redaction);
-    } else {
-      changed = await this.redactText(handlerPersonId, issueId, redaction);
-    }
+    const changed =
+      redaction.target === "photo" || redaction.target === "attachment"
+        ? await this.removeFile(handlerPersonId, issueId, redaction)
+        : await this.redactText(handlerPersonId, issueId, redaction);
     // Only an act that changed something, as only that one is in the audit
     // log: a text already redacted is answered as done and says nothing.
     if (changed) {
@@ -169,8 +185,12 @@ export class IssueRedactionService {
     issueId: string,
     redaction: IssueRedaction,
   ): Promise<boolean> {
+    // The reporter's legal hold key comes before the issue's own lock, the
+    // order the person purge takes them in: the redaction of the last text may
+    // detach the reporter, which a hold on them forbids.
+    const reporterPersonId = await this.reporterOf(issueId);
     return this.prisma.$transaction(async (tx) => {
-      await this.lockForRedaction(tx, issueId);
+      await this.lockForRedaction(tx, issueId, reporterPersonId);
       await this.requireRedactable(tx, issueId, handlerPersonId);
       const now = new Date();
 
@@ -236,13 +256,84 @@ export class IssueRedactionService {
           }
           break;
         }
+        case "workOrder": {
+          rowId = redaction.id;
+          const row = await tx.workOrder.findFirst({
+            where: { id: redaction.id, issueId },
+            select: { body: true },
+          });
+          if (row === null) {
+            throw targetNotFound();
+          }
+          // A text the clock already erased has nothing to redact, and marking
+          // it would say that a handler had.
+          if (row.body === null) {
+            return false;
+          }
+          await tx.workOrder.update({
+            where: { id: redaction.id },
+            data: { body: null, redactedAt: now },
+          });
+          break;
+        }
         default:
           throw targetNotFound();
       }
 
-      await this.record(tx, handlerPersonId, issueId, redaction.target, rowId);
+      const reporterDetached = await this.detachIfFinished(
+        tx,
+        issueId,
+        reporterPersonId,
+      );
+
+      await this.record(
+        tx,
+        handlerPersonId,
+        issueId,
+        redaction.target,
+        rowId,
+        reporterDetached,
+      );
       return true;
     });
+  }
+
+  /** The person an issue names as its reporter, read before any lock. */
+  private async reporterOf(issueId: string): Promise<string | null> {
+    const issue = await this.prisma.issue.findUnique({
+      where: { id: issueId },
+      select: { reporterPersonId: true },
+    });
+    return issue?.reporterPersonId ?? null;
+  }
+
+  /**
+   * Detaches a reporter whose erasure was carried out from an issue that a
+   * redaction has just left with no text at all (ADR 0057: the clock, the
+   * issue erasure job or a handler's redaction of the last of it clears the
+   * reporter column). Only the reporter whose key was taken before the issue's
+   * lock, and only while no legal hold or restriction keeps them: one the
+   * issue no longer names, or names since, is left to the person purge.
+   */
+  private async detachIfFinished(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+    lockedReporterId: string | null,
+  ): Promise<boolean> {
+    if (lockedReporterId === null) {
+      return false;
+    }
+    const finished = await tx.issue.count({
+      where: {
+        id: issueId,
+        reporterPersonId: lockedReporterId,
+        NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
+      },
+    });
+    if (finished === 0 || (await isPersonWithheld(tx, lockedReporterId))) {
+      return false;
+    }
+    return detachErasedReporter(tx, issueId, lockedReporterId);
   }
 
   /**
@@ -263,6 +354,9 @@ export class IssueRedactionService {
       throw targetNotFound();
     }
     refuseHeld(await requireHandled(this.prisma, issueId, handlerPersonId));
+    // Read before any lock, as `redactText` reads it: the file may be the last
+    // free text standing, and removing it then detaches the reporter.
+    const reporterPersonId = await this.reporterOf(issueId);
 
     // Whether the file was removed: false for one already gone and for one
     // the lock above found no longer the redaction's to take.
@@ -272,17 +366,25 @@ export class IssueRedactionService {
       // A storage failure fails the redaction, and the file stays to retry.
       bytesFirst: true,
       keep: async (tx) => {
-        await this.lockForRedaction(tx, issueId);
+        await this.lockForRedaction(tx, issueId, reporterPersonId);
         await this.requireRedactable(tx, issueId, handlerPersonId);
         return (await this.fileOf(tx, issueId, redaction)) !== fileId;
       },
       onRemoved: async (tx) => {
+        // The last free text on the issue may be this file: the reporter of an
+        // erased request is then detached, as a text redaction does.
+        const reporterDetached = await this.detachIfFinished(
+          tx,
+          issueId,
+          reporterPersonId,
+        );
         await this.record(
           tx,
           handlerPersonId,
           issueId,
           redaction.target,
           redaction.id,
+          reporterDetached,
         );
       },
     });
@@ -290,21 +392,24 @@ export class IssueRedactionService {
 
   /**
    * The locks a redaction takes: the reporter's hold, then the issue's own,
-   * the order the clock takes them in, so neither waits on the other the other
-   * way round. A hold placed or a restriction granted while the handler was
-   * clicking has to win, and the placing takes the same keys.
+   * the order the clock and the person purge take them in, so neither waits on
+   * the other the other way round. The person's key is the one of the reporter
+   * read before any lock, which is the one {@link detachIfFinished} may detach.
+   * A hold placed or a restriction granted while the handler was clicking has
+   * to win, and the placing takes the same keys.
    */
   private async lockForRedaction(
     tx: Prisma.TransactionClient,
     issueId: string,
+    reporterPersonId: string | null,
   ): Promise<void> {
+    if (reporterPersonId !== null) {
+      await lockLegalHold(tx, reporterPersonId);
+    }
     const reporter = await tx.issue.findUnique({
       where: { id: issueId },
-      select: { reporterPersonId: true, reporterEmailIndex: true },
+      select: { reporterEmailIndex: true },
     });
-    if (reporter?.reporterPersonId) {
-      await lockLegalHold(tx, reporter.reporterPersonId);
-    }
     if (reporter?.reporterEmailIndex) {
       await lockLegalHoldRegistry(tx);
     }
@@ -370,6 +475,7 @@ export class IssueRedactionService {
     issueId: string,
     target: IssueRedactionTarget,
     rowId: string | null,
+    reporterDetached = false,
   ): Promise<void> {
     await this.audit.record(
       {
@@ -381,7 +487,11 @@ export class IssueRedactionService {
         // What was reached and which row, never a word of it nor a file's
         // name. No target person: on a reporter's own access report, the
         // entry would name the handler to them.
-        context: rowId === null ? { target } : { target, id: rowId },
+        context: {
+          target,
+          ...(rowId === null ? {} : { id: rowId }),
+          ...(reporterDetached ? { reporterDetached: true } : {}),
+        },
       },
       tx,
     );

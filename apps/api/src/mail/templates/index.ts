@@ -18,7 +18,16 @@ export { brokerUpdateRequestNoticeMail } from "./broker-update-request-notice.te
 export type { BrokerUpdateRequestNoticeMailProps } from "./broker-update-request-notice.template";
 export { contactSubmissionMail } from "./contact-submission.template";
 export type { ContactSubmissionMailProps } from "./contact-submission.template";
+export { issueReporterLinkMail } from "./issue-reporter-link.template";
+export type { IssueReporterLinkMailProps } from "./issue-reporter-link.template";
 export { invitationMail } from "./invitation.template";
+export { issueHandlerNoticeMail } from "./issue-handler-notice.template";
+export type {
+  IssueHandlerNoticeEvent,
+  IssueHandlerNoticeMailProps,
+} from "./issue-handler-notice.template";
+export { issueReporterNoticeMail } from "./issue-reporter-notice.template";
+export type { IssueReporterNoticeMailProps } from "./issue-reporter-notice.template";
 export type { InvitationMailProps } from "./invitation.template";
 export { magicLinkRefusedMail } from "./magic-link-refused.template";
 export type { MagicLinkRefusedMailProps } from "./magic-link-refused.template";
@@ -36,3 +45,5 @@ export { registerReportObligationMail } from "./register-report-obligation.templ
 export type { RegisterReportObligationMailProps } from "./register-report-obligation.template";
 export { smtpTestMail } from "./smtp-test.template";
 export type { SmtpTestMailProps } from "./smtp-test.template";
+export { workOrderMail } from "./work-order.template";
+export type { WorkOrderMailProps } from "./work-order.template";

@@ -16,6 +16,11 @@ import { mediaUrl, MediaService } from "../media/media.service";
 import { lockErasureEligibility } from "../retention/erasure-lock";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
 import { lockIssue, lockIssueForHandling } from "./issue-lock";
+import {
+  extendReporterLink,
+  liveReporterLinkOfIssue,
+} from "./issue-reporter-link";
+import { IssueMailer } from "./issue-mailer.service";
 import { IssueError, type IssueTextLocation } from "./issue.error";
 import type { IssueHandlerView } from "./issue.service";
 
@@ -108,8 +113,10 @@ export interface IssueAttachmentView {
  *   is, for the reason `IssueService` gives.
  *
  * Nothing here is offered to a connected app or to the AI package: no action
- * reads or writes the conversation (ADR 0056), and nothing is mailed from here
- * (decision 21).
+ * reads or writes the conversation (ADR 0056). A message is followed by a mail
+ * that says there is a new one and carries none of what it says (decision 21,
+ * `IssueMailer.messageInTransaction`); a reporter's, only while their hourly
+ * budget for messages lasts, and past it the message is stored all the same.
  */
 @Injectable()
 export class IssueConversationService {
@@ -119,6 +126,7 @@ export class IssueConversationService {
     private readonly prisma: PrismaService,
     private readonly media: MediaService,
     private readonly audit: AuditLogService,
+    private readonly mailer: IssueMailer,
   ) {}
 
   /**
@@ -152,6 +160,8 @@ export class IssueConversationService {
     issueId: string,
     body: string,
   ): Promise<ReporterIssueMessageView> {
+    // Before the transaction: a queue is made on the backend's own connection.
+    await this.mailer.ensureQueues();
     const message = await this.prisma.$transaction(async (tx) => {
       await lockIssue(tx, issueId);
       const issue = await this.requireReported(tx, issueId, reporterPersonId);
@@ -171,6 +181,10 @@ export class IssueConversationService {
         select: MESSAGE_SELECT,
       });
       await this.recordMessage(tx, written.id, issueId, reporterPersonId);
+      await this.mailer.messageInTransaction(tx, issueId, {
+        kind: "reporter",
+        messageId: written.id,
+      });
       return written;
     });
 
@@ -198,12 +212,18 @@ export class IssueConversationService {
    * (decision 19).
    *
    * Refused on an issue nobody can read the answer on (`no-reporter`), rather
-   * than stored as a message to nobody. Only a reporter with an account reads
-   * the conversation, so one who left an email address alone, as a report from the
-   * website's form may, has no one to write to either; nothing mails a message
-   * (decision 21). The issue lets the writer in under the
-   * locks a handling write takes (`lockIssueForHandling`), so a message never
-   * lands on an issue the board took to itself while it was written.
+   * than stored as a message to nobody. A reporter with an account reads the
+   * conversation signed in; one who left an email address on the website's form
+   * reads it through the private link mailed to them, while that link opens
+   * the issue (ADR 0055). A report with no address, one whose link was never
+   * mailed, withdrawn or has ended, and one whose reporter was purged have
+   * nobody to write to. A reporter with an account is mailed that there is a
+   * new message, never what it says (decision 21); one reading through the
+   * private link is not, as the link is mailed once. The issue lets
+   * the writer in under the locks a handling write takes
+   * (`lockIssueForHandling`), so a message never lands on an issue the board
+   * took to itself while it was written, and a link withdrawn meanwhile is
+   * read as withdrawn.
    */
   async replyAsHandler(
     handlerPersonId: string,
@@ -211,6 +231,8 @@ export class IssueConversationService {
     body: string,
   ): Promise<HandlerIssueMessageView> {
     refusePersonalIdentityNumbers({ body });
+    // Before the transaction: a queue is made on the backend's own connection.
+    await this.mailer.ensureQueues();
     const message = await this.prisma.$transaction(async (tx) => {
       const now = new Date();
       await lockErasureEligibility(tx, handlerPersonId);
@@ -224,7 +246,11 @@ export class IssueConversationService {
               where: { personId: issue.reporterPersonId },
               select: { id: true },
             });
-      if (reporterAccount === null) {
+      const link =
+        issue.reporterPersonId === null
+          ? await liveReporterLinkOfIssue(tx, issueId)
+          : null;
+      if (reporterAccount === null && link === null) {
         throw new IssueError(
           "Nobody can read an answer on this issue.",
           "no-reporter",
@@ -240,7 +266,16 @@ export class IssueConversationService {
         },
         select: MESSAGE_SELECT,
       });
+      if (link !== null) {
+        // A conversation going on keeps the reporter's way to it open.
+        await extendReporterLink(tx, link.linkId);
+      }
       await this.recordMessage(tx, written.id, issueId, handlerPersonId);
+      await this.mailer.messageInTransaction(tx, issueId, {
+        kind: "handler",
+        personId: handlerPersonId,
+        messageId: written.id,
+      });
       return written;
     });
 
@@ -673,7 +708,9 @@ const ATTACHMENT_SELECT = {
  * no person on either. Built from the columns alone, so there is no person on
  * the row to leak.
  */
-function toReporterView(message: MessageRecord): ReporterIssueMessageView {
+export function toReporterView(
+  message: MessageRecord,
+): ReporterIssueMessageView {
   const base = {
     id: message.id,
     body: message.body,

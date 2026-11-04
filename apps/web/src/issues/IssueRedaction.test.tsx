@@ -279,7 +279,7 @@ describe("the explanation above the removals", () => {
     expect(screen.queryByText(INTRO)).toBeNull();
     expect(
       screen.getByText(
-        "Beskrivningen, platsen och bilderna är redan borttagna.",
+        "Beskrivningen, platsen och anmälarens bilder är redan borttagna.",
       ),
     ).toBeTruthy();
   });

@@ -288,7 +288,16 @@ const SHAPES: Record<SeedKey, SeedShape> = {
   issues: {
     source: "SERVICE_DATA",
     legalBasis: "LEGITIMATE_INTEREST",
-    dataSubjectCategories: ["member", "resident", "external"],
+    // The reporters, among them somebody who has since moved out, and the
+    // handlers the issues are given to and mailed: a board member, and the
+    // property manager among the external.
+    dataSubjectCategories: [
+      "member",
+      "resident",
+      "formerResident",
+      "boardMember",
+      "external",
+    ],
     personalDataCategories: [
       "name",
       "apartment",
@@ -722,6 +731,15 @@ const MAILBOX_BACKED: readonly SeedKey[] = ["boardMailbox"];
 const BOOKKEEPER_BACKED: readonly SeedKey[] = ["fees", "memberCharges"];
 
 /**
+ * Which seeded rows hand data to the contractors the association hires, and so
+ * name them: an issue's work order goes to one (art. 30(1)(d)). A fixed
+ * sentence rather than the list's names, because the record names categories
+ * of recipient and the list changes with every firm the board takes on; the
+ * work order itself records which contractor received what.
+ */
+const CONTRACTOR_BACKED: readonly SeedKey[] = ["issues"];
+
+/**
  * Which seeded rows hand data to Lantmäteriet, and the sentence naming it and
  * the provision that obliges the association to.
  *
@@ -872,6 +890,9 @@ function recipientsFor(
     sentences.push(
       t("dataProtection.processing.seed.recipients.economicManager"),
     );
+  }
+  if (CONTRACTOR_BACKED.includes(key)) {
+    sentences.push(t("dataProtection.processing.seed.recipients.contractors"));
   }
   const lantmateriet = LANTMATERIET_BACKED[key];
   if (lantmateriet !== undefined) {

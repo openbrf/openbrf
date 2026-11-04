@@ -16,8 +16,10 @@ import {
   ISSUE_CONVERSATION_LIMITS,
   ISSUE_HANDLED_BY,
   ISSUE_PRIORITIES,
+  ISSUE_QUEUE_VIEWS,
   ISSUE_REPORT_LIMITS,
   ISSUE_REPORTER_GROUPS,
+  ISSUE_SEARCH_LIMITS,
   ISSUE_STATUS_LIMITS,
   ISSUE_STATUS_MEANINGS,
   ISSUE_TYPE_LIMITS,
@@ -40,6 +42,7 @@ import {
   type IssueNoteView,
   type ReporterIssueMessageView,
 } from "./issue-conversation.service";
+import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import {
   type IssueSavedReplyView,
   IssueSavedReplyService,
@@ -57,8 +60,11 @@ import {
 } from "./issue-residents.service";
 import {
   type IssueApartmentView,
+  type IssueBoardFilter,
   type IssueHandlerView,
   type IssuePhotoView,
+  type IssueQueueCounts,
+  type IssueQueueSnapshot,
   IssueService,
   type IssueTimelineStep,
   type OwnIssueView,
@@ -106,6 +112,39 @@ const openSchema = z.strictObject({
 });
 
 /**
+ * What the board's screen narrows the queue to (decision 15). Strict, so a
+ * parameter this route does not read is refused rather than ignored: ignored,
+ * a misspelt filter would answer with the whole queue as if it were narrowed.
+ *
+ * `meaning` is one of the four meanings or `OPEN`, every meaning but done.
+ * `q` is the search; blank is none.
+ */
+const boardFilterSchema = z.strictObject({
+  meaning: z.enum([...ISSUE_STATUS_MEANINGS, "OPEN"]).optional(),
+  typeId: z.string().min(1).max(64).optional(),
+  priority: z.enum(ISSUE_PRIORITIES).optional(),
+  q: z.string().max(ISSUE_SEARCH_LIMITS.length).optional(),
+});
+
+const boardViewSchema = boardFilterSchema.extend({
+  /** Absent reads every issue the reader handles, as before views. */
+  view: z.enum(ISSUE_QUEUE_VIEWS).optional(),
+});
+
+/** The service's filter, from the parameters a route was given. */
+function boardFilterOf(
+  query: z.infer<typeof boardFilterSchema>,
+): IssueBoardFilter {
+  const search = query.q?.trim() ?? "";
+  return {
+    ...(query.meaning === undefined ? {} : { meaning: query.meaning }),
+    ...(query.typeId === undefined ? {} : { typeId: query.typeId }),
+    ...(query.priority === undefined ? {} : { priority: query.priority }),
+    ...(search === "" ? {} : { search }),
+  };
+}
+
+/**
  * An issue message or an internal note. Never only whitespace: an empty
  * message would read to the reporter as the board saying nothing.
  */
@@ -138,6 +177,9 @@ const targetDateSchema = z.object({
 });
 
 const accessSchema = z.object({ boardOnly: z.boolean() });
+
+/** Strict: the ring-fence is changed by a request that names it and nothing else. */
+const ringFenceSchema = z.strictObject({ ringFenced: z.boolean() });
 
 /** Who pays, or null to say nothing again (decision 26). Never an amount. */
 const costResponsibilitySchema = z.strictObject({
@@ -222,9 +264,12 @@ function requirePrincipal(request: RequestWithPrincipal): Principal {
  *
  * The capability sits on the class, so a route added here later inherits it
  * rather than being open by omission. There is deliberately no @Public() route
- * anywhere in this module: the website's form is server-rendered by the site
- * layer, which calls the services directly, so the application exposes no
- * unauthenticated write surface for issues at all.
+ * anywhere in this module's controllers (ADR 0055). The website's form is
+ * server-rendered by the site layer, which calls the services directly, and
+ * the ways to an issue without a session are the site layer's link controllers
+ * alone: the reporter's private link (`SiteIssueLinkController`), and the
+ * contractor's once it is built. Each resolves its token before it reads
+ * anything else and reaches one issue's own part, never a principal's.
  */
 @Controller("api/issues")
 @RequireCapability("issues:report")
@@ -371,6 +416,7 @@ export class IssueQueueController {
     private readonly guide: ResponsibilityGuideService,
     private readonly conversation: IssueConversationService,
     private readonly savedReplies: IssueSavedReplyService,
+    private readonly reporterLinks: IssueReporterLinkService,
   ) {}
 
   /**
@@ -400,14 +446,56 @@ export class IssueQueueController {
     return this.issues.handledTypes(actingPersonId(request));
   }
 
-  /** The queue, or the part of it whose status has one meaning. */
+  /**
+   * One view of the queue - Mina, Ej tilldelade, Försenade or Alla - narrowed
+   * by status, type, priority and a search (decision 15). With no parameters,
+   * every issue the reader handles.
+   */
   @Get()
   async list(
     @Req() request: RequestWithPrincipal,
-    @Query("meaning") meaning?: string,
+    @Query() query: unknown,
   ): Promise<QueuedIssueView[]> {
-    const filter = z.enum(ISSUE_STATUS_MEANINGS).optional().parse(meaning);
-    return this.issues.listQueue(actingPersonId(request), { meaning: filter });
+    const parsed = boardViewSchema.parse(query);
+    return this.issues.listQueue(
+      actingPersonId(request),
+      parsed.view ?? "ALL",
+      boardFilterOf(parsed),
+    );
+  }
+
+  /**
+   * How many issues each view holds under the same filter, counted as the
+   * views are read: the numbers on the screen's views and, with
+   * `meaning=OPEN` alone, the board's front page.
+   */
+  @Get("counts")
+  async counts(
+    @Req() request: RequestWithPrincipal,
+    @Query() query: unknown,
+  ): Promise<IssueQueueCounts> {
+    return this.issues.countQueue(
+      actingPersonId(request),
+      boardFilterOf(boardFilterSchema.parse(query)),
+    );
+  }
+
+  /**
+   * What the queue screen draws: one view's issues and every view's count
+   * under the same filter, read at one moment, so a count never disagrees
+   * with the list beside it. Takes the parameters the list does.
+   */
+  @Get("snapshot")
+  async snapshot(
+    @Req() request: RequestWithPrincipal,
+    @Query() query: unknown,
+  ): Promise<IssueQueueSnapshot> {
+    const parsed = boardViewSchema.parse(query);
+    return this.issues.readQueueSnapshot(
+      actingPersonId(request),
+      parsed.view ?? "ALL",
+      boardFilterOf(parsed),
+    );
   }
 
   /** Opens an issue for a named resident, or with no reporter (decision 14). */
@@ -475,6 +563,19 @@ export class IssueQueueController {
       id,
       conversationSchema.parse(body).body,
     );
+  }
+
+  /**
+   * Withdraws the private link mailed to the issue's reporter (ADR 0055). It
+   * opens nothing from the next request on, and nobody is mailed.
+   */
+  @Post(":id/reporter-link/revoke")
+  @HttpCode(204)
+  async revokeReporterLink(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<void> {
+    await this.reporterLinks.revoke(actingPersonId(request), id);
   }
 
   /** The handlers' internal notes, which the reporter never reads. */
@@ -686,6 +787,20 @@ export class IssueTypeAdminController {
   @HttpCode(204)
   async remove(@Param("id") id: string): Promise<void> {
     await this.types.remove(id);
+  }
+
+  /** Ring-fences a type from contractors, or lifts its ring-fence. */
+  @Put(":id/ring-fence")
+  async setRingFence(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<ConfiguredIssueTypeView> {
+    return this.types.setRingFence(
+      id,
+      ringFenceSchema.parse(body).ringFenced,
+      actingPersonId(request),
+    );
   }
 
   /** Adds a status to a type, under one of the four meanings. */

@@ -1853,10 +1853,20 @@ enum AuditAction {
   ISSUE_COST_RESPONSIBILITY_CHANGED
   /// A handler was told who lives in one apartment today, to name a resident on an issue they open. The entry names the apartment and how many residents were listed, never who.
   ISSUE_RESIDENTS_LISTED
+  /// A handler sent a work order on an issue to a contractor. The entry names the issue, the work order, the contractor and the handler as its actor, and how long the text was; never a word of it, nor the contractor's name or address.
+  ISSUE_WORK_ORDER_SENT
+  /// The board added, changed or removed a contractor on the association's list. The entry names the contractor by id, what kind of change it was, and which contact fields changed; never a name, a telephone number or an address.
+  CONTRACTOR_LIST_CHANGED
+  /// The board ring-fenced an issue type, or lifted its ring-fence. The entry names the type and the new setting.
+  ISSUE_TYPE_RING_FENCE_CHANGED
   /// An issue message was written, by the reporter or by a handler. The entry names the issue, the message, which side wrote it and the writer as its actor, never the text.
   ISSUE_MESSAGE_SENT
   /// A handler wrote an internal note on an issue. The entry names the issue, the note and the handler as its actor, never the text.
   ISSUE_NOTE_ADDED
+  /// A private link was issued to the reporter of an issue who has no account, and mailed to the address they gave (ADR 0055). The entry names the issue and the link, never the address or the token.
+  ISSUE_REPORTER_LINK_ISSUED
+  /// A handler withdrew the private link of an issue's reporter (ADR 0055). The entry names the issue, the link and the handler as its actor.
+  ISSUE_REPORTER_LINK_REVOKED
   /// A handler redacted a text on an issue or removed one of its files (ADR 0057). The entry names the issue, what was reached and the row's identifier, never the text or the file's name.
   ISSUE_REDACTED
   /// A legal hold was placed on an issue, so its free text outlasts its purge clock (ADR 0057).
@@ -2434,6 +2444,11 @@ enum AuditChannel {
   /// session's request is served is on this channel, whatever the call site
   /// passed.
   SUPPORT
+  /// Whoever holds a private link (privat länk, ADR 0055): a reporter without
+  /// an account answering through the link mailed to them. Never a person in
+  /// the register, so an entry on this channel has no actor, and its context
+  /// names the link.
+  LINK
 }
 
 /// Audit log. Writes happen in the same transaction as the access they record.
@@ -4395,6 +4410,17 @@ model IssueType {
   /// access report answers for it in `issueAssignments` (ADR 0057).
   defaultAssigneePersonId String?
 
+  /// Whether its issues are ring-fenced (decision 32 of the issue module's
+  /// plan): nothing about them reaches a contractor, whoever handles them. A
+  /// work order on such an issue is refused inside `WorkOrderService`, its
+  /// preview included (ADR 0055).
+  ///
+  /// Set by the board under issues:configure (`IssueTypeService.setRingFence`),
+  /// each change audited. Which types carry it by default is ADR 0054's open
+  /// question 5, answered with the rest of the ring-fence; until then a type
+  /// is ring-fenced when the board says so.
+  ringFenced Boolean @default(false)
+
   /// Its statuses: at least one of each meaning, one of which is the default
   /// of that meaning. Written with the type and never left without them.
   statuses IssueStatus[]
@@ -4475,6 +4501,12 @@ model IssueStatus {
 model Issue {
   id String @id @default(cuid())
 
+  /// The issue number (ärendenummer): what a handler, the reporter and every
+  /// mail about the issue call it. Given in the order issues are filed and never
+  /// reused; a filing that rolls back skips one. A label only: nothing looks an
+  /// issue up by it, so it is never a key in an address (ADR 0055).
+  number Int @unique @default(autoincrement())
+
   typeId String
   type   IssueType @relation(fields: [typeId], references: [id], onDelete: Restrict)
 
@@ -4550,6 +4582,16 @@ model Issue {
   /// it.
   targetDate DateTime? @db.Date
 
+  /// The target dates the assignee has been reminded of being past, empty while
+  /// no reminder has gone out. The overdue reminder is owed once for each target
+  /// date: a reminder job finding its date here sends nothing, so a job queued
+  /// twice for one date, or a date moved away and back after both were
+  /// reminded, reminds once. A list rather than the last date, because moving
+  /// to another date and processing its reminder must not forget the first.
+  /// Grows by one for each reminder sent. Written with the claim that queues the
+  /// mail, under the issue's lock. Not personal data.
+  overdueRemindedFor DateTime[] @db.Date @default([])
+
   /// Closed to every handler but the board, whatever its type allows (decision
   /// 13). A handler tightens an issue; only the board loosens it again, and
   /// never past its type.
@@ -4602,11 +4644,17 @@ model Issue {
 
   photos IssuePhoto[]
 
+  /// What the handlers sent contractors about it, oldest first.
+  workOrders  WorkOrder[]
   /// The conversation with the reporter (svar), and the handlers' own notes
   /// and files beside it, which the reporter never reads (decision 18).
   messages    IssueMessage[]
   notes       IssueNote[]
   attachments IssueAttachment[]
+
+  /// The private link mailed to a reporter without an account (ADR 0055), when
+  /// one was issued.
+  reporterLink IssueReporterLink?
 
   /// The post this issue was reported from, when it was.
   post Post?
@@ -4657,6 +4705,143 @@ model IssuePhoto {
   @@unique([issueId, fileId])
   @@index([issueId, sortOrder])
   @@map("issue_photo")
+}
+
+/// A firm or tradesperson the association hires to work on the building
+/// (entreprenör): the association's own list, kept by the board.
+///
+/// Never an account, a person in the register or a handler of issues. A
+/// contractor is reached by a work order and nothing else, and reads nothing in
+/// the instance. A sole trader's name, telephone number and address are
+/// personal data all the same, which is why a contractor can be removed from
+/// the list at any time: what was sent them stays on the work order, which
+/// keeps its own copy of whom it went to. The telephone number and the address
+/// are encrypted at rest, as a reporter's address is, with no blind index:
+/// nothing looks a contractor up by either.
+model Contractor {
+  id String @id @default(cuid())
+
+  name  String
+  trade String
+
+  /// For the handler to ring; never sent anywhere.
+  phoneCipher String?
+
+  /// Where a work order is mailed. Optional, because a contractor the board
+  /// rings rather than mails still belongs on the list, and is then offered
+  /// for no work order.
+  emailCipher String?
+
+  /// Whether handlers are offered the contractor for a new work order. Switched
+  /// off rather than removed by a board that stops using a firm and wants the
+  /// list to say whom it used.
+  active Boolean @default(true)
+
+  workOrders WorkOrder[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, name])
+  @@map("contractor")
+}
+
+/// Whether a work order's mail went out.
+enum WorkOrderDeliveryStatus {
+  /// Written, and not yet handed to a mail server.
+  PENDING
+  /// Accepted by the mail server. Not a claim that anybody read it.
+  SENT
+  /// The mail server refused it, this instance has none configured, or the
+  /// sending stopped where nothing can tell whether it went out. The work
+  /// order is on the issue either way: what failed is the sending.
+  FAILED
+}
+
+/// What a handler sent a contractor about one issue (arbetsorder), and the
+/// record of it: who received it, when, and what it said.
+///
+/// The record is the point. GDPR art. 15(1)(c) has the association tell a
+/// person which recipients their data was disclosed to, and art. 19 has it tell
+/// each recipient of a later rectification or erasure, and neither can be
+/// answered from a mail server's log. So the row is written before the mail is
+/// sent, with a copy of the recipient as the mail addressed them and the text
+/// as it was previewed, and the sending is a job that follows the commit (the
+/// board mailbox's reply is the precedent).
+///
+/// The text is the handler's and nothing else. The mail carries no report,
+/// no reporter and no link into the application, so what leaves the instance is
+/// what the handler wrote and read back before sending (decision 23 of the issue
+/// module's plan).
+///
+/// Mailed because the contractor's own link is not yet switched on (decision
+/// 25): this is the way a work order travels until it is, and stays the
+/// record of what was sent once it is.
+model WorkOrder {
+  id String @id @default(cuid())
+
+  /// Cascade: a work order is part of its issue's record, and an issue removed
+  /// takes it along.
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The contractor on the list it was written to. SetNull: a contractor
+  /// removed from the list leaves the record of what was sent them, which
+  /// names them by the copy below.
+  contractorId String?
+  contractor   Contractor? @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+
+  /// Whom it went to, as the mail addressed them. Copied rather than read
+  /// through the contractor, so the record keeps saying who received it after
+  /// the list is corrected. The address encrypted as the contractor's is, with
+  /// the work order's id as its context.
+  ///
+  /// Both null once the contractor is removed from the list: removing a
+  /// contractor is how a sole trader's erasure is honoured, and it reaches
+  /// the copies on their work orders too (`ContractorService.remove`). The
+  /// row stays, so the issue still records that a work order went out, when,
+  /// and what it said.
+  recipientName        String?
+  recipientEmailCipher String?
+
+  /// The work order, as the handler wrote and previewed it. Null once the
+  /// retention window after its issue was closed has run out
+  /// (`IssuePurgeService`, `WORK_ORDER_BODY_RETENTION_DAYS`), or once a
+  /// handler redacted it (`IssueRedactionService`): the text is the handler's
+  /// free text and may name people.
+  body String?
+
+  /// When a handler redacted the text (ADR 0057), so the record reads as
+  /// redacted rather than as erased by the clock. Set only over a null body,
+  /// which a check in the migration holds.
+  redactedAt DateTime?
+
+  /// The handler who sent it. A plain column, for the reason the issue's
+  /// `reporterPersonId` gives. Detached when the person is erased
+  /// (`PurgeService.purgePerson`), as the issue's `enteredByPersonId` is: the
+  /// order stays with its recipient, date and contents, and stops naming the
+  /// sender.
+  sentByPersonId String?
+
+  deliveryStatus WorkOrderDeliveryStatus @default(PENDING)
+
+  /// Why it did not go out, as a code and never as the mail server's own
+  /// words, which quote the envelope back. See `work-order-delivery.ts`.
+  deliveryFailure String?
+
+  /// When an attempt claimed it for sending, a moment before it was handed to
+  /// a mail server, and cleared again when the sending is recorded as failed.
+  /// A time here beside PENDING is a sending nothing has confirmed.
+  claimedAt DateTime?
+
+  /// When the handler sent it: the date the record answers with.
+  createdAt DateTime @default(now())
+
+  @@index([issueId, createdAt])
+  @@index([contractorId])
+  /// The sender's own work orders in the last hour, for the sending budget.
+  @@index([sentByPersonId, createdAt])
+  @@map("work_order")
 }
 
 /// The association's responsibility guide (ansvarsfördelning) as a whole:
@@ -4835,6 +5020,50 @@ model IssueAttachment {
 
   @@index([issueId, sortOrder])
   @@map("issue_attachment")
+}
+
+/// The private link (privat länk) mailed to the reporter of an issue who has
+/// no account and left an email address on the website's form (decision 20,
+/// ADR 0055). Whoever holds it reads the issue's conversation on a page of its
+/// own and writes in it, text only, and nothing else of the issue.
+///
+/// One per issue at most, issued with the first mail to the reporter's address
+/// and never again: there is no way to ask for it to be sent once more, so the
+/// website's form cannot be turned into a way to mail somebody.
+///
+/// The token is never stored. `tokenDigest` is its SHA-256 digest
+/// (`hashOpaqueToken`), unique, and the link is looked up by it alone. Whether
+/// it still opens anything is read with it on every request, on the database's
+/// clock: not revoked, not expired, the issue's contact details not purged,
+/// and the issue not closed more than 30 days ago (`issue-reporter-link.ts`).
+model IssueReporterLink {
+  id String @id @default(cuid())
+
+  /// Cascade: a link to an issue that is gone opens nothing.
+  issueId String @unique
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The token's SHA-256 digest, base64url. Replaced only while no mail has
+  /// carried the link yet (`mailedAt` null), when a delivery that failed is
+  /// tried again with a token of its own.
+  tokenDigest String @unique
+
+  /// When the token behind `tokenDigest` was minted.
+  issuedAt DateTime @default(now())
+
+  /// When the mail carrying it was handed to the mail server; null until then.
+  mailedAt DateTime?
+
+  /// The link's own end, 365 days after the latest issue message or the day the
+  /// link was issued, whichever is later. An issue that stays open does not keep a link alive
+  /// on its own (ADR 0055).
+  expiresAt DateTime
+
+  /// When a handler withdrew it, or null. A withdrawn link stays withdrawn.
+  revokedAt DateTime?
+
+  @@index([issuedAt])
+  @@map("issue_reporter_link")
 }
 
 /// A reply the association keeps for its handlers to start an issue message

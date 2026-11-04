@@ -512,11 +512,16 @@ export type ReportAuditAction =
   | "ISSUE_COST_RESPONSIBILITY_CHANGED"
   | "ISSUE_MESSAGE_SENT"
   | "ISSUE_NOTE_ADDED"
+  | "ISSUE_REPORTER_LINK_ISSUED"
+  | "ISSUE_REPORTER_LINK_REVOKED"
   | "ISSUE_REDACTED"
   | "ISSUE_LEGAL_HOLD_PLACED"
   | "ISSUE_LEGAL_HOLD_RELEASED"
   | "ISSUE_RETENTION_RECORDED"
   | "ISSUE_RESIDENTS_LISTED"
+  | "ISSUE_WORK_ORDER_SENT"
+  | "CONTRACTOR_LIST_CHANGED"
+  | "ISSUE_TYPE_RING_FENCE_CHANGED"
   | "MOVE_IN_RECORDED"
   | "MOVE_OUT_RECORDED"
   | "PLUGIN_ENABLED"
@@ -836,6 +841,18 @@ export interface DataSubjectReport {
     freeTextRemovedAt: string | null;
     reportedAt: string;
     photographs: number;
+    /**
+     * Whom the issue was sent to, oldest first. `recipientName` is null once
+     * the contractor was removed from the list. Never the text or an address.
+     */
+    workOrders: {
+      recipientName: string | null;
+      /** When it was written and queued; whether it went is `deliveryStatus`. */
+      writtenAt: string;
+      deliveryStatus: "PENDING" | "SENT" | "FAILED";
+      /** A failure known not to have gone out: "not sent", not "not confirmed". */
+      notSent: boolean;
+    }[];
   }[];
   documents: {
     documentId: string;
