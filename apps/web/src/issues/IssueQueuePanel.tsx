@@ -366,6 +366,12 @@ function HandlingDisclosure({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const redaction = useIssueRedaction(issue, onChanged);
+  /*
+   * Bumped by a file uploaded in the conversation below, which the finding's
+   * protocol list above it reads again on: neither panel writes to the issue's
+   * own row, so nothing else tells the one that did not upload.
+   */
+  const [uploads, setUploads] = useState(0);
   return (
     <details
       className="flex flex-col gap-3"
@@ -385,12 +391,16 @@ function HandlingDisclosure({
             issue={issue}
             type={type}
             canManageCharges={canManageCharges}
+            filesRevision={uploads + redaction.revision}
             onChanged={onChanged}
           />
           <IssueFreeTextSection issue={issue} control={redaction} />
           <IssueConversation
             issue={issue}
             onStale={onChanged}
+            onUploaded={() => {
+              setUploads((count) => count + 1);
+            }}
             redaction={redaction}
           />
         </fieldset>

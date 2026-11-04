@@ -126,6 +126,7 @@ export function IssueHandling({
   issue,
   type,
   canManageCharges = false,
+  filesRevision = 0,
   onChanged,
 }: {
   issue: QueuedIssue;
@@ -137,6 +138,11 @@ export function IssueHandling({
    * refuses the read without it.
    */
   canManageCharges?: boolean;
+  /**
+   * Changes when a file is added to or removed from the issue beside this
+   * panel, which the finding's protocol list reads again on.
+   */
+  filesRevision?: number;
   onChanged: () => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
@@ -304,6 +310,7 @@ export function IssueHandling({
         again here, as after a save of this panel's own. */}
       <IssueFitHandling
         issue={issue}
+        filesRevision={filesRevision}
         onChanged={() => {
           setReads((count) => count + 1);
           onChanged();

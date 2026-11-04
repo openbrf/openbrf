@@ -342,6 +342,29 @@ describe("the inspection finding", () => {
     ).toBeTruthy();
   });
 
+  it("offers a file uploaded beside the panel once its revision says so", async () => {
+    fetchIssueAttachments.mockResolvedValue({ ok: true, value: [] });
+    const value = issue();
+    const view = render(
+      <IssueFitHandling issue={value} filesRevision={0} onChanged={vi.fn()} />,
+    );
+    expect(
+      await screen.findByText(/bifoga protokollet under filer först/i),
+    ).toBeTruthy();
+
+    fetchIssueAttachments.mockResolvedValue({ ok: true, value: [PROTOCOL] });
+    view.rerender(
+      <IssueFitHandling issue={value} filesRevision={1} onChanged={vi.fn()} />,
+    );
+
+    expect(
+      await screen.findByRole("option", { name: /hissbesiktning\.pdf/ }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(/bifoga protokollet under filer först/i),
+    ).toBeNull();
+  });
+
   it("shows a finding, and takes the mark off", async () => {
     const session = userEvent.setup();
     renderFit(

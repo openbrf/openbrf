@@ -15,6 +15,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { residencyHeldOn } from "../registers/held-on";
+import { lockResidencyTransitions } from "../registers/residency-lock";
 import { refusePersonalIdentityNumbers } from "./issue-conversation.service";
 import { requireFindingTargetDate } from "./issue-finding-rule";
 import {
@@ -128,6 +129,18 @@ export class IssueFitService {
   ): Promise<IssueEntryView | null> {
     const data = entryData(input, false);
     return this.prisma.$transaction(async (tx) => {
+      /*
+       * A yes reads the reporter's residency, so it takes the key a move-out
+       * takes before it changes one: the move-out either commits first and is
+       * seen by the read below, or waits for this answer to commit. Taken
+       * before the issue's key, the order the person purge keeps (the person's
+       * key, then each of their issues'), so the two never wait on each other
+       * the other way round. A no or a handler's record reads no residency and
+       * takes nothing extra.
+       */
+      if (data?.entryAnswer === "YES") {
+        await lockResidencyTransitions(tx, reporterPersonId);
+      }
       await lockIssue(tx, issueId);
       const issue = await this.requireReported(tx, issueId, reporterPersonId);
       /*
@@ -137,6 +150,10 @@ export class IssueFitService {
        * apartment that is no longer theirs: another household may hold it now.
        * A no, and a handler's record of what the resident said, are not held
        * to this: neither opens a door.
+       *
+       * A move-out recorded afterwards does not clear a yes already stored: its
+       * date may still be ahead, the resident lives there until it, and the
+       * answer has its own last day and is cleared when the issue closes.
        */
       if (data?.entryAnswer === "YES" && issue.apartmentId !== null) {
         const resident = await tx.residency.findFirst({

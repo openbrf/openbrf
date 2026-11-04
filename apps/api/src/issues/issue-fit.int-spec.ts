@@ -16,6 +16,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { registerMultipart } from "../http/multipart";
 import { pngBytes } from "../media/testing/image-fixtures";
+import { lockResidencyTransitions } from "../registers/residency-lock";
 import { StorageService } from "../storage/storage.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
@@ -673,6 +674,47 @@ describe("permission to enter", () => {
       });
       await prisma.residency.delete({ where: { id: newResidency.id } });
       await prisma.apartment.delete({ where: { id: otherApartmentId } });
+    }
+  });
+
+  it("is not granted when the reporter's move-out is committing as the yes arrives", async () => {
+    const issueId = await filed(plain);
+    const residency = await prisma.residency.findFirstOrThrow({
+      where: { personId: resident.personId, apartmentId },
+      select: { id: true },
+    });
+
+    // A move-out under way: it holds the person's transition key and has
+    // written an end date that its own snapshot shows and the yes's does not.
+    const moveOut = await heldOpen(async (tx) => {
+      await lockResidencyTransitions(tx, resident.personId);
+      await tx.residency.update({
+        where: { id: residency.id },
+        data: { movedOutOn: new Date(dayFromToday(-1)) },
+      });
+    });
+    try {
+      const answer = call(
+        resident,
+        "PUT",
+        `/api/issues/${issueId}/entry-permission`,
+        { answer: "YES" },
+      );
+      expect(await blockedBehind(moveOut.pid)).toBe(true);
+      moveOut.release();
+      await moveOut.done;
+
+      const yes = await answer;
+      expect(yes.statusCode).toBe(409);
+      expect(yes.json()).toMatchObject({ reason: "entry-not-resident" });
+      expect(await stored(issueId)).toMatchObject({ entryAnswer: null });
+    } finally {
+      moveOut.release();
+      await moveOut.done.catch(() => undefined);
+      await prisma.residency.update({
+        where: { id: residency.id },
+        data: { movedOutOn: null },
+      });
     }
   });
 

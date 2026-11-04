@@ -94,9 +94,16 @@ function perform(issueId: string, act: Act): Promise<ApiResult<QueuedIssue>> {
  */
 export function IssueFitHandling({
   issue,
+  filesRevision = 0,
   onChanged,
 }: {
   issue: QueuedIssue;
+  /**
+   * Changes when a file is added to or removed from the issue elsewhere on the
+   * screen. Neither moves the issue's own revision, so the protocol list would
+   * keep what it read before.
+   */
+  filesRevision?: number;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -130,7 +137,7 @@ export function IssueFitHandling({
     return () => {
       active = false;
     };
-  }, [issue.id, issue.updatedAt, reads]);
+  }, [issue.id, issue.updatedAt, reads, filesRevision]);
 
   const save = useSaveAction(
     (act: Act) => perform(issue.id, act),
