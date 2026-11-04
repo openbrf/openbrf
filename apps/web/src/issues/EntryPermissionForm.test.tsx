@@ -157,6 +157,32 @@ describe("answering", () => {
     ).toBe("2020-01-01");
   });
 
+  it("says a yes comes from someone who lives in the apartment, with the draft kept", async () => {
+    const session = userEvent.setup();
+    answer.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "entry-not-resident" },
+    });
+    renderForm();
+
+    await session.click(screen.getByLabelText("Ja"));
+    await session.type(
+      screen.getByLabelText("Gäller till och med"),
+      "2027-03-01",
+    );
+    await session.click(screen.getByRole("button", { name: "Spara svar" }));
+
+    expect(
+      await screen.findByText(/bara den som bor i lägenheten/i),
+    ).toBeTruthy();
+    expect((screen.getByLabelText("Ja") as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect(
+      (screen.getByLabelText("Gäller till och med") as HTMLInputElement).value,
+    ).toBe("2027-03-01");
+  });
+
   it("asks for the issue to be read again when it was closed meanwhile", async () => {
     const session = userEvent.setup();
     answer.mockResolvedValue({

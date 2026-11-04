@@ -1728,9 +1728,11 @@ export function DataSubjectReport({
                                 ? "issues.entry.answerYes"
                                 : "issues.entry.answerNo",
                             ),
-                            // Each answer as it was recorded, a "no" as much
-                            // as a "yes": the copy states what is held, and
-                            // leaves out only what was never asked.
+                            // Each part as it is held. A yes always records
+                            // pets and the master key, false when the entry
+                            // gave neither, so it prints "no pets" and "master
+                            // key may not be used" then too; a no holds
+                            // neither and prints neither.
                             details: [
                               recordedFlag(
                                 issue.entry.pets,

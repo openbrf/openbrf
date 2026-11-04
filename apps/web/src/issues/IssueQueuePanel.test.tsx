@@ -25,7 +25,9 @@ import { IssueQueuePanel } from "./IssueQueuePanel";
  * The case worth having is the protected reporter. This queue is read by an
  * external property manager, and a person with protected personal data
  * (skyddade personuppgifter) is masked in it - the server sends no name, and
- * the panel must not invent one from the identifier it does get.
+ * the panel must not invent one from the identifier it does get. Nor does it
+ * name their apartment; whether the issue is about one at all is not their
+ * home and is said (`aboutApartment`).
  *
  * And the move between statuses (ADR 0054): the type's own statuses are
  * offered, a status that means waiting asks whom or what for, and closing asks
@@ -315,7 +317,7 @@ describe("who reported it", () => {
     expect(screen.queryByText("Rune Boende")).toBeNull();
   });
 
-  it("says the apartment of a protected reporter is withheld, not missing", () => {
+  it("says the apartment of a protected reporter is withheld, not missing, where the issue is about one", () => {
     // The server sends no apartment for them: on their report it is where they
     // live. "Not about an apartment" would tell the handler something false.
     render(
@@ -324,6 +326,7 @@ describe("who reported it", () => {
           issue({
             reporter: { kind: "protected" },
             apartment: null,
+            aboutApartment: true,
           }),
         ]}
         types={TYPES}
@@ -335,6 +338,30 @@ describe("who reported it", () => {
       screen.getByText("Visas inte, skyddade personuppgifter."),
     ).toBeTruthy();
     expect(screen.queryByText(/gäller ingen lägenhet/i)).toBeNull();
+  });
+
+  it("says a protected reporter's common-area issue is about no apartment, as for any reporter", () => {
+    // `aboutApartment` is the one fact the server gives without naming the
+    // apartment, so it tells nothing about where the reporter lives; the row
+    // then says what the fit screen beside it says.
+    render(
+      <IssueQueuePanel
+        issues={[
+          issue({
+            reporter: { kind: "protected" },
+            apartment: null,
+            aboutApartment: false,
+          }),
+        ]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText(/gäller ingen lägenhet/i)).toBeTruthy();
+    expect(
+      screen.queryByText("Visas inte, skyddade personuppgifter."),
+    ).toBeNull();
   });
 
   it("says plainly when the register no longer holds the reporter", () => {

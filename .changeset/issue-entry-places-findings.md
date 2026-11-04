@@ -52,8 +52,11 @@ the common area it is about, and the mark of an inspection finding.
   no later than a month after the inspection (BFS 2025:11, 1 kap. 17 §); the
   other kinds have the date the handler sets. The first mark places a legal
   hold on the issue, so the protocol and the issue's text are kept until a
-  handler releases the hold; taking the mark off leaves the hold standing. When
+  handler releases the hold, which the form says; taking the mark off leaves the
+  hold standing, and a mark put on again places it again. When
   the protocol is removed from the issue after that, the mark stays.
 
 The audit log records each of these acts with who acted and the facts, never the
-note or a file's name.
+note or a file's name; of an entry permission only that an answer was given and
+which, since the rest is about somebody's home and the log outlives the issue's
+closing.

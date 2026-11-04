@@ -263,6 +263,14 @@ describe("permission to enter", () => {
 });
 
 describe("the inspection finding", () => {
+  it("says before the mark that it places a legal hold", async () => {
+    renderFit(issue());
+
+    expect(
+      await screen.findByText(/lägger ett rättsligt bevarandekrav på ärendet/i),
+    ).toBeTruthy();
+  });
+
   it("marks a finding with its protocol and target date", async () => {
     const session = userEvent.setup();
     renderFit(issue());

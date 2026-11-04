@@ -106,7 +106,11 @@ Neither clock, the free-text layer's or a work order's text's, runs while a
 legal hold applies:
 
 - **on the case**, which marking a case as a damage case sets (decision 28) and
-  which is placed and released with a date, as a person's legal hold is;
+  so does the first mark of an inspection finding, where none stands (decision
+  31), and which is placed and released with a date, as a person's legal hold
+  is. It is one date with no reason beside it, so taking the finding's mark off
+  leaves it, and a handler releases it as any other; a mark put on again after
+  that is a new finding and places it again;
 - **on its reporter**, a legal hold or a restriction under art. 18, as the
   website form's purge already reads one through the reporter's address index.
 
@@ -226,7 +230,8 @@ What it reaches:
 - **Kept, and counted as kept**: a case the person reported that is not in the
   `DONE` meaning, which is still with the board as an open key order or motion
   is ([ADR 0016](0016-closing-a-granted-erasure-on-evidence.md)), and a case
-  under a legal hold of its own, such as a damage case. Each holds the request
+  under a legal hold of its own, such as a damage case or an inspection
+  finding. Each holds the request
   open, with its reason, until the case closes or the hold is released.
 
 A person named in a case somebody else reported is not reached by this job. That

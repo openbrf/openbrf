@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { AddressService } from "../addresses/address.service";
 import { AppModule } from "../app.module";
+import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
@@ -23,7 +24,8 @@ import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
-import { holdOfferedPlace } from "./issue-lock";
+import { NO_ENTRY_PERMISSION } from "./issue-fit-views";
+import { holdOfferedPlace, lockIssue } from "./issue-lock";
 import {
   ISSUE_NOTICE_QUEUE,
   ISSUE_OVERDUE_QUEUE,
@@ -250,11 +252,15 @@ async function blockedBehind(holderPid: number): Promise<boolean> {
 }
 
 /**
- * Holds a transaction open after `work`, with the row locks it took, until the
- * returned `release` is called. `pid` is its backend, for {@link blockedBehind}.
+ * Holds a transaction open after `work`, with the locks it took, until the
+ * returned `release` is called, and then runs `after` in it, as a write that
+ * read first and writes once a second party is queued behind it. `pid` is its
+ * backend, for {@link blockedBehind}. A `work` that throws rejects `done` and
+ * this call alike, so a failure there does not leave the caller waiting.
  */
 async function heldOpen(
   work: (tx: Prisma.TransactionClient) => Promise<unknown>,
+  after?: (tx: Prisma.TransactionClient) => Promise<unknown>,
 ): Promise<{ pid: number; release: () => void; done: Promise<unknown> }> {
   let holding!: (pid: number) => void;
   const holds = new Promise<number>((resolve) => {
@@ -271,6 +277,7 @@ async function heldOpen(
     >`SELECT pg_backend_pid() AS pid`;
     holding(backend?.pid ?? 0);
     await released;
+    await after?.(tx);
   });
   const pid = await Promise.race([holds, done.then(() => 0)]);
   return { pid, release, done };
@@ -510,13 +517,9 @@ describe("permission to enter", () => {
       (entry) => entry.action === "ISSUE_ENTRY_PERMISSION_SET",
     );
     expect(set?.actorPersonId).toBe(resident.personId);
-    expect(set?.context).toMatchObject({
-      answer: "YES",
-      pets: true,
-      masterKey: true,
-      until,
-      byReporter: true,
-    });
+    // The answer and who gave it; the details of the home go with the issue's
+    // closing, and the audit log would outlive that.
+    expect(set?.context).toEqual({ answer: "YES", byReporter: true });
     expect(JSON.stringify(entries)).not.toContain("Ring Bea");
   });
 
@@ -674,6 +677,35 @@ describe("permission to enter", () => {
       });
       await prisma.residency.delete({ where: { id: newResidency.id } });
       await prisma.apartment.delete({ where: { id: otherApartmentId } });
+    }
+  });
+
+  it("is not granted by a reporter whose residency has not begun, who is stopped at the door", async () => {
+    // Before the service's own residency check: somebody who does not live
+    // anywhere yet holds no resident's scope.
+    const issueId = await filed(plain);
+    const residency = await prisma.residency.findFirstOrThrow({
+      where: { personId: resident.personId, apartmentId },
+      select: { id: true, movedInOn: true },
+    });
+    await prisma.residency.update({
+      where: { id: residency.id },
+      data: { movedInOn: new Date(dayFromToday(5)) },
+    });
+    try {
+      const yes = await call(
+        resident,
+        "PUT",
+        `/api/issues/${issueId}/entry-permission`,
+        { answer: "YES" },
+      );
+      expect(yes.statusCode).toBe(403);
+      expect(await stored(issueId)).toMatchObject({ entryAnswer: null });
+    } finally {
+      await prisma.residency.update({
+        where: { id: residency.id },
+        data: { movedInOn: residency.movedInOn },
+      });
     }
   });
 
@@ -991,6 +1023,84 @@ describe("permission to enter", () => {
         },
       }),
     ).toBe(1);
+  });
+
+  it("records one withdrawal when a handler's withdrawal and the apartment's removal come together", async () => {
+    const goneId = `if-apartment-withdrawn-${suffix}`;
+    await prisma.apartment.create({
+      data: {
+        id: goneId,
+        addressId: `if-address-${suffix}`,
+        number: "1705",
+        floor: 7,
+      },
+    });
+    const issueId = await filed(plain, { withApartment: false });
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        apartmentId: goneId,
+        entryAnswer: "YES",
+        entryPets: false,
+        entryMasterKey: true,
+      },
+    });
+
+    // A withdrawal as the service makes it: under the issue's lock it reads
+    // the answer and records the withdrawal, and writes the clearing last.
+    const withdrawal = await heldOpen(
+      async (tx) => {
+        await lockIssue(tx, issueId);
+        const read = await tx.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          select: { entryAnswer: true },
+        });
+        expect(read.entryAnswer).toBe("YES");
+        await app.get(AuditLogService).record(
+          {
+            action: "ISSUE_ENTRY_PERMISSION_REMOVED",
+            channel: "WEB",
+            actorPersonId: board.personId,
+            targetKind: "issue",
+            targetId: issueId,
+            context: { byReporter: false },
+          },
+          tx,
+        );
+      },
+      (tx) =>
+        tx.issue.updateMany({
+          where: { id: issueId },
+          data: NO_ENTRY_PERMISSION,
+        }),
+    );
+    let removal: Promise<unknown> | undefined;
+    try {
+      removal = app
+        .get(AddressService)
+        .removeApartment(goneId, { personId: board.personId, channel: "WEB" });
+      // Behind the withdrawal's issue lock, so it reads the answer once it is
+      // cleared. Without the lock it would take the row, read the answer the
+      // withdrawal has already recorded as taken off, and record it again.
+      expect(await blockedBehind(withdrawal.pid)).toBe(true);
+    } finally {
+      withdrawal.release();
+      await withdrawal.done.catch(() => undefined);
+      await removal?.catch(() => undefined);
+    }
+    await withdrawal.done;
+    await removal;
+
+    expect(
+      await prisma.auditLogEntry.count({
+        where: {
+          targetKind: "issue",
+          targetId: issueId,
+          action: "ISSUE_ENTRY_PERMISSION_REMOVED",
+        },
+      }),
+    ).toBe(1);
+    expect(await stored(issueId)).toMatchObject({ entryAnswer: null });
   });
 
   it("stays, with nothing recorded, when a key refuses the apartment's removal", async () => {
@@ -1372,36 +1482,30 @@ describe("common-area places", () => {
 
     // The write holds the place, then waits for the removal to be under way
     // before it names it, as a report or a handler's change does.
-    let holding!: () => void;
-    const holds = new Promise<void>((resolve) => {
-      holding = resolve;
-    });
-    let release!: () => void;
-    const released = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let holderPid = 0;
-    const write = prisma.$transaction(async (tx) => {
-      expect(await holdOfferedPlace(tx, held)).toBe(true);
-      const [backend] = await tx.$queryRaw<
-        { pid: number }[]
-      >`SELECT pg_backend_pid() AS pid`;
-      holderPid = backend?.pid ?? 0;
-      holding();
-      await released;
-      await tx.issue.update({
-        where: { id: issueId },
-        data: { placeId: held },
-      });
-    });
-    await holds;
+    const write = await heldOpen(
+      async (tx) => {
+        expect(await holdOfferedPlace(tx, held)).toBe(true);
+      },
+      (tx) =>
+        tx.issue.update({
+          where: { id: issueId },
+          data: { placeId: held },
+        }),
+    );
 
-    const removal = (async () =>
-      call(admin, "DELETE", `/api/issue-places/${held}`))();
-    expect(await blockedBehind(holderPid)).toBe(true);
-
-    release();
-    await write;
+    let removal: ReturnType<typeof call> | undefined;
+    try {
+      removal = call(admin, "DELETE", `/api/issue-places/${held}`);
+      expect(await blockedBehind(write.pid)).toBe(true);
+    } finally {
+      // Also when the wait failed: the held transaction would otherwise stand
+      // until the timeout of an interactive transaction, with the place locked
+      // for the rest of the file.
+      write.release();
+      await write.done.catch(() => undefined);
+      await removal?.catch(() => undefined);
+    }
+    await write.done;
     const refused = await removal;
     expect(refused.statusCode).toBe(409);
     expect(refused.json()).toMatchObject({ reason: "place-in-use" });
@@ -1502,6 +1606,24 @@ describe("an inspection finding", () => {
     // The same mark again changes no date and queues nothing more.
     await call(board, "PUT", `/api/issue-queue/${issueId}/finding`, finding);
     expect(await overdueJobs(issueId)).toHaveLength(1);
+
+    // A mark that moves the date queues a reminder for the new one; the old
+    // job stays and sends nothing, as for `IssueService.setTargetDate`.
+    const moved = {
+      ...finding,
+      targetDate: formatLocalDay(addLocalDays(today, 90)),
+    };
+    const remarked = await call(
+      board,
+      "PUT",
+      `/api/issue-queue/${issueId}/finding`,
+      moved,
+    );
+    expect(remarked.statusCode).toBe(200);
+    expect(await overdueJobs(issueId)).toEqual([
+      { issueId, targetDate: finding.targetDate },
+      { issueId, targetDate: moved.targetDate },
+    ]);
   });
 
   it("is read as overdue once its target date has passed", async () => {
@@ -1719,6 +1841,53 @@ describe("an inspection finding", () => {
     });
     expect(await holdOf(held)).toEqual(since);
     expect(await placed(held)).toEqual([]);
+  });
+
+  it("leaves a released hold released when the mark changes, and places it again on a new mark", async () => {
+    const issueId = await filed(plain, { withApartment: false });
+    const protocol = await attachProtocol(board, issueId);
+    const finding = {
+      kind: "LIFT",
+      inspectedOn: "2026-03-10",
+      protocolAttachmentId: protocol,
+      targetDate: "2026-04-01",
+    };
+    const holdOf = async (): Promise<Date | null> =>
+      (
+        await prisma.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          select: { legalHoldAt: true },
+        })
+      ).legalHoldAt;
+    const url = `/api/issue-queue/${issueId}/finding`;
+
+    await call(board, "PUT", url, finding);
+    expect(await holdOf()).not.toBeNull();
+
+    // A handler released the hold on purpose. Changing the finding is not
+    // marking it, so the release stands.
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: { legalHoldAt: null },
+    });
+    await call(board, "PUT", url, { ...finding, targetDate: "2026-03-31" });
+    expect(await holdOf()).toBeNull();
+
+    // A mark put on after the mark was taken off is a new finding, which the
+    // association may have to show as the first was: the hold is placed again.
+    await call(board, "DELETE", url);
+    expect(await holdOf()).toBeNull();
+    await call(board, "PUT", url, finding);
+    expect(await holdOf()).not.toBeNull();
+    expect(
+      await prisma.auditLogEntry.count({
+        where: {
+          targetKind: "issue",
+          targetId: issueId,
+          action: "ISSUE_LEGAL_HOLD_PLACED",
+        },
+      }),
+    ).toBe(2);
   });
 
   it("is kept from the reporter, and from a handler the issue shuts out", async () => {

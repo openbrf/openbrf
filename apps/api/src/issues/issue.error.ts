@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import { parseLocalDay } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
 
@@ -36,8 +37,7 @@ import { DomainError } from "../http/domain-error";
  * The handling reasons. `assignee-not-a-handler` is somebody who does not
  * handle the issue now, a person the list never offered or one who stopped
  * handling since it was read; a person who does not exist gets the same
- * answer, so the route names nobody. `target-date-invalid` is a date the
- * calendar does not have. `resident-not-found` is a residency named on an
+ * answer, so the route names nobody. `resident-not-found` is a residency named on an
  * issue a handler opens that is not held today - ended, not yet begun, or
  * none at all - answered alike for the reason an apartment is.
  *
@@ -92,8 +92,8 @@ import { DomainError } from "../http/domain-error";
  * with where it starts and never the value. `finding-needs-target-date` and
  * `finding-target-date-too-late` hold a finding to a real target date and a lift to
  * its one month; `finding-protocol-not-found` is a protocol that is not one of
- * the issue's own handler files, and `date-invalid` a date the calendar does
- * not have.
+ * the issue's own handler files. `date-invalid` is a date the calendar does not
+ * have, of the target date, the inspection or the permission alike.
  */
 export type IssueReason =
   | "type-not-found"
@@ -112,7 +112,6 @@ export type IssueReason =
   | "default-status-required"
   | "too-many-statuses"
   | "assignee-not-a-handler"
-  | "target-date-invalid"
   | "resident-not-found"
   | "contractor-not-found"
   | "contractor-without-email"
@@ -195,7 +194,6 @@ export class IssueError extends DomainError {
                 reason === "outcome-required" ||
                 reason === "status-detail-not-applicable" ||
                 reason === "assignee-not-a-handler" ||
-                reason === "target-date-invalid" ||
                 reason === "personal-identity-number" ||
                 reason === "place-name-apartment" ||
                 reason === "entry-until-past" ||
@@ -231,4 +229,19 @@ export function placeWithApartment(): IssueError {
     "A common-area place is for an issue that is not about an apartment.",
     "place-with-apartment",
   );
+}
+
+/**
+ * A calendar day the calendar has, or the refusal (`date-invalid`): the one
+ * check every date an issue's request names goes through, the target date, the
+ * day of an inspection and the last day of a permission to enter.
+ */
+export function requireCalendarDay(
+  value: string,
+): NonNullable<ReturnType<typeof parseLocalDay>> {
+  const day = parseLocalDay(value);
+  if (day === null) {
+    throw new IssueError("That is not a date.", "date-invalid");
+  }
+  return day;
 }

@@ -8,6 +8,7 @@ import { isUniqueViolation } from "../database/unique-violation";
 import { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import { NO_ENTRY_PERMISSION } from "../issues/issue-fit-views";
+import { lockIssue } from "../issues/issue-lock";
 
 /**
  * The budget of an apartment's removal. It locks every issue of the apartment,
@@ -341,8 +342,23 @@ export class AddressService {
        * Each answer taken off is recorded as a withdrawal by whoever removed
        * the apartment, as a handler's is, so the issue's timeline does not end
        * on an answer it no longer holds. Facts only: never the note.
+       *
+       * Under each issue's own lock first, in identifier order as the person
+       * purge takes them, as every other writer of an issue does. A resident's
+       * or a handler's withdrawal holds that lock from its read to its commit,
+       * so the removal reads the answer after the withdrawal has cleared it,
+       * and the timeline shows one withdrawal for the answer and not two.
+       * The row lock below is for the writes that take no issue lock.
        */
       await this.prisma.$transaction(async (tx) => {
+        const own = await tx.issue.findMany({
+          where: { apartmentId: id },
+          select: { id: true },
+          orderBy: { id: "asc" },
+        });
+        for (const issue of own) {
+          await lockIssue(tx, issue.id);
+        }
         const issues = await tx.$queryRaw<
           { id: string; entryAnswer: string | null }[]
         >`SELECT "id", "entryAnswer" FROM "issue" WHERE "apartmentId" = ${id} ORDER BY "id" FOR UPDATE`;

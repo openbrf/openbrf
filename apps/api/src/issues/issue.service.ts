@@ -32,7 +32,6 @@ import {
   type LocalDay,
   localDayOf,
   localDayOfColumn,
-  parseLocalDay,
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
@@ -80,7 +79,11 @@ import {
 } from "./issue-reporter-link";
 import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import { IssueMailer } from "./issue-mailer.service";
-import { IssueError, placeWithApartment } from "./issue.error";
+import {
+  IssueError,
+  placeWithApartment,
+  requireCalendarDay,
+} from "./issue.error";
 import { workOrderKnownNotSent } from "./work-order-delivery";
 
 /**
@@ -1231,22 +1234,15 @@ export class IssueService {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
 
-      const scope = await this.readerScope(tx, actorPersonId, new Date());
-      const existing = await tx.issue.findFirst({
-        where: { id: issueId, ...issuesHandledWhere(scope) },
-        select: {
-          id: true,
-          typeId: true,
-          closedAt: true,
-          waitingReason: true,
-          outcome: true,
-          entryAnswer: true,
-          status: { select: { id: true, meaning: true } },
-        },
+      const existing = await requireHandledIssue(tx, issueId, actorPersonId, {
+        id: true,
+        typeId: true,
+        closedAt: true,
+        waitingReason: true,
+        outcome: true,
+        entryAnswer: true,
+        status: { select: { id: true, meaning: true } },
       });
-      if (existing === null) {
-        throw new IssueError("No such issue.", "issue-not-found");
-      }
 
       const target = await tx.issueStatus.findFirst({
         where: {
@@ -1450,10 +1446,7 @@ export class IssueService {
     targetDate: string | null,
     actorPersonId: string,
   ): Promise<QueuedIssueView> {
-    const day = targetDate === null ? null : parseLocalDay(targetDate);
-    if (targetDate !== null && day === null) {
-      throw new IssueError("That is not a date.", "target-date-invalid");
-    }
+    const day = targetDate === null ? null : requireCalendarDay(targetDate);
     const column = day === null ? null : dateColumnOf(day);
 
     await this.mailer.ensureQueues();
@@ -2014,11 +2007,12 @@ export class IssueService {
   /**
    * What a search of the queue matches: each of its words (`searchTermsOf`:
    * the first `ISSUE_SEARCH_LIMITS.terms` different ones; any after those are
-   * not read) somewhere in the issue's description, its place, the name of its
-   * common area, its type's name, its apartment's designation, its reporter's name, a message in its
-   * conversation with the reporter or an internal note on it, case aside and
-   * whichever Unicode form the text was stored in. The words need not all be
-   * in one place: one in a note and another in the description is a match.
+   * not read) somewhere in the issue's description, its location (the free
+   * text), the name of its common area, its type's name, its apartment's
+   * designation, its reporter's name, a message in its conversation with the
+   * reporter or an internal note on it, case aside and whichever Unicode form
+   * the text was stored in. The words need not all be in one place: one in a
+   * note and another in the description is a match.
    *
    * Never what the reader is not shown. A reporter with protected personal data
    * is shown without their name or apartment (`IssueReporterView`), so neither

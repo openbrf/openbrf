@@ -19,7 +19,7 @@ import {
   type ReporterIssueMessageView,
   toReporterView,
 } from "./issue-conversation.service";
-import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
+import { requireHandledIssue } from "./issue-handlers";
 import { lockIssue, lockIssueForHandling } from "./issue-lock";
 import {
   extendReporterLink,
@@ -644,18 +644,11 @@ export class IssueReporterLinkService implements OnModuleInit {
   async revoke(handlerPersonId: string, issueId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
-      const scope = await issueReaderScope(tx, handlerPersonId, new Date());
-      const issue = await tx.issue.findFirst({
-        where: { id: issueId, ...issuesHandledWhere(scope) },
-        select: {
-          reporterLink: {
-            select: { id: true, mailedAt: true, revokedAt: true },
-          },
+      const issue = await requireHandledIssue(tx, issueId, handlerPersonId, {
+        reporterLink: {
+          select: { id: true, mailedAt: true, revokedAt: true },
         },
       });
-      if (issue === null) {
-        throw new IssueError("No such issue.", "issue-not-found");
-      }
       const link = issue.reporterLink;
       if (link === null || link.mailedAt === null) {
         throw new IssueError(
