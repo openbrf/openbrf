@@ -16,6 +16,7 @@ import {
   type TransactionalSql,
 } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { lockHouseholdProtection } from "../issues/issue-lock";
 import { revokeLinksOfProtectedHousehold } from "../issues/work-order-link";
 import { endPluginAccesses } from "../plugin-access/plugin-access";
 import {
@@ -610,6 +611,18 @@ export class ImportApplyService implements OnModuleInit {
           ...decidedCandidates(plan, decisions),
         ];
         await lockResidencyTransitionsInOrder(tx, personsLocked);
+
+        // A chunk with a residency ends the links of a protected person's
+        // household as it writes it, and a person marked protected takes this
+        // lock before writing the person. So it is taken here, last of the
+        // advisory keys and before the chunk's first person write, not on the
+        // first residency: a chunk that held a person's row and then waited
+        // for it would close a cycle (see lockHouseholdProtection). It is
+        // held to the commit, so a chunk with residencies holds link issuing
+        // and protection back for as long as the chunk runs.
+        if (apartmentsLocked.length > 0) {
+          await lockHouseholdProtection(tx);
+        }
 
         // Then the plan again, through this transaction and under every lock.
         // The one above decided what to encrypt and what to lock; this one

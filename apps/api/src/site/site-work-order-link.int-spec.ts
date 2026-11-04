@@ -1390,6 +1390,93 @@ describe("H4. marking a person protected", () => {
     }
   });
 
+  it("is serialised with a move-in in the one order: a protection waits for the lock, not on the person's row, so a move-in that writes the person afterwards is never a deadlock victim", async () => {
+    const addressId = `wl-addr3-${suffix}`;
+    const apartmentId = `wl-apt3-${suffix}`;
+    const moverId = `wl-mover3-${suffix}`;
+    await prisma.address.create({
+      data: {
+        id: addressId,
+        street: "Låsgatan",
+        number: `${suffix}c`,
+        postalCode: "11122",
+        city: "Stockholm",
+        sortOrder: 923,
+      },
+    });
+    await prisma.apartment.create({
+      data: { id: apartmentId, addressId, number: "1203", floor: 3 },
+    });
+    await prisma.person.create({
+      data: { id: moverId, firstName: "Mats", lastName: `Flytt3${suffix}` },
+    });
+    const persons = app.get(PersonService);
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const inside = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    try {
+      // A move-in that holds the protection's lock, as it does from the
+      // residency on, and writes the person whose protection is waiting.
+      const moving = prisma.$transaction(
+        async (tx) => {
+          await app.get(MoveService).enterResidency(tx, {
+            actorPersonId: board.personId,
+            personId: moverId,
+            apartmentId,
+            role: "RESIDENT",
+            movedInOn: new Date("2999-01-01T00:00:00.000Z"),
+          });
+          entered();
+          await held;
+          await tx.person.update({
+            where: { id: resident.personId },
+            data: { preferredLocale: "sv" },
+          });
+        },
+        { timeout: 20_000 },
+      );
+      await inside;
+      const protecting = persons.setProtectedPersonalData({
+        personId: resident.personId,
+        protectedPersonalData: true,
+        actorPersonId: board.personId,
+      });
+      // Past Postgres's deadlock check (a second): a protection that had
+      // already taken the person's row would be waiting on the move-in while
+      // the move-in waits on it.
+      await Promise.race([
+        protecting,
+        new Promise((resolve) => setTimeout(resolve, 1500)),
+      ]);
+      release();
+      await moving;
+      await protecting;
+      expect(
+        (
+          await prisma.person.findUniqueOrThrow({
+            where: { id: resident.personId },
+            select: { protectedPersonalData: true },
+          })
+        ).protectedPersonalData,
+      ).toBe(true);
+    } finally {
+      release();
+      await prisma.person.update({
+        where: { id: resident.personId },
+        data: { protectedPersonalData: false },
+      });
+      await prisma.residency.deleteMany({ where: { personId: moverId } });
+      await prisma.person.deleteMany({ where: { id: moverId } });
+      await prisma.apartment.deleteMany({ where: { id: apartmentId } });
+      await prisma.address.deleteMany({ where: { id: addressId } });
+    }
+  });
+
   it("ends the links of an apartment's issues when a protected person's residency is recorded there", async () => {
     const ids = await linked();
     const addressId = `wl-addr2-${suffix}`;

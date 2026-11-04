@@ -187,11 +187,13 @@ export async function showsProtectedHousehold(
  * nothing. The reads still write nothing (ADR 0055).
  *
  * Called after the write that protects (the person's flag, or the residency),
- * and takes the household protection's lock before it reads anything, the
- * lock issuing a link takes too: a link issued at the same moment is either
- * found here and ended, or finds this protection and is refused. It also puts
- * a residency recorded and a person marked protected at the same moment one
- * after the other, so the second reads what the first wrote.
+ * by a caller that took the household protection's lock before that write
+ * (`lockHouseholdProtection` gives the order); it takes the lock again here
+ * before it reads anything, which costs nothing then. It is the lock issuing a
+ * link takes too: a link issued at the same moment is either found here and
+ * ended, or finds this protection and is refused. It also puts a residency
+ * recorded and a person marked protected at the same moment one after the
+ * other, so the second reads what the first wrote.
  *
  * Each ended link is audited on the channel of the write that ended it, never
  * with who the person is: the entry names the issue and the link only.

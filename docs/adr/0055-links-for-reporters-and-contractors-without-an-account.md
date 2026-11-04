@@ -331,7 +331,11 @@ sections above leave open, this is what was decided:
   reported and of the issues about that apartment, in the same transaction and
   audited on the channel of the write. Issuing a link and those writes take
   one lock (`lockHouseholdProtection`), so a link issued while a protection is
-  written is either found by it and revoked, or finds it and is refused.
+  written is either found by it and revoked, or finds it and is refused. Every
+  holder takes it after its other advisory locks and before it first writes a
+  person or a residency, so none waits on another while holding what that one
+  waits for; an import chunk with a residency holds it to the commit, and so
+  holds link issuing back for as long as the chunk runs.
   Clearing the protection restores nothing. A read still writes nothing. The
   handlers' record reads the same conditions, the protected household
   included, so it never says a link opens what the contractor is refused; the

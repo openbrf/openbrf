@@ -31,6 +31,7 @@ import {
   erasureWaitingOn,
   type ErasureRequestStatus,
 } from "../retention/erasure-waiting-on";
+import { lockHouseholdProtection } from "../issues/issue-lock";
 import { revokeLinksOfProtectedHousehold } from "../issues/work-order-link";
 import { computePersonPurgeDate } from "../retention/purge-date";
 import type { RequestPurgeRefusal } from "../retention/purge-refusal";
@@ -845,6 +846,14 @@ export class PersonService {
         // Nothing changed, so there is nothing to log. Recording a no-op would
         // pad the log with entries that never correspond to an act.
         return { protectedPersonalData: person.protectedPersonalData };
+      }
+
+      if (input.protectedPersonalData) {
+        // Before the person's row is written, not after: a move-in or an
+        // import chunk holds this lock and then writes this person, so holding
+        // the row while waiting for the lock would close a cycle (see
+        // lockHouseholdProtection).
+        await lockHouseholdProtection(tx);
       }
 
       await tx.person.update({

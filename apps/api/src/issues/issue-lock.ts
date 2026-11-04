@@ -172,10 +172,23 @@ export async function lockIssueForHandling(
  * reaches issues through residencies that a move-in or an import is writing
  * at the same moment, and an import holds many persons and apartments in one
  * transaction, so per-row keys would be taken in no one order. Both writes are
- * rare. Taken last: after the type's, the issue's and the work order's row by
- * issuing, and after the person's or the residency's own write by a
- * protection, so neither ever waits on the other's earlier locks while
- * holding this one. An advisory lock for the reason `lockIssue` gives.
+ * rare.
+ *
+ * The order, which every holder keeps so that none of them can wait on another
+ * while holding what that one waits for: taken after every other advisory key
+ * a transaction takes, and before the first write to a person or a residency.
+ * - Issuing takes it after the type's, the issue's and the work order's row.
+ * - `PersonService.setProtectedPersonalData` takes it before it writes the
+ *   person, so it never holds the person's row while it waits.
+ * - A move-in (`MoveService.enterResidency`) takes it after the apartment's and
+ *   the persons' transition locks, before the residency is written.
+ * - An import chunk with a residency takes it after the same locks, before its
+ *   first person is written. It holds it to the commit, so such a chunk holds
+ *   issuing a link and marking a person protected back for as long as the
+ *   chunk runs.
+ * `revokeLinksOfProtectedHousehold` takes it too, which costs nothing when its
+ * caller already holds it: an advisory lock is taken again by the same
+ * transaction at no cost. An advisory lock for the reason `lockIssue` gives.
  */
 export async function lockHouseholdProtection(
   tx: Prisma.TransactionClient,
