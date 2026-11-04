@@ -1608,6 +1608,61 @@ describe("the sending", () => {
     expect(await prisma.workOrder.count({ where: { issueId } })).toBe(1);
   });
 
+  it("checks a board-only issue's access after the lock on its sender, so a seat that ends while the sending waits refuses it", async () => {
+    const issueId = await filed(boardOnly, "sender-lock-seat");
+    const payload = {
+      contractorId: plumber.id,
+      body: `Byt kran. ${suffix}`,
+    };
+    const preview = await workOrder(as(board), issueId, payload, "preview");
+    expect(preview.statusCode).toBe(200);
+    const { previewToken } = preview.json<{ previewToken: string }>();
+
+    // The board's access is the seat, not a system role, so the seat is what
+    // ends while the sending waits. A sending that read the access before it
+    // took the lock would still find the seat and write the work order.
+    const key = `work-order-sender:${board.personId}`;
+    const holding = gate();
+    const released = gate();
+    const held = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+        await tx.boardPosition.updateMany({
+          where: { personId: board.personId },
+          data: { endedOn: new Date("2025-06-01") },
+        });
+        holding.reach();
+        await released.opened;
+      },
+      { timeout: 30_000 },
+    );
+    let sending: ReturnType<typeof workOrder> | undefined;
+    try {
+      await holding.reached;
+      sending = workOrder(as(board), issueId, { ...payload, previewToken });
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, false)) > 0n,
+      );
+      expect(await prisma.workOrder.count({ where: { issueId } })).toBe(0);
+      // The commit publishes the ended seat together with the lock's release.
+      released.open();
+      await held;
+      const refused = await sending;
+      expect(refused.statusCode).toBe(404);
+      expect(refused.json<{ reason: string }>().reason).toBe("issue-not-found");
+      expect(await prisma.workOrder.count({ where: { issueId } })).toBe(0);
+    } finally {
+      released.open();
+      await held.catch(() => undefined);
+      await sending?.catch(() => undefined);
+      // Later tests act as the board.
+      await prisma.boardPosition.updateMany({
+        where: { personId: board.personId },
+        data: { endedOn: null },
+      });
+    }
+  });
+
   it("claims a work order once, and mails it once, when two workers run it together", async () => {
     const issueId = await filed(plain, "claimed-once");
     const sent = (
