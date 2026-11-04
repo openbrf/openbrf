@@ -747,7 +747,7 @@ describe("a handler acts on an issue", () => {
     ]);
   });
 
-  it("counts an assignment notice a repeat within the hour drops as not queued", async () => {
+  it("counts an assignment notice a repeat in the same clock hour drops as not queued", async () => {
     const issueId = await report(unassignedType);
     await mailer.ensureQueues();
     const assign = () =>
@@ -761,7 +761,8 @@ describe("a handler acts on an issue", () => {
       );
 
     expect(await assign()).toBe(1);
-    // The same person for the same issue within the hour: nothing is queued.
+    // The same person for the same issue in the same clock hour: nothing is
+    // queued.
     expect(await assign()).toBe(0);
   });
 
@@ -835,7 +836,7 @@ describe("a handler acts on an issue", () => {
     await issues.assign(issueId, admin.personId, board.personId);
     await issues.assign(issueId, manager.personId, board.personId);
 
-    // The manager was told within the hour, and is not told again.
+    // The manager was told in the same clock hour, and is not told again.
     expect(
       (await notices(issueId))
         .slice(before)
@@ -926,7 +927,8 @@ describe("a handler acts on an issue", () => {
     expect(sent.map((input) => input.to)).toEqual([manager.email]);
     expect(await holdsSlot(first)).toBe(true);
 
-    // Away and back once more within the hour: the manager has been told.
+    // Away and back once more in the same clock hour: the manager has been
+    // told.
     await issues.assign(issueId, admin.personId, board.personId);
     await issues.assign(issueId, manager.personId, board.personId);
     expect(
@@ -1060,7 +1062,8 @@ describe("a handler acts on an issue", () => {
     await setNoticeState(newer, "completed");
     expect(sent.map((input) => input.to)).toEqual([manager.email]);
 
-    // The newer notice was sent within its hour and still keeps a repeat out.
+    // The newer notice was sent in the same clock hour as the repeat, and still
+    // keeps it out.
     await issues.assign(issueId, admin.personId, board.personId);
     await issues.assign(issueId, manager.personId, board.personId);
     expect(
