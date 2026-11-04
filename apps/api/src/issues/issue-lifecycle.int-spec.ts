@@ -20,6 +20,7 @@ import {
   ISSUE_NOTICE_QUEUE,
   ISSUE_OVERDUE_QUEUE,
 } from "./issue-mailer.service";
+import { lockIssuesForHandling } from "./issue-lock";
 import { IssueService } from "./issue.service";
 
 /**
@@ -1229,6 +1230,119 @@ describe("a known fault", () => {
     expect(
       await prisma.issueMessage.count({ where: { issueId: merged } }),
     ).toBe(0);
+  });
+
+  /**
+   * Waits until a transaction is queued on the advisory lock `key` names. Only
+   * this run's key, so another suite's waiters do not count.
+   */
+  async function waitForLockWaiter(key: string): Promise<void> {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+        SELECT count(*) AS waiting FROM pg_locks
+        WHERE locktype = 'advisory' AND NOT granted
+          AND objid::bigint = (hashtext(${key})::bigint & 4294967295)`;
+      if (row !== undefined && row.waiting > 0n) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error(`Nothing queued on the lock ${key}`);
+  }
+
+  /**
+   * Runs `act` for a handler whose role is withdrawn while `act` waits on the
+   * handling locks of `issueIds`, which a second transaction holds. The
+   * withdrawal does not take those locks, so it commits at once; the locks are
+   * released in `finally`, so a failed assertion cannot leave `act` blocked.
+   * What `act` threw, or `undefined`.
+   */
+  async function actWithRoleWithdrawnWhileWaiting(
+    actor: { personId: string },
+    issueIds: string[],
+    act: () => Promise<unknown>,
+  ): Promise<unknown> {
+    await prisma.systemRole.create({
+      data: { personId: actor.personId, role: "PROPERTY_MANAGER" },
+    });
+    let release: () => void = () => undefined;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held: () => void = () => undefined;
+    const holding = new Promise<void>((resolve) => {
+      held = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await lockIssuesForHandling(tx, issueIds);
+        held();
+        await released;
+      },
+      { timeout: 30_000 },
+    );
+    try {
+      await Promise.race([holding, holder]);
+      const outcome = act().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      // The type's lock is the first it queues on.
+      await waitForLockWaiter(`issue-type:${typeIds.plain}`);
+      await prisma.systemRole.deleteMany({
+        where: { personId: actor.personId },
+      });
+      release();
+      return await outcome;
+    } finally {
+      release();
+      await holder;
+      await prisma.systemRole.deleteMany({
+        where: { personId: actor.personId },
+      });
+    }
+  }
+
+  it("does not merge or withdraw for a handler whose role is withdrawn while it waits on the locks", async () => {
+    const kept = await filed(plain, neighbour);
+    const duplicate = await filed(plain);
+    const noted = await filed(plain);
+    const published = await as(
+      board,
+      "PUT",
+      `/api/issue-queue/${noted}/known-fault`,
+      { body: notice() },
+    );
+    expect(published.statusCode).toBe(200);
+
+    // The role is read after the waits: a check made before them would let
+    // both through.
+    expect(
+      await actWithRoleWithdrawnWhileWaiting(outsider, [duplicate, kept], () =>
+        issues.merge(duplicate, kept, outsider.personId),
+      ),
+    ).toMatchObject({ reason: "issue-not-found" });
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: duplicate },
+        select: { mergedIntoIssueId: true, closedAt: true },
+      }),
+    ).toEqual({ mergedIntoIssueId: null, closedAt: null });
+
+    expect(
+      await actWithRoleWithdrawnWhileWaiting(outsider, [noted], () =>
+        issues.withdrawKnownFault(noted, outsider.personId),
+      ),
+    ).toMatchObject({ reason: "issue-not-found" });
+    expect(
+      (
+        await prisma.issue.findUniqueOrThrow({
+          where: { id: noted },
+          select: { knownFaultPublishedAt: true },
+        })
+      ).knownFaultPublishedAt,
+    ).not.toBeNull();
   });
 
   it("withholds the name of a type only handlers report from the house", async () => {
