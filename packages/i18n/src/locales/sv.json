@@ -149,7 +149,7 @@
       "body": "Föreningen har tagit emot din anmälan ({{type}}). Via länken nedan kan du följa ärendet, läsa föreningens svar och skriva till föreningen.",
       "action": "Öppna ditt ärende",
       "footerNotice": "Du får detta eftersom du har anmält ett ärende till {{association}}.",
-      "keepPrivate": "Länken är personlig: den som har den kan läsa och skriva i ärendet, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats eller 365 dagar efter det senaste meddelandet i det, det som inträffar först. Innan något meddelande har skrivits räknas de 365 dagarna från det här mejlet."
+      "keepPrivate": "Länken är personlig: den som har den kan läsa och skriva i ärendet, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats eller 365 dagar efter det senaste meddelandet i det, det som inträffar först. Innan något meddelande har skrivits räknas de 365 dagarna från den dag länken utfärdades."
     },
     "issueHandlerNotice": {
       "footerNotice": "Du får detta eftersom du handlägger ärenden för {{association}}.",
@@ -3657,7 +3657,7 @@
       "messageHint": "Skriv inga personnummer. Det går inte att bifoga filer här.",
       "send": "Skicka",
       "closedNotice": "Ärendet är avslutat och tar inte emot fler meddelanden. Har du något nytt att anmäla gör du en ny anmälan på föreningens webbplats.",
-      "private": "Länken är personlig, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats eller ett år efter det senaste meddelandet i det, det som inträffar först. Innan något meddelande har skrivits räknas året från att länken mejlades.",
+      "private": "Länken är personlig, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats eller ett år efter det senaste meddelandet i det, det som inträffar först. Innan något meddelande har skrivits räknas året från den dag länken utfärdades.",
       "notFoundTitle": "Länken öppnar inget ärende",
       "notFoundBody": "Länken kan ha gått ut eller dragits tillbaka. Kontakta föreningen via webbplatsen om du behöver hjälp med ditt ärende.",
       "notice": {

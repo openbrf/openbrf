@@ -1164,7 +1164,7 @@ Leave these paths out of the proxy's access log, or cut the path at
 block in front of the usual `proxy_pass` does it; in Caddy, a `log_skip` for
 the same path. A proxy log that keeps the full path holds a working link until
 the link ends, at the first of: 30 days after its issue is closed, a year after
-the issue's latest message (or after the link was mailed, if no message came),
+the issue's latest message (or after the day the link was issued, if no message came),
 and a handler withdrawing it. Keep such a log
 for less time than that and limit who can read it, or treat it as holding
 personal data.
