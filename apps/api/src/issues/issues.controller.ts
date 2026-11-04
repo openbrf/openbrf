@@ -16,8 +16,10 @@ import {
   ISSUE_CONVERSATION_LIMITS,
   ISSUE_HANDLED_BY,
   ISSUE_PRIORITIES,
+  ISSUE_QUEUE_VIEWS,
   ISSUE_REPORT_LIMITS,
   ISSUE_REPORTER_GROUPS,
+  ISSUE_SEARCH_LIMITS,
   ISSUE_STATUS_LIMITS,
   ISSUE_STATUS_MEANINGS,
   ISSUE_TYPE_LIMITS,
@@ -57,8 +59,11 @@ import {
 } from "./issue-residents.service";
 import {
   type IssueApartmentView,
+  type IssueBoardFilter,
   type IssueHandlerView,
   type IssuePhotoView,
+  type IssueQueueCounts,
+  type IssueQueueSnapshot,
   IssueService,
   type IssueTimelineStep,
   type OwnIssueView,
@@ -104,6 +109,39 @@ const openSchema = z.strictObject({
   location: z.string().max(ISSUE_REPORT_LIMITS.location).nullish(),
   description: z.string().trim().min(1).max(ISSUE_REPORT_LIMITS.description),
 });
+
+/**
+ * What the board's screen narrows the queue to (decision 15). Strict, so a
+ * parameter this route does not read is refused rather than ignored: ignored,
+ * a misspelt filter would answer with the whole queue as if it were narrowed.
+ *
+ * `meaning` is one of the four meanings or `OPEN`, every meaning but done.
+ * `q` is the search; blank is none.
+ */
+const boardFilterSchema = z.strictObject({
+  meaning: z.enum([...ISSUE_STATUS_MEANINGS, "OPEN"]).optional(),
+  typeId: z.string().min(1).max(64).optional(),
+  priority: z.enum(ISSUE_PRIORITIES).optional(),
+  q: z.string().max(ISSUE_SEARCH_LIMITS.length).optional(),
+});
+
+const boardViewSchema = boardFilterSchema.extend({
+  /** Absent reads every issue the reader handles, as before views. */
+  view: z.enum(ISSUE_QUEUE_VIEWS).optional(),
+});
+
+/** The service's filter, from the parameters a route was given. */
+function boardFilterOf(
+  query: z.infer<typeof boardFilterSchema>,
+): IssueBoardFilter {
+  const search = query.q?.trim() ?? "";
+  return {
+    ...(query.meaning === undefined ? {} : { meaning: query.meaning }),
+    ...(query.typeId === undefined ? {} : { typeId: query.typeId }),
+    ...(query.priority === undefined ? {} : { priority: query.priority }),
+    ...(search === "" ? {} : { search }),
+  };
+}
 
 /**
  * An issue message or an internal note. Never only whitespace: an empty
@@ -400,14 +438,56 @@ export class IssueQueueController {
     return this.issues.handledTypes(actingPersonId(request));
   }
 
-  /** The queue, or the part of it whose status has one meaning. */
+  /**
+   * One view of the queue - Mina, Ej tilldelade, Försenade or Alla - narrowed
+   * by status, type, priority and a search (decision 15). With no parameters,
+   * every issue the reader handles.
+   */
   @Get()
   async list(
     @Req() request: RequestWithPrincipal,
-    @Query("meaning") meaning?: string,
+    @Query() query: unknown,
   ): Promise<QueuedIssueView[]> {
-    const filter = z.enum(ISSUE_STATUS_MEANINGS).optional().parse(meaning);
-    return this.issues.listQueue(actingPersonId(request), { meaning: filter });
+    const parsed = boardViewSchema.parse(query);
+    return this.issues.listQueue(
+      actingPersonId(request),
+      parsed.view ?? "ALL",
+      boardFilterOf(parsed),
+    );
+  }
+
+  /**
+   * How many issues each view holds under the same filter, counted as the
+   * views are read: the numbers on the screen's views and, with
+   * `meaning=OPEN` alone, the board's front page.
+   */
+  @Get("counts")
+  async counts(
+    @Req() request: RequestWithPrincipal,
+    @Query() query: unknown,
+  ): Promise<IssueQueueCounts> {
+    return this.issues.countQueue(
+      actingPersonId(request),
+      boardFilterOf(boardFilterSchema.parse(query)),
+    );
+  }
+
+  /**
+   * What the queue screen draws: one view's issues and every view's count
+   * under the same filter, read at one moment, so a count never disagrees
+   * with the list beside it. Takes the parameters the list does.
+   */
+  @Get("snapshot")
+  async snapshot(
+    @Req() request: RequestWithPrincipal,
+    @Query() query: unknown,
+  ): Promise<IssueQueueSnapshot> {
+    const parsed = boardViewSchema.parse(query);
+    return this.issues.readQueueSnapshot(
+      actingPersonId(request),
+      parsed.view ?? "ALL",
+      boardFilterOf(parsed),
+    );
   }
 
   /** Opens an issue for a named resident, or with no reporter (decision 14). */

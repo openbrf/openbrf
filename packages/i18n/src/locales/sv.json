@@ -3764,7 +3764,7 @@
     },
     "queue": {
       "title": "Ärendekön",
-      "description": "Allt som anmälts: nya ärenden först, sedan de som pågår, väntar och är klara. Inom varje följer ärendena statusarnas ordning, och det äldsta kommer först inom en status.",
+      "description": "Nya ärenden först, sedan de som pågår, väntar och är klara. Inom varje följer ärendena statusarnas ordning, och det äldsta kommer först inom en status.",
       "empty": "Ingenting har anmälts.",
       "reporter": "Anmäld av",
       "reporterProtected": "Skyddade personuppgifter: fråga styrelsen.",
@@ -3782,7 +3782,7 @@
       "waitingOn": "Väntar på: {{reason}}",
       "closedAs": "Utfall: {{outcome}}",
       "noOutcome": "Stängdes innan utfall registrerades.",
-      "statusesUnavailable": "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas. Ladda om sidan.",
+      "statusesUnavailable": "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.",
       "saving": "Sparar...",
       "errors": {
         "issueNotFound": "Det ärendet finns inte längre. Kön har lästs om.",
@@ -3913,6 +3913,32 @@
         "residentNotFound": "Den boende bor inte längre i lägenheten. Välj lägenheten igen, eller lämna den boende tom.",
         "unknown": "Ärendet gick inte att lägga upp just nu. Försök igen."
       }
+    },
+    "views": {
+      "label": "Vyer",
+      "MINE": "Mina",
+      "UNASSIGNED": "Ej tilldelade",
+      "OVERDUE": "Försenade",
+      "ALL": "Alla",
+      "empty": {
+        "MINE": "Inga öppna ärenden har dig som ansvarig.",
+        "UNASSIGNED": "Alla öppna ärenden du kan se har en ansvarig.",
+        "OVERDUE": "Inget öppet ärende du kan se är försenat.",
+        "ALL": "Inget ärende du kan se är öppet."
+      },
+      "noMatch": "Inga ärenden stämmer med filtren just nu."
+    },
+    "filter": {
+      "label": "Sök och filtrera ärenden",
+      "search": "Sök",
+      "status": "Status",
+      "statusOpen": "Öppna",
+      "statusAny": "Alla, även klara",
+      "type": "Typ",
+      "typeAny": "Alla typer",
+      "priority": "Prioritet",
+      "priorityAny": "Alla prioriteter",
+      "clear": "Rensa filter"
     },
     "costResponsibility": {
       "ASSOCIATION": "Föreningen",
@@ -7166,7 +7192,7 @@
       "none": "Inget väntar",
       "atLeast": "{{count}} eller fler",
       "queue": {
-        "issues": "Nya ärenden",
+        "issues": "Ärenden",
         "boardMailbox": "Obesvarade trådar i styrelsens brevlåda",
         "motions": "Motioner som inte är mottagna",
         "sublets": "Ansökningar om andrahandsupplåtelse att besluta om",
@@ -7175,6 +7201,11 @@
         "accountRequests": "Kontoansökningar att besluta om",
         "chatReports": "Anmälda inlägg",
         "importProposals": "Föreslagna medlemslistor att granska"
+      },
+      "issues": {
+        "open": "Öppna",
+        "overdue": "Försenade",
+        "unassigned": "Ej tilldelade"
       }
     }
   },

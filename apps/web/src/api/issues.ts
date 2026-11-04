@@ -3,8 +3,10 @@ import type {
   IssueClosingOutcome,
   IssueCostResponsibility,
   IssueHandledBy,
+  IssueMeaningFilter,
   IssueOutcome,
   IssuePriority,
+  IssueQueueView,
   IssueRedactionTarget,
   IssueReporterGroup,
   IssueSignature,
@@ -338,22 +340,79 @@ export function attachIssuePhoto(
 }
 
 /**
- * The queue, or the part of it whose status has one meaning.
- *
- * `meaning` absent reads the whole queue, which is what the queue screen works
- * from. The overview asks for one meaning only, to count what is waiting
- * without carrying every report the association ever had.
+ * What the queue screen narrows a view to (decision 15): one meaning or every
+ * open one, a type, a priority, and a search. The server reads the meaning,
+ * never a board's label, and searches only what the reader may read.
  */
-export function fetchIssueQueue(input?: {
-  meaning?: IssueStatusMeaning;
-}): Promise<ApiResult<QueuedIssue[]>> {
-  const meaning = input?.meaning;
+export interface IssueQueueFilter {
+  meaning?: IssueMeaningFilter;
+  typeId?: string;
+  priority?: IssuePriority;
+  /** What the handler typed; blank is no search. */
+  search?: string;
+}
+
+/**
+ * How many issues each view holds under one filter, counted on the server by
+ * the conditions the views are read by.
+ */
+export type IssueQueueCounts = Record<
+  "mine" | "unassigned" | "overdue" | "all",
+  number
+>;
+
+/** The filter as the query string of the queue's reads. */
+function queueQuery(filter: IssueQueueFilter, view?: IssueQueueView): string {
+  const query = new URLSearchParams();
+  if (view !== undefined) {
+    query.set("view", view);
+  }
+  if (filter.meaning !== undefined) {
+    query.set("meaning", filter.meaning);
+  }
+  if (filter.typeId !== undefined) {
+    query.set("typeId", filter.typeId);
+  }
+  if (filter.priority !== undefined) {
+    query.set("priority", filter.priority);
+  }
+  const search = filter.search?.trim() ?? "";
+  if (search !== "") {
+    query.set("q", search);
+  }
+  const text = query.toString();
+  return text === "" ? "" : `?${text}`;
+}
+
+/** One view of the queue and every view's count, read at one moment. */
+export interface IssueQueueSnapshot {
+  issues: QueuedIssue[];
+  counts: IssueQueueCounts;
+}
+
+/**
+ * One view of the queue, narrowed by the filter, with how many issues each
+ * view holds under the same filter. The server reads both in one transaction,
+ * so a count never disagrees with the list read beside it.
+ */
+export function fetchIssueQueueSnapshot(
+  input: { view: IssueQueueView } & IssueQueueFilter,
+): Promise<ApiResult<IssueQueueSnapshot>> {
+  const { view, ...filter } = input;
   return apiRequest(
     "GET",
-    meaning === undefined
-      ? "/api/issue-queue"
-      : `/api/issue-queue?meaning=${encodeURIComponent(meaning)}`,
+    `/api/issue-queue/snapshot${queueQuery(filter, view)}`,
   );
+}
+
+/**
+ * How many issues each view holds under the filter. The board's front page
+ * asks with `meaning: "OPEN"` alone, and reads `all` as the open issues.
+ */
+export function fetchIssueQueueCounts(
+  filter: IssueQueueFilter = {},
+): Promise<ApiResult<IssueQueueCounts>> {
+  return apiRequest("GET", `/api/issue-queue/counts${queueQuery(filter)}`);
 }
 
 /**
