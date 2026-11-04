@@ -73,8 +73,11 @@ export const MAIL_TRANSACTION_MS = 60_000;
  * handed over, and was decided before it, or commits first and the mail's read
  * sees it. A key of its own rather than the type's lock (`lockIssueType`),
  * which a filing and every handler's write take: they must not wait for a mail
- * server. Taken after the type's lock, and by nothing that takes the type's
- * lock after it.
+ * server. For the same reason the change takes it before the type's lock, so
+ * that it waits for a handoff without holding the type's. The reporter's link
+ * mail takes it after the registry's lock (`lockLegalHoldRegistry`) and before
+ * the issue's (`lockIssue`), the other mails take it alone, and no mail takes
+ * the type's lock, so nothing takes these locks in the opposite order.
  */
 export async function lockIssueTypeRingFence(
   tx: Prisma.TransactionClient,

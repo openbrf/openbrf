@@ -21,6 +21,7 @@ import {
 } from "./issue-conversation.service";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
 import {
+  holdIssueTypeRingFence,
   lockIssue,
   lockIssueForHandling,
   MAIL_TRANSACTION_MS,
@@ -383,17 +384,28 @@ export class IssueReporterLinkService implements OnModuleInit {
      * an address that was restricted meanwhile. The lock is held as long as
      * the send can take, which the transaction's time limit allows for.
      *
-     * The issue's type's lock and the issue's own too, after the registry's
-     * and for the same reason: a close, a withdrawal, the purge of the address
-     * or the board's ring-fence of the type between the two transactions is
-     * seen below, and one that comes later waits for the stamp. Nothing takes
-     * the type's or the issue's lock and then the registry's, so the locks
-     * cannot wait on each other the other way round.
+     * The type's ring-fence, held shared, and the issue's own lock too, after
+     * the registry's and for the same reason: a close, a withdrawal, the purge
+     * of the address or the board's ring-fence of the type between the two
+     * transactions is seen below, and one that comes later waits for the
+     * stamp. Not the type's lock, which a filing and every handler's write
+     * take: they must not wait for a mail server (`lockIssueTypeRingFence`).
+     * The ring-fence before the issue, and nothing takes the issue's lock and
+     * then the ring-fence or the registry, so the locks cannot wait on each
+     * other the other way round. The type is read first, unlocked: nothing
+     * moves an issue to another type.
      */
     const mailed = await this.prisma.$transaction(
       async (tx) => {
         await lockLegalHoldRegistry(tx);
-        await lockIssueForHandling(tx, issueId);
+        const typed = await tx.issue.findUnique({
+          where: { id: issueId },
+          select: { typeId: true },
+        });
+        if (typed !== null) {
+          await holdIssueTypeRingFence(tx, typed.typeId);
+        }
+        await lockIssue(tx, issueId);
         if (await this.isRestricted(tx, issued.emailIndex)) {
           await this.releaseUnsent(tx, issued);
           return false;

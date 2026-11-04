@@ -23,6 +23,7 @@ import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   createIssueTypeFixture,
@@ -856,8 +857,31 @@ describe("mail", () => {
         return response;
       });
       // The mail server has the message and has not answered: the change
-      // waits, and the mail was decided before it.
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      // waits, and the mail was decided before it. Seen queued on the
+      // ring-fence's key, which a delay could not tell from a slow change.
+      await waitFor(
+        async () =>
+          (await advisoryLockCount(
+            prisma,
+            `issue-type-ring-fence:${type.id}`,
+            false,
+          )) > 0n,
+        10_000,
+      );
+      expect(fenced).toBe(false);
+      // It waits without the type's lock, so a report filed under the type
+      // meanwhile does not queue behind the mail server. Bounded, so a filing
+      // that does fails here rather than at the suite's time limit with the
+      // send still held.
+      const filing = opened(type);
+      filing.catch(() => undefined);
+      const filed = await Promise.race([
+        filing.then(() => "filed" as const),
+        new Promise<"waiting">((resolve) =>
+          setTimeout(() => resolve("waiting"), 10_000),
+        ),
+      ]);
+      expect(filed).toBe("filed");
       expect(fenced).toBe(false);
 
       release();

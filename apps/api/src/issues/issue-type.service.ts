@@ -25,7 +25,11 @@ import {
   typesHandledWhere,
 } from "./issue-handlers";
 import { reporterGroupsOf } from "./issue-reporter-groups";
-import { lockIssueType, lockIssueTypeRingFence } from "./issue-lock";
+import {
+  lockIssueType,
+  lockIssueTypeRingFence,
+  MAIL_TRANSACTION_MS,
+} from "./issue-lock";
 import { IssueError } from "./issue.error";
 
 /** A status as the board configures it. */
@@ -668,9 +672,11 @@ export class IssueTypeService {
   ): Promise<ConfiguredIssueTypeView> {
     await this.prisma.$transaction(
       async (tx) => {
-        await lockIssueType(tx, id);
-        // Waits for a mail about the type's issues that is being handed over.
+        // Waits for a mail about the type's issues that is being handed over,
+        // before the type's lock: a filing or a handler's write on the type
+        // does not queue behind the mail server while this waits.
         await lockIssueTypeRingFence(tx, id);
+        await lockIssueType(tx, id);
         const type = await tx.issueType.findUnique({
           where: { id },
           select: {
@@ -724,9 +730,10 @@ export class IssueTypeService {
           tx,
         );
         // The budget `update` states, for its reason: one entry per issue the
-        // property manager is unassigned from.
+        // property manager is unassigned from, after as long as a mail's
+        // handoff may hold the ring-fence.
       },
-      { timeout: 30_000 },
+      { timeout: MAIL_TRANSACTION_MS + 30_000 },
     );
     this.logger.log(`Set the ring-fence of issue type ${id}`);
     return this.view(id);

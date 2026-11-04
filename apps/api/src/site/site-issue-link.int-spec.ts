@@ -1437,6 +1437,75 @@ describe("D. rate limits and abuse", () => {
     ).toBe(0);
   });
 
+  it("D6: a report filed under the type while a link mail is being sent does not wait for it", async () => {
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Mejlet dröjer",
+      reporterName: null,
+      reporterEmail: `rl-slow-mail-${suffix}@exempel.se`,
+    });
+    const before = sent.length;
+
+    // The mail server holds the message until released.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const sendEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    vi.spyOn(mail, "send").mockImplementation(async (input) => {
+      entered();
+      await held;
+      sent.push(input as SendMailInput<unknown>);
+      return {
+        messageId: `<rl-${String(sent.length)}@exempel.se>`,
+      } as SentMail;
+    });
+
+    let delivering: Promise<boolean> | undefined;
+    try {
+      delivering = links.deliver(id);
+      // Awaited below; this keeps a failed delivery from surfacing as an
+      // unhandled rejection when an expectation before that throws first.
+      delivering.catch(() => undefined);
+      await sendEntered;
+      // The handoff holds the type's ring-fence, shared, and not its lock.
+      expect(
+        await advisoryLockCount(
+          prisma,
+          `issue-type-ring-fence:${publicType.id}`,
+          true,
+        ),
+      ).toBeGreaterThan(0n);
+
+      // Bounded, so a filing that queues behind the mail server fails here
+      // rather than at the suite's time limit with the send still held.
+      const filing = issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Anmäld medan mejlet dröjer",
+        reporterName: null,
+        reporterEmail: `rl-slow-mail-other-${suffix}@exempel.se`,
+      });
+      filing.catch(() => undefined);
+      const filed = await Promise.race([
+        filing.then(() => "filed" as const),
+        new Promise<"waiting">((resolve) =>
+          setTimeout(() => resolve("waiting"), 10_000),
+        ),
+      ]);
+      expect(filed).toBe("filed");
+      expect(sent.length).toBe(before);
+    } finally {
+      release();
+    }
+    expect(await delivering).toBe(true);
+    expect(sent.length).toBe(before + 1);
+  });
+
   it("D6: an issue closed while the mail is being sent waits for the stamp", async () => {
     const { id } = await issues.reportPublicly({
       typeId: publicType.id,
@@ -1486,15 +1555,11 @@ describe("D. rate limits and abuse", () => {
       // issue's lock until the send is released, so awaiting the close first
       // would never return. The close is seen queued on that lock, which a
       // delay could not tell from a close that is merely slow. A close takes
-      // the issue's type's lock before the issue's own, and the delivery holds
-      // both, so the close waits at the type's.
+      // the issue's type's lock before the issue's own; the delivery holds the
+      // issue's and not the type's, so the close waits at the issue's.
       await waitFor(
         async () =>
-          (await advisoryLockCount(
-            prisma,
-            `issue-type:${publicType.id}`,
-            false,
-          )) > 0n,
+          (await advisoryLockCount(prisma, `issue:${id}`, false)) > 0n,
         10_000,
       );
       expect(closeSettled).toBe(false);
