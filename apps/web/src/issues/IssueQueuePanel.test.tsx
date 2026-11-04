@@ -686,6 +686,37 @@ describe("handling an issue", () => {
     expect(await screen.findByText("Tillträde")).toBeTruthy();
   });
 
+  it("fills the permission to enter with the answer the issue holds", async () => {
+    const session = userEvent.setup();
+    show(
+      issue({
+        entry: {
+          answer: "YES",
+          note: "Ring på hos grannen",
+          pets: true,
+          masterKey: false,
+          until: "2027-03-01",
+          expired: false,
+        },
+      }),
+    );
+    await openHandling(session);
+
+    expect(await screen.findByText("Tillträde")).toBeTruthy();
+    expect((screen.getByLabelText("Ja") as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect((screen.getByLabelText("Nej") as HTMLInputElement).checked).toBe(
+      false,
+    );
+    expect(
+      (screen.getByLabelText(/husdjur/i) as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText("Hur man kommer in") as HTMLTextAreaElement).value,
+    ).toBe("Ring på hos grannen");
+  });
+
   it("draws no permission to enter on an issue about the building", async () => {
     const session = userEvent.setup();
     show(issue({ apartment: null, aboutApartment: false }));
