@@ -68,6 +68,7 @@ describe("the panels", () => {
     ["responsibilityGuide", "issues:configure"],
     ["issueSavedReplies", "issues:configure"],
     ["issuePlaces", "issues:configure"],
+    ["issueRetention", "issues:configure"],
     ["bookableResources", "bookings:configure"],
     ["themes", "association:manage"],
   ])("offers %s only with %s", (id, capability) => {

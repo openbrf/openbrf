@@ -36,6 +36,9 @@ function own(overrides: Partial<OwnIssue> = {}): OwnIssue {
     entry: null,
     photos: [],
     enteredByHandler: false,
+    descriptionRedactedAt: null,
+    locationRedactedAt: null,
+    freeTextRemovedAt: null,
     createdAt: "2026-08-20T08:00:00.000Z",
     updatedAt: "2026-08-20T08:00:00.000Z",
     ...overrides,
@@ -47,6 +50,7 @@ const THREAD: OwnIssueMessage[] = [
     id: "m-1",
     side: "REPORTER",
     body: "Kommer någon i dag?",
+    redactedAt: null,
     createdAt: "2026-08-20T09:00:00.000Z",
   },
   {
@@ -54,6 +58,7 @@ const THREAD: OwnIssueMessage[] = [
     side: "HANDLER",
     signature: "PROPERTY_MANAGER",
     body: "I eftermiddag.",
+    redactedAt: null,
     createdAt: "2026-08-20T10:00:00.000Z",
   },
   {
@@ -61,6 +66,7 @@ const THREAD: OwnIssueMessage[] = [
     side: "HANDLER",
     signature: "BOARD",
     body: "Vi har bokat rörmokaren.",
+    redactedAt: null,
     createdAt: "2026-08-20T11:00:00.000Z",
   },
 ];
@@ -92,6 +98,30 @@ describe("the reporter's conversation", () => {
     expect(screen.getByText("Du")).toBeTruthy();
     expect(screen.getByText("Förvaltaren")).toBeTruthy();
     expect(screen.getByText("Styrelsen")).toBeTruthy();
+  });
+
+  it("shows a message a handler removed as removed, with the date, and not as blank", async () => {
+    fetchOwnIssueMessages.mockResolvedValue({
+      ok: true,
+      value: [
+        THREAD[0],
+        {
+          id: "m-4",
+          side: "HANDLER",
+          signature: "BOARD",
+          body: "",
+          redactedAt: "2026-10-01T09:00:00.000Z",
+          createdAt: "2026-08-20T12:00:00.000Z",
+        },
+      ],
+    });
+    const session = userEvent.setup();
+    render(<OwnIssueConversation issue={own()} onClosed={() => undefined} />);
+    await openConversation(session);
+
+    await screen.findByText("Kommer någon i dag?");
+    expect(screen.getByText(/Borttaget av en handläggare/)).toBeTruthy();
+    expect(screen.getByText("2026-10-01")).toBeTruthy();
   });
 
   it("sends a message and reads the conversation again", async () => {

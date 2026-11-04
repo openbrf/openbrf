@@ -13,6 +13,7 @@ import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
 import { ConversationComposer } from "./ConversationComposer";
 import { ISSUE_SIGNATURE_LABEL } from "./issue-labels";
+import { ConversationText } from "./IssueFreeText";
 
 const REPLY_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.conversation.errors.issueNotFound",
@@ -127,7 +128,10 @@ function Thread({
                   {formatMoment(message.createdAt, i18n.language)}
                 </span>
               </span>
-              <p className="text-small whitespace-pre-line">{message.body}</p>
+              <ConversationText
+                body={message.body}
+                redactedAt={message.redactedAt}
+              />
             </li>
           ))}
         </ol>

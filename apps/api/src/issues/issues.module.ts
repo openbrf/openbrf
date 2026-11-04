@@ -6,9 +6,18 @@ import { IssueActionsRegistrar } from "./issue-actions.registrar";
 import { IssueConversationService } from "./issue-conversation.service";
 import { IssueFitService } from "./issue-fit.service";
 import { IssuePlaceService } from "./issue-place.service";
+import { IssueErasureService } from "./issue-erasure.service";
+import { IssueFreeTextService } from "./issue-free-text.service";
 import { IssuePurgeService } from "./issue-purge.service";
+import { IssueRedactionService } from "./issue-redaction.service";
+import { IssueRetentionSettingService } from "./issue-retention-setting.service";
+import {
+  IssueRedactionController,
+  IssueRetentionController,
+} from "./issue-retention.controller";
 import { IssueResidentsService } from "./issue-residents.service";
 import { IssueSavedReplyService } from "./issue-saved-reply.service";
+import { IssueTextPurgeService } from "./issue-text-purge.service";
 import { IssueTypeService } from "./issue-type.service";
 import { IssueService } from "./issue.service";
 import {
@@ -52,6 +61,8 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     ResponsibilityGuideAdminController,
     IssueSavedReplyAdminController,
     IssuePlaceAdminController,
+    IssueRedactionController,
+    IssueRetentionController,
   ],
   providers: [
     IssueService,
@@ -62,6 +73,11 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueSavedReplyService,
     IssueFitService,
     IssuePlaceService,
+    IssueFreeTextService,
+    IssueTextPurgeService,
+    IssueErasureService,
+    IssueRedactionService,
+    IssueRetentionSettingService,
     IssueActionsRegistrar,
     ResponsibilityGuideService,
   ],

@@ -103,7 +103,9 @@ export type IssueReason =
   | "finding-needs-target-date"
   | "finding-target-date-too-late"
   | "finding-protocol-not-found"
-  | "date-invalid";
+  | "date-invalid"
+  | "redaction-target-not-found"
+  | "legal-hold";
 
 /**
  * Where in a message, a note or a saved reply a refused value sits: a part and
@@ -136,7 +138,8 @@ export class IssueError extends DomainError {
       reason === "place-name-taken" ||
       reason === "place-in-use" ||
       reason === "too-many-places" ||
-      reason === "entry-needs-apartment"
+      reason === "entry-needs-apartment" ||
+      reason === "legal-hold"
         ? HttpStatus.CONFLICT
         : reason === "public-reporting-disabled"
           ? HttpStatus.FORBIDDEN

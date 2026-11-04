@@ -29,6 +29,7 @@ import { ContactInboxPanel } from "./ContactInboxPanel";
 import { HousingCooperativePanel } from "./HousingCooperativePanel";
 import { IssueReportingPanel } from "./IssueReportingPanel";
 import { IssuePlacesPanel } from "./IssuePlacesPanel";
+import { IssueRetentionPanel } from "./IssueRetentionPanel";
 import { IssueSavedRepliesPanel } from "./IssueSavedRepliesPanel";
 import { IssueTypesPanel } from "./IssueTypesPanel";
 import { ResponsibilityGuidePanel } from "./ResponsibilityGuidePanel";
@@ -438,6 +439,11 @@ export function AssociationSettingsScreen({
         /* The common areas a report can name beside its free-text location,
            so a repeat fault in the lift or the laundry room can be counted. */
         return <IssuePlacesPanel />;
+      case "issueRetention":
+        /* Beside the catalogue: how long what is reported is kept is the
+           board's own decision about its data, as the types are its
+           vocabulary. */
+        return <IssueRetentionPanel />;
       case "bookableResources":
         /* What the house offers and how much of it one household may take.
            The board's own policy for its own building, which is why it shares

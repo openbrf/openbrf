@@ -29,8 +29,10 @@ import {
 } from "./issue-labels";
 import { IssueHandlerName } from "./IssueHandlerName";
 import { IssueConversation } from "./IssueConversation";
+import { IssueDescription, IssueLocation } from "./IssueFreeText";
 import { IssueHandling } from "./IssueHandling";
 import { IssuePriorityChip } from "./IssuePriorityChip";
+import { IssueFreeTextSection, useIssueRedaction } from "./IssueRedaction";
 import { IssueStatusChip } from "./IssueStatusChip";
 
 const QUEUE_FAILURES: Readonly<Record<string, TranslationKey>> = {
@@ -161,15 +163,18 @@ export function IssueQueuePanel({
                       {t("issues.queue.boardOnly")}
                     </span>
                   ) : null}
+                  {issue.legalHoldAt === null ? null : (
+                    <span className="text-small text-ink-muted">
+                      {t("issues.queue.legalHold")}
+                    </span>
+                  )}
                   <StatusDetail issue={issue} />
                   <span className="ml-auto font-data text-data text-ink-muted">
                     {localDayOfInstant(issue.createdAt)}
                   </span>
                 </div>
 
-                <p className="text-small whitespace-pre-line">
-                  {issue.description}
-                </p>
+                <IssueDescription issue={issue} />
 
                 <p className="flex flex-wrap gap-4 text-small text-ink-muted">
                   <span>
@@ -189,12 +194,7 @@ export function IssueQueuePanel({
                     )}
                   </span>
                   <span>
-                    {t("issues.mine.place")}{" "}
-                    {issue.location === null ? (
-                      <NotRecorded meaning={t("issues.mine.noPlace")} />
-                    ) : (
-                      issue.location
-                    )}
+                    {t("issues.mine.place")} <IssueLocation issue={issue} />
                   </span>
                   {issue.place === null ? null : (
                     <span>
@@ -321,6 +321,7 @@ function HandlingDisclosure({
 }): ReactElement {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const redaction = useIssueRedaction(issue, onChanged);
   return (
     <details
       className="flex flex-col gap-3"
@@ -339,7 +340,12 @@ function HandlingDisclosure({
             canManageCharges={canManageCharges}
             onChanged={onChanged}
           />
-          <IssueConversation issue={issue} onStale={onChanged} />
+          <IssueFreeTextSection issue={issue} control={redaction} />
+          <IssueConversation
+            issue={issue}
+            onStale={onChanged}
+            redaction={redaction}
+          />
         </div>
       ) : null}
     </details>

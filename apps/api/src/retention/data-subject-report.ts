@@ -576,6 +576,15 @@ export interface ReportIssue {
     masterKey: boolean | null;
     until: string | null;
   } | null;
+  /**
+   * When a handler redacted the description or the location, and when the
+   * purge removed the whole free-text layer (ADR 0057). Removed text is empty
+   * on the issue, so without these the copy would read as an issue filed with
+   * no words.
+   */
+  descriptionRedactedAt: string | null;
+  locationRedactedAt: string | null;
+  freeTextRemovedAt: string | null;
   reportedAt: string;
   photographs: number;
 }

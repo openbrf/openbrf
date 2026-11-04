@@ -74,8 +74,17 @@ const MOVED_IN = new Date("2010-01-01T00:00:00.000Z");
 
 const issueTypeId = `purge-type-${suffix}`;
 const issueId = `purge-issue-${suffix}`;
-/** An open issue of the same person's that holds an entry permission. */
+/**
+ * An open issue of the same person's that holds an entry permission and whose
+ * text a handler has redacted: nothing of its free text stands, so the purge
+ * detaches the person and takes the permission with them.
+ */
 const entryIssueId = `purge-entry-issue-${suffix}`;
+/**
+ * An older issue of theirs whose free text the clock has already removed: the
+ * one the purge detaches them from (ADR 0057).
+ */
+const finishedIssueId = `purge-issue-finished-${suffix}`;
 /** A note on the same issue by somebody else, which the purge leaves alone. */
 const otherNoteId = `purge-note-other-${suffix}`;
 const OTHER_NOTE = "Besiktning bokad nästa vecka";
@@ -88,9 +97,10 @@ const binderFileId = `purge-binder-file-${suffix}`;
 /**
  * What a reporter wrote, naming somebody else.
  *
- * The purge never rewrites it, which is the whole reason the operation is a
- * detachment rather than something that could be called anonymous: a person
- * named in here has an art. 17 request, decided by the board on its merits.
+ * The person purge never rewrites it, which is the whole reason the operation
+ * is a detachment rather than something that could be called anonymous. The
+ * issue's own clock removes it, or a handler redacts it on a request from the
+ * person it names (ADR 0057).
  */
 const ISSUE_DESCRIPTION = "Grannen i 1202 stallde cyklar i trapphuset";
 /** What the person wrote in the conversation on that issue. */
@@ -475,19 +485,36 @@ beforeAll(async () => {
     },
   });
   // An open one, which can hold what its reporter said about letting somebody
-  // into their home (decision 29): the purge takes that with them.
+  // into their home (decision 29). A handler has redacted its description and
+  // nothing else of its text stands, so the purge detaches the person from it
+  // and takes that answer with them.
   await prisma.issue.create({
     data: {
       id: entryIssueId,
       typeId: issueTypeId,
       reporterPersonId: people.referenced,
-      description: ISSUE_DESCRIPTION,
+      description: "",
+      descriptionRedactedAt: new Date(),
       statusId: issueType.statusIds.NEW,
       entryAnswer: "YES",
       entryNote: "Ring på hos grannen",
       entryPets: true,
       entryMasterKey: false,
       entryUntil: new Date("2027-12-31"),
+    },
+  });
+  // An earlier issue of theirs that the clock has finished: nothing of its
+  // free text stands, so its reporter is what the purge detaches.
+  await prisma.issue.create({
+    data: {
+      id: finishedIssueId,
+      typeId: issueTypeId,
+      reporterPersonId: people.referenced,
+      description: "",
+      freeTextRemovedAt: new Date(),
+      statusId: issueType.statusIds.DONE,
+      closedAt: new Date("2020-01-01T00:00:00.000Z"),
+      outcome: "FIXED",
     },
   });
   // The conversation on it, as its reporter and as a handler writing a note:
@@ -846,8 +873,10 @@ afterAll(async () => {
          * found by their own ids.
          */
         () => prisma.issuePhoto.deleteMany({ where: { issueId } }),
-        () => prisma.issue.deleteMany({ where: { id: issueId } }),
-        () => prisma.issue.deleteMany({ where: { id: entryIssueId } }),
+        () =>
+          prisma.issue.deleteMany({
+            where: { id: { in: [issueId, entryIssueId, finishedIssueId] } },
+          }),
         () => prisma.issueType.deleteMany({ where: { id: issueTypeId } }),
         () => prisma.document.deleteMany({ where: { id: documentId } }),
         () =>
@@ -1260,24 +1289,32 @@ describe("issues, documents, binder entries and files the person left behind", (
       where: { id: issueId },
       select: {
         reporterPersonId: true,
-        reporterNameCipher: true,
-        reporterEmailCipher: true,
-        reporterEmailIndex: true,
         description: true,
         assigneePersonId: true,
         enteredByPersonId: true,
         enteredByHandler: true,
       },
     });
-    expect(issue.reporterPersonId).toBeNull();
+    /*
+     * Its free text still stands, so it keeps its reporter: the one reference
+     * that lets an erasure request granted later find it, and the access
+     * report show it (ADR 0057). The finished one is detached, with the
+     * ciphers a public-form reporter would have left.
+     */
+    expect(issue.reporterPersonId).toBe(people.referenced);
+    await expect(
+      prisma.issue.findUniqueOrThrow({
+        where: { id: finishedIssueId },
+        select: { reporterPersonId: true },
+      }),
+    ).resolves.toEqual({ reporterPersonId: null });
     // What the person said about letting somebody into their home goes with
-    // them, and the issue it was said on stays.
+    // them where the purge detaches them, and the issue it was said on stays.
     expect(
       await prisma.issue.findUniqueOrThrow({
         where: { id: entryIssueId },
         select: {
           reporterPersonId: true,
-          description: true,
           entryAnswer: true,
           entryNote: true,
           entryPets: true,
@@ -1287,7 +1324,6 @@ describe("issues, documents, binder entries and files the person left behind", (
       }),
     ).toEqual({
       reporterPersonId: null,
-      description: ISSUE_DESCRIPTION,
       entryAnswer: null,
       entryNote: null,
       entryPets: null,
@@ -1308,15 +1344,10 @@ describe("issues, documents, binder entries and files the person left behind", (
         })
       ).defaultAssigneePersonId,
     ).toBeNull();
-    // The ciphers a public-form reporter would have left go with the link. An
-    // address left behind would still answer "did this person report this".
-    expect(issue.reporterNameCipher).toBeNull();
-    expect(issue.reporterEmailCipher).toBeNull();
-    expect(issue.reporterEmailIndex).toBeNull();
-
     // The record of the problem stays, and so does what the reporter wrote -
-    // including the neighbour it names. That is why this is a detachment and
-    // why nothing calls the result anonymous.
+    // including the neighbour it names - until the issue's own clock removes
+    // it. That is why this is a detachment and why nothing calls the result
+    // anonymous.
     expect(issue.description).toBe(ISSUE_DESCRIPTION);
 
     // The conversation is detached from its writer as the issue is, and its
@@ -1561,6 +1592,7 @@ describe("closing a granted erasure request on evidence", () => {
       "bookings",
       "event sign-ups",
       "feed",
+      "issues",
       "key orders",
       "motions",
       "plugin records",

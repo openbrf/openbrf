@@ -6,6 +6,7 @@ import { localDayOfInstant } from "../bookings/booking-calendar";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Panel } from "../ui/Panel";
 import { EntryPermissionForm } from "./EntryPermissionForm";
+import { IssueDescription, IssueLocation } from "./IssueFreeText";
 import { IssueStatusChip } from "./IssueStatusChip";
 import { OwnIssueConversation } from "./OwnIssueConversation";
 
@@ -56,9 +57,7 @@ export function OwnIssuesPanel({
                 </span>
               </div>
 
-              <p className="text-small whitespace-pre-line">
-                {issue.description}
-              </p>
+              <IssueDescription issue={issue} />
 
               <p className="flex flex-wrap gap-4 text-small text-ink-muted">
                 <span>
@@ -72,12 +71,7 @@ export function OwnIssuesPanel({
                   )}
                 </span>
                 <span>
-                  {t("issues.mine.place")}{" "}
-                  {issue.location === null ? (
-                    <NotRecorded meaning={t("issues.mine.noPlace")} />
-                  ) : (
-                    issue.location
-                  )}
+                  {t("issues.mine.place")} <IssueLocation issue={issue} />
                 </span>
                 {issue.place === null ? null : (
                   <span>

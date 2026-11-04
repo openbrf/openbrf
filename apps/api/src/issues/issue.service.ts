@@ -9,6 +9,7 @@ import {
   ISSUE_COST_RESPONSIBILITIES,
   ISSUE_OUTCOMES,
   ISSUE_PRIORITIES,
+  ISSUE_REDACTION_TARGETS,
   ISSUE_STATUS_LIMITS,
   ISSUE_STATUS_MEANINGS,
   ISSUE_WAITING_REASONS,
@@ -19,6 +20,7 @@ import {
   type IssueHandledBy,
   type IssueOutcome,
   type IssuePriority,
+  type IssueRedactionTarget,
   type IssueReporterGroup,
   type IssueStatusMeaning,
   type IssueWaitingReason,
@@ -159,6 +161,18 @@ export interface OwnIssueView {
    * internal (ADR 0054).
    */
   enteredByHandler: boolean;
+  /**
+   * When a handler redacted the description or the location, or null (ADR
+   * 0057). The text is then empty, and the screen says it was taken out.
+   */
+  descriptionRedactedAt: string | null;
+  locationRedactedAt: string | null;
+  /**
+   * When the purge removed the free text - the description, the location, the
+   * conversation and the photographs - after the issue closed, or null. The
+   * screen says so with the date rather than showing an empty issue.
+   */
+  freeTextRemovedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -223,6 +237,11 @@ export type QueuedIssueView = OwnIssueView & {
   boardOnly: boolean;
   /** The inspection it is a finding of (decision 31), or null. */
   finding: IssueFindingView | null;
+  /**
+   * Since when a legal hold stands on it, or null (ADR 0057). While one stands
+   * its free text outlasts its clock, and a handler may not redact it.
+   */
+  legalHoldAt: string | null;
   /**
    * Who pays for it, or null while nobody has said (decision 26). Never an
    * amount: a charge made from the issue is read from the charges, by those
@@ -339,6 +358,9 @@ export type IssueTimelineStep = {
   | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
+  /** A handler redacted a text or removed a file (ADR 0057). */
+  | { kind: "redacted"; target: IssueRedactionTarget | null }
+  | { kind: "legalHold"; held: boolean }
   | {
       /** The common-area place set or changed; null when taken off. */
       kind: "place";
@@ -582,7 +604,7 @@ export class IssueService {
       reporterPersonId: principal.personId,
       apartmentId,
       placeId: input.placeId ?? null,
-      location: input.location ?? null,
+      location: locationOrNull(input.location),
       description: input.description,
     };
     const postId = input.postId ?? null;
@@ -646,14 +668,11 @@ export class IssueService {
         reporterNameCipher: name?.cipher ?? null,
         reporterEmailCipher: email?.cipher ?? null,
         reporterEmailIndex: email?.index ?? null,
-        // Empty is nothing, exactly as it is for the name and the address
-        // above: the form's location field is optional, so a visitor who
-        // touched it and thought better of it must not leave the board an
-        // issue whose location is present and blank.
-        location:
-          input.location == null || input.location === ""
-            ? null
-            : input.location,
+        // Empty is nothing, as it is for the name and the address above: the
+        // form's location field is optional, so a visitor who touched it and
+        // thought better of it must not leave the board an issue whose
+        // location is present and blank.
+        location: locationOrNull(input.location),
         description: input.description,
       }),
     );
@@ -736,10 +755,7 @@ export class IssueService {
         enteredByHandler: true,
         apartmentId: resident?.apartmentId ?? null,
         placeId: input.placeId ?? null,
-        location:
-          input.location == null || input.location.trim() === ""
-            ? null
-            : input.location,
+        location: locationOrNull(input.location),
         description: input.description,
       });
       /*
@@ -1518,6 +1534,10 @@ export class IssueService {
       showsIdentifiablePersons: true,
       uploadedByPersonId: input.reporterPersonId,
       channel: "WEB",
+      // A name somebody gave a photograph of their home is free text, and the
+      // log is append-only: the purge that removes the photograph cannot
+      // remove the name (ADR 0057).
+      recordFileName: false,
     });
 
     /*
@@ -1553,7 +1573,9 @@ export class IssueService {
       // with nothing in the logs to say so. The original failure is still the
       // one raised.
       await this.media
-        .remove(file.id, input.reporterPersonId, "WEB")
+        .remove(file.id, input.reporterPersonId, "WEB", {
+          recordFileName: false,
+        })
         .catch((removal: unknown) => {
           this.logger.error(
             `Could not remove file ${file.id} after its photograph was refused: ` +
@@ -2215,6 +2237,16 @@ function refuseUnlinked(outcome: IssueLinkOutcome): void {
  * the apartment in the register. Nor can the place's: `holdOfferedPlace` holds
  * it until the insert commits.
  */
+/**
+ * A location as it is filed: null where none was given, and where the field
+ * holds only blanks. Every way an issue is filed reads it through this, so a
+ * blank location is never stored, and a handler's redaction or the purge never
+ * records the removal of one nobody wrote.
+ */
+function locationOrNull(location: string | null | undefined): string | null {
+  return location == null || location.trim() === "" ? null : location;
+}
+
 function typeRemoved(cause: unknown): never {
   if (
     cause instanceof Prisma.PrismaClientKnownRequestError &&
@@ -2244,6 +2276,10 @@ interface IssueRecord extends EntryColumns {
   outcome: IssueOutcome | null;
   location: string | null;
   description: string;
+  descriptionRedactedAt: Date | null;
+  locationRedactedAt: Date | null;
+  freeTextRemovedAt: Date | null;
+  legalHoldAt: Date | null;
   closedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -2299,6 +2335,7 @@ function toQueuedView(
     enteredBy: handlers.enteredBy,
     boardOnly: issue.boardOnly,
     finding: toFindingView(issue.finding),
+    legalHoldAt: issue.legalHoldAt?.toISOString() ?? null,
     costResponsibility: issue.costResponsibility,
   };
   if (reporter.kind === "protected") {
@@ -2327,6 +2364,9 @@ function toOwnView(issue: IssueRecord, today: LocalDay): OwnIssueView {
       width: photo.file.width,
       height: photo.file.height,
     })),
+    descriptionRedactedAt: issue.descriptionRedactedAt?.toISOString() ?? null,
+    locationRedactedAt: issue.locationRedactedAt?.toISOString() ?? null,
+    freeTextRemovedAt: issue.freeTextRemovedAt?.toISOString() ?? null,
     createdAt: issue.createdAt.toISOString(),
     updatedAt: issue.updatedAt.toISOString(),
   };
@@ -2345,6 +2385,9 @@ const TIMELINE_ACTIONS = [
   "ISSUE_ENTRY_PERMISSION_REMOVED",
   "ISSUE_FINDING_MARKED",
   "ISSUE_FINDING_REMOVED",
+  "ISSUE_REDACTED",
+  "ISSUE_LEGAL_HOLD_PLACED",
+  "ISSUE_LEGAL_HOLD_RELEASED",
   "ISSUE_COST_RESPONSIBILITY_CHANGED",
 ] as const satisfies readonly AuditAction[];
 
@@ -2439,6 +2482,21 @@ function timelineStep(
       };
     case "ISSUE_FINDING_REMOVED":
       return { kind: "finding", at, actor, findingKind: null };
+    case "ISSUE_REDACTED":
+      return {
+        kind: "redacted",
+        at,
+        actor,
+        target: oneOf(text("target"), ISSUE_REDACTION_TARGETS),
+      };
+    case "ISSUE_LEGAL_HOLD_PLACED":
+    case "ISSUE_LEGAL_HOLD_RELEASED":
+      return {
+        kind: "legalHold",
+        at,
+        actor,
+        held: entry.action === "ISSUE_LEGAL_HOLD_PLACED",
+      };
     case "ISSUE_COST_RESPONSIBILITY_CHANGED":
       return {
         kind: "costResponsibility",
