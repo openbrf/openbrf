@@ -852,4 +852,5 @@ const REDACTED_STEP: Readonly<Record<IssueRedactionTarget, TranslationKey>> = {
   note: "issues.timeline.redacted.note",
   photo: "issues.timeline.redacted.photo",
   attachment: "issues.timeline.redacted.attachment",
+  workOrder: "issues.timeline.redacted.workOrder",
 };

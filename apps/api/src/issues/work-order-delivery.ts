@@ -49,9 +49,9 @@ export const WORK_ORDER_DELIVERY_FAILURES = {
   recipientRemoved: "recipient-removed",
 
   /**
-   * The work order's text was erased at the end of its retention period
-   * before its mail went out: what the handler wrote is gone, and there is
-   * nothing left to send.
+   * The work order's text was erased, at the end of its retention period or
+   * by a handler's redaction, before its mail went out: what the handler wrote
+   * is gone, and there is nothing left to send.
    */
   textErased: "text-erased",
 

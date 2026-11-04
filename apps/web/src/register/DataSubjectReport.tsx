@@ -3210,6 +3210,7 @@ const REDACTION_TARGETS = [
   "note",
   "photo",
   "attachment",
+  "workOrder",
 ] as const;
 
 /**

@@ -80,7 +80,8 @@ whatever the board's setting. The owner asked on 2026-11-03 for it to be kept as
 long as the law allows, and ten years is where the general limitation period
 for a claim about the work ends (preskriptionslagen (1981:130) 2 §); the reasons
 are in [ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md#the-mailed-work-order).
-The nightly issue purge already erases it on that clock (`WORK_ORDER_BODY_RETENTION_DAYS`).
+The nightly issue purge already erases it on that clock (`WORK_ORDER_BODY_RETENTION_DAYS`),
+and a handler may redact it sooner ([Redaction](#redaction)).
 A report from the website's form is tied to its reporter only by the address
 index, so the purge that removes its contact details after 365 days keeps that
 index while a work order's text stands, and the transaction that erases the last
@@ -123,7 +124,10 @@ A handler the case lets in may at any time redact the text of a description, a
 location, an issue message, an internal note or a work order, and remove a
 photograph or an uploaded file. Redacting replaces the text with a mark saying
 it was redacted and when; nothing keeps the earlier text, so a redaction is not
-an edit with a history. Removing a file removes it from storage.
+an edit with a history. Removing a file removes it from storage. A work order
+whose text is redacted stays on the case with whom it went to and when, which is
+the record of the disclosure; one whose mail has not gone out yet is not sent,
+and is recorded as not sent.
 
 Each act is recorded in the audit log against the case, by its own action, with
 the field it reached and never the text (the rule that an entry's context holds
@@ -177,7 +181,11 @@ free-text layer is gone. It runs at `53 3`, after the clock and the issue erasur
 job, so a case either job finishes loses its reporter the same night, once the
 person's window has run out or their request is executed, in the transaction that
 records the person's purge; a case a handler finishes by redaction loses it on
-the next night. The person purge's scan of reporter columns reads only finished
+the next night. The exception is a person whose erasure request has been executed
+while a work order's text still stood: no later run selects them, so the
+transaction that erases the last text clears the column, whether the clock erased
+it or a handler's redaction did, unless a legal hold or a restriction keeps them.
+The person purge's scan of reporter columns reads only finished
 cases, so a person whose case still waits is not selected for it night after night.
 
 Detaching is not erasing what the person wrote, and a clock that removes it

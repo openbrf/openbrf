@@ -48,8 +48,13 @@ export interface WorkOrder {
   /** Null once the contractor was removed from the list, and erased with it. */
   recipientName: string | null;
   recipientEmail: string | null;
-  /** Null once the retention period after the issue was closed ran out. */
+  /**
+   * Null once the retention period after the issue was closed ran out, or
+   * once a handler redacted it.
+   */
   body: string | null;
+  /** When a handler redacted the text, or null (ADR 0057). */
+  redactedAt: string | null;
   sentBy: IssueHandler | null;
   sentAt: string;
   deliveryStatus: "PENDING" | "SENT" | "FAILED";

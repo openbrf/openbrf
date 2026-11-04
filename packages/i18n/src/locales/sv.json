@@ -911,7 +911,8 @@
             "message": "Ett svar",
             "note": "En intern anteckning",
             "photo": "En bild",
-            "attachment": "En fil"
+            "attachment": "En fil",
+            "workOrder": "Texten i en arbetsorder"
           },
           "legalHoldSince": "Kravet gällde sedan {{date}}",
           "retentionChanged": "Från {{from}} till {{to}} år efter stängning"
@@ -3890,6 +3891,7 @@
         "note": "Tog bort en intern anteckning",
         "photo": "Tog bort en bild",
         "attachment": "Tog bort en fil",
+        "workOrder": "Tog bort texten i en arbetsorder",
         "unknown": "Tog bort text eller en fil"
       },
       "legalHoldPlaced": "Lade ett rättsligt bevarandekrav",
@@ -4088,7 +4090,7 @@
       "purgedOn": "Fritexten togs bort <data>{{date}}</data>",
       "freeTextRemoved": "Fritexten, svaren och bilderna togs bort <data>{{date}}</data>. Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, finns kvar.",
       "title": "Fritext och rättsligt bevarandekrav",
-      "intro": "Så länge inget rättsligt bevarandekrav gäller för själva ärendet kan en handläggare när som helst ta bort beskrivningen, platsen, ett svar, en intern anteckning, en bild eller en fil, till exempel när en person som nämns där har fått radering beviljad. Det som tas bort är borta: ingenting sparar texten, och ingenting skrivs i dess ställe.",
+      "intro": "Så länge inget rättsligt bevarandekrav gäller för själva ärendet kan en handläggare när som helst ta bort beskrivningen, platsen, ett svar, en intern anteckning, en bild, en fil eller texten i en arbetsorder, till exempel när en person som nämns där har fått radering beviljad. Det som tas bort är borta: ingenting sparar texten, och ingenting skrivs i dess ställe.",
       "remove": "Ta bort",
       "removeDescription": "{{type}}: ta bort beskrivningen",
       "removeLocation": "{{type}}: ta bort platsen",
@@ -4096,6 +4098,8 @@
       "removeNote": "Ta bort den interna anteckningen från {{at}}",
       "removePhoto": "Ta bort bilden {{name}}",
       "removeAttachment": "Ta bort filen {{name}}",
+      "removeWorkOrder": "Ta bort texten i arbetsordern från {{at}}",
+      "removeWorkOrderTo": "Ta bort texten i arbetsordern till {{name}} från {{at}}",
       "description": "Beskrivning",
       "location": "Plats",
       "photos": "Anmälarens bilder",

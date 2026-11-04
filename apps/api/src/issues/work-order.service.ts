@@ -92,8 +92,13 @@ export interface WorkOrderView {
   /** Null once the contractor was removed from the list and with it erased. */
   recipientName: string | null;
   recipientEmail: string | null;
-  /** Null once the retention window after the issue was closed ran out. */
+  /**
+   * Null once the retention window after the issue was closed ran out, or
+   * once a handler redacted it.
+   */
   body: string | null;
+  /** When a handler redacted the text, or null (ADR 0057). */
+  redactedAt: string | null;
   sentBy: IssueHandlerView | null;
   sentAt: string;
   deliveryStatus: "PENDING" | "SENT" | "FAILED";
@@ -483,6 +488,7 @@ export class WorkOrderService {
         recipientName: row.recipientName,
         recipientEmail: await this.recipientEmail(row),
         body: row.body,
+        redactedAt: row.redactedAt?.toISOString() ?? null,
         sentBy: row.sentByPersonId === null ? null : viewOf(row.sentByPersonId),
         sentAt: row.createdAt.toISOString(),
         deliveryStatus: row.deliveryStatus,
@@ -521,6 +527,7 @@ const WORK_ORDER_SELECT = {
   recipientName: true,
   recipientEmailCipher: true,
   body: true,
+  redactedAt: true,
   sentByPersonId: true,
   createdAt: true,
   deliveryStatus: true,
