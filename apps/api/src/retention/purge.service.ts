@@ -12,6 +12,7 @@ import { lockIssue, lockWorkOrderSender } from "../issues/issue-lock";
 import { WORK_ORDER_TEXT_STANDING } from "../issues/issue-retention";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { associationDefaultLocale } from "../settings/default-locale";
 import {
   sweepConnectedAppTokens,
   type ConnectedAppTokenSweepOutcome,
@@ -557,7 +558,7 @@ export class PurgeService implements OnModuleInit {
     maxPersons: number = MAX_PERSONS_PER_RUN,
   ): Promise<string[]> {
     const cutoff = purgeCutoff(now, retentionDays);
-    const defaultLocale = await this.defaultLocale();
+    const defaultLocale = await associationDefaultLocale(this.prisma);
 
     /*
      * People whose data is referenced from a row this job detaches. These are
@@ -781,7 +782,7 @@ export class PurgeService implements OnModuleInit {
     const days =
       retentionDays ?? (await retentionDaysAfterMoveOut(this.prisma));
     const cutoff = purgeCutoff(now, days);
-    const defaultLocale = await this.defaultLocale();
+    const defaultLocale = await associationDefaultLocale(this.prisma);
 
     return this.prisma.$transaction(async (tx) => {
       /*
@@ -1217,15 +1218,6 @@ export class PurgeService implements OnModuleInit {
         erasureRemainder: remainder,
       };
     });
-  }
-
-  /** The association's default language, or the schema's when unset. */
-  private async defaultLocale(): Promise<string> {
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-      select: { defaultLocale: true },
-    });
-    return association?.defaultLocale ?? "sv";
   }
 }
 
