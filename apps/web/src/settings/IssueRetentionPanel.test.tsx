@@ -56,7 +56,7 @@ describe("the number of years", () => {
     expect(await screen.findByText(/Sparat/)).toBeTruthy();
   });
 
-  it("says that the building record stays and a shorter clock acts the next night", async () => {
+  it("says that the building record stays and a shorter clock acts in the nights that follow", async () => {
     render(<IssueRetentionPanel />);
 
     expect(

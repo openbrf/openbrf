@@ -4103,7 +4103,7 @@
       "description": "Beskrivning",
       "location": "Plats",
       "photos": "Anmälarens bilder",
-      "nothingLeft": "Beskrivningen, platsen och bilderna är redan borttagna.",
+      "nothingLeft": "Beskrivningen, platsen och anmälarens bilder är redan borttagna.",
       "confirm": "Ta bort för gott",
       "keep": "Behåll",
       "confirmHint": "Det går inte att ångra. Ingenting sparar texten eller filen, och ingenting skrivs i dess ställe.",
@@ -4119,7 +4119,7 @@
         "releaseNamed": "{{type}}: häv det rättsliga bevarandekravet",
         "releaseConfirm": "Häv",
         "releaseKeep": "Behåll kravet",
-        "releaseHint": "När kravet hävs räknas gallringstiden igen, och fritexten i ett ärende som stängdes för tillräckligt länge sedan gallras redan nästa natt.",
+        "releaseHint": "När kravet hävs räknas gallringstiden igen, och fritexten i ett ärende som stängdes för tillräckligt länge sedan gallras under nätterna som följer.",
         "saving": "Sparar..."
       },
       "errors": {

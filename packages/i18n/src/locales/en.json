@@ -4119,7 +4119,7 @@
         "releaseNamed": "{{type}}: release the legal hold",
         "releaseConfirm": "Release",
         "releaseKeep": "Keep the hold",
-        "releaseHint": "Once released, the retention clock runs again, and the free text of an issue closed long enough ago is removed the next night.",
+        "releaseHint": "Once released, the retention clock runs again, and the free text of an issue closed long enough ago is removed in the nights that follow.",
         "saving": "Saving..."
       },
       "errors": {

@@ -291,7 +291,7 @@ export function IssueFreeTextSection({
 
 /**
  * The legal hold: placed at once, released only when asked twice, because a
- * release lets the clock remove the free text the very next night.
+ * release lets the clock remove the free text in the nights that follow.
  */
 function LegalHold({
   issue,
