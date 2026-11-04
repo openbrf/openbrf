@@ -2641,7 +2641,7 @@ export const SCREENS: readonly Screen[] = [
       // on it.
       {
         see: {
-          text: /^(Det finns inga entreprenörer på listan än\.|Skickade arbetsorder: \d+)$/,
+          text: /^(Det finns inga entreprenörer på listan än\.|Skrivna arbetsorder: \d+)$/,
           first: true,
         },
       },
@@ -2694,7 +2694,7 @@ export const SCREENS: readonly Screen[] = [
       },
       { click: { button: "Förhandsgranska" } },
     ],
-    waitFor: { text: "Mejlet som entreprenören kommer att få det" },
+    waitFor: { text: "Mejlet som entreprenören kommer att få" },
     capture: "page",
   },
   {
