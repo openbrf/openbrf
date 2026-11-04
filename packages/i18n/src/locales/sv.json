@@ -4000,7 +4000,7 @@
         "saving": "Sparar..."
       },
       "errors": {
-        "legalHold": "Ärendet har ett rättsligt bevarandekrav, så ingenting kan tas bort. Ärendet har lästs om.",
+        "legalHold": "Ärendet eller den som anmälde det har ett rättsligt bevarandekrav, så ingenting kan tas bort. Ärendet har lästs om.",
         "targetNotFound": "Det är redan borta. Ärendet har lästs om.",
         "unknown": "Ingenting kunde ändras just nu. Försök igen."
       }

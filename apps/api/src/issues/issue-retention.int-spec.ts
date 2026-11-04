@@ -24,6 +24,7 @@ import {
 } from "../testing/issue-fixtures";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
 import { IssueErasureService } from "./issue-erasure.service";
+import { IssueFreeTextService } from "./issue-free-text.service";
 import { IssueTextPurgeService } from "./issue-text-purge.service";
 import { IssueService } from "./issue.service";
 
@@ -659,6 +660,62 @@ describe("the clock", () => {
     expect(releases[0]?.context).toHaveProperty("placedAt");
   });
 
+  it("marks the text as removed when a file attached during the run stands, and finishes with the file", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 5 * 365,
+    });
+    // A handler had redacted the description before the run.
+    expect(
+      (
+        await inject({
+          method: "POST",
+          url: `/api/issue-queue/${issue.id}/redactions`,
+          headers: { cookie: boardCookie },
+          payload: { target: "description" },
+        })
+      ).statusCode,
+    ).toBe(204);
+    const late = await upload();
+
+    // The file arrives on the transaction that takes the text, after the
+    // files were read: the last `stillDue` is the text's.
+    let asked = 0;
+    const outcome = await app
+      .get(IssueFreeTextService)
+      .remove(issue.id, new Date(), {
+        targetPersonId: null,
+        context: {},
+        stillDue: async (tx) => {
+          asked += 1;
+          if (asked === 3) {
+            await tx.issuePhoto.create({
+              data: { issueId: issue.id, fileId: late.fileId },
+            });
+          }
+          return true;
+        },
+      });
+    expect(outcome).toBe("unfinished");
+
+    // The marks of the redaction went with the text, so the purge's own mark
+    // stands in its place rather than a description read as filed blank.
+    const midway = await read(issue.id);
+    expect(midway.description).toBe("");
+    expect(midway.descriptionRedactedAt).toBeNull();
+    expect(midway.freeTextRemovedAt).not.toBeNull();
+    expect(midway._count.photos).toBe(1);
+
+    // The next run takes the file and moves the mark to that run.
+    expect(await clock.purgeIssue(issue.id, new Date(), 1)).toBe("removed");
+    const after = await read(issue.id);
+    expect(after._count.photos).toBe(0);
+    expect(after.freeTextRemovedAt?.getTime()).toBeGreaterThanOrEqual(
+      midway.freeTextRemovedAt?.getTime() ?? Infinity,
+    );
+    expect(await stored(late.storageKey)).toBe(false);
+  });
+
   it("keeps an issue whose reporter is under a legal hold", async () => {
     const issue = await seed({
       reporterPersonId: heldReporterId,
@@ -938,6 +995,145 @@ describe("redaction", () => {
     expect(kept._count.photos).toBe(1);
     expect(await stored(issue.photo.storageKey)).toBe(true);
     expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
+  });
+});
+
+describe("redaction after the purge and under a reporter's hold", () => {
+  const redact = (issueId: string, payload: object) =>
+    inject({
+      method: "POST",
+      url: `/api/issue-queue/${issueId}/redactions`,
+      headers: { cookie: boardCookie },
+      payload,
+    });
+
+  it("redacts nothing and writes nothing once the purge has emptied the text", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 5 * 365,
+    });
+    expect(await clock.purgeIssue(issue.id, new Date(), 1)).toBe("removed");
+    const purged = await read(issue.id);
+    expect(purged.description).toBe("");
+    expect(purged.freeTextRemovedAt).not.toBeNull();
+
+    for (const target of ["description", "location"]) {
+      expect((await redact(issue.id, { target })).statusCode).toBe(204);
+    }
+
+    const after = await read(issue.id);
+    expect(after.descriptionRedactedAt).toBeNull();
+    expect(after.locationRedactedAt).toBeNull();
+    expect(after.freeTextRemovedAt).toEqual(purged.freeTextRemovedAt);
+    expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
+  });
+
+  it("is refused while the reporter is under a legal hold, and goes through once it is released", async () => {
+    const issue = await seed({
+      reporterPersonId: heldReporterId,
+      closedDaysAgo: null,
+    });
+    for (const payload of [
+      { target: "description" },
+      { target: "message", id: issue.messageId },
+      { target: "photo", id: issue.photo.id },
+    ]) {
+      const refused = await redact(issue.id, payload);
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json()).toMatchObject({ reason: "legal-hold" });
+    }
+    const kept = await read(issue.id);
+    expect(kept.description).toBe(DESCRIPTION);
+    expect(kept._count.photos).toBe(1);
+    expect(await stored(issue.photo.storageKey)).toBe(true);
+    expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
+
+    // A reporter of their own, so the hold above stays for the other tests.
+    const releasedId = `ir-released-${suffix}`;
+    personIds.push(releasedId);
+    await prisma.person.create({
+      data: { id: releasedId, firstName: "Rolf", lastName: "Reda" },
+    });
+    await prisma.legalHold.create({
+      data: {
+        personId: releasedId,
+        reason: "Tvist om vattenskada",
+        placedByPersonId: board.personId,
+      },
+    });
+    const other = await seed({
+      reporterPersonId: releasedId,
+      closedDaysAgo: null,
+    });
+    expect((await redact(other.id, { target: "description" })).statusCode).toBe(
+      409,
+    );
+    await prisma.legalHold.updateMany({
+      where: { personId: releasedId },
+      data: { releasedAt: new Date() },
+    });
+    expect((await redact(other.id, { target: "description" })).statusCode).toBe(
+      204,
+    );
+    expect((await read(other.id)).descriptionRedactedAt).not.toBeNull();
+  });
+
+  it("is refused while the reporter is restricted, and while a public-form reporter's address is held", async () => {
+    const restrictedId = `ir-restricted-${suffix}`;
+    const addressHeldId = `ir-address-held-${suffix}`;
+    personIds.push(restrictedId, addressHeldId);
+    await prisma.person.create({
+      data: {
+        id: restrictedId,
+        firstName: "Rakel",
+        lastName: "Begransad",
+        processingRestrictedAt: new Date(),
+      },
+    });
+    const email = `${addressHeldId}@exempel.se`;
+    const encrypted = await encryption.encrypt("person.email", email);
+    await prisma.person.create({
+      data: {
+        id: addressHeldId,
+        firstName: "Adrian",
+        lastName: "Adress",
+        emailCipher: encrypted.cipher,
+        emailIndex: encrypted.index,
+      },
+    });
+    await prisma.legalHold.create({
+      data: {
+        personId: addressHeldId,
+        reason: "Tvist om vattenskada",
+        placedByPersonId: board.personId,
+      },
+    });
+
+    const restricted = await seed({
+      reporterPersonId: restrictedId,
+      closedDaysAgo: null,
+    });
+    const byAddress = await seed({
+      reporterPersonId: null,
+      closedDaysAgo: null,
+    });
+    await prisma.issue.update({
+      where: { id: byAddress.id },
+      data: {
+        reporterEmailIndex: await encryption.computeIndex(
+          "issue.reporterEmail",
+          email,
+        ),
+      },
+    });
+
+    for (const issue of [restricted, byAddress]) {
+      const refused = await redact(issue.id, { target: "description" });
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json()).toMatchObject({ reason: "legal-hold" });
+      expect((await read(issue.id)).description).toBe(DESCRIPTION);
+      expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
+    }
   });
 });
 

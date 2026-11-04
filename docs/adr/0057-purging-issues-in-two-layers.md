@@ -119,6 +119,14 @@ that the association needs what the case holds for a claim (art. 17(3)(e)), and 
 redaction would remove it as surely as the clock the hold stops; the hold is
 released first, which is its own entry in the log.
 
+A redaction is refused as well while the case's reporter is under a legal hold or
+a restriction under art. 18, read as the clock reads it: a signed-in reporter by
+their person, a public-form reporter by the address on the report. The reason is
+the one the clock stops for: the reporter's text is what that hold or restriction
+keeps, and a handler's redaction would remove it as the clock would. The refusal
+does not say which of the two stands, because a handler may not see a person's
+hold or restriction; the reporter's is released, or lapses, where it was placed.
+
 ### Erasure and the closing job
 
 The clock is case-keyed and reads no request, so its job is not an erasure

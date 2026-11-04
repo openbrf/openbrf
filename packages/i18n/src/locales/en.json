@@ -4000,7 +4000,7 @@
         "saving": "Saving..."
       },
       "errors": {
-        "legalHold": "A legal hold stands on this issue, so nothing can be removed. The issue has been read again.",
+        "legalHold": "A legal hold stands on this issue or on its reporter, so nothing can be removed. The issue has been read again.",
         "targetNotFound": "That is already gone. The issue has been read again.",
         "unknown": "Nothing could be changed just now. Please try again."
       }

@@ -42,7 +42,7 @@ export type FreeTextRemovalOutcome =
   | "kept"
   /**
    * The text went, and a file attached while the run was in flight stands. The
-   * issue is selected again on the next run.
+   * issue is marked as purged, and selected again on the next run.
    */
   | "unfinished";
 
@@ -59,7 +59,9 @@ export type FreeTextRemovalOutcome =
  * nothing left to name them. The join rows go with the file by their cascade. Then
  * the text, in one transaction with the entry that records it: the description
  * emptied, the location cleared, every issue message and internal note deleted,
- * and `freeTextRemovedAt` written.
+ * and `freeTextRemovedAt` written. It is written whenever the text goes, also
+ * when a file attached during the run stands (the outcome is then
+ * `unfinished`), and again by the run that takes that file.
  *
  * Each file's entry is `MEDIA_DELETED` with no file name, because a name
  * somebody gave a photograph of their bathroom is free text too and the log is
@@ -140,7 +142,8 @@ export class IssueFreeTextService {
         where: { issueId },
       });
       // A file attached since the files were read stands, and the issue is
-      // found again tomorrow: the text goes tonight whatever.
+      // found again tomorrow: the text goes tonight whatever, and is marked as
+      // gone tonight.
       const standing = (await this.filesOf(tx, issueId)).length;
 
       // Nothing for this run to take: another run, the clock or the erasure
@@ -164,10 +167,14 @@ export class IssueFreeTextService {
           description: "",
           location: null,
           // The marks of a handler's redaction go with what they marked: the
-          // whole layer is gone, and the issue now says that instead.
+          // text is gone, and the issue now says that instead. Written even
+          // when a file attached during the run stands, because the marks are
+          // cleared in this same update and the issue would otherwise read as
+          // one filed blank until the next run. The date moves to the run that
+          // takes the last file.
           descriptionRedactedAt: null,
           locationRedactedAt: null,
-          ...(standing === 0 ? { freeTextRemovedAt: now } : {}),
+          freeTextRemovedAt: now,
         },
       });
 

@@ -2,9 +2,16 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { IssueRedactionTarget } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { MediaService } from "../media/media.service";
+import {
+  lockLegalHold,
+  lockLegalHoldRegistry,
+} from "../retention/legal-hold-lock";
+import { withheldAddressIndexes } from "../retention/withheld-addresses";
+import { isPersonWithheld } from "../retention/withheld-persons";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
 import { lockIssueForHandling } from "./issue-lock";
 import { IssueError } from "./issue.error";
@@ -50,6 +57,15 @@ export interface IssueLegalHoldView {
  * redaction would destroy it as surely as the clock the hold stops. The hold is
  * released first, which is its own act in the log.
  *
+ * Refused as well while the issue's reporter is under a legal hold or a
+ * restriction under art. 18, as the clock and the erasure job refuse: the
+ * reporter's text is what such a hold or restriction keeps, whichever of the
+ * three removes it. A signed-in reporter is read by their person, a
+ * public-form reporter by the address on the report (`issue-text-purge.service.ts`).
+ * The answer does not say which of the two held, since a handler may not see a
+ * person's hold or restriction. It is checked under the hold's locks, taken
+ * before the issue's as the clock takes them.
+ *
  * ## The legal hold
  *
  * A flag with the date it was placed (`legalHoldAt`). While it stands neither
@@ -66,6 +82,7 @@ export class IssueRedactionService {
     private readonly prisma: PrismaService,
     private readonly media: MediaService,
     private readonly audit: AuditLogService,
+    private readonly encryption: FieldEncryptionService,
   ) {}
 
   /**
@@ -148,15 +165,21 @@ export class IssueRedactionService {
     redaction: IssueRedaction,
   ): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
-      await lockIssueForHandling(tx, issueId);
-      refuseHeld(await requireHandled(tx, issueId, handlerPersonId));
+      await this.lockForRedaction(tx, issueId);
+      await this.requireRedactable(tx, issueId, handlerPersonId);
       const now = new Date();
 
       let rowId: string | null = null;
       switch (redaction.target) {
         case "description": {
+          // A description the purge already emptied has nothing left to
+          // redact, and marking it would say that somebody had.
           const { count } = await tx.issue.updateMany({
-            where: { id: issueId, descriptionRedactedAt: null },
+            where: {
+              id: issueId,
+              descriptionRedactedAt: null,
+              description: { not: "" },
+            },
             data: { description: "", descriptionRedactedAt: now },
           });
           if (count === 0) {
@@ -165,8 +188,8 @@ export class IssueRedactionService {
           break;
         }
         case "location": {
-          // A location nobody wrote has nothing to redact, and marking it would
-          // say that somebody had.
+          // A location nobody wrote, or the purge cleared, has nothing to
+          // redact, and marking it would say that somebody had.
           const { count } = await tx.issue.updateMany({
             where: {
               id: issueId,
@@ -244,8 +267,8 @@ export class IssueRedactionService {
       // A storage failure fails the redaction, and the file stays to retry.
       bytesFirst: true,
       keep: async (tx) => {
-        await lockIssueForHandling(tx, issueId);
-        refuseHeld(await requireHandled(tx, issueId, handlerPersonId));
+        await this.lockForRedaction(tx, issueId);
+        await this.requireRedactable(tx, issueId, handlerPersonId);
         return (await this.fileOf(tx, issueId, redaction)) !== fileId;
       },
       onRemoved: async (tx) => {
@@ -258,6 +281,63 @@ export class IssueRedactionService {
         );
       },
     });
+  }
+
+  /**
+   * The locks a redaction takes: the reporter's hold, then the issue's own,
+   * the order the clock takes them in, so neither waits on the other the other
+   * way round. A hold placed or a restriction granted while the handler was
+   * clicking has to win, and the placing takes the same keys.
+   */
+  private async lockForRedaction(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+  ): Promise<void> {
+    const reporter = await tx.issue.findUnique({
+      where: { id: issueId },
+      select: { reporterPersonId: true, reporterEmailIndex: true },
+    });
+    if (reporter?.reporterPersonId) {
+      await lockLegalHold(tx, reporter.reporterPersonId);
+    }
+    if (reporter?.reporterEmailIndex) {
+      await lockLegalHoldRegistry(tx);
+    }
+    await lockIssueForHandling(tx, issueId);
+  }
+
+  /**
+   * Refuses a redaction of an issue this person does not handle, one under a
+   * legal hold of its own, and one whose reporter is under a hold or a
+   * restriction. Read under the locks of {@link lockForRedaction}.
+   */
+  private async requireRedactable(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+    handlerPersonId: string,
+  ): Promise<void> {
+    refuseHeld(await requireHandled(tx, issueId, handlerPersonId));
+    const reporter = await tx.issue.findUnique({
+      where: { id: issueId },
+      select: { reporterPersonId: true, reporterEmailIndex: true },
+    });
+    if (reporter === null) {
+      return;
+    }
+    if (
+      reporter.reporterPersonId !== null &&
+      (await isPersonWithheld(tx, reporter.reporterPersonId))
+    ) {
+      throw heldError();
+    }
+    if (
+      reporter.reporterEmailIndex !== null &&
+      (
+        await withheldAddressIndexes(tx, this.encryption, "issue.reporterEmail")
+      ).has(reporter.reporterEmailIndex)
+    ) {
+      throw heldError();
+    }
   }
 
   /** The file a photograph or a handler's file on this issue points at. */
@@ -325,11 +405,19 @@ async function requireHandled(
 
 function refuseHeld(issue: { legalHoldAt: Date | null }): void {
   if (issue.legalHoldAt !== null) {
-    throw new IssueError(
-      "A legal hold stands on this issue; release it before redacting.",
-      "legal-hold",
-    );
+    throw heldError();
   }
+}
+
+/**
+ * The refusal for a hold on the issue and for one on its reporter, worded the
+ * same so it does not tell a handler which of the two stands.
+ */
+function heldError(): IssueError {
+  return new IssueError(
+    "A legal hold stands on this issue or on its reporter; nothing can be redacted until it is released.",
+    "legal-hold",
+  );
 }
 
 function targetNotFound(): IssueError {
