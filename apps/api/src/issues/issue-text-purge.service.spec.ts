@@ -28,7 +28,7 @@ const NOW = new Date("2026-11-04T03:21:00Z");
  * A scan that never runs dry, in pages of 500 issues whose ids say which page
  * they came from, and a removal that does what `outcome` says.
  */
-function build(outcome: (id: string) => "removed" | "fail") {
+function build(outcome: (id: string) => "removed" | "fail" | "unfinished") {
   const service = new IssueTextPurgeService(
     { NODE_ENV: "test" } as Env,
     {} as PrismaService,
@@ -55,7 +55,7 @@ function build(outcome: (id: string) => "removed" | "fail") {
       if (outcome(id) === "fail") {
         throw new Error("storage refused");
       }
-      return "removed";
+      return outcome(id) === "unfinished" ? "unfinished" : "removed";
     });
   return { service, eligiblePage, purgeIssue };
 }
@@ -123,5 +123,18 @@ describe("one run of the issue text purge", () => {
     // first issue of page 2, and the other 499 on that page are not taken.
     expect(summary).toEqual({ considered: 501, purged: 500, failed: 1 });
     expect(purgeIssue).toHaveBeenCalledTimes(501);
+  });
+
+  it("counts issues that stay unfinished in the error at the bound", async () => {
+    const { service } = build(() => "unfinished");
+
+    const summary = await service.run(NOW, 2);
+
+    // An unfinished issue is neither a removal nor a throw, and it stays due,
+    // so a run of them ends on the attempt bound and says how many it met.
+    expect(summary).toEqual({ considered: 1000, purged: 0, failed: 0 });
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining("0 failed removals and 1000 unfinished issues"),
+    );
   });
 });

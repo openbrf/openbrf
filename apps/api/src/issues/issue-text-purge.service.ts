@@ -151,6 +151,10 @@ export class IssueTextPurgeService implements OnModuleInit {
     let considered = 0;
     let purged = 0;
     let failed = 0;
+    // Issues whose text went while a file attached in flight still stands:
+    // they stay due, so the next run selects them again, as it does a failed
+    // removal.
+    let unfinished = 0;
     let after: IssueCursor | undefined;
     const bounded = (): boolean =>
       purged >= MAX_ISSUES_PER_RUN || considered >= MAX_ATTEMPTS_PER_RUN;
@@ -167,8 +171,11 @@ export class IssueTextPurgeService implements OnModuleInit {
         }
         considered += 1;
         try {
-          if ((await this.purgeIssue(id, now, clock)) === "removed") {
+          const outcome = await this.purgeIssue(id, now, clock);
+          if (outcome === "removed") {
             purged += 1;
+          } else if (outcome === "unfinished") {
+            unfinished += 1;
           }
         } catch (error) {
           // The class of the failure and the issue id, and nothing the failure
@@ -202,9 +209,9 @@ export class IssueTextPurgeService implements OnModuleInit {
         this.logger.error(
           `Issue text purge stopped at its bound of ${String(
             MAX_ATTEMPTS_PER_RUN,
-          )} attempts with ${String(
-            failed,
-          )} failed removals; issues behind the ones that did not succeed wait until those do.`,
+          )} attempts with ${String(failed)} failed removals and ${String(
+            unfinished,
+          )} unfinished issues; issues behind the ones that did not succeed wait until those do.`,
         );
       } else {
         this.logger.log(
