@@ -800,6 +800,8 @@ describe("a free-text removal that is refused after files went", () => {
     ]);
     const after = await read(issue.id);
     expect(after._count.photos + after._count.attachments).toBe(0);
+    // The messages and notes go only after the closing check passes.
+    expect(after._count).toMatchObject({ messages: 1, notes: 1 });
     expect(after.description).toBe(DESCRIPTION);
     expect(after.freeTextRemovedAt).toBeNull();
   });
