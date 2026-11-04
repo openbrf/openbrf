@@ -268,6 +268,79 @@ function untilWaitingForIssueLock(issueId: string): Promise<void> {
   return untilWaitingForLock(`issue:${issueId}`, "the issue's lock");
 }
 
+/**
+ * Files two reports of one sender together, the first held back after its
+ * mail budget was counted and before it commits, and answers both ids.
+ *
+ * The first is stored and mailed about in a transaction this keeps open, as
+ * `IssueService` files one; `racing` then files the second, and the first
+ * commits only once the second is waiting for the sender's budget lock
+ * (`lockFilingBudget`, under `lockKey`). Counting without it, the second would
+ * not see the first and both would be mailed about, so a missing lock fails
+ * here: nothing waits for it. The two are filed under different types, as
+ * `held` and as `racing` names, because a type's lock would otherwise make
+ * them wait for each other and hide a missing budget lock.
+ */
+async function filedWhileBudgetIsCounted(options: {
+  reporterPersonId: string | null;
+  held: IssueTypeFixture;
+  lockKey: string;
+  racing: () => Promise<{ id: string }>;
+}): Promise<{ held: string; racing: string }> {
+  await mailer.ensureQueues();
+  let racing: Promise<{ id: string }> | undefined;
+  const held = await prisma.$transaction(async (tx) => {
+    const { id } = await tx.issue.create({
+      data: {
+        typeId: options.held.id,
+        statusId: options.held.statusIds.NEW,
+        reporterPersonId: options.reporterPersonId,
+        description: REPORTER_DESCRIPTION,
+      },
+      select: { id: true },
+    });
+    expect(await mailer.filedInTransaction(tx, id)).toBeGreaterThan(0);
+    racing = options.racing();
+    // A failure before it waits is reported by the wait below timing out.
+    racing.catch(() => undefined);
+    await untilWaitingForLock(
+      options.lockKey,
+      "the sender's filing budget lock",
+    );
+    return id;
+  });
+  if (racing === undefined) {
+    throw new Error("The second report was never started.");
+  }
+  return { held, racing: (await racing).id };
+}
+
+/** Runs `run` while the association takes reports from the website's form. */
+async function whilePublicReportingIsOn<T>(run: () => Promise<T>): Promise<T> {
+  await mailer.ensureQueues();
+  const previous = await prisma.association.findUnique({
+    where: { id: 1 },
+    select: { issueReportingPublic: true },
+  });
+  await prisma.association.upsert({
+    where: { id: 1 },
+    create: { id: 1, name: "Brf Eksemplet", issueReportingPublic: true },
+    update: { issueReportingPublic: true },
+  });
+  try {
+    return await run();
+  } finally {
+    if (previous === null) {
+      await prisma.association.deleteMany({ where: { id: 1 } });
+    } else {
+      await prisma.association.update({
+        where: { id: 1 },
+        data: { issueReportingPublic: previous.issueReportingPublic },
+      });
+    }
+  }
+}
+
 /** The overdue jobs queued for one issue, with when each is due. */
 async function overdueJobs(
   issueId: string,
@@ -628,32 +701,12 @@ describe("a report is filed", () => {
     }
     // Through the service the website's form calls, which takes the report
     // whether or not it may mail.
-    await mailer.ensureQueues();
-    const previous = await prisma.association.findUnique({
-      where: { id: 1 },
-      select: { issueReportingPublic: true },
-    });
-    await prisma.association.upsert({
-      where: { id: 1 },
-      create: { id: 1, name: "Brf Eksemplet", issueReportingPublic: true },
-      update: { issueReportingPublic: true },
-    });
-    let publicIssueId: string;
-    try {
-      ({ id: publicIssueId } = await issues.reportPublicly({
+    const { id: publicIssueId } = await whilePublicReportingIsOn(() =>
+      issues.reportPublicly({
         typeId: publicType.id,
         description: REPORTER_DESCRIPTION,
-      }));
-    } finally {
-      if (previous === null) {
-        await prisma.association.deleteMany({ where: { id: 1 } });
-      } else {
-        await prisma.association.update({
-          where: { id: 1 },
-          data: { issueReportingPublic: previous.issueReportingPublic },
-        });
-      }
-    }
+      }),
+    );
 
     expect(
       await prisma.issue.findUnique({
@@ -679,6 +732,116 @@ describe("a report is filed", () => {
     const told = recipientsOf(await notices(urgentIssue.id));
     expect(told.get(admin.personId)).toBe("urgent");
     expect(told.get(manager.personId)).toBe("urgent");
+  });
+
+  it("mails about only one of two reports a reporter files together with one slot of the hour's budget left, of two types", async () => {
+    const heldBack = { reporterPersonId: resident.personId };
+    const outOfTheHourAgain = () =>
+      prisma.issue.updateMany({
+        where: heldBack,
+        data: { createdAt: new Date(Date.now() - 2 * HOUR_MS) },
+      });
+    try {
+      // Whatever an earlier test left of this resident's hour is out of it.
+      await outOfTheHourAgain();
+      await prisma.issue.createMany({
+        data: Array.from(
+          { length: NOTIFIED_REPORTS_PER_REPORTER_PER_HOUR - 1 },
+          (_, index) => ({
+            id: `im-spent-${String(index)}-${suffix}`,
+            typeId: unassignedType.id,
+            statusId: unassignedType.statusIds.NEW,
+            reporterPersonId: resident.personId,
+            description: REPORTER_DESCRIPTION,
+          }),
+        ),
+      });
+
+      const filed = await filedWhileBudgetIsCounted({
+        reporterPersonId: resident.personId,
+        held: unassignedType,
+        lockKey: `issue-filing-budget:person:${resident.personId}`,
+        racing: () =>
+          issues.report(residentPrincipal, {
+            typeId: assignedType.id,
+            description: REPORTER_DESCRIPTION,
+          }),
+      });
+
+      // Both are filed, and the one that counted first is the only one the
+      // handlers are told of.
+      expect(
+        await prisma.issue.count({
+          where: { id: { in: [filed.held, filed.racing] } },
+        }),
+      ).toBe(2);
+      expect(recipientsOf(await notices(filed.held)).get(admin.personId)).toBe(
+        "filed",
+      );
+      expect(await notices(filed.racing)).toEqual([]);
+    } finally {
+      await outOfTheHourAgain();
+    }
+  });
+
+  it("mails about only one of two reports the website's form takes together with one slot of the hour's budget left, of two types", async () => {
+    // This suite's own reports from the form, however they were left.
+    const ours = {
+      reporterPersonId: null,
+      typeId: { in: Object.values(typeIds) },
+    };
+    const outOfTheHourAgain = () =>
+      prisma.issue.updateMany({
+        where: ours,
+        data: { createdAt: new Date(Date.now() - 2 * HOUR_MS) },
+      });
+    try {
+      await outOfTheHourAgain();
+      // What other suites left in the hour is part of the budget too.
+      const already = await prisma.issue.count({
+        where: {
+          reporterPersonId: null,
+          enteredByHandler: false,
+          priority: { not: "URGENT" },
+          createdAt: { gte: new Date(Date.now() - HOUR_MS) },
+        },
+      });
+      const spare = NOTIFIED_PUBLIC_REPORTS_PER_HOUR - 1 - already;
+      expect(spare).toBeGreaterThanOrEqual(0);
+      await prisma.issue.createMany({
+        data: Array.from({ length: spare }, (_, index) => ({
+          id: `im-spent-public-${String(index)}-${suffix}`,
+          typeId: unassignedType.id,
+          statusId: unassignedType.statusIds.NEW,
+          description: "Skräp",
+        })),
+      });
+
+      const filed = await whilePublicReportingIsOn(() =>
+        filedWhileBudgetIsCounted({
+          reporterPersonId: null,
+          held: unassignedType,
+          lockKey: "issue-filing-budget:public-form",
+          racing: () =>
+            issues.reportPublicly({
+              typeId: publicType.id,
+              description: REPORTER_DESCRIPTION,
+            }),
+        }),
+      );
+
+      expect(
+        await prisma.issue.count({
+          where: { id: { in: [filed.held, filed.racing] } },
+        }),
+      ).toBe(2);
+      expect(recipientsOf(await notices(filed.held)).get(admin.personId)).toBe(
+        "filed",
+      );
+      expect(await notices(filed.racing)).toEqual([]);
+    } finally {
+      await outOfTheHourAgain();
+    }
   });
 
   it("tells an assignee who became a recipient after the first look that the issue is urgent", async () => {
