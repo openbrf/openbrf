@@ -940,6 +940,15 @@ describe("D. rate limits and abuse", () => {
     });
     const over = await post(token, "Ett till");
     expect(over.headers.location).toBe(`/arende/${token}?svar=full`);
+    // The redirect's target says so in words, not only in its query.
+    const told = await inject({
+      method: "GET",
+      url: String(over.headers.location),
+    });
+    expect(told.statusCode).toBe(200);
+    expect(told.body).toContain(
+      "Fler meddelanden kan inte skickas via länken.",
+    );
     expect(
       await prisma.issueMessage.count({ where: { issueId, side: "REPORTER" } }),
     ).toBe(REPORTER_LINK_MESSAGES_PER_ISSUE);
