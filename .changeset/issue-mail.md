@@ -28,8 +28,10 @@ number.
   address. One not sent because the instance has no mail settings, or because
   the mail server refused it on every retry, is sent only after the issue is
   assigned again, opened again or given a new target date. So is a reminder
-  skipped because the assignee was restricted or had no email address at that
-  moment: it is not sent later otherwise.
+  skipped because the assignee was restricted or had no email address when it
+  fell due: it is not sent later otherwise. One whose assignee became
+  restricted or lost their email address while it was being sent is queued
+  again for them, and is sent only if they can be reached when that job runs.
 - **Reopened.** A done issue that is opened again is mailed to its assignee, or
   to everybody who handles it when it has no assignee. Reopened twice within
   the same clock hour mails once, unless the first mail was not sent because

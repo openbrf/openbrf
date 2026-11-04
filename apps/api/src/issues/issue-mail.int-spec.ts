@@ -1933,6 +1933,54 @@ describe("an overdue reminder that is never sent", () => {
     }
   });
 
+  it("reminds the same assignee when the job queued again runs after their restriction is lifted", async () => {
+    const { issueId, targetDate, notice } = await remindedIssue();
+    const sent = captureSends();
+    const encryption = app.get(FieldEncryptionService);
+    const decrypt = encryption.decrypt.bind(encryption);
+    const spy = vi
+      .spyOn(encryption, "decrypt")
+      .mockImplementationOnce(async (...args) => {
+        const plain = await decrypt(...args);
+        await prisma.person.update({
+          where: { id: manager.personId },
+          data: { processingRestrictedAt: new Date() },
+        });
+        return plain;
+      });
+    try {
+      const queuedBefore = (await overdueJobs(issueId)).length;
+
+      expect(await mailer.deliver(notice)).toBe(false);
+
+      expect(sent).toEqual([]);
+      expect(await claimed(issueId)).toEqual([]);
+      expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
+      // The restriction is lifted before the job queued again runs.
+      await prisma.person.update({
+        where: { id: manager.personId },
+        data: { processingRestrictedAt: null },
+      });
+      expect(await mailer.remindOverdue({ issueId, targetDate })).toBe(true);
+      const again = await lastNotice(issueId);
+      expect(again).toEqual({
+        issueId,
+        personId: manager.personId,
+        event: "overdue",
+        targetDate,
+      });
+      expect(await mailer.deliver(again)).toBe(true);
+      expect(sent.map((input) => input.to)).toEqual([manager.email]);
+      expect(await claimed(issueId)).toEqual([targetDate]);
+    } finally {
+      spy.mockRestore();
+      await prisma.person.update({
+        where: { id: manager.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
   it("gives the date back, without queueing it again for the same assignee, when the delivery is given up on after its retries", async () => {
     const { issueId, notice } = await remindedIssue();
     const queuedBefore = (await overdueJobs(issueId)).length;
