@@ -399,6 +399,7 @@ export function IssueQueueScreen({
             types={types === undefined ? [] : types}
             onChanged={reload}
             onRetryTypes={retryTypes}
+            reading={reading}
             canManageCharges={viewer.capabilities.includes(
               "memberCharges:manage",
             )}

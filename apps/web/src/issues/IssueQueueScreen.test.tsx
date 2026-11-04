@@ -550,6 +550,87 @@ describe("a save that finishes under another view or filter", () => {
     expect(list?.getAttribute("aria-busy")).toBe("false");
   });
 
+  it("turns the status form and the handling off while the read after a save is out", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+    await userEvent.click(screen.getByText(/^Hantera Vatten:/));
+    const finish = await startSave();
+
+    let answerReread: (value: unknown) => void = () => undefined;
+    fetchIssueQueueSnapshot.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answerReread = resolve;
+        }),
+    );
+    finish({ ok: true, value: issue() });
+    await screen.findByText("Hämtar ärendena...");
+
+    const status = screen.getByLabelText(
+      "Vatten anmält 2026-08-20: status",
+    ) as HTMLSelectElement;
+    expect(status.disabled).toBe(true);
+    // The handling under the row sits in a disabled fieldset, so every control
+    // in it is off with it.
+    const fieldset = document.querySelector("details fieldset");
+    expect(fieldset?.hasAttribute("disabled")).toBe(true);
+
+    answerReread(answer([issue()]));
+    await waitFor(() => {
+      expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
+    });
+    expect(
+      (
+        screen.getByLabelText(
+          "Vatten anmält 2026-08-20: status",
+        ) as HTMLSelectElement
+      ).disabled,
+    ).toBe(false);
+    expect(
+      document.querySelector("details fieldset")?.hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
+  it("keeps the types' retry beside the notice of a save that failed", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+
+    // The save is refused as out of date; the types read after it fail.
+    fetchHandlerIssueTypes.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    setIssueStatus.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 404, reason: "status-not-found" },
+    });
+    await userEvent.selectOptions(
+      screen.getByLabelText("Vatten anmält 2026-08-20: status"),
+      "s-doing",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Spara status" }));
+
+    expect(
+      await screen.findByText(
+        "Den statusen erbjuds inte längre för den här typen. Kön har lästs om.",
+      ),
+    ).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Försök igen" })).toBeTruthy();
+    // It appears over a screen the reader is already on, so it is announced.
+    expect(
+      screen
+        .getByText(
+          "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.",
+        )
+        .closest("[role='alert']"),
+    ).not.toBeNull();
+  });
+
   it("reads the view the handler moved to, not the one the save began in", async () => {
     const { rerender } = render(
       <IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} view="MINE" />,

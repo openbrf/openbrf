@@ -1044,9 +1044,10 @@ describe("the search", () => {
     expect(await search(board, `blå\\slampa${suffix}`)).toEqual([]);
   });
 
-  it("finds a description that holds a backslash when it is searched for", async () => {
+  it("finds a description that holds a backslash, a percent sign or an underscore when it is searched for", async () => {
     // A type of its own, so no other test's set of issues changes. Were every
-    // backslash refused, the query above would pass and this would not.
+    // query holding one of these refused or stripped, the queries above would
+    // pass and this would not.
     const type = await createIssueTypeFixture(prisma, {
       id: typeIds.backslash,
       name: `Bakstreck ${suffix}`,
@@ -1054,6 +1055,9 @@ describe("the search", () => {
     });
     const backslashed = await issue(type, "backslashed", {
       description: `Sökvägen C:\\skrivbord\\kvitto${suffix}`,
+    });
+    const wildcards = await issue(type, "wildcards", {
+      description: `Rabatt 50% på kvitto_nr${suffix}`,
     });
 
     expect(
@@ -1072,6 +1076,25 @@ describe("the search", () => {
           view: "ALL",
           typeId: type.id,
           q: `C:skrivbordkvitto${suffix}`,
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      ids(
+        await list(board, {
+          view: "ALL",
+          typeId: type.id,
+          q: `50% på kvitto_nr${suffix}`,
+        }),
+      ),
+    ).toEqual([wildcards]);
+    // Neither is a stand-in for the character it stands beside.
+    expect(
+      ids(
+        await list(board, {
+          view: "ALL",
+          typeId: type.id,
+          q: `kvitto-nr${suffix}`,
         }),
       ),
     ).toEqual([]);

@@ -79,6 +79,13 @@ export interface IssueQueuePanelProps {
    * the charges made from it. Courtesy only: the API refuses the read without.
    */
   canManageCharges?: boolean;
+  /**
+   * Whether the queue is being read again. The rows on screen may not be the
+   * ones the new read returns, so their status forms and handling controls are
+   * off until it is back, rather than a change saved on an issue the view
+   * no longer holds.
+   */
+  reading?: boolean;
 }
 
 /**
@@ -110,6 +117,7 @@ export function IssueQueuePanel({
   onRetryTypes,
   emptyMessage,
   canManageCharges = false,
+  reading = false,
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
   const move = useSaveAction(setIssueStatus, onChanged, (failure) => {
@@ -134,18 +142,23 @@ export function IssueQueuePanel({
       title={t("issues.queue.title")}
       description={t("issues.queue.description")}
       notice={
-        move.state.kind === "failed" ? (
-          <Notice tone="danger" live>
-            {t(
-              failureMessageKey(
-                move.state.failure,
-                QUEUE_FAILURES,
-                "issues.queue.errors.unknown",
-              ),
-            )}
-          </Notice>
-        ) : types === null ? (
-          onRetryTypes === undefined ? (
+        <>
+          {move.state.kind === "failed" ? (
+            <Notice tone="danger" live>
+              {t(
+                failureMessageKey(
+                  move.state.failure,
+                  QUEUE_FAILURES,
+                  "issues.queue.errors.unknown",
+                ),
+              )}
+            </Notice>
+          ) : null}
+          {/*
+            Beside a failed save, not instead of it: with no types no status
+            form renders, so the retry here is the only way back to one.
+          */}
+          {types !== null ? null : onRetryTypes === undefined ? (
             <Notice tone="danger" live>
               {t("issues.queue.statusesUnavailable")}
             </Notice>
@@ -153,9 +166,10 @@ export function IssueQueuePanel({
             <LoadFailure
               messageKey="issues.queue.statusesUnavailable"
               onRetry={onRetryTypes}
+              live
             />
-          )
-        ) : null
+          )}
+        </>
       }
     >
       {issues.length === 0 ? (
@@ -283,7 +297,7 @@ export function IssueQueuePanel({
                     key={`${issue.status.id}:${issue.waitingReason ?? ""}`}
                     issue={issue}
                     type={type}
-                    disabled={saving}
+                    disabled={saving || reading}
                     saving={saving && actingOn === issue.id}
                     onDraftChanged={() => {
                       if (move.state.kind === "failed") {
@@ -301,6 +315,7 @@ export function IssueQueuePanel({
                   issue={issue}
                   type={type}
                   canManageCharges={canManageCharges}
+                  reading={reading}
                   onChanged={onChanged}
                 />
               </li>
@@ -322,11 +337,13 @@ function HandlingDisclosure({
   issue,
   type,
   canManageCharges,
+  reading,
   onChanged,
 }: {
   issue: QueuedIssue;
   type: IssueTypeView | undefined;
   canManageCharges: boolean;
+  reading: boolean;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -342,7 +359,10 @@ function HandlingDisclosure({
         {t("issues.handling.open", { type: issue.typeName })}
       </summary>
       {open ? (
-        <div className="flex flex-col gap-6 pt-2">
+        <fieldset
+          disabled={reading}
+          className="m-0 flex min-w-0 flex-col gap-6 border-0 px-0 pt-2 pb-0"
+        >
           <IssueHandling
             issue={issue}
             type={type}
@@ -350,7 +370,7 @@ function HandlingDisclosure({
             onChanged={onChanged}
           />
           <IssueConversation issue={issue} onStale={onChanged} />
-        </div>
+        </fieldset>
       ) : null}
     </details>
   );
