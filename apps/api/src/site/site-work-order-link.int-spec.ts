@@ -11,6 +11,7 @@ import {
 } from "vite-plus/test";
 
 import { PersonService } from "../address-book/person.service";
+import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import type { Env } from "../config/env";
@@ -26,7 +27,10 @@ import {
   mintReporterLinkToken,
   reporterLinkDigest,
 } from "../issues/issue-reporter-link-token";
-import { WORK_ORDER_LINK_DAYS } from "../issues/work-order-link";
+import {
+  revokeLinksOfProtectedHousehold,
+  WORK_ORDER_LINK_DAYS,
+} from "../issues/work-order-link";
 import {
   WORK_ORDER_LINK_NOTES_PER_HOUR,
   WORK_ORDER_LINK_PHOTOS_PER_WORK_ORDER,
@@ -1320,6 +1324,72 @@ describe("H4. marking a person protected", () => {
     expect((await page(ids.token)).statusCode).toBe(404);
   });
 
+  it("is serialised with issuing: a link issued while the protection is written is refused, never left standing", async () => {
+    const ids = await arrange();
+    const audit = app.get(AuditLogService);
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const inside = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    try {
+      // The protection's write, held open after it has looked for links to
+      // end and found none.
+      const marking = prisma.$transaction(
+        async (tx) => {
+          await tx.person.update({
+            where: { id: resident.personId },
+            data: { protectedPersonalData: true },
+          });
+          await revokeLinksOfProtectedHousehold(tx, audit, {
+            personId: resident.personId,
+            actorPersonId: board.personId,
+            channel: "WEB",
+          });
+          entered();
+          await held;
+        },
+        { timeout: 20_000 },
+      );
+      await inside;
+      const issuing = Promise.resolve(
+        inject({
+          method: "POST",
+          url: linkUrl(ids.issueId, ids.workOrderId),
+          cookie: as(board),
+        }),
+      );
+      // Unserialised, the issuing reads the protection as not yet there and
+      // commits its link in this time; serialised, it waits for the protection.
+      await Promise.race([
+        issuing,
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ]);
+      release();
+      await marking;
+      const response = await issuing;
+
+      expect(
+        await prisma.workOrderLink.count({
+          where: { workOrderId: ids.workOrderId, revokedAt: null },
+        }),
+      ).toBe(0);
+      expect(response.statusCode).toBe(422);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "work-order-protected",
+      );
+    } finally {
+      release();
+      await prisma.person.update({
+        where: { id: resident.personId },
+        data: { protectedPersonalData: false },
+      });
+    }
+  });
+
   it("ends the links of an apartment's issues when a protected person's residency is recorded there", async () => {
     const ids = await linked();
     const addressId = `wl-addr2-${suffix}`;
@@ -1500,6 +1570,34 @@ describe("B6. the legal gate's switch, off", () => {
     const state = await snapshot(ids.issueId, ids.workOrderId);
     expect(state.order.answer).toBeNull();
     expect(state.notes).toBe(0);
+  });
+
+  it("lists a link issued while it was on as live, and lets the handlers withdraw it for good", async () => {
+    const ids = await linked();
+    const standing = (await listed(ids.issueId, off)).workOrders.find(
+      (row) => row.id === ids.workOrderId,
+    );
+    // Shut by the switch, not ended: switched on again, it would open.
+    expect(standing?.contractorLink.link).toEqual({
+      state: "live",
+      expiresAt: ids.expiresAt,
+    });
+
+    const withdrawn = await inject(
+      {
+        method: "DELETE",
+        url: linkUrl(ids.issueId, ids.workOrderId),
+        cookie: as(board),
+      },
+      off,
+    );
+    expect(withdrawn.statusCode).toBe(204);
+    const after = (await listed(ids.issueId, off)).workOrders.find(
+      (row) => row.id === ids.workOrderId,
+    );
+    expect(after?.contractorLink.link.state).toBe("ended");
+    // The switch on again opens nothing through it.
+    expect((await page(ids.token)).statusCode).toBe(404);
   });
 });
 

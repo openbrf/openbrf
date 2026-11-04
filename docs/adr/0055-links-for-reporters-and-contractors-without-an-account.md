@@ -295,7 +295,9 @@ choose photographs for one while it is off; withdrawing a link stays possible,
 because it only narrows. What came through a link before stays on the work
 order's record either way. Turning the switch off refuses every link but does
 not revoke them: a link that has not expired or ended opens again if the switch
-is turned back on.
+is turned back on. So the work order's record still lists such a link as live
+while the switch is off, saying that the switch holds it shut, and offers its
+withdrawal and nothing else.
 
 ### The contractor's link as built
 
@@ -327,10 +329,13 @@ sections above leave open, this is what was decided:
   recording a protected person's residency (counted from the day it is
   recorded, not the day it begins), revoke the links of the issues they
   reported and of the issues about that apartment, in the same transaction and
-  audited on the channel of the write. Clearing the protection restores
-  nothing. A read still writes nothing. The handlers' record reads the same conditions, the
-  protected household included, so it never says a link opens what the
-  contractor is refused. A decline and done are final: no new link is issued
+  audited on the channel of the write. Issuing a link and those writes take
+  one lock (`lockHouseholdProtection`), so a link issued while a protection is
+  written is either found by it and revoked, or finds it and is refused.
+  Clearing the protection restores nothing. A read still writes nothing. The
+  handlers' record reads the same conditions, the protected household
+  included, so it never says a link opens what the contractor is refused; the
+  switch alone it does not read, as the switch section above says. A decline and done are final: no new link is issued
   for such a work order, and the handler writes a new one.
 - **Question 4, for the link.** The mailed work order is not refused for a
   protected household (above), because nothing of the issue goes into it but

@@ -10,7 +10,8 @@ without an account (ADR 0055). The link ships switched off until its legal
 review is done: set `OPENBRF_CONTRACTOR_LINKS_ENABLED=true` to turn it on. With
 the switch off, handlers are offered no link, work orders are mailed as
 before, and links given earlier refuse; they open again if the switch is turned
-back on, until they expire or end.
+back on, until they expire or end, so a handler can still withdraw one from
+the work order while the switch is off.
 
 - **The link.** On a work order that has been sent, a handler gives the
   contractor a link. Its address is shown once, and the handler sends it by

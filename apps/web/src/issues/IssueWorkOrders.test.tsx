@@ -1049,6 +1049,63 @@ describe("a contractor's link", () => {
     expect(fetchIssueWorkOrders).toHaveBeenCalledTimes(2);
   });
 
+  it("offers only the withdrawal of a live link while the switch is off", async () => {
+    const live: WorkOrder = {
+      ...DELIVERED,
+      contractorLink: {
+        ...NO_LINK,
+        link: { state: "live", expiresAt: ISSUED.expiresAt },
+      },
+    };
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ linksEnabled: false, workOrders: [live] }),
+    });
+    revokeWorkOrderLink.mockResolvedValue({ ok: true, value: undefined });
+    const user = userEvent.setup();
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    expect(
+      await screen.findByText(/^Arbetsorderlänkar är avstängda/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/^Länken öppnar arbetsordern/)).toBeNull();
+    expect(screen.queryByRole("button", give)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Ge en ny länk/ })).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        linksEnabled: false,
+        workOrders: [
+          {
+            ...live,
+            contractorLink: {
+              ...live.contractorLink,
+              link: { state: "ended", expiresAt: null },
+            },
+          },
+        ],
+      }),
+    });
+    await user.click(
+      screen.getByRole("button", {
+        name: /^Dra tillbaka länken till arbetsordern till Rörfirman från/,
+      }),
+    );
+    expect(revokeWorkOrderLink).toHaveBeenCalledWith({
+      issueId: "issue-1",
+      workOrderId: "wo-1",
+    });
+    // The outcome is said once the record reads the link as ended.
+    expect(
+      await screen.findByText(
+        "Länken är tillbakadragen. Den öppnar inte längre arbetsordern.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Dra tillbaka/ })).toBeNull();
+  });
+
   it("saves the photographs chosen for the link, as the whole choice", async () => {
     fetchIssueWorkOrders.mockResolvedValue({
       ok: true,

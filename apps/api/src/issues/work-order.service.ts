@@ -133,7 +133,8 @@ export interface IssueWorkOrdersView {
   closed: boolean;
   /**
    * Whether contractors' links are switched on (decision 25). Off, the screen
-   * offers no link and no choice of photographs.
+   * offers no link and no choice of photographs, only the withdrawal of a link
+   * issued while it was on, which the record still lists as `live`.
    */
   linksEnabled: boolean;
   /**

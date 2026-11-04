@@ -5,6 +5,7 @@ import type { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import type { AuditChannel } from "../generated/prisma/enums";
 import { residencyHeldOn } from "../registers/held-on";
+import { lockHouseholdProtection } from "./issue-lock";
 import { issuesReportedByProtectedPersons } from "./issue-reporter-protection";
 
 /**
@@ -185,6 +186,13 @@ export async function showsProtectedHousehold(
  * date arrives, which no write marks. Clearing the protection restores
  * nothing. The reads still write nothing (ADR 0055).
  *
+ * Called after the write that protects (the person's flag, or the residency),
+ * and takes the household protection's lock before it reads anything, the
+ * lock issuing a link takes too: a link issued at the same moment is either
+ * found here and ended, or finds this protection and is refused. It also puts
+ * a residency recorded and a person marked protected at the same moment one
+ * after the other, so the second reads what the first wrote.
+ *
  * Each ended link is audited on the channel of the write that ended it, never
  * with who the person is: the entry names the issue and the link only.
  * Answers how many links it ended.
@@ -204,6 +212,7 @@ export async function revokeLinksOfProtectedHousehold(
     channel: AuditChannel;
   },
 ): Promise<number> {
+  await lockHouseholdProtection(tx);
   if (input.apartmentId !== undefined) {
     // A residency recorded for a person who is not protected ends nothing.
     const person = await tx.person.findUnique({
@@ -273,7 +282,8 @@ export async function revokeLinksOfProtectedHousehold(
 }
 
 /**
- * The link's state as the handlers read it: `live` opens the work order now,
- * `ended` was issued and no longer does, `none` was never issued.
+ * The link's state as the handlers read it: `live` opens the work order (now,
+ * or once the instance's switch is on again while it is off), `ended` was
+ * issued and no longer does, `none` was never issued.
  */
 export type WorkOrderLinkState = "live" | "ended" | "none";

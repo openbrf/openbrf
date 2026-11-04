@@ -1185,7 +1185,7 @@ production Compose file passes it on to the application) switches it on, and
 turning it off again makes every link refuse at once, and a link that has not
 expired or ended opens again if it is switched back on. With it off, every
 address under `/arbetsorder/` answers the same 404 as a link that never
-existed.
+existed, and a handler can still withdraw such a link from its work order.
 
 Treat these paths as you treat `/arende/`: leave them out of the proxy's access
 log or cut the path at `/arbetsorder/`. A proxy log that keeps the full path

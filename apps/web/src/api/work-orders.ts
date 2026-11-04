@@ -122,7 +122,9 @@ export interface IssueWorkOrders {
   closed: boolean;
   /**
    * Whether contractors' links are switched on for this instance. Off, no link
-   * and no choice of photographs is offered.
+   * and no choice of photographs is offered, only the withdrawal of a link
+   * still `live`: it opens nothing while the switch is off, and would again
+   * if it were turned on before the link's end.
    */
   linksEnabled: boolean;
   /** Empty while the switch is off or the issue is ring-fenced. */

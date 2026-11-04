@@ -21,7 +21,12 @@ import {
   type ServedFile,
 } from "../media/media.service";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
-import { lockIssue, lockIssueForHandling, lockIssueType } from "./issue-lock";
+import {
+  lockHouseholdProtection,
+  lockIssue,
+  lockIssueForHandling,
+  lockIssueType,
+} from "./issue-lock";
 import { type ContractorNoticeKind, IssueMailer } from "./issue-mailer.service";
 import { IssueError } from "./issue.error";
 import {
@@ -260,7 +265,8 @@ export class WorkOrderLinkService {
    *
    * Under the issue type's lock and the issue's, with the work order's row
    * locked, so a ring-fence, a redaction or a contractor removed is decided
-   * before or after it. Refused on a ring-fenced or closed issue, for a work
+   * before or after it, and under the household protection's lock, so a
+   * protection is too. Refused on a ring-fenced or closed issue, for a work
    * order declined or done, without its text or its recipient, and while a
    * person with protected personal data reported the issue or lives in its
    * apartment.
@@ -308,6 +314,10 @@ export class WorkOrderLinkService {
           "work-order-recipient-removed",
         );
       }
+      // Under the lock a protection's write takes, so a protection committed
+      // while this link is being issued either is seen here or finds the link
+      // and ends it.
+      await lockHouseholdProtection(tx);
       if (await showsProtectedHousehold(tx, issueId, localDayOf(new Date()))) {
         throw new IssueError(
           "A work order on this issue is given no link: somebody it concerns has protected personal data.",
@@ -546,6 +556,11 @@ export class WorkOrderLinkService {
    * ends every link to it as `resolve` does on every request: such a link is
    * `ended` here, so the record never says it opens what the contractor is
    * refused.
+   *
+   * Not the switch: a link the switch holds shut is `live` here, as it would
+   * open again were the switch turned on within its 30 days, and the handlers
+   * can withdraw it while the switch is off (`revoke`). The answer's
+   * `linksEnabled` says whether it opens now.
    */
   async recordViews(
     tx: Prisma.TransactionClient,
@@ -562,7 +577,7 @@ export class WorkOrderLinkService {
     );
     const live = protectedHousehold
       ? new Map<string, Date>()
-      : await liveWorkOrderLinksOfIssue(tx, issueId, this.enabled);
+      : await liveWorkOrderLinksOfIssue(tx, issueId, true);
     const ordered = await tx.workOrder.findMany({
       where: { id: { in: [...workOrderIds] }, issueId },
       select: {

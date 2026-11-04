@@ -4180,6 +4180,7 @@
         "titleUnnamed": "Entreprenörens länk: arbetsordern från {{at}}",
         "live": "Länken öppnar arbetsordern till <data>{{date}}</data>.",
         "liveUndated": "Länken öppnar arbetsordern.",
+        "switchedOff": "Arbetsorderlänkar är avstängda, så länken öppnar ingenting nu. Den skulle öppna arbetsordern igen om de slogs på före <data>{{date}}</data>. Dra tillbaka den för att avsluta den för gott.",
         "ended": "Länken öppnar inte längre arbetsordern: den har dragits tillbaka, ersatts eller gått ut, entreprenören har tackat nej eller markerat den som klar, eller så har arbetsordern eller ärendet ändrats så att den inte längre får nå en entreprenör.",
         "none": "Entreprenören har inte fått någon länk till den här arbetsordern.",
         "hint": "Via länken ser entreprenören den här arbetsordern och fotona som väljs nedan, inget annat från ärendet. Där kan de tacka ja eller nej, markera arbetet som klart och lägga till anteckningar och foton.",

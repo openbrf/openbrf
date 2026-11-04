@@ -565,11 +565,15 @@ export function IssueWorkOrders({
     sending.reset();
   };
 
+  // Listed with the switch off too, for the withdrawal of a link issued while
+  // it was on: the switch holds it shut, but it would open again were the
+  // switch turned on within its 30 days.
   const linkControl: ContractorLinkControl | null =
-    data === null || !data.linksEnabled
+    data === null
       ? null
       : {
-          offered: !data.ringFenced && !data.closed,
+          enabled: data.linksEnabled,
+          offered: data.linksEnabled && !data.ringFenced && !data.closed,
           protectedHousehold: data.protectedHousehold,
           choosable: data.choosablePhotos,
           shown: shown?.issueId === issue.id ? shown : null,
@@ -847,7 +851,7 @@ function WorkOrderLog({
   orders: readonly WorkOrder[];
   locale: string;
   redaction: IssueRedactionControl | undefined;
-  /** Null while the instance's switch is off: no link is offered then. */
+  /** Null until the work orders are read. */
   link: ContractorLinkControl | null;
 }): ReactElement {
   const { t } = useTranslation();
@@ -937,7 +941,15 @@ function WorkOrderLog({
 
 /** The link acts and the choice of photographs, as the log's rows use them. */
 interface ContractorLinkControl {
-  /** False on a ring-fenced or closed issue: only a withdrawal is offered. */
+  /**
+   * The instance's switch. Off, a link issued while it was on is still listed
+   * as live, to be withdrawn, and nothing else is offered.
+   */
+  enabled: boolean;
+  /**
+   * False with the switch off and on a ring-fenced or closed issue: only a
+   * withdrawal is offered.
+   */
   offered: boolean;
   /**
    * Somebody the issue concerns has protected personal data: no link is
@@ -1089,9 +1101,9 @@ function ContractorRecord({
 }
 
 /**
- * The contractor's link to one work order, while the switch is on: where it
- * stands, issuing a new one and withdrawing a live one, the address just
- * issued, and the photographs it shows.
+ * The contractor's link to one work order: where it stands, issuing a new one
+ * and withdrawing a live one, the address just issued, and the photographs it
+ * shows. With the switch off, only a link still live, and only its withdrawal.
  */
 function ContractorLinkPanel({
   order,
@@ -1105,7 +1117,13 @@ function ContractorLinkPanel({
   const { t } = useTranslation();
   const record = order.contractorLink;
   const state = record.link.state;
-  if (!link.offered && state === "none") {
+  const asked = link.asked?.workOrderId === order.id ? link.asked : null;
+  // With the switch off, a link is listed only while it is live, to be
+  // withdrawn, and for as long as the withdrawal's outcome is said.
+  if (
+    (!link.offered && state === "none") ||
+    (!link.enabled && state !== "live" && asked === null)
+  ) {
     return null;
   }
   const named = workOrderNamed(order, locale);
@@ -1127,7 +1145,6 @@ function ContractorLinkPanel({
     link.shown?.workOrderId === order.id && state !== "ended"
       ? link.shown
       : null;
-  const asked = link.asked?.workOrderId === order.id ? link.asked : null;
   const saving = asked !== null && link.state.kind === "saving";
 
   return (
@@ -1144,7 +1161,13 @@ function ContractorLinkPanel({
         {t("issues.workOrders.link.title")}
       </h5>
       <p>
-        {state === "live" && record.link.expiresAt !== null ? (
+        {!link.enabled && state === "live" && record.link.expiresAt !== null ? (
+          <Trans
+            i18nKey="issues.workOrders.link.switchedOff"
+            values={{ date: formatMoment(record.link.expiresAt, locale) }}
+            components={DATA_TAGS}
+          />
+        ) : state === "live" && record.link.expiresAt !== null ? (
           <Trans
             i18nKey="issues.workOrders.link.live"
             values={{ date: formatMoment(record.link.expiresAt, locale) }}

@@ -155,6 +155,35 @@ export async function lockIssueForHandling(
 }
 
 /**
+ * The lock a transaction takes before it decides whether a contractor's link
+ * may stand beside a person with protected personal data: issuing a link
+ * (`WorkOrderLinkService.issue`), and every write that makes a household
+ * protected (`revokeLinksOfProtectedHousehold`).
+ *
+ * Issuing asks whether the issue concerns a protected person and then inserts
+ * the link; a protection asks which links stand and then ends them. At READ
+ * COMMITTED the two could each read before the other committed, and the link
+ * would outlive the protection on its row, to open again once the protection
+ * was cleared. Under this lock whichever comes second sees the first: the
+ * protection finds the link and ends it, or the issuing finds the protection
+ * and is refused.
+ *
+ * One key for the instance, not one per person or apartment: a protection
+ * reaches issues through residencies that a move-in or an import is writing
+ * at the same moment, and an import holds many persons and apartments in one
+ * transaction, so per-row keys would be taken in no one order. Both writes are
+ * rare. Taken last: after the type's, the issue's and the work order's row by
+ * issuing, and after the person's or the residency's own write by a
+ * protection, so neither ever waits on the other's earlier locks while
+ * holding this one. An advisory lock for the reason `lockIssue` gives.
+ */
+export async function lockHouseholdProtection(
+  tx: Prisma.TransactionClient,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"work-order-link-protection"}))`;
+}
+
+/**
  * The lock a transaction takes before it adds to the association's saved
  * replies, or seeds them: the bound on how many there are is a count followed
  * by an insert, and a new instance's seed writes only into an empty list. One

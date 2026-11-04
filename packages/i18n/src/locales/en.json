@@ -4180,6 +4180,7 @@
         "titleUnnamed": "Contractor's link: the work order of {{at}}",
         "live": "The link opens the work order until <data>{{date}}</data>.",
         "liveUndated": "The link opens the work order.",
+        "switchedOff": "Contractor's links are switched off on this instance, so the link opens nothing now. It would open the work order again if they were switched on before <data>{{date}}</data>. Withdraw it to end it for good.",
         "ended": "The link no longer opens the work order: it was withdrawn, replaced or expired, the contractor declined it or marked it done, or the work order or its issue changed so that it may no longer reach a contractor.",
         "none": "The contractor has not been given a link to this work order.",
         "hint": "Through the link the contractor sees this work order and the photographs chosen below, and nothing else from the issue. They can accept or decline it, mark it done, and add notes and photographs.",
