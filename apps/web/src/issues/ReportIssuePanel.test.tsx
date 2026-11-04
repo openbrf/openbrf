@@ -119,6 +119,15 @@ describe("the sensitive-data warning", () => {
     expect(screen.getByText(/läses bara av styrelsen/i)).toBeTruthy();
     expect(screen.getByText(/skriv inte vem du tror/i)).toBeTruthy();
     expect(screen.queryByText(/extern förvaltare/i)).toBeNull();
+    // Read before the description is written, not after it.
+    const warning = screen.getByText(/skriv inte vem du tror/i);
+    const description = screen.getByRole("textbox", {
+      name: /vad har hänt/i,
+    });
+    expect(
+      warning.compareDocumentPosition(description) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("keeps the intro line for an ordinary type, and drops it for a ring-fenced one", async () => {

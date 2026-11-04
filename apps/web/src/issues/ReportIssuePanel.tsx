@@ -398,6 +398,16 @@ export function ReportIssuePanel({
           <span className={HINT}>{t("issues.report.locationHint")}</span>
         </label>
 
+        {/* Standing, not live, and above the description: it is there before
+            anything is typed, because it is what the reporter needs to know
+            while they write. A ring-fenced type says who reads it instead,
+            and what not to write (decision 32). */}
+        <Notice tone="warn">
+          {chosen?.ringFenced === true
+            ? t("issues.ringFence.formWarning")
+            : t("issues.report.sensitiveWarning")}
+        </Notice>
+
         <label className={LABEL}>
           {t("issues.report.descriptionLabel")}
           <textarea
@@ -412,16 +422,6 @@ export function ReportIssuePanel({
             className={`${FIELD_MULTILINE}`}
           />
         </label>
-
-        {/* Standing, not live: it is there before anything is typed, because
-            it is what the reporter needs to know while they write. A
-            ring-fenced type says who reads it instead, and what not to write
-            (decision 32). */}
-        <Notice tone="warn">
-          {chosen?.ringFenced === true
-            ? t("issues.ringFence.formWarning")
-            : t("issues.report.sensitiveWarning")}
-        </Notice>
 
         <section className="flex flex-col gap-2">
           <h3 className="text-label text-ink-muted uppercase">

@@ -168,6 +168,14 @@ export function OpenIssuePanel({
         />
         <p className={HINT}>{t("issues.open.residentHint")}</p>
 
+        {/* Above the description, so it is read before anything is written
+            (decision 32). */}
+        {offered.find((type) => type.id === draft.typeId)?.ringFenced ===
+        true ? (
+          <Notice tone="warn">{t("issues.ringFence.formWarning")}</Notice>
+        ) : (
+          <p className={HINT}>{t("issues.report.sensitiveWarning")}</p>
+        )}
         <label className={LABEL}>
           {t("issues.report.descriptionLabel")}
           <textarea
@@ -181,12 +189,6 @@ export function OpenIssuePanel({
             className={FIELD_MULTILINE}
           />
         </label>
-        {offered.find((type) => type.id === draft.typeId)?.ringFenced ===
-        true ? (
-          <Notice tone="warn">{t("issues.ringFence.formWarning")}</Notice>
-        ) : (
-          <p className={HINT}>{t("issues.report.sensitiveWarning")}</p>
-        )}
 
         <div>
           <button
