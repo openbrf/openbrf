@@ -389,6 +389,7 @@ describe("the queue read as the association's day turns", () => {
       {} as MediaService,
       {} as FieldEncryptionService,
       {} as AuditLogService,
+      {} as IssueReporterLinkService,
       {} as IssueMailer,
     );
     return { service };
