@@ -1780,7 +1780,10 @@
         "statusNotFound": "Den statusen finns inte längre. Listan har lästs om.",
         "defaultStatusRequired": "Standardstatusen för en betydelse erbjuds alltid. Gör en annan status till standard först.",
         "tooManyStatuses": "Den här typen har redan så många statusar som den får ha.",
-        "assigneeNotAHandler": "Den personen hanterar inte ärenden av den här typen. Välj någon som gör det."
+        "assigneeNotAHandler": "Den personen hanterar inte ärenden av den här typen. Välj någon som gör det.",
+        "ringFenceInUse": "Ärenden har anmälts under typen, så avskärmningen står kvar. Stäng av typen i stället.",
+        "ringFencedBoardOnly": "En avskärmad typ hanteras bara av styrelsen.",
+        "ringFencedPublic": "En avskärmad typ erbjuds inte i webbplatsens formulär."
       },
       "handledBy": "Vem hanterar",
       "handledByNamed": "{{name}}: vem hanterar",
@@ -1791,8 +1794,11 @@
       "noDefaultAssignee": "Ingen: meddela alla som hanterar",
       "handledByBoardHint": "Styrelsen och en administratör hanterar de här ärendena, också en administratör utan plats i styrelsen. Förvaltaren ser dem inte. När en typ blir styrelsens tas förvaltaren bort som ansvarig på dess ärenden.",
       "handledByEveryHandlerHint": "Alla som hanterar ärenden ser de här ärendena, förvaltaren också. Ett ärende utan ansvarig meddelas till alla.",
-      "ringFenced": "Avskärmad: inget når en entreprenör",
-      "ringFencedNamed": "{{name}}: avskärmad, inget når en entreprenör"
+      "ringFenced": "Avskärmad: bara styrelsen, inget lämnar den",
+      "ringFencedNamed": "{{name}}: avskärmad, bara styrelsen och inget lämnar den",
+      "ringFencedHint": "En avskärmad typ, som Störningar, hanteras bara av styrelsen. Inget om dess ärenden går till förvaltaren, en entreprenör, en ansluten app eller ut med e-post, den erbjuds inte i webbplatsens formulär, och fritexten tas bort ett år efter att ärendet stängts, vad styrelsen än har valt för andra ärenden. Avskärmningen kan inte hävas när något har anmälts under typen.",
+      "ringFencedLocked": "Ärenden har anmälts under typen, så den förblir avskärmad. Stäng av typen och lägg till en ny om den behövs utan avskärmning.",
+      "ringFencedPublic": "Ta bort webbplatsens formulär från typen innan den avskärmas."
     },
     "contractors": {
       "title": "Entreprenörer",
@@ -2073,7 +2079,8 @@
       "errors": {
         "range": "Välj ett helt antal år mellan 1 och 10.",
         "unknown": "Inställningen gick inte att spara just nu. Försök igen."
-      }
+      },
+      "ringFenced": "En avskärmad ärendetyp, som Störningar, har en egen klocka: fritexten tas bort ett år efter att ärendet stängts, vad som än väljs här. Den sätts inte av styrelsen."
     },
     "responsibilityGuide": {
       "title": "Ansvarsfördelning",
@@ -3837,7 +3844,8 @@
         "unknown": "Anmälan kunde inte skickas just nu. Försök igen.",
         "postNotFound": "Inlägget finns inte, eller så kan du inte läsa det. Anmälan skickades inte.",
         "postNotReportable": "Bara den som skrev inlägget och styrelsen kan göra en felanmälan från det. Anmälan skickades inte.",
-        "postAlreadyReported": "Någon har redan gjort en felanmälan från det här inlägget. Anmälan skickades inte."
+        "postAlreadyReported": "Någon har redan gjort en felanmälan från det här inlägget. Anmälan skickades inte.",
+        "ringFencedPost": "En anmälan av den här typen görs inte från ett inlägg. Anmäl den från formuläret i stället."
       }
     },
     "photos": {
@@ -3995,7 +4003,10 @@
         "sent": "En arbetsorder skickades till en entreprenör",
         "failed": "En arbetsorder till en entreprenör skickades inte",
         "unconfirmed": "En arbetsorder till en entreprenör kan ha uteblivit; ingen vet om den kom fram"
-      }
+      },
+      "damageCaseMarked": "Markerade som skadeärende: {{cause}}",
+      "damageCaseMarkedUnknown": "Markerade som skadeärende",
+      "damageCaseRemoved": "Tog bort skadeärendemarkeringen"
     },
     "workOrders": {
       "open": "Arbetsorder för {{type}}",
@@ -4257,6 +4268,43 @@
         "targetNotFound": "Det är redan borta. Ärendet har lästs om.",
         "unknown": "Ingenting kunde ändras just nu. Försök igen."
       }
+    },
+    "ringFence": {
+      "formWarning": "Det här läses bara av styrelsen, aldrig av förvaltaren, en entreprenör eller en ansluten app, och inget om det skickas med e-post. Texten tas bort ett år efter att ärendet stängts. Beskriv vad som hänt, var och när. Skriv inte vem du tror har gjort det, och inget om någons hälsa eller om brott. Formella steg enligt bostadsrättslagen tas inte här.",
+      "caseNotice": "Avskärmat ärende. Bara styrelsen läser det. Inget om det går till förvaltaren, en entreprenör, en ansluten app eller ut med e-post, och fritexten tas bort ett år efter att ärendet stängts. Formella steg enligt bostadsrättslagen tas utanför Open BRF."
+    },
+    "damageCase": {
+      "title": "Skadeärende",
+      "hint": "Markera ärendet som en försäkringsskada. Markeringen lägger ett rättsligt bevarandekrav på ärendet, så att texten och bilderna inte gallras medan skadan handläggs. Kravet står kvar om markeringen tas bort och hävs för sig.",
+      "insurer": "Försäkringsbolag",
+      "claimNumber": "Skadenummer",
+      "occurredOn": "Skadedag",
+      "cause": "Orsak",
+      "causes": {
+        "WATER": "Vattenskada",
+        "FIRE": "Brand",
+        "BURGLARY": "Inbrott",
+        "VANDALISM": "Skadegörelse",
+        "WEATHER": "Storm eller annat väder",
+        "OTHER": "Annat"
+      },
+      "mark": "Markera som skadeärende",
+      "save": "Spara ändringen",
+      "saving": "Sparar...",
+      "remove": "Ta bort markeringen",
+      "removing": "Tar bort...",
+      "saved": "Skadeärendet är sparat.",
+      "removed": "Markeringen är borttagen. Det rättsliga bevarandekravet står kvar tills någon häver det.",
+      "errors": {
+        "incomplete": "Fyll i försäkringsbolaget och skadenumret.",
+        "identityNumber": "Ett personnummer hör inte hemma i ett skadeärende. Ta bort det och försök igen.",
+        "dateInvalid": "Skadedagen måste vara ett datum som har varit.",
+        "notFound": "Ärendet finns inte längre, eller hanteras inte av dig. Läs in sidan igen.",
+        "unknown": "Skadeärendet kunde inte sparas just nu. Försök igen."
+      },
+      "markNamed": "Markera ärende {{number}} som skadeärende",
+      "saveNamed": "Spara skadeärendet för ärende {{number}}",
+      "removeNamed": "Ta bort skadeärendemarkeringen från ärende {{number}}"
     }
   },
   "boardMailbox": {

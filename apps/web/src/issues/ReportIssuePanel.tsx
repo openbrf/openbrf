@@ -44,6 +44,7 @@ const REPORT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "post-not-found": "issues.report.errors.postNotFound",
   "post-not-reportable": "issues.report.errors.postNotReportable",
   "post-already-reported": "issues.report.errors.postAlreadyReported",
+  "ring-fenced-post": "issues.report.errors.ringFencedPost",
   "invalid-body": "issues.report.errors.unknown",
 };
 
@@ -203,7 +204,15 @@ export function ReportIssuePanel({
     setPhotos((current) => [...current, ...chosen].slice(0, MAX_PHOTOS));
   };
 
-  const ready = draft.typeId !== "" && draft.description.trim() !== "";
+  /*
+   * A report made from a post is offered no ring-fenced type: the server
+   * refuses one (`ring-fenced-post`), because a post is read by the house and
+   * the link would tell it a report was made.
+   */
+  const offered =
+    fromPostId === null ? types : types.filter((type) => !type.ringFenced);
+  const chosen = offered.find((type) => type.id === draft.typeId);
+  const ready = chosen !== undefined && draft.description.trim() !== "";
 
   if (types.length === 0) {
     return (
@@ -280,7 +289,7 @@ export function ReportIssuePanel({
             className={FIELD}
           >
             <option value="">{t("issues.report.typePlaceholder")}</option>
-            {types.map((type) => (
+            {offered.map((type) => (
               <option key={type.id} value={type.id}>
                 {type.name}
               </option>
@@ -341,8 +350,14 @@ export function ReportIssuePanel({
         </label>
 
         {/* Standing, not live: it is there before anything is typed, because
-            it is what the reporter needs to know while they write. */}
-        <Notice tone="warn">{t("issues.report.sensitiveWarning")}</Notice>
+            it is what the reporter needs to know while they write. A
+            ring-fenced type says who reads it instead, and what not to write
+            (decision 32). */}
+        <Notice tone="warn">
+          {chosen?.ringFenced === true
+            ? t("issues.ringFence.formWarning")
+            : t("issues.report.sensitiveWarning")}
+        </Notice>
 
         <section className="flex flex-col gap-2">
           <h3 className="text-label text-ink-muted uppercase">

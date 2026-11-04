@@ -41,6 +41,7 @@ import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import { usePoll } from "../ui/use-poll";
 import {
   ISSUE_COST_RESPONSIBILITY_LABEL,
+  ISSUE_DAMAGE_CAUSE_LABEL,
   ISSUE_MEANING_LABEL,
   ISSUE_OUTCOME_LABEL,
   ISSUE_PRIORITY_LABEL,
@@ -829,6 +830,18 @@ function TimelineSentence({
           {step.held
             ? t("issues.timeline.legalHoldPlaced")
             : t("issues.timeline.legalHoldReleased")}
+        </>
+      );
+    case "damageCase":
+      return (
+        <>
+          {!step.marked
+            ? t("issues.timeline.damageCaseRemoved")
+            : step.cause === null
+              ? t("issues.timeline.damageCaseMarkedUnknown")
+              : t("issues.timeline.damageCaseMarked", {
+                  cause: t(ISSUE_DAMAGE_CAUSE_LABEL[step.cause]),
+                })}
         </>
       );
     case "costResponsibility":

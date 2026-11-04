@@ -181,7 +181,12 @@ export function OpenIssuePanel({
             className={FIELD_MULTILINE}
           />
         </label>
-        <p className={HINT}>{t("issues.report.sensitiveWarning")}</p>
+        {offered.find((type) => type.id === draft.typeId)?.ringFenced ===
+        true ? (
+          <Notice tone="warn">{t("issues.ringFence.formWarning")}</Notice>
+        ) : (
+          <p className={HINT}>{t("issues.report.sensitiveWarning")}</p>
+        )}
 
         <div>
           <button

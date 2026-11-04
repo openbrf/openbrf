@@ -1,5 +1,6 @@
 import type {
   IssueCostResponsibility,
+  IssueDamageCause,
   IssueHandledBy,
   IssueOutcome,
   IssuePriority,
@@ -67,6 +68,16 @@ export const ISSUE_COST_RESPONSIBILITY_LABEL = {
   TENANT_OWNER: "issues.costResponsibility.TENANT_OWNER",
   UNCLEAR: "issues.costResponsibility.UNCLEAR",
 } as const satisfies Readonly<Record<IssueCostResponsibility, TranslationKey>>;
+
+/** What caused an insurance damage, as a damage case records it. */
+export const ISSUE_DAMAGE_CAUSE_LABEL = {
+  WATER: "issues.damageCase.causes.WATER",
+  FIRE: "issues.damageCase.causes.FIRE",
+  BURGLARY: "issues.damageCase.causes.BURGLARY",
+  VANDALISM: "issues.damageCase.causes.VANDALISM",
+  WEATHER: "issues.damageCase.causes.WEATHER",
+  OTHER: "issues.damageCase.causes.OTHER",
+} as const satisfies Readonly<Record<IssueDamageCause, TranslationKey>>;
 
 /** Who maintains a part, as a line of the responsibility guide states it. */
 export const MAINTENANCE_RESPONSIBILITY_LABEL = {

@@ -30,7 +30,7 @@ export const ISSUE_TEXT_RETENTION_YEARS = {
 
 /**
  * How many whole years after closing the free-text layer of a ring-fenced
- * issue type is removed (avskild ärendetyp, decision 32 of the issue module's
+ * issue type is removed (avskärmad ärendetyp, decision 32 of the issue module's
  * plan), whatever the board set above.
  *
  * Shorter than the board's own clock may be, and not the board's to set: a

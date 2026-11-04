@@ -1780,7 +1780,10 @@
         "statusNotFound": "That status is gone. The list has been read again.",
         "defaultStatusRequired": "The default status of a meaning stays offered. Make another status the default first.",
         "tooManyStatuses": "This type already has as many statuses as it may.",
-        "assigneeNotAHandler": "That person does not handle issues of this type. Choose someone who does."
+        "assigneeNotAHandler": "That person does not handle issues of this type. Choose someone who does.",
+        "ringFenceInUse": "Issues have been reported under this type, so the ring-fence stays. Switch the type off instead.",
+        "ringFencedBoardOnly": "A ring-fenced type is handled by the board only.",
+        "ringFencedPublic": "A ring-fenced type is not offered on the website's form."
       },
       "handledBy": "Who handles it",
       "handledByNamed": "{{name}}: who handles it",
@@ -1791,8 +1794,11 @@
       "noDefaultAssignee": "Nobody: tell every handler",
       "handledByBoardHint": "The board and an administrator handle these issues, an administrator without a seat on the board included. The property manager does not see them. Making a type the board's unassigns the property manager from its issues.",
       "handledByEveryHandlerHint": "Every handler sees these issues, the property manager included. An issue with no assignee is told to all of them.",
-      "ringFenced": "Ring-fenced: nothing reaches a contractor",
-      "ringFencedNamed": "{{name}}: ring-fenced, nothing reaches a contractor"
+      "ringFenced": "Ring-fenced: the board's alone, and nothing leaves it",
+      "ringFencedNamed": "{{name}}: ring-fenced, the board's alone and nothing leaves it",
+      "ringFencedHint": "A ring-fenced type, such as one for disturbances between neighbours, is handled by the board only. Nothing about its issues goes to the property manager, a contractor, a connected app or out by email, it is not offered on the website's form, and its free text is removed one year after the issue closes, whatever the board chose for other issues. The ring-fence cannot be lifted once anything has been reported under the type.",
+      "ringFencedLocked": "Issues have been reported under this type, so it stays ring-fenced. Switch the type off and add a new one if it is needed without the ring-fence.",
+      "ringFencedPublic": "Take the website's form off the type before ring-fencing it."
     },
     "contractors": {
       "title": "Contractors",
@@ -2073,7 +2079,8 @@
       "errors": {
         "range": "Choose a whole number of years between 1 and 10.",
         "unknown": "The setting could not be saved just now. Please try again."
-      }
+      },
+      "ringFenced": "A ring-fenced issue type, such as one for disturbances between neighbours, has a clock of its own: its free text is removed one year after the issue closes, whatever is chosen here. The board does not set it."
     },
     "responsibilityGuide": {
       "title": "Responsibility guide",
@@ -3837,7 +3844,8 @@
         "unknown": "The report could not be sent just now. Please try again.",
         "postNotFound": "The post does not exist, or you cannot read it. The report was not sent.",
         "postNotReportable": "Only whoever wrote the post and the board can report an issue from it. The report was not sent.",
-        "postAlreadyReported": "Somebody has already reported an issue from this post. The report was not sent."
+        "postAlreadyReported": "Somebody has already reported an issue from this post. The report was not sent.",
+        "ringFencedPost": "A report of this type is not made from a post. Report it from the form instead."
       }
     },
     "photos": {
@@ -3995,7 +4003,10 @@
         "sent": "A work order was sent to a contractor",
         "failed": "A work order to a contractor was not sent",
         "unconfirmed": "A work order to a contractor may not have gone out; nobody knows"
-      }
+      },
+      "damageCaseMarked": "Marked as a damage case: {{cause}}",
+      "damageCaseMarkedUnknown": "Marked as a damage case",
+      "damageCaseRemoved": "Took the damage-case mark off"
     },
     "workOrders": {
       "open": "Work orders for {{type}}",
@@ -4257,6 +4268,43 @@
         "targetNotFound": "That is already gone. The issue has been read again.",
         "unknown": "Nothing could be changed just now. Please try again."
       }
+    },
+    "ringFence": {
+      "formWarning": "Only the board reads this - never the property manager, a contractor or a connected app - and nothing about it is sent by email. Its text is removed one year after the issue is closed. Describe what happened, where and when. Do not write who you think did it, or anything about anybody's health or about a crime. Formal steps under the Tenant-Ownership Act are not taken here.",
+      "caseNotice": "Ring-fenced issue. Only the board reads it. Nothing about it goes to the property manager, a contractor, a connected app or out by email, and its free text is removed one year after it is closed. Formal steps under the Tenant-Ownership Act are taken outside Open BRF."
+    },
+    "damageCase": {
+      "title": "Damage case",
+      "hint": "Mark the issue as an insurance damage. The mark places a legal hold on the issue, so its text and photographs are not purged while the claim is handled. The hold stays if the mark is taken off, and is released on its own.",
+      "insurer": "Insurer",
+      "claimNumber": "Claim number",
+      "occurredOn": "Day of the damage",
+      "cause": "Cause",
+      "causes": {
+        "WATER": "Water damage",
+        "FIRE": "Fire",
+        "BURGLARY": "Burglary",
+        "VANDALISM": "Vandalism",
+        "WEATHER": "Storm or other weather",
+        "OTHER": "Other"
+      },
+      "mark": "Mark as a damage case",
+      "save": "Save the change",
+      "saving": "Saving...",
+      "remove": "Take the mark off",
+      "removing": "Taking it off...",
+      "saved": "The damage case is saved.",
+      "removed": "The mark is off. The legal hold stays until somebody releases it.",
+      "errors": {
+        "incomplete": "Fill in the insurer and the claim number.",
+        "identityNumber": "A personal identity number has no place in a damage case. Take it out and try again.",
+        "dateInvalid": "The day of the damage has to be a day that has come.",
+        "notFound": "The issue is no longer there, or you do not handle it. Reload the page.",
+        "unknown": "The damage case could not be saved just now. Please try again."
+      },
+      "markNamed": "Mark issue {{number}} as a damage case",
+      "saveNamed": "Save the damage case of issue {{number}}",
+      "removeNamed": "Take the damage-case mark off issue {{number}}"
     }
   },
   "boardMailbox": {

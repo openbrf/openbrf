@@ -121,6 +121,7 @@ const TYPES: readonly IssueTypeView[] = [
     sortOrder: 0,
     handledBy: "EVERY_HANDLER",
     defaultPriority: "NORMAL",
+    ringFenced: false,
     reportCount: 1,
     statuses: [
       status({ id: "s-new", meaning: "NEW", label: "Ny" }),
@@ -176,6 +177,7 @@ function issue(
     locationRedactedAt: null,
     freeTextRemovedAt: null,
     typeHandledBy: "EVERY_HANDLER",
+    typeRingFenced: false,
     priority: "NORMAL",
     targetDate: null,
     overdue: false,
@@ -183,6 +185,7 @@ function issue(
     enteredBy: null,
     boardOnly: false,
     legalHoldAt: null,
+    damageCase: null,
     costResponsibility: null,
     ...overrides,
   } as QueuedIssue;
@@ -276,6 +279,26 @@ describe("the issue number", () => {
 
     expect(screen.getByText("Ärende 7")).toBeTruthy();
     expect(screen.getByText("Ärende 8")).toBeTruthy();
+  });
+});
+
+describe("a ring-fenced issue", () => {
+  it("says on the row that it is the board's alone and leaves nothing", () => {
+    render(
+      <IssueQueuePanel
+        issues={[
+          issue({ typeRingFenced: true, typeHandledBy: "BOARD" }),
+          issue({ id: "issue-2", number: 8 }),
+        ]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+
+    // Once, on the ring-fenced row and not on the ordinary one.
+    expect(
+      screen.getAllByText(/Avskärmat ärende\. Bara styrelsen/),
+    ).toHaveLength(1);
   });
 });
 

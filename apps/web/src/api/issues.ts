@@ -2,6 +2,7 @@ import type {
   AuthorView,
   IssueClosingOutcome,
   IssueCostResponsibility,
+  IssueDamageCause,
   IssueHandledBy,
   IssueMeaningFilter,
   IssueOutcome,
@@ -64,6 +65,11 @@ export interface IssueTypeView {
   handledBy: IssueHandledBy;
   /** The priority its issues are filed with. */
   defaultPriority: IssuePriority;
+  /**
+   * Read by the board alone, with nothing about its issues leaving it, and
+   * their free text removed a year after closing (decision 32).
+   */
+  ringFenced: boolean;
   reportCount: number;
   /** By meaning, then in the board's order within it. */
   statuses: IssueStatusView[];
@@ -79,8 +85,6 @@ export type IssueHandler = AuthorView;
 /** A type on the board's configuration screen, with its default assignee. */
 export type ConfiguredIssueType = IssueTypeView & {
   defaultAssignee: IssueHandler | null;
-  /** Nothing about its issues may reach a contractor (ADR 0055). */
-  ringFenced: boolean;
 };
 
 /** Somebody a type's issues may be given to by default. */
@@ -95,6 +99,8 @@ export interface ReportableIssueType {
   id: string;
   name: string;
   reporters: IssueReporterGroup[];
+  /** Ring-fenced: the form warns before the reporter writes (decision 32). */
+  ringFenced: boolean;
 }
 
 export interface IssueApartment {
@@ -181,6 +187,8 @@ export type QueuedIssue = OwnIssue & {
   outcome: IssueOutcome | null;
   typeReporters: IssueReporterGroup[];
   typeHandledBy: IssueHandledBy;
+  /** Its type is ring-fenced: the board's alone, and nothing leaves it. */
+  typeRingFenced: boolean;
   closedAt: string | null;
   priority: IssuePriority;
   /** `YYYY-MM-DD`, or null. */
@@ -194,6 +202,8 @@ export type QueuedIssue = OwnIssue & {
   boardOnly: boolean;
   /** Since when a legal hold stands on the issue, or null. */
   legalHoldAt: string | null;
+  /** The insurance damage it is marked as, or null (decision 28). */
+  damageCase: IssueDamageCase | null;
   /**
    * Who pays, or null while nobody has said. Never an amount: a charge made
    * from the issue is read from the charges, by those who may read them.
@@ -206,6 +216,15 @@ export type QueuedIssue = OwnIssue & {
         apartment: null;
       }
   );
+
+/** An issue's damage case (skadeärende), as a handler marks and reads it. */
+export interface IssueDamageCase {
+  insurer: string;
+  claimNumber: string;
+  /** `YYYY-MM-DD`. */
+  occurredOn: string;
+  cause: IssueDamageCause;
+}
 
 export interface ReportIssueInput {
   typeId: string;
@@ -275,6 +294,7 @@ export type IssueTimelineStep = {
   | { kind: "access"; boardOnly: boolean }
   | { kind: "redacted"; target: IssueRedactionTarget | null }
   | { kind: "legalHold"; held: boolean }
+  | { kind: "damageCase"; marked: boolean; cause: IssueDamageCause | null }
   | {
       kind: "workOrder";
       delivery: "pending" | "sent" | "failed" | "unconfirmed" | null;
@@ -643,6 +663,31 @@ export function setIssueLegalHold(input: {
   );
 }
 
+/**
+ * Marks an issue as a damage case, or changes the mark. The first mark places
+ * a legal hold on the issue.
+ */
+export function markIssueDamageCase(input: {
+  issueId: string;
+  damageCase: IssueDamageCase;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/damage-case`,
+    input.damageCase,
+  );
+}
+
+/** Takes the damage-case mark off. The legal hold it placed stays. */
+export function removeIssueDamageCase(input: {
+  issueId: string;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "DELETE",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/damage-case`,
+  );
+}
+
 /** How many years after closing an issue's free text is kept. */
 export function fetchIssueRetention(): Promise<ApiResult<{ years: number }>> {
   return apiRequest("GET", "/api/issue-retention");
@@ -682,7 +727,10 @@ export function updateIssueType(input: {
   );
 }
 
-/** Ring-fences a type from contractors, or lifts its ring-fence. */
+/**
+ * Ring-fences a type, or lifts its ring-fence from a type nobody has reported
+ * under.
+ */
 export function setIssueTypeRingFence(input: {
   id: string;
   ringFenced: boolean;

@@ -30,8 +30,18 @@ vi.mock("../api/issues", async (importOriginal) => ({
 }));
 
 const TYPES: readonly ReportableIssueType[] = [
-  { id: "type-water", name: "Vatten", reporters: ["RESIDENTS"] },
-  { id: "type-heat", name: "Värme", reporters: ["RESIDENTS"] },
+  {
+    id: "type-water",
+    name: "Vatten",
+    reporters: ["RESIDENTS"],
+    ringFenced: false,
+  },
+  {
+    id: "type-heat",
+    name: "Värme",
+    reporters: ["RESIDENTS"],
+    ringFenced: false,
+  },
 ];
 
 const APARTMENTS: readonly IssueApartment[] = [
@@ -74,6 +84,30 @@ describe("the sensitive-data warning", () => {
     // Standing, not a response to a refusal: it is advice about what to write,
     // and it names who reads it - an external property manager included.
     expect(screen.getByText(/extern förvaltare/i)).toBeTruthy();
+  });
+
+  it("says who reads a ring-fenced type, and what not to write, once it is chosen", async () => {
+    const session = userEvent.setup();
+    renderPanel({
+      types: [
+        ...TYPES,
+        {
+          id: "type-noise",
+          name: "Störningar",
+          reporters: ["RESIDENTS"],
+          ringFenced: true,
+        },
+      ],
+    });
+
+    await session.selectOptions(
+      screen.getByLabelText(/vad gäller det/i),
+      "type-noise",
+    );
+    // Not the property manager, as the ordinary warning says: only the board.
+    expect(screen.getByText(/läses bara av styrelsen/i)).toBeTruthy();
+    expect(screen.getByText(/skriv inte vem du tror/i)).toBeTruthy();
+    expect(screen.queryByText(/extern förvaltare/i)).toBeNull();
   });
 
   it("does not stop a report that reads like personal data", async () => {
@@ -457,6 +491,28 @@ describe("a report made from a post", () => {
     expect(reportIssue).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ postId: expect.anything() as unknown }),
     );
+  });
+
+  it("offers no ring-fenced type for a report made from a post", () => {
+    render(
+      <ReportIssuePanel
+        types={[
+          ...TYPES,
+          {
+            id: "type-noise",
+            name: "Störningar",
+            reporters: ["RESIDENTS"],
+            ringFenced: true,
+          },
+        ]}
+        apartments={APARTMENTS}
+        prefill={PREFILL}
+        onReported={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("option", { name: "Störningar" })).toBeNull();
+    expect(screen.getByRole("option", { name: "Vatten" })).toBeTruthy();
   });
 
   it("says when the post was already reported from", async () => {

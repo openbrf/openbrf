@@ -39,7 +39,7 @@ import { IssueTextPurgeService } from "./issue-text-purge.service";
 import { IssueService } from "./issue.service";
 
 /**
- * The ring-fence (avskild ärendetyp, decision 32 of the issue module's plan;
+ * The ring-fence (avskärmad ärendetyp, decision 32 of the issue module's plan;
  * ADR 0054, question 5) against a real database: for every role, and for
  * every way something about an issue leaves the board's own screen.
  *

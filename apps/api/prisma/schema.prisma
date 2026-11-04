@@ -4414,7 +4414,7 @@ model IssueType {
   /// access report answers for it in `issueAssignments` (ADR 0057).
   defaultAssigneePersonId String?
 
-  /// Whether its issues are ring-fenced (avskild ärendetyp, decision 32 of the
+  /// Whether its issues are ring-fenced (avskärmad ärendetyp, decision 32 of the
   /// issue module's plan): read by the board alone, and nothing about them
   /// leaves it. Handled by the board only, which a CHECK holds it to, so the
   /// property manager never reads one; no work order is written or previewed on
