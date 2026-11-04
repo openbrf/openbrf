@@ -34,13 +34,6 @@ export type MediaVisibility =
   "PUBLIC" | "INTERNAL" | "MEMBER" | "TENANT_OWNERS" | "HOUSEHOLD" | "POST";
 
 /**
- * The visibilities decided against a residency on the file's own apartment
- * rather than against a group.
- *
- * Listed once so the upload, the serving branch and the invariant that ties the
- * two to `apartmentId` all read the same set.
- */
-/**
  * How long a `bytesFirst` removal may hold its transaction open.
  *
  * Prisma's default is five seconds, and the removal of the objects runs inside
@@ -51,6 +44,13 @@ export type MediaVisibility =
  */
 const BYTES_FIRST_TRANSACTION_TIMEOUT_MS = 90_000;
 
+/**
+ * The visibilities decided against a residency on the file's own apartment
+ * rather than against a group.
+ *
+ * Listed once so the upload, the serving branch and the invariant that ties the
+ * two to `apartmentId` all read the same set.
+ */
 const APARTMENT_VISIBILITIES: readonly MediaVisibility[] = [
   "TENANT_OWNERS",
   "HOUSEHOLD",

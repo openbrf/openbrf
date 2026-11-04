@@ -46,8 +46,10 @@ import { DomainError } from "../http/domain-error";
  * reopening window ago, or was merged into another (ADR 0054). It is also a
  * known fault published on an issue that is done. `no-reporter` is a handler writing to the reporter of an
  * issue nobody can read the answer on: an internal issue, a report from the
- * website's form, whose reporter has no account to read a conversation in, and one
- * whose reporter was purged.
+ * website's form whose reporter has no live private link (none mailed,
+ * withdrawn or ended), and one whose reporter was purged. `no-reporter-link`
+ * is a handler withdrawing the private link of a reporter who was never
+ * mailed one (ADR 0055).
  * `personal-identity-number` is text the board writes back, a message, a note
  * or a saved reply, carrying a personal identity number, refused with where it
  * sits and never the value. `too-many-attachments` and `too-many-saved-replies`
@@ -104,6 +106,7 @@ export type IssueReason =
   | "merge-limit"
   | "known-fault-board-only"
   | "follow-up-of-open-issue"
+  | "no-reporter-link"
   | "redaction-target-not-found"
   | "legal-hold";
 
@@ -132,6 +135,7 @@ export class IssueError extends DomainError {
       reason === "too-many-saved-replies" ||
       reason === "issue-closed" ||
       reason === "no-reporter" ||
+      reason === "no-reporter-link" ||
       reason === "post-already-reported" ||
       reason === "default-status-required" ||
       reason === "too-many-statuses" ||

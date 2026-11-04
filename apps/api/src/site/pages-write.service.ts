@@ -23,7 +23,11 @@ import {
   pageTextParts,
   readPageContent,
 } from "./page-content";
-import { isUsableSlug, PRIVACY_NOTICE_SLUG } from "./pages.service";
+import {
+  isUsableSlug,
+  isWritableSlug,
+  PRIVACY_NOTICE_SLUG,
+} from "./pages.service";
 
 /**
  * Where in a page a refused value sits.
@@ -749,7 +753,7 @@ export class PagesWriteService {
 
     for (let n = 1; n <= SLUG_NUMBERS; n += 1) {
       const candidate = numberedSlug(base, n);
-      if (isUsableSlug(candidate) && !taken.has(candidate)) {
+      if (isWritableSlug(candidate) && !taken.has(candidate)) {
         return candidate;
       }
     }
@@ -1435,17 +1439,20 @@ export class PagesWriteService {
     slug: string,
     exceptPageId: string | null,
   ): Promise<void> {
-    if (!isUsableSlug(slug)) {
+    const existing = await this.prisma.page.findUnique({
+      where: { slug },
+      select: { id: true },
+    });
+    // A claimed name stays with the page that already has it, and is given to
+    // no other (`isWritableSlug`).
+    const keepsItsOwn = existing !== null && existing.id === exceptPageId;
+    if (!isUsableSlug(slug) || (!isWritableSlug(slug) && !keepsItsOwn)) {
       throw new PageWriteError(
         `The address /${slug} cannot be used for a page.`,
         "invalid-slug",
       );
     }
 
-    const existing = await this.prisma.page.findUnique({
-      where: { slug },
-      select: { id: true },
-    });
     if (existing !== null && existing.id !== exceptPageId) {
       throw new PageWriteError(
         `The address /${slug} is already a page.`,

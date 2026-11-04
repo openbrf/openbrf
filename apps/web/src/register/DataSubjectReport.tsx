@@ -581,6 +581,10 @@ const AUDIT_ACTION_LABEL = {
   ISSUE_NOTE_ADDED: "register.person.report.action.ISSUE_NOTE_ADDED",
   ISSUE_KNOWN_FAULT_CHANGED:
     "register.person.report.action.ISSUE_KNOWN_FAULT_CHANGED",
+  ISSUE_REPORTER_LINK_ISSUED:
+    "register.person.report.action.ISSUE_REPORTER_LINK_ISSUED",
+  ISSUE_REPORTER_LINK_REVOKED:
+    "register.person.report.action.ISSUE_REPORTER_LINK_REVOKED",
   ISSUE_REDACTED: "register.person.report.action.ISSUE_REDACTED",
   ISSUE_LEGAL_HOLD_PLACED:
     "register.person.report.action.ISSUE_LEGAL_HOLD_PLACED",

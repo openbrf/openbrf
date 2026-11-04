@@ -71,6 +71,12 @@ import {
   lockIssuesForHandling,
   lockIssueType,
 } from "./issue-lock";
+import {
+  REPORTER_LINK_STATE_SELECT,
+  type ReporterLinkState,
+  reporterLinkState,
+} from "./issue-reporter-link";
+import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import { IssueMailer } from "./issue-mailer.service";
 import { IssueError } from "./issue.error";
 
@@ -126,7 +132,17 @@ export interface IssueApartmentView {
 export type IssueReporterView =
   | { kind: "resident"; personId: string; name: string }
   | { kind: "protected" }
-  | { kind: "external"; name: string | null; email: string | null }
+  | {
+      kind: "external";
+      name: string | null;
+      email: string | null;
+      /**
+       * Where the private link mailed to them stands (ADR 0055): whether a
+       * handler's message reaches them, and whether there is a link to
+       * withdraw. For the board's screen; never offered to a connected app.
+       */
+      link: ReporterLinkState;
+    }
   | { kind: "unknown" };
 
 /**
@@ -618,6 +634,12 @@ export interface ReportPublicIssueInput {
   description: string;
   reporterName?: string | null;
   reporterEmail?: string | null;
+  /**
+   * The language the reporter read the form in, when their browser asked for
+   * one this instance speaks: what the mail with their private link is written
+   * in. Null leaves it to the association's own.
+   */
+  reporterLocale?: string | null;
 }
 
 /**
@@ -652,6 +674,7 @@ export class IssueService {
     private readonly media: MediaService,
     private readonly encryption: FieldEncryptionService,
     private readonly audit: AuditLogService,
+    private readonly reporterLinks: IssueReporterLinkService,
     private readonly mailer: IssueMailer,
   ) {}
 
@@ -751,9 +774,13 @@ export class IssueService {
             input.reporterEmail,
           );
 
+    if (email !== null) {
+      await this.reporterLinks.ensureQueues();
+    }
     await this.mailer.ensureQueues();
-    const issue = await this.prisma.$transaction((tx) =>
-      this.file(tx, {
+
+    const issue = await this.prisma.$transaction(async (tx) => {
+      const filed = await this.file(tx, {
         typeId: type.id,
         statusId: type.newStatusId,
         // No account behind it. The reporter reference stays null and the
@@ -768,8 +795,23 @@ export class IssueService {
         // location is present and blank.
         location: locationOrNull(input.location),
         description: input.description,
-      }),
-    );
+      });
+      /*
+       * An address is a way to answer the reporter, and the only one: the
+       * private link to the issue is mailed to it (decision 20, ADR 0055).
+       * Queued with the report, so a report that rolls back mails nobody; the
+       * worker mints the token as it mails it, so the job carries none. No
+       * address, no link and no follow-up.
+       */
+      if (email !== null) {
+        await this.reporterLinks.queueInTransaction(
+          tx,
+          filed.id,
+          input.reporterLocale ?? null,
+        );
+      }
+      return filed;
+    });
 
     // The identifier and the type. What a passer-by wrote about the building,
     // and who they said they were, has no business in a log line.
@@ -2582,6 +2624,11 @@ export class IssueService {
       reporterPersonId: string | null;
       reporterNameCipher: string | null;
       reporterEmailCipher: string | null;
+      reporterLink: {
+        mailedAt: Date | null;
+        revokedAt: Date | null;
+        expiresAt: Date;
+      } | null;
     })[],
     protectedReporters: ProtectedReporters,
     today: LocalDay = localDayOf(new Date()),
@@ -2651,6 +2698,12 @@ export class IssueService {
       reporterPersonId: string | null;
       reporterNameCipher: string | null;
       reporterEmailCipher: string | null;
+      closedAt: Date | null;
+      reporterLink: {
+        mailedAt: Date | null;
+        revokedAt: Date | null;
+        expiresAt: Date;
+      } | null;
     },
     persons: ReadonlyMap<string, ReporterRow>,
   ): Promise<IssueReporterView> {
@@ -2680,6 +2733,14 @@ export class IssueService {
 
     return {
       kind: "external",
+      link: reporterLinkState(
+        issue.reporterLink,
+        {
+          closedAt: issue.closedAt,
+          hasContact: issue.reporterEmailCipher !== null,
+        },
+        new Date(),
+      ),
       name:
         issue.reporterNameCipher === null
           ? null
@@ -2720,6 +2781,7 @@ const ISSUE_INCLUDE = {
       file: { select: { id: true, fileName: true, width: true, height: true } },
     },
   },
+  reporterLink: { select: REPORTER_LINK_STATE_SELECT },
 } as const;
 
 /**

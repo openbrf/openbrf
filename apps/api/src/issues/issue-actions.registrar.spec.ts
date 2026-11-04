@@ -77,6 +77,7 @@ const EXTERNAL: QueuedIssueView = {
     kind: "external",
     name: "Gunnar Förbipasserande",
     email: "gunnar@exempel.se",
+    link: "live",
   },
 };
 
