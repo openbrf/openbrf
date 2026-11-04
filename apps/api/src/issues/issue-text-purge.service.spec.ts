@@ -66,11 +66,14 @@ function build(
 describe("one run of the issue text purge", () => {
   // A thousand failures logged one by one would bury the test's own output.
   let logged: ReturnType<typeof vi.spyOn>;
+  let logLevel: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
     logged = vi
       .spyOn(Logger.prototype, "error")
       .mockImplementation(() => undefined);
-    vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    logLevel = vi
+      .spyOn(Logger.prototype, "log")
+      .mockImplementation(() => undefined);
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -83,6 +86,12 @@ describe("one run of the issue text purge", () => {
 
     expect(summary).toEqual({ considered: 500, purged: 500, failed: 0 });
     expect(purgeIssue).toHaveBeenCalledTimes(500);
+    // A run that reached its removals was not held back by failures: it says
+    // so at the log level and raises no error.
+    expect(logged).not.toHaveBeenCalled();
+    expect(logLevel).toHaveBeenCalledWith(
+      expect.stringContaining("per-run bound of 500 removals"),
+    );
   });
 
   it("stops at 1000 attempts when every removal fails", async () => {
@@ -96,6 +105,11 @@ describe("one run of the issue text purge", () => {
     // came back empty.
     expect(eligiblePage).toHaveBeenCalledTimes(2);
     // The run says that the issues behind the failures wait, as an error.
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "1000 of which removed nothing (1000 failed removals, 0 unfinished issues, the rest kept)",
+      ),
+    );
     expect(logged).toHaveBeenCalledWith(
       expect.stringContaining("issues behind the ones that did not succeed"),
     );
@@ -137,7 +151,9 @@ describe("one run of the issue text purge", () => {
     // so a run of them ends on the attempt bound and says how many it met.
     expect(summary).toEqual({ considered: 1000, purged: 0, failed: 0 });
     expect(logged).toHaveBeenCalledWith(
-      expect.stringContaining("0 failed removals and 1000 unfinished issues"),
+      expect.stringContaining(
+        "1000 of which removed nothing (0 failed removals, 1000 unfinished issues, the rest kept)",
+      ),
     );
   });
 
@@ -150,7 +166,9 @@ describe("one run of the issue text purge", () => {
     // unfinished, so a run of them ends on the attempt bound and counts none.
     expect(summary).toEqual({ considered: 1000, purged: 0, failed: 0 });
     expect(logged).toHaveBeenCalledWith(
-      expect.stringContaining("0 failed removals and 0 unfinished issues"),
+      expect.stringContaining(
+        "1000 of which removed nothing (0 failed removals, 0 unfinished issues, the rest kept)",
+      ),
     );
   });
 });
