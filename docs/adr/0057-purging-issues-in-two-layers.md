@@ -124,8 +124,15 @@ a restriction under art. 18, read as the clock reads it: a signed-in reporter by
 their person, a public-form reporter by the address on the report. The reason is
 the one the clock stops for: the reporter's text is what that hold or restriction
 keeps, and a handler's redaction would remove it as the clock would. The refusal
-does not say which of the two stands, because a handler may not see a person's
-hold or restriction; the reporter's is released, or lapses, where it was placed.
+is the one a hold on the case gets: it does not say whether the reporter's is a
+hold or a restriction, nor why, because a handler may not read a person's holds
+and restrictions. A handler who sees no hold on the case can still tell that the
+reporter has one or the other. Any refusal tells them that much, and the only
+answers that would not are to remove the text regardless or to report a removal
+that did not happen. It is also what a handler needs to know: art. 18 limits the
+processing they would carry out, and a restriction is the marking of the data so
+that whoever processes it can see that it is limited (art. 4(3), recital 67).
+The reporter's hold is released, or the restriction lifted, where it was placed.
 
 ### Erasure and the closing job
 

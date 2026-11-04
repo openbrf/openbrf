@@ -62,9 +62,14 @@ export interface IssueLegalHoldView {
  * reporter's text is what such a hold or restriction keeps, whichever of the
  * three removes it. A signed-in reporter is read by their person, a
  * public-form reporter by the address on the report (`issue-text-purge.service.ts`).
- * The answer does not say which of the two held, since a handler may not see a
- * person's hold or restriction. It is checked under the hold's locks, taken
- * before the issue's as the clock takes them.
+ * The refusal is the one a hold on the issue gets, so it does not say whether
+ * the reporter's is a hold or a restriction, nor why it was placed. A handler
+ * who sees no hold on the issue can still tell that the reporter has one or the
+ * other. Any refusal tells them that much, and it is what they need to know: a
+ * hold keeps what they would remove, and a restriction is the marking of the
+ * data so that whoever processes it sees that the processing is limited
+ * (art. 4(3), recital 67). It is checked under the hold's locks, taken before
+ * the issue's as the clock takes them.
  *
  * ## The legal hold
  *
@@ -410,12 +415,12 @@ function refuseHeld(issue: { legalHoldAt: Date | null }): void {
 }
 
 /**
- * The refusal for a hold on the issue and for one on its reporter, worded the
- * same so it does not tell a handler which of the two stands.
+ * The refusal for a hold on the issue and for a hold or a restriction on its
+ * reporter, worded the same for all three so it does not say which stands.
  */
 function heldError(): IssueError {
   return new IssueError(
-    "A legal hold stands on this issue or on its reporter; nothing can be redacted until it is released.",
+    "A legal hold stands on this issue, or a legal hold or a restriction on its reporter; nothing can be redacted until it ends.",
     "legal-hold",
   );
 }

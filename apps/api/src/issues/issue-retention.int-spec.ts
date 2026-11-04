@@ -35,8 +35,9 @@ import { IssueService } from "./issue.service";
  * conversation, the notes and every file, from storage - once the issue has
  * been closed for the board's number of years, and leaves the building record:
  * the type, the status, the outcome, the apartment, the dates, the priority. A
- * legal hold on the issue or on its reporter keeps it. A handler redacts a text
- * or removes a file at any time, recorded without the text. A granted erasure
+ * legal hold on the issue, or a legal hold or a restriction on its reporter,
+ * keeps it. A handler redacts a text or removes a file at any time, recorded
+ * without the text, unless one of those stands. A granted erasure
  * request removes the free text of the issues the person reported on the date
  * the board granted, keeps an open or held one and says so, and the person
  * purge detaches the reporter only from an issue whose text is gone, so a
@@ -1078,10 +1079,11 @@ describe("redaction after the purge and under a reporter's hold", () => {
     expect((await read(other.id)).descriptionRedactedAt).not.toBeNull();
   });
 
-  it("is refused while the reporter is restricted, and while a public-form reporter's address is held", async () => {
+  it("is refused while the reporter is restricted, and while a public-form reporter's address is held or restricted", async () => {
     const restrictedId = `ir-restricted-${suffix}`;
     const addressHeldId = `ir-address-held-${suffix}`;
-    personIds.push(restrictedId, addressHeldId);
+    const addressRestrictedId = `ir-address-restricted-${suffix}`;
+    personIds.push(restrictedId, addressHeldId, addressRestrictedId);
     await prisma.person.create({
       data: {
         id: restrictedId,
@@ -1101,6 +1103,22 @@ describe("redaction after the purge and under a reporter's hold", () => {
         emailIndex: encrypted.index,
       },
     });
+    // Restricted and under no hold, so only the restriction refuses it.
+    const restrictedEmail = `${addressRestrictedId}@exempel.se`;
+    const restrictedEncrypted = await encryption.encrypt(
+      "person.email",
+      restrictedEmail,
+    );
+    await prisma.person.create({
+      data: {
+        id: addressRestrictedId,
+        firstName: "Bodil",
+        lastName: "Begransad",
+        emailCipher: restrictedEncrypted.cipher,
+        emailIndex: restrictedEncrypted.index,
+        processingRestrictedAt: new Date(),
+      },
+    });
     await prisma.legalHold.create({
       data: {
         personId: addressHeldId,
@@ -1113,21 +1131,23 @@ describe("redaction after the purge and under a reporter's hold", () => {
       reporterPersonId: restrictedId,
       closedDaysAgo: null,
     });
-    const byAddress = await seed({
-      reporterPersonId: null,
-      closedDaysAgo: null,
-    });
-    await prisma.issue.update({
-      where: { id: byAddress.id },
-      data: {
-        reporterEmailIndex: await encryption.computeIndex(
-          "issue.reporterEmail",
-          email,
-        ),
-      },
-    });
+    const fromForm = async (address: string) => {
+      const issue = await seed({ reporterPersonId: null, closedDaysAgo: null });
+      await prisma.issue.update({
+        where: { id: issue.id },
+        data: {
+          reporterEmailIndex: await encryption.computeIndex(
+            "issue.reporterEmail",
+            address,
+          ),
+        },
+      });
+      return issue;
+    };
+    const byHeldAddress = await fromForm(email);
+    const byRestrictedAddress = await fromForm(restrictedEmail);
 
-    for (const issue of [restricted, byAddress]) {
+    for (const issue of [restricted, byHeldAddress, byRestrictedAddress]) {
       const refused = await redact(issue.id, { target: "description" });
       expect(refused.statusCode).toBe(409);
       expect(refused.json()).toMatchObject({ reason: "legal-hold" });
