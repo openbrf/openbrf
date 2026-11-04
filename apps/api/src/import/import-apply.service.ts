@@ -16,6 +16,7 @@ import {
   type TransactionalSql,
 } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { revokeLinksOfProtectedHousehold } from "../issues/work-order-link";
 import { endPluginAccesses } from "../plugin-access/plugin-access";
 import {
   appendOwedMembershipEvents,
@@ -1164,10 +1165,19 @@ export class ImportApplyService implements OnModuleInit {
     // the file included. Under the transition lock the chunk holds for every
     // person it writes to, which the grant takes as well. Attributed to the
     // board member who uploaded the file, in whose name the import writes.
+    const channel = uploadedById === null ? "SYSTEM" : "WEB";
     await endPluginAccesses(tx, this.audit, {
       personId,
       actorPersonId: uploadedById,
-      channel: uploadedById === null ? "SYSTEM" : "WEB",
+      channel,
+    });
+    // A protected person's household is not one a contractor's link may open
+    // an issue of, from the day it is recorded (ADR 0055).
+    await revokeLinksOfProtectedHousehold(tx, this.audit, {
+      personId,
+      apartmentId: residency.apartmentId,
+      actorPersonId: uploadedById,
+      channel,
     });
   }
 }

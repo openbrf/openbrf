@@ -62,17 +62,29 @@ describe("the contractor's link controller", () => {
       upload: WORK_ORDER_LINK_UPLOADS_PER_MINUTE,
       malformed: WORK_ORDER_LINK_READS_PER_MINUTE,
       malformedBelow: WORK_ORDER_LINK_READS_PER_MINUTE,
+      malformedPost: WORK_ORDER_LINK_WRITES_PER_MINUTE,
+      malformedPostBelow: WORK_ORDER_LINK_WRITES_PER_MINUTE,
     });
   });
 
   it("writes only through a POST on an address shaped like a token", () => {
     const token = `:token(^${WORK_ORDER_LINK_TOKEN_PATTERN}$)`;
+    // The two posts to any other address only refuse, as the reads of them do,
+    // so the framework's own 404 never tells the two apart.
+    const refusals = ["malformedPost", "malformedPostBelow"];
     const posts = routes().filter(
-      (route) => route.method === RequestMethod.POST,
+      (route) =>
+        route.method === RequestMethod.POST && !refusals.includes(route.name),
     );
     expect(posts.map((route) => route.path).sort()).toEqual(
       [token, `${token}/foto`].sort(),
     );
+    expect(
+      routes()
+        .filter((route) => refusals.includes(route.name))
+        .map((route) => route.path)
+        .sort(),
+    ).toEqual([":segment", ":segment/*"]);
   });
 
   it("answers without a session, which is why the budgets are needed", () => {

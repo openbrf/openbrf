@@ -1154,6 +1154,79 @@ describe("a contractor's link", () => {
     expect(screen.queryByDisplayValue(ISSUED.url)).toBeNull();
   });
 
+  it("reads the record again after a link is refused for a protected household", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ linksEnabled: true, workOrders: [DELIVERED] }),
+    });
+    issueWorkOrderLink.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "work-order-protected" },
+    });
+    const user = userEvent.setup();
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    await screen.findByRole("button", give);
+    const reads = fetchIssueWorkOrders.mock.calls.length;
+    await user.click(screen.getByRole("button", give));
+    await waitFor(() => {
+      expect(fetchIssueWorkOrders.mock.calls.length).toBeGreaterThan(reads);
+    });
+  });
+
+  it("shows the address though the association's name is never answered", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fetchIssueWorkOrders.mockResolvedValue({
+        ok: true,
+        value: orders({ linksEnabled: true, workOrders: [DELIVERED] }),
+      });
+      issueWorkOrderLink.mockResolvedValue({ ok: true, value: ISSUED });
+      fetchViewer.mockReturnValue(new Promise(() => undefined));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<IssueWorkOrders issue={ISSUE} />);
+
+      await user.click(await screen.findByRole("button", give));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000);
+      });
+      expect(await screen.findByDisplayValue(ISSUED.url)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not show the address of a link the record says has ended", async () => {
+    fetchIssueWorkOrders.mockResolvedValueOnce({
+      ok: true,
+      value: orders({ linksEnabled: true, workOrders: [DELIVERED] }),
+    });
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        linksEnabled: true,
+        workOrders: [
+          {
+            ...DELIVERED,
+            contractorLink: {
+              ...DELIVERED.contractorLink,
+              link: { state: "ended", expiresAt: null },
+            },
+          },
+        ],
+      }),
+    });
+    issueWorkOrderLink.mockResolvedValue({ ok: true, value: ISSUED });
+    const user = userEvent.setup();
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    await user.click(await screen.findByRole("button", give));
+    await waitFor(() => {
+      expect(fetchIssueWorkOrders.mock.calls.length).toBeGreaterThan(1);
+    });
+    expect(screen.queryByDisplayValue(ISSUED.url)).toBeNull();
+  });
+
   it("offers no link, and shows the one given before as ended, while a resident has protected personal data", async () => {
     fetchIssueWorkOrders.mockResolvedValue({
       ok: true,

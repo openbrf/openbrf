@@ -31,7 +31,7 @@
  */
 
 import type { Prisma } from "../generated/prisma/client";
-import { ISSUE_FREE_TEXT_STANDING } from "./issue-free-text";
+import { ISSUE_FREE_TEXT_STANDING_UNREDACTED } from "./issue-free-text";
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -112,7 +112,9 @@ export const WORK_ORDER_TEXT_STANDING = {
  * is executed, so the job that removes the last text is the one left to clear
  * the link. While either text stands the link stays (ADR 0057: no case whose
  * text stands may lose its selector): a hold or a restriction placed later on
- * the person reaches that text only through it.
+ * the person reaches that text only through it. A contractor's note a handler
+ * has redacted holds no text and does not stand, though its blank row waits
+ * for the clock.
  *
  * The columns the person purge clears when it detaches, all four of them.
  */
@@ -138,7 +140,7 @@ export async function detachErasedReporter(
     where: {
       id: issueId,
       reporterPersonId,
-      NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
+      NOT: [ISSUE_FREE_TEXT_STANDING_UNREDACTED, WORK_ORDER_TEXT_STANDING],
     },
     data: {
       reporterPersonId: null,

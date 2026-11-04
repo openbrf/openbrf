@@ -173,13 +173,16 @@ export class ContractorService {
   async remove(id: string, actorPersonId: string): Promise<void> {
     const erased = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "contractor" WHERE "id" = ${id} FOR UPDATE`;
-      // A contractor erased from their work orders holds no link to them
-      // either (ADR 0055).
-      await revokeWorkOrderLinks(tx, { contractorId: id });
       const { count } = await tx.workOrder.updateMany({
         where: { contractorId: id },
         data: { recipientName: null, recipientEmailCipher: null },
       });
+      // A contractor erased from their work orders holds no link to them
+      // either (ADR 0055). After the work orders' update, so this takes the
+      // work order rows before the link rows as issuing a link does, and two
+      // handlers working on one work order cannot each hold what the other
+      // needs.
+      await revokeWorkOrderLinks(tx, { contractorId: id });
       await tx.contractor.delete({ where: { id } }).catch(notFound);
       await this.recordChange(tx, actorPersonId, id, "removed", [], count);
       return count;

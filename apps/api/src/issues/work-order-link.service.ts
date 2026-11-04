@@ -357,6 +357,18 @@ export class WorkOrderLinkService {
         );
       }
 
+      // The photographs already chosen are served from this moment.
+      await this.recordExposure(
+        tx,
+        workOrderId,
+        (
+          await tx.workOrderPhoto.findMany({
+            where: { workOrderId },
+            select: { fileId: true },
+          })
+        ).map((photo) => photo.fileId),
+      );
+
       await this.audit.record(
         {
           action: "ISSUE_WORK_ORDER_LINK_ISSUED",
@@ -471,6 +483,19 @@ export class WorkOrderLinkService {
             sortOrder,
           })),
         });
+        // A photograph chosen while a link stands is shown from now on. One
+        // chosen with none standing was never shown, and is not counted.
+        const standing = await tx.workOrderLink.findFirst({
+          where: {
+            workOrderId,
+            revokedAt: null,
+            expiresAt: { gt: new Date() },
+          },
+          select: { id: true },
+        });
+        if (standing !== null) {
+          await this.recordExposure(tx, workOrderId, wanted);
+        }
       }
       await this.audit.record(
         {
@@ -485,6 +510,26 @@ export class WorkOrderLinkService {
         },
         tx,
       );
+    });
+  }
+
+  /**
+   * Records that these photographs are shown to the work order's contractor,
+   * once each however often they are chosen again, for the data subject access
+   * report (GDPR art. 15(1)(c)). Written by the handler's act that exposes
+   * them, never by a read of the link, which writes nothing (ADR 0055).
+   */
+  private async recordExposure(
+    tx: Prisma.TransactionClient,
+    workOrderId: string,
+    fileIds: readonly string[],
+  ): Promise<void> {
+    if (fileIds.length === 0) {
+      return;
+    }
+    await tx.workOrderPhotoExposure.createMany({
+      data: fileIds.map((fileId) => ({ workOrderId, fileId })),
+      skipDuplicates: true,
     });
   }
 

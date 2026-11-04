@@ -4044,6 +4044,7 @@ model MediaFile {
   issuePhotos             IssuePhoto[]
   issueAttachment         IssueAttachment?
   workOrderPhotos         WorkOrderPhoto[]
+  workOrderExposures      WorkOrderPhotoExposure[]
   workOrderFile           WorkOrderFile?
   document                Document?                @relation("DocumentFile")
   apartmentDocument       ApartmentDocument?       @relation("ApartmentDocumentFile")
@@ -4632,7 +4633,7 @@ model Issue {
   /// to another date and processing its reminder must not forget the first.
   /// Grows by one for each reminder sent. Written with the claim that queues the
   /// mail, under the issue's lock. Not personal data.
-  overdueRemindedFor DateTime[] @db.Date @default([])
+  overdueRemindedFor DateTime[] @default([]) @db.Date
 
   /// Closed to every handler but the board, whatever its type allows (decision
   /// 13). A handler tightens an issue; only the board loosens it again, and
@@ -4913,6 +4914,7 @@ model WorkOrder {
 
   links        WorkOrderLink[]
   chosenPhotos WorkOrderPhoto[]
+  exposures    WorkOrderPhotoExposure[]
   notes        WorkOrderNote[]
   files        WorkOrderFile[]
 
@@ -4962,7 +4964,7 @@ model WorkOrderLink {
   /// The token's SHA-256 digest, base64url.
   tokenDigest String @unique
 
-  issuedAt  DateTime @default(now())
+  issuedAt  DateTime  @default(now())
   /// Thirty days after it was issued, on the database's clock, and never moved
   /// (`WORK_ORDER_LINK_DAYS`). A new link is the only way to more time.
   expiresAt DateTime
@@ -4995,6 +4997,31 @@ model WorkOrderPhoto {
   @@unique([workOrderId, fileId])
   @@index([fileId])
   @@map("work_order_photo")
+}
+
+/// One photograph of an issue that a work order's link has shown a contractor,
+/// kept so the data subject access report can state how many were disclosed
+/// (GDPR art. 15(1)(c)) after the choice is changed or a file is removed.
+///
+/// Written by the handler's acts, never by a read of the link (ADR 0055: reads
+/// write nothing): when a link is issued, for the photographs already chosen,
+/// and when a photograph is chosen while a link stands. One row per photograph
+/// per work order, so choosing it again counts it once. The file reference is
+/// cleared, not the row, when the file is removed: the count outlives the file.
+model WorkOrderPhotoExposure {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  fileId String?
+  file   MediaFile? @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  exposedAt DateTime @default(now())
+
+  @@unique([workOrderId, fileId])
+  @@index([fileId])
+  @@map("work_order_photo_exposure")
 }
 
 /// A note a contractor wrote on a work order through its link.
@@ -5349,7 +5376,7 @@ model IssueFinding {
   /// The day of the inspection the protocol is dated.
   inspectedOn DateTime @db.Date
 
-  protocolAttachmentId String?                @unique
+  protocolAttachmentId String?          @unique
   protocolAttachment   IssueAttachment? @relation(fields: [protocolAttachmentId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())

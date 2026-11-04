@@ -635,9 +635,10 @@ export interface ReportIssueWorkOrder {
    */
   linkGiven: boolean;
   /**
-   * How many of the issue's photographs the board chose for the contractor
-   * to see through the link: a disclosure art. 15(1)(c) has the report name,
-   * by number and never by file.
+   * How many of the issue's photographs the link showed the contractor: a
+   * disclosure art. 15(1)(c) has the report name, by number and never by file.
+   * Counted once each from when a handler exposed them, and kept when the
+   * choice is changed or a file is removed.
    */
   photosShared: number;
 }

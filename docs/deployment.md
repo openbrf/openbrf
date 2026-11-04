@@ -1181,15 +1181,19 @@ photographs the board chose for it, and through which the contractor answers
 it, writes notes and adds photographs without an account. It is switched off
 until the legal review of a contractor as a recipient of the association's
 data clears it: `OPENBRF_CONTRACTOR_LINKS_ENABLED=true` switches it on, and
-turning it off again ends every link at once. With it off, every address under
-`/arbetsorder/` answers the same 404 as a link that never existed.
+turning it off again makes every link refuse at once, and a link that has not
+expired or ended opens again if it is switched back on. With it off, every
+address under `/arbetsorder/` answers the same 404 as a link that never
+existed.
 
 Treat these paths as you treat `/arende/`: leave them out of the proxy's access
 log or cut the path at `/arbetsorder/`. A proxy log that keeps the full path
 holds a working link until it ends, at the latest 30 days after it was issued.
 The contractor's photographs are uploaded on these paths, so the proxy's body
 limit must allow `OPENBRF_MAX_UPLOAD_BYTES` here as on the application's own
-upload routes.
+upload routes, plus the multipart envelope around the file: the proxy counts
+the whole request body, and a limit of exactly `OPENBRF_MAX_UPLOAD_BYTES`
+refuses a photograph near that size that the application would accept.
 
 ## The data volume
 

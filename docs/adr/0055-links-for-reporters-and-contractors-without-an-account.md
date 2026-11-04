@@ -286,9 +286,15 @@ off by default. It is read in the lookup that resolves every contractor's
 token, as a parameter of the same statement, so with it off every address
 under `/arbetsorder`, a `GET` or a `POST`, answers the one `404` every dead
 link gets, a link issued while it was on included, and the upload reads none
-of its body. A handler cannot issue a link or choose photographs for one while
-it is off; withdrawing a link stays possible, because it only narrows. What
-came through a link before stays on the work order's record either way.
+of its body. The one exception is a text post over the 64 KiB bound
+(`LINK_TEXT_BODY_LIMIT`): the server refuses it with 413 before any handler
+runs, as it does with the switch on and for any token, so it tells a caller
+nothing about the switch or about a link. A handler cannot issue a link or
+choose photographs for one while it is off; withdrawing a link stays possible,
+because it only narrows. What came through a link before stays on the work
+order's record either way. Turning the switch off refuses every link but does
+not revoke them: a link that has not expired or ended opens again if the switch
+is turned back on.
 
 ### The contractor's link as built
 
@@ -316,7 +322,12 @@ sections above leave open, this is what was decided:
   redaction, a purge, a ring-fence, a contractor removed and the issue closed
   also revoke the link in their own transaction, so lifting a ring-fence or
   reopening the issue later brings no link back; the handler issues a new one
-  if the work goes on. The handlers' record reads the same conditions, the
+  if the work goes on. So does protection: marking a person as protected, and
+  recording a protected person's residency (counted from the day it is
+  recorded, not the day it begins), revoke the links of the issues they
+  reported and of the issues about that apartment, in the same transaction and
+  audited on the channel of the write. Clearing the protection restores
+  nothing. A read still writes nothing. The handlers' record reads the same conditions, the
   protected household included, so it never says a link opens what the
   contractor is refused. A decline and done are final: no new link is issued
   for such a work order, and the handler writes a new one.
@@ -366,7 +377,10 @@ sections above leave open, this is what was decided:
   The answer is a
   step on the issue's timeline. A reporter's data subject access report says,
   under each work order, whether a link was given and how many of the issue's
-  photographs it shows, by number and never by file.
+  photographs it showed, by number and never by file. The number comes from a
+  record the handler's acts leave (issuing a link, and choosing a photograph
+  while a link stands), one row per photograph, so a changed choice or a
+  removed file does not shorten it.
 
 ### The mailed work order
 

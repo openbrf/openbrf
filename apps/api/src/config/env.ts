@@ -462,7 +462,9 @@ export const envSchema = z.object({
    * cannot issue a link or choose photographs for one, and every address under
    * /arbetsorder answers the one 404 a dead link gets, including a link issued
    * while it was on: the switch is read in the lookup of every request, so
-   * turning it off ends every link at once. A work order is mailed either way.
+   * turning it off makes every link refuse at once, and turning it back on
+   * lets a link that has not expired or ended open again. A work order is
+   * mailed either way.
    */
   OPENBRF_CONTRACTOR_LINKS_ENABLED: envBoolean(false),
   /**

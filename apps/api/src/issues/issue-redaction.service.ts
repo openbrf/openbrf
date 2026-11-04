@@ -7,7 +7,7 @@ import type { Prisma } from "../generated/prisma/client";
 import { MediaService } from "../media/media.service";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import { isPersonWithheld } from "../retention/withheld-persons";
-import { ISSUE_FREE_TEXT_STANDING } from "./issue-free-text";
+import { ISSUE_FREE_TEXT_STANDING_UNREDACTED } from "./issue-free-text";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
 import { lockIssueForHandling } from "./issue-lock";
 import {
@@ -338,7 +338,7 @@ export class IssueRedactionService {
       where: {
         id: issueId,
         reporterPersonId: lockedReporterId,
-        NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
+        NOT: [ISSUE_FREE_TEXT_STANDING_UNREDACTED, WORK_ORDER_TEXT_STANDING],
       },
     });
     if (finished === 0 || (await isPersonWithheld(tx, lockedReporterId))) {

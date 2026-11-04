@@ -193,7 +193,7 @@
       "contractor": {
         "subject": "A contractor has answered on issue {{number}}: {{type}}",
         "heading": "A contractor has answered a work order",
-        "body": "The contractor of a work order on issue {{number}}, {{type}}, has answered it, written a note or added a photograph through the contractor's link. What they sent is in the issue queue, not in this email."
+        "body": "The contractor of a work order on issue {{number}}, {{type}}, has answered it, written a note or added a photograph through the contractor's link. The issue in the issue queue shows what is on it now; this email says nothing of what was sent."
       }
     },
     "issueReporterNotice": {

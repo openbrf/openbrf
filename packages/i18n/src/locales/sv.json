@@ -193,7 +193,7 @@
       "contractor": {
         "subject": "En entreprenör har svarat i ärende {{number}}: {{type}}",
         "heading": "En entreprenör har svarat på en arbetsorder",
-        "body": "Entreprenören för en arbetsorder i ärende {{number}}, {{type}}, har svarat, skrivit en anteckning eller lagt till ett foto via arbetsorderlänken. Det de skickade finns i ärendekön, inte i det här mejlet."
+        "body": "Entreprenören för en arbetsorder i ärende {{number}}, {{type}}, har svarat, skrivit en anteckning eller lagt till ett foto via arbetsorderlänken. Ärendet i ärendekön visar vad som finns på det nu; det här mejlet säger inget om vad som skickades."
       }
     },
     "issueReporterNotice": {

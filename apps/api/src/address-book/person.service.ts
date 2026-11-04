@@ -31,6 +31,7 @@ import {
   erasureWaitingOn,
   type ErasureRequestStatus,
 } from "../retention/erasure-waiting-on";
+import { revokeLinksOfProtectedHousehold } from "../issues/work-order-link";
 import { computePersonPurgeDate } from "../retention/purge-date";
 import type { RequestPurgeRefusal } from "../retention/purge-refusal";
 import { isErasureInForce } from "../retention/withheld-persons";
@@ -850,6 +851,16 @@ export class PersonService {
         where: { id: input.personId },
         data: { protectedPersonalData: input.protectedPersonalData },
       });
+
+      if (input.protectedPersonalData) {
+        // A contractor's link to an issue this person is concerned in ends
+        // with the protection's start, not only while it lasts (ADR 0055).
+        await revokeLinksOfProtectedHousehold(tx, this.audit, {
+          personId: input.personId,
+          actorPersonId: input.actorPersonId,
+          channel: "WEB",
+        });
+      }
 
       await this.audit.record(
         {

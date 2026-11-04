@@ -99,8 +99,37 @@ const LINK_STALE_REASONS: ReadonlySet<string> = new Set([
   "work-order-answered",
   "work-order-text-erased",
   "work-order-recipient-removed",
+  "work-order-protected",
   "work-order-photo-not-found",
 ]);
+
+/**
+ * How long the issuing of a link waits for the association's name, which only
+ * dresses the message the handler sends with the address. The address is shown
+ * once and cannot be shown again, so a read that stalls must not hold it back.
+ */
+const VIEWER_READ_MS = 5_000;
+
+/** The viewer, or null when the read fails or is not answered in time. */
+function boundedViewer(): Promise<Awaited<
+  ReturnType<typeof fetchViewer>
+> | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      resolve(null);
+    }, VIEWER_READ_MS);
+    fetchViewer().then(
+      (viewer) => {
+        clearTimeout(timer);
+        resolve(viewer);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
+}
 
 const ANSWER_LABEL: Readonly<Record<WorkOrderAnswer, TranslationKey>> = {
   ACCEPTED: "issues.workOrders.answer.ACCEPTED",
@@ -408,7 +437,7 @@ export function IssueWorkOrders({
       }
       const [issued, viewer] = await Promise.all([
         issueWorkOrderLink(ref),
-        fetchViewer().catch(() => null),
+        boundedViewer(),
       ]);
       if (!issued.ok) {
         return issued;
@@ -1091,7 +1120,13 @@ function ContractorLinkPanel({
     !answeredForGood &&
     !unavailable &&
     !link.protectedHousehold;
-  const shown = link.shown?.workOrderId === order.id ? link.shown : null;
+  // Not once the record says the link has ended (a photograph saved on an
+  // issue that has since closed): the address would be shown as opening a
+  // work order it no longer opens.
+  const shown =
+    link.shown?.workOrderId === order.id && state !== "ended"
+      ? link.shown
+      : null;
   const asked = link.asked?.workOrderId === order.id ? link.asked : null;
   const saving = asked !== null && link.state.kind === "saving";
 

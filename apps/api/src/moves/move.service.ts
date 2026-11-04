@@ -26,6 +26,7 @@ import {
   moveOutMail,
 } from "../mail/templates";
 import { DataSubjectRequestService } from "../data-protection/data-subject-request.service";
+import { revokeLinksOfProtectedHousehold } from "../issues/work-order-link";
 import { endPluginAccesses } from "../plugin-access/plugin-access";
 import { ApartmentRegisterService } from "../registers/apartment-register.service";
 import { residencyHeldOn } from "../registers/held-on";
@@ -346,6 +347,15 @@ export class MoveService implements OnModuleInit {
      */
     await endPluginAccesses(tx, this.audit, {
       personId,
+      actorPersonId: input.actorPersonId,
+      channel: "WEB",
+    });
+
+    // A protected person's household is not one a contractor's link may open
+    // an issue of, from the day it is recorded (ADR 0055).
+    await revokeLinksOfProtectedHousehold(tx, this.audit, {
+      personId,
+      apartmentId,
       actorPersonId: input.actorPersonId,
       channel: "WEB",
     });

@@ -10,6 +10,7 @@ import {
   vi,
 } from "vite-plus/test";
 
+import { PersonService } from "../address-book/person.service";
 import { AuthService } from "../auth/auth.service";
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import type { Env } from "../config/env";
@@ -49,6 +50,7 @@ import {
   pngChunk,
   webpLossyBytes,
 } from "../media/testing/image-fixtures";
+import { MoveService } from "../moves/move.service";
 import { StorageService } from "../storage/storage.service";
 import {
   loadEnvForIntegrationTests,
@@ -831,6 +833,26 @@ describe("A. the token", () => {
       expect((await page(encodeURIComponent(value))).statusCode).toBe(404);
     }
     expect(asked).not.toHaveBeenCalled();
+
+    // A post to an address that is not a token's is refused as the read of it
+    // is, not by the framework's own 404, which would tell the two apart.
+    const refusal = await page(unknownToken());
+    for (const url of [
+      `/arbetsorder/${WORK_ORDER_LINK_TOKEN_PREFIX}short`,
+      "/arbetsorder/x/y",
+    ]) {
+      const posted = await inject({
+        method: "POST",
+        url,
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        payload: "act=accept",
+      });
+      expect(posted.statusCode).toBe(404);
+      expect(posted.headers["content-type"]).toBe(
+        refusal.headers["content-type"],
+      );
+      expect(posted.body).toBe(refusal.body);
+    }
   });
 
   it("A4: a reporter's token here and a contractor's at the reporter's page each get the refusal", async () => {
@@ -1191,6 +1213,143 @@ describe("B. lifetime and revocation", () => {
         where: { id: resident.personId },
         data: { protectedPersonalData: false },
       });
+    }
+  });
+});
+
+describe("H5. the photographs a link has shown, counted for the access report", () => {
+  it("counts each photograph once from the act that exposes it, and keeps the count when the choice changes or a file goes", async () => {
+    const ids = await arrange();
+    const exposures = () =>
+      prisma.workOrderPhotoExposure.count({
+        where: { workOrderId: ids.workOrderId },
+      });
+
+    // Chosen with no link standing: never shown, so not counted.
+    expect(
+      (await choose(ids.issueId, ids.workOrderId, [ids.chosenFileId]))
+        .statusCode,
+    ).toBe(204);
+    expect(await exposures()).toBe(0);
+
+    // Issuing serves the photographs already chosen.
+    await issued(ids.issueId, ids.workOrderId);
+    expect(await exposures()).toBe(1);
+
+    // Emptying the choice takes nothing back; choosing again counts only the
+    // photograph that is new.
+    expect((await choose(ids.issueId, ids.workOrderId, [])).statusCode).toBe(
+      204,
+    );
+    expect(await exposures()).toBe(1);
+    expect(
+      (
+        await choose(ids.issueId, ids.workOrderId, [
+          ids.chosenFileId,
+          ids.unchosenFileId,
+        ])
+      ).statusCode,
+    ).toBe(204);
+    expect(await exposures()).toBe(2);
+
+    // A photograph removed from the issue leaves its count behind.
+    await prisma.mediaFile.delete({ where: { id: ids.chosenFileId } });
+    expect(await exposures()).toBe(2);
+    expect(
+      await prisma.workOrderPhotoExposure.count({
+        where: { workOrderId: ids.workOrderId, fileId: null },
+      }),
+    ).toBe(1);
+  });
+});
+
+describe("H4. marking a person protected", () => {
+  it("ends the links of their issues on the row, so clearing the protection brings none back", async () => {
+    const ids = await linked();
+    expect((await page(ids.token)).statusCode).toBe(200);
+    const persons = app.get(PersonService);
+    try {
+      await persons.setProtectedPersonalData({
+        personId: resident.personId,
+        protectedPersonalData: true,
+        actorPersonId: board.personId,
+      });
+      const rows = await prisma.workOrderLink.findMany({
+        where: { workOrderId: ids.workOrderId },
+      });
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((row) => row.revokedAt !== null)).toBe(true);
+      const entries = (await auditFor(ids.issueId)).filter(
+        (entry) => entry.action === "ISSUE_WORK_ORDER_LINK_REVOKED",
+      );
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.channel).toBe("WEB");
+      expect(JSON.stringify(entries)).not.toContain(resident.personId);
+    } finally {
+      await persons.setProtectedPersonalData({
+        personId: resident.personId,
+        protectedPersonalData: false,
+        actorPersonId: board.personId,
+      });
+    }
+    // The protection is gone, and the address stays dead.
+    expect((await page(ids.token)).statusCode).toBe(404);
+  });
+
+  it("ends the links of an apartment's issues when a protected person's residency is recorded there", async () => {
+    const ids = await linked();
+    const addressId = `wl-addr2-${suffix}`;
+    const apartmentId = `wl-apt2-${suffix}`;
+    const neighbourId = `wl-neigh2-${suffix}`;
+    await prisma.address.create({
+      data: {
+        id: addressId,
+        street: "Länkgatan",
+        number: `${suffix}b`,
+        postalCode: "11122",
+        city: "Stockholm",
+        sortOrder: 922,
+      },
+    });
+    await prisma.apartment.create({
+      data: { id: apartmentId, addressId, number: "1202", floor: 2 },
+    });
+    await prisma.issue.update({
+      where: { id: ids.issueId },
+      data: { apartmentId },
+    });
+    await prisma.person.create({
+      data: {
+        id: neighbourId,
+        firstName: "Nora",
+        lastName: `Granne2${suffix}`,
+        protectedPersonalData: true,
+      },
+    });
+    try {
+      await prisma.$transaction(async (tx) => {
+        await app.get(MoveService).enterResidency(tx, {
+          actorPersonId: board.personId,
+          personId: neighbourId,
+          apartmentId,
+          role: "RESIDENT",
+          // Ahead of today: held by nobody yet, and the link ends all the same.
+          movedInOn: new Date("2999-01-01T00:00:00.000Z"),
+        });
+      });
+      const rows = await prisma.workOrderLink.findMany({
+        where: { workOrderId: ids.workOrderId },
+      });
+      expect(rows.every((row) => row.revokedAt !== null)).toBe(true);
+    } finally {
+      await prisma.residency.deleteMany({ where: { personId: neighbourId } });
+      await prisma.person.deleteMany({ where: { id: neighbourId } });
+      await prisma.issue.update({
+        where: { id: ids.issueId },
+        data: { apartmentId: null },
+      });
+      await prisma.apartment.deleteMany({ where: { id: apartmentId } });
+      await prisma.address.deleteMany({ where: { id: addressId } });
     }
   });
 });

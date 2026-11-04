@@ -1,7 +1,9 @@
-import type { LocalDay } from "@openbrf/shared";
+import { dateColumnOf, type LocalDay, localDayOf } from "@openbrf/shared";
 
+import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
+import type { AuditChannel } from "../generated/prisma/enums";
 import { residencyHeldOn } from "../registers/held-on";
 import { issuesReportedByProtectedPersons } from "./issue-reporter-protection";
 
@@ -166,6 +168,108 @@ export async function showsProtectedHousehold(
     select: { id: true },
   });
   return protectedResident !== null;
+}
+
+/**
+ * Ends the links of the issues a person with protected personal data is
+ * concerned in, as a fact on each row: the issues they reported, and the
+ * issues about an apartment they live in or are to live in.
+ *
+ * `showsProtectedHousehold` refuses such a link on every request, but a refusal
+ * that lifts with the protection would let the same address open the work order
+ * again, and the glossary has such a link end, not wait. So the writes that
+ * make a household protected end the links in their own transaction: a person
+ * being marked as protected, and a protected person's residency being
+ * recorded. A residency is counted from the day it is recorded, not the day it
+ * begins, so a household moving in ahead of its date is covered before the
+ * date arrives, which no write marks. Clearing the protection restores
+ * nothing. The reads still write nothing (ADR 0055).
+ *
+ * Each ended link is audited on the channel of the write that ended it, never
+ * with who the person is: the entry names the issue and the link only.
+ * Answers how many links it ended.
+ */
+export async function revokeLinksOfProtectedHousehold(
+  tx: Prisma.TransactionClient,
+  audit: AuditLogService,
+  input: {
+    personId: string;
+    /**
+     * Given when a residency is recorded: this apartment's issues and the
+     * person's own, and only if the person is protected. Left out when the
+     * person is marked protected: every apartment they hold.
+     */
+    apartmentId?: string;
+    actorPersonId: string | null;
+    channel: AuditChannel;
+  },
+): Promise<number> {
+  if (input.apartmentId !== undefined) {
+    // A residency recorded for a person who is not protected ends nothing.
+    const person = await tx.person.findUnique({
+      where: { id: input.personId },
+      select: { protectedPersonalData: true },
+    });
+    if (person?.protectedPersonalData !== true) {
+      return 0;
+    }
+  }
+  const apartmentIds =
+    input.apartmentId !== undefined
+      ? [input.apartmentId]
+      : (
+          await tx.residency.findMany({
+            where: {
+              personId: input.personId,
+              OR: [
+                { movedOutOn: null },
+                { movedOutOn: { gt: dateColumnOf(localDayOf(new Date())) } },
+              ],
+            },
+            select: { apartmentId: true },
+          })
+        ).map((residency) => residency.apartmentId);
+
+  const links = await tx.workOrderLink.findMany({
+    where: {
+      revokedAt: null,
+      workOrder: {
+        issue: {
+          OR: [
+            { reporterPersonId: input.personId },
+            { apartmentId: { in: apartmentIds } },
+          ],
+        },
+      },
+    },
+    orderBy: { id: "asc" },
+    select: { id: true, workOrder: { select: { id: true, issueId: true } } },
+  });
+  let ended = 0;
+  for (const link of links) {
+    // One update per link, so each entry stands for a row this write ended: a
+    // link a handler withdrew in between wrote its own entry.
+    const { count } = await tx.workOrderLink.updateMany({
+      where: { id: link.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    if (count === 0) {
+      continue;
+    }
+    ended += 1;
+    await audit.record(
+      {
+        action: "ISSUE_WORK_ORDER_LINK_REVOKED",
+        channel: input.channel,
+        actorPersonId: input.actorPersonId,
+        targetKind: "issue",
+        targetId: link.workOrder.issueId,
+        context: { workOrderId: link.workOrder.id, linkId: link.id },
+      },
+      tx,
+    );
+  }
+  return ended;
 }
 
 /**

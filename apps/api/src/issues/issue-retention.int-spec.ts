@@ -1424,6 +1424,35 @@ describe("redaction of a work order's text", () => {
     expect((await read(held.id)).reporterPersonId).toBe(erasedHeldReporterId);
   });
 
+  it("detaches the reporter once the last contractor note is redacted, though its blank row stands", async () => {
+    const finished = await seedWithOnlyWorkOrderText(erasedReporterId);
+    const note = await prisma.workOrderNote.create({
+      data: { workOrderId: finished.workOrderId, body: "Klart i morgon." },
+      select: { id: true },
+    });
+
+    // The work order's text goes first; the contractor's note still stands.
+    expect((await redact(finished.id, finished.workOrderId)).statusCode).toBe(
+      204,
+    );
+    expect((await read(finished.id)).reporterPersonId).toBe(erasedReporterId);
+
+    const redactNote = await inject({
+      method: "POST",
+      url: `/api/issue-queue/${finished.id}/redactions`,
+      headers: { cookie: boardCookie },
+      payload: { target: "workOrderNote", id: note.id },
+    });
+    expect(redactNote.statusCode).toBe(204);
+    expect(
+      await prisma.workOrderNote.findUniqueOrThrow({
+        where: { id: note.id },
+        select: { body: true, redactedAt: true },
+      }),
+    ).toEqual({ body: "", redactedAt: expect.any(Date) });
+    expect((await read(finished.id)).reporterPersonId).toBeNull();
+  });
+
   it("keeps the reporter of an issue whose free text still stands", async () => {
     const issue = await seed({
       reporterPersonId: erasedReporterId,

@@ -339,6 +339,30 @@ export class SiteWorkOrderLinkController {
     await this.notFound(request, reply);
   }
 
+  /**
+   * A post to an address that is not shaped like a token's: the same refusal
+   * as the read of it, so the framework's own 404 never tells the two apart.
+   * On the writes' budget, as a post to a token's is.
+   */
+  @Post(":segment")
+  @PublicRateLimit({ perMinute: WORK_ORDER_LINK_WRITES_PER_MINUTE })
+  async malformedPost(
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    await this.notFound(request, reply);
+  }
+
+  /** The same, for a longer address below the link's path. */
+  @Post(":segment/*")
+  @PublicRateLimit({ perMinute: WORK_ORDER_LINK_WRITES_PER_MINUTE })
+  async malformedPostBelow(
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    await this.notFound(request, reply);
+  }
+
   private async show(
     token: string,
     notice: WorkOrderLinkNotice | null,
