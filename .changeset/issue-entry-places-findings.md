@@ -23,11 +23,13 @@ the common area it is about, and the mark of an inspection finding.
   The answer is cleared when the issue is closed, in the same step
   that closes it, and the database refuses a closed issue that holds one. A
   note that reads like a door code is refused, with a sentence saying why, and
-  is never stored. A time such as 08.00-12.00 or a date is not taken for a door
-  code. A note a handler writes is also refused while it carries a personal
-  identity number. The answer is on the resident's data subject access
-  report while the issue is open. The purge of a person clears it from an issue
-  whose text is already gone, when it detaches them from that issue, and
+  is never stored. A time such as 08.00-12.00, a date written 2026-05-12 or a
+  year after a month's name such as 12 May 2026 is not taken for a door code;
+  a date written 12.05.2026 or 20260512 still is. A note a handler writes is
+  also refused while it carries a personal identity number. The answer is on
+  the resident's data subject access report while the issue is open. The purge
+  of a person clears it from an issue whose text is already gone, when it
+  detaches them from that issue, and
   removing the apartment from the register clears it from the issues about that
   apartment, recorded as withdrawn by whoever removed it; an answer saved while
   the apartment is being removed is cleared with them or refused. Nothing of it is offered to a connected app or the AI package.
