@@ -106,6 +106,11 @@
       "heading": "Svar från styrelsen i {{association}}",
       "footer": "Det här svaret kommer från {{association}}. Svara på meddelandet, eller skriv till {{address}}, så når det hela styrelsen."
     },
+    "workOrder": {
+      "subject": "Arbetsorder från {{association}}",
+      "heading": "Arbetsorder",
+      "footerNotice": "Du får det här för att {{association}} har dig på sin lista över entreprenörer. Kontakta föreningen om något i arbetsordern är oklart."
+    },
     "news": {
       "subject": "{{title}} - {{association}}",
       "body": "{{association}} har publicerat en nyhet.",
@@ -142,6 +147,14 @@
       },
       "bodyUndated": "{{event}} för {{apartment}} registrerades den {{triggeredOn}} och ska anmälas till Lantmäteriet.",
       "noDeadlineNotice": "Lag (2026:484) 3 kap. 3 § tredje stycket sätter ingen frist för den här anmälan, så ingen anges här."
+    },
+    "issueReporterLink": {
+      "subject": "Ditt ärende hos {{association}}",
+      "heading": "Tack för din anmälan",
+      "body": "Föreningen har tagit emot din anmälan ({{type}}). Via länken nedan kan du följa ärendet, läsa föreningens svar och skriva till föreningen.",
+      "action": "Öppna ditt ärende",
+      "footerNotice": "Du får detta eftersom du har anmält ett ärende till {{association}}.",
+      "keepPrivate": "Länken är personlig: den som har den kan läsa och skriva i ärendet, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats eller 365 dagar efter det senaste meddelandet i det, det som inträffar först. Innan något meddelande har skrivits räknas de 365 dagarna från den dag länken utfärdades."
     },
     "issueHandlerNotice": {
       "footerNotice": "Du får detta eftersom du handlägger ärenden för {{association}}.",
@@ -551,6 +564,7 @@
           "location": "Plats",
           "description": "Beskrivning",
           "photographs": "Fotografier",
+          "workOrders": "Arbetsorder skrivna till entreprenörer",
           "documentTitle": "Titel",
           "binder": "Pärm",
           "entryKind": "Sort",
@@ -673,6 +687,15 @@
           "ENTRY": "Inträde",
           "EXIT": "Utträde",
           "CORRECTION": "Rättelse"
+        },
+        "workOrder": {
+          "removedContractor": "En entreprenör som sedan tagits bort från listan",
+          "delivery": {
+            "PENDING": "Skickas",
+            "SENT": "Skickad",
+            "FAILED": "Inte bekräftad som skickad",
+            "NOT_SENT": "Inte skickad"
+          }
         },
         "direction": {
           "acquired": "Förvärvad",
@@ -857,6 +880,9 @@
           "ISSUE_ACCESS_CHANGED": "Vilka som hanterar ett ärende ändrades",
           "ISSUE_COST_RESPONSIBILITY_CHANGED": "Vem som betalar för ett ärende angavs",
           "ISSUE_RESIDENTS_LISTED": "Någon som hanterar ärenden visades vilka som bor i en lägenhet, för att lägga upp ett ärende",
+          "ISSUE_WORK_ORDER_SENT": "En arbetsorder i ett ärende skrevs och lades i kö för utskick till en entreprenör",
+          "CONTRACTOR_LIST_CHANGED": "En entreprenör lades till, ändrades eller togs bort i entreprenörslistan",
+          "ISSUE_TYPE_RING_FENCE_CHANGED": "En ärendetyp stängdes för entreprenörer, eller öppnades igen",
           "ISSUE_MESSAGE_SENT": "Ett meddelande skrevs i ett ärende",
           "ISSUE_NOTE_ADDED": "En intern anteckning skrevs i ett ärende",
           "ISSUE_REDACTED": "Text, en bild eller en fil togs bort från ett ärende",
@@ -902,7 +928,9 @@
           "SUPPORT_SESSION_ISSUED": "Inloggningslänk för support utfärdades",
           "SUPPORT_SESSION_STARTED": "Supportperson loggade in",
           "SUPPORT_REQUEST": "Supportperson tittade",
-          "SUPPORT_SESSION_ENDED": "Supportperson loggade ut"
+          "SUPPORT_SESSION_ENDED": "Supportperson loggade ut",
+          "ISSUE_REPORTER_LINK_ISSUED": "En privat länk till ett ärende skickades till anmälaren",
+          "ISSUE_REPORTER_LINK_REVOKED": "Anmälarens privata länk till ett ärende drogs tillbaka"
         },
         "pluginRecorded": "Tillägget {{plugin}}: {{event}}",
         "channel": {
@@ -913,7 +941,8 @@
           "PLUGIN": "Ett tillägg",
           "MANAGEMENT": "Hanterings-API:t",
           "SUPPORT": "Supportåtkomst",
-          "unknown": "Skrevs innan loggen började registrera kanalen."
+          "unknown": "Skrevs innan loggen började registrera kanalen.",
+          "LINK": "En privat länk"
         },
         "dispatchingPlugin": "Tillägg:",
         "dispatchingPluginUnknown": "Skrevs innan loggen började registrera tillägget.",
@@ -934,7 +963,8 @@
             "message": "Ett svar",
             "note": "En intern anteckning",
             "photo": "En bild",
-            "attachment": "En fil"
+            "attachment": "En fil",
+            "workOrder": "Texten i en arbetsorder"
           },
           "legalHoldSince": "Kravet gällde sedan {{date}}",
           "retentionChanged": "Från {{from}} till {{to}} år efter stängning"
@@ -1758,7 +1788,39 @@
       "defaultAssigneeNamed": "{{name}}: ansvarig när det anmäls",
       "noDefaultAssignee": "Ingen: meddela alla som hanterar",
       "handledByBoardHint": "Styrelsen och en administratör hanterar de här ärendena, också en administratör utan plats i styrelsen. Förvaltaren ser dem inte. När en typ blir styrelsens tas förvaltaren bort som ansvarig på dess ärenden.",
-      "handledByEveryHandlerHint": "Alla som hanterar ärenden ser de här ärendena, förvaltaren också. Ett ärende utan ansvarig meddelas till alla."
+      "handledByEveryHandlerHint": "Alla som hanterar ärenden ser de här ärendena, förvaltaren också. Ett ärende utan ansvarig meddelas till alla.",
+      "ringFenced": "Avskärmad: inget når en entreprenör",
+      "ringFencedNamed": "{{name}}: avskärmad, inget når en entreprenör"
+    },
+    "contractors": {
+      "title": "Entreprenörer",
+      "description": "Företagen som föreningen anlitar för arbete i huset. Den som hanterar ett ärende skickar en arbetsorder till dem från ärendet, med e-post till adressen här. Telefonnumret är till för den som hanterar ärendet och skickas ingenstans.",
+      "loading": "Hämtar entreprenörerna...",
+      "loadFailed": "Entreprenörerna kunde inte läsas just nu. Ladda om sidan.",
+      "empty": "Det finns inga entreprenörer på listan än.",
+      "name": "Namn",
+      "trade": "Yrke",
+      "tradePlaceholder": "Rörmokare, elektriker, låssmed...",
+      "phone": "Telefon",
+      "email": "E-postadress",
+      "active": "Erbjuds för nya arbetsorder",
+      "fieldNamed": "{{name}}: {{field}}",
+      "noEmailHint": "Utan adress kan ingen arbetsorder skickas till dem.",
+      "workOrderCount": "Skrivna arbetsorder: {{count}}",
+      "save": "Spara",
+      "addTitle": "Lägg till en entreprenör",
+      "add": "Lägg till entreprenör",
+      "remove": "Ta bort",
+      "removeNamed": "Ta bort {{name}}",
+      "errors": {
+        "notFound": "Entreprenören finns inte längre på listan. Listan har lästs om.",
+        "incomplete": "En entreprenör behöver ett namn och ett yrke.",
+        "invalidBody": "Kontrollera fälten: adressen måste vara en giltig e-postadress.",
+        "unknown": "Listan gick inte att ändra just nu. Försök igen."
+      },
+      "removeConfirm": "Ta bort för gott",
+      "keep": "Behåll",
+      "removeHint": "Att ta bort entreprenören raderar också namnet och adressen ur arbetsordrarna som skickats till dem; arbetsordrarna finns kvar i ärendena. Stäng av entreprenören i stället för att sluta erbjuda dem och behålla uppgiften om vem arbetsordrarna gick till."
     },
     "issueSavedReplies": {
       "title": "Sparade svar",
@@ -3622,6 +3684,41 @@
       "calendar": "Kalender",
       "brokerInformation": "Mäklarinfo",
       "requestAccount": "Ansök om konto"
+    },
+    "issueLink": {
+      "title": "Ditt ärende",
+      "type": "Typ",
+      "status": "Status",
+      "received": "Inkom",
+      "meaning": {
+        "NEW": "Mottaget",
+        "IN_PROGRESS": "Pågår",
+        "WAITING": "Väntar",
+        "DONE": "Avslutat"
+      },
+      "conversation": "Meddelanden",
+      "empty": "Inga meddelanden ännu. Föreningen svarar här.",
+      "removed": "Föreningen har tagit bort det här meddelandet.",
+      "signature": {
+        "BOARD": "Styrelsen",
+        "PROPERTY_MANAGER": "Förvaltaren"
+      },
+      "you": "Du",
+      "message": "Skriv till föreningen",
+      "messageHint": "Skriv inga personnummer. Det går inte att bifoga filer här.",
+      "send": "Skicka",
+      "closedNotice": "Ärendet är avslutat och tar inte emot fler meddelanden. Har du något nytt att anmäla gör du en ny anmälan på föreningens webbplats.",
+      "private": "Länken är personlig, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats eller ett år efter det senaste meddelandet i det, det som inträffar först. Innan något meddelande har skrivits räknas året från den dag länken utfärdades.",
+      "notFoundTitle": "Länken öppnar inget ärende",
+      "notFoundBody": "Länken kan ha gått ut eller dragits tillbaka. Kontakta föreningen via webbplatsen om du behöver hjälp med ditt ärende.",
+      "notice": {
+        "sent": "Ditt meddelande har skickats till föreningen.",
+        "refused": "Meddelandet kunde inte läsas. Skriv en text på högst 4 000 tecken och försök igen.",
+        "identity": "Meddelandet innehåller ett personnummer och skickades inte. Ta bort det och försök igen.",
+        "closed": "Ärendet är avslutat och tar inte emot fler meddelanden.",
+        "limited": "Ärendet tar inte emot fler meddelanden just nu. Försök igen senare.",
+        "full": "Ärendet har nått det högsta antal meddelanden som en länk tar emot. Fler meddelanden kan inte skickas via länken."
+      }
     }
   },
   "signup": {
@@ -3764,7 +3861,7 @@
     },
     "queue": {
       "title": "Ärendekön",
-      "description": "Allt som anmälts: nya ärenden först, sedan de som pågår, väntar och är klara. Inom varje följer ärendena statusarnas ordning, och det äldsta kommer först inom en status.",
+      "description": "Nya ärenden först, sedan de som pågår, väntar och är klara. Inom varje följer ärendena statusarnas ordning, och det äldsta kommer först inom en status.",
       "empty": "Ingenting har anmälts.",
       "reporter": "Anmäld av",
       "reporterProtected": "Skyddade personuppgifter: fråga styrelsen.",
@@ -3782,7 +3879,7 @@
       "waitingOn": "Väntar på: {{reason}}",
       "closedAs": "Utfall: {{outcome}}",
       "noOutcome": "Stängdes innan utfall registrerades.",
-      "statusesUnavailable": "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas. Ladda om sidan.",
+      "statusesUnavailable": "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.",
       "saving": "Sparar...",
       "errors": {
         "issueNotFound": "Det ärendet finns inte längre. Kön har lästs om.",
@@ -3882,12 +3979,82 @@
         "note": "Tog bort en intern anteckning",
         "photo": "Tog bort en bild",
         "attachment": "Tog bort en fil",
+        "workOrder": "Tog bort texten i en arbetsorder",
         "unknown": "Tog bort text eller en fil"
       },
       "legalHoldPlaced": "Lade ett rättsligt bevarandekrav",
       "legalHoldReleased": "Hävde det rättsliga bevarandekravet",
       "costResponsibility": "Vem betalar satt till {{who}}",
-      "costResponsibilityRemoved": "Vem betalar togs bort"
+      "costResponsibilityRemoved": "Vem betalar togs bort",
+      "workOrder": {
+        "written": "En arbetsorder skrevs till en entreprenör",
+        "pending": "En arbetsorder är på väg till en entreprenör",
+        "sent": "En arbetsorder skickades till en entreprenör",
+        "failed": "En arbetsorder till en entreprenör skickades inte",
+        "unconfirmed": "En arbetsorder till en entreprenör kan ha uteblivit; ingen vet om den kom fram"
+      }
+    },
+    "workOrders": {
+      "open": "Arbetsorder för {{type}}",
+      "loading": "Hämtar arbetsorder...",
+      "readFailed": "Arbetsorder eller entreprenörer gick inte att läsa just nu. Stäng och öppna igen.",
+      "none": "Ingen arbetsorder har skrivits i ärendet.",
+      "logTitle": "Arbetsorder",
+      "sentBy": "skickad av",
+      "contents": "Vad den innehöll",
+      "pending": "På väg till e-postservern.",
+      "delivered": "Mottagen av e-postservern.",
+      "failed": "Inte skickad.",
+      "failure": {
+        "mailNotConfigured": "Inte skickad: ingen e-postserver är inställd.",
+        "sendFailed": "Obekräftad: e-postservern svarade med ett fel, och det går inte att veta om den kom fram. Fråga entreprenören innan du skickar den igen.",
+        "sendingInterrupted": "Inte skickad: sändningen avbröts innan den började. Skriv den igen för att skicka den.",
+        "deliveryUnconfirmed": "Obekräftad: sändningen avbröts, och det går inte att veta om den kom fram. Fråga entreprenören innan du skickar den igen.",
+        "recipientRemoved": "Inte skickad: entreprenören togs bort från listan innan den gick iväg.",
+        "recipientUnreadable": "Inte skickad: entreprenörens adress gick inte att läsa, så inget mejlades. Skriv arbetsordern igen när styrelsen har kontrollerat entreprenörens uppgifter.",
+        "textErased": "Inte skickad: arbetsordens text raderades innan den gick iväg.",
+        "ringFenced": "Inte skickad: styrelsen avskärmade ärendetypen från entreprenörer innan den gick iväg."
+      },
+      "ringFenced": "Inget om ett ärende av den här typen får nå en entreprenör, så ingen arbetsorder kan skickas.",
+      "closed": "Ärendet är avslutat, så ingen arbetsorder erbjuds. Öppna det igen för att skriva en.",
+      "noContractors": "Det finns inga entreprenörer på listan. Styrelsen lägger till dem i inställningarna, under Ärenden och bokningar.",
+      "write": "Ny arbetsorder",
+      "writeHint": "Skriv vad entreprenören ska göra, och var. Arbetsordern skickas som du skriver den, och inget annat från ärendet följer med: inte felanmälan, inte vem som gjorde den, inte bilderna.",
+      "protectedReporter": "Den som anmälde har skyddade personuppgifter. Skriv inte namnet eller lägenheten i arbetsordern; ordna tillträde genom styrelsen.",
+      "contractor": "Entreprenör",
+      "contractorNamed": "{{type}}: entreprenör",
+      "chooseContractor": "Välj entreprenör",
+      "contractorOption": "{{name}} ({{trade}})",
+      "contractorWithoutEmail": "{{name}} ({{trade}}), ingen adress på listan",
+      "phone": "Telefon:",
+      "body": "Arbetsorder",
+      "bodyNamed": "{{type}}: arbetsorder",
+      "preview": "Förhandsgranska",
+      "previewing": "Förbereder förhandsgranskningen...",
+      "previewTitle": "Mejlet som entreprenören kommer att få",
+      "to": "Till",
+      "subject": "Ämne",
+      "previewHint": "Läs igenom. När du skickar sparas i ärendet vem den gick till, när och vad den innehöll, så att alla som hanterar ärendet kan läsa det.",
+      "mailNotConfigured": "Ingen e-postserver är inställd, så arbetsordern skulle sparas men inte skickas.",
+      "send": "Skicka till {{name}}",
+      "sending": "Skickar...",
+      "edit": "Ändra",
+      "sent": "Arbetsordern till {{name}} är sparad. Loggen nedan visar om mejlet gick iväg.",
+      "errors": {
+        "issueNotFound": "Ärendet finns inte längre, eller är inte längre ditt att hantera.",
+        "contractorNotFound": "Entreprenören finns inte längre på listan. Listan har lästs om.",
+        "contractorWithoutEmail": "Listan har ingen adress till entreprenören. Styrelsen lägger till en i inställningarna.",
+        "ringFenced": "Inget om ett ärende av den här typen får nå en entreprenör.",
+        "identityNumber": "Arbetsordern innehåller ett personnummer. Skriv den utan.",
+        "empty": "Arbetsordern är tom.",
+        "unknown": "Arbetsordern gick inte att förbereda eller skicka just nu. Försök igen.",
+        "previewStale": "Entreprenörens uppgifter eller texten har ändrats sedan förhandsvisningen. Förhandsvisa den igen innan du skickar.",
+        "issueClosed": "Ärendet är avslutat. Öppna det igen innan du skriver en arbetsorder.",
+        "duplicate": "Den här arbetsordern skickades till entreprenören för en stund sedan. Titta i listan ovan innan du skickar den igen.",
+        "budgetSpent": "Du har skickat så många arbetsorder som en person får skicka på en timme. Försök igen senare."
+      },
+      "recipientRemoved": "En entreprenör som sedan tagits bort från listan",
+      "bodyErased": "Texten raderades när ärendets lagringstid gick ut."
     },
     "open": {
       "__after__": "timeline",
@@ -3913,6 +4080,32 @@
         "residentNotFound": "Den boende bor inte längre i lägenheten. Välj lägenheten igen, eller lämna den boende tom.",
         "unknown": "Ärendet gick inte att lägga upp just nu. Försök igen."
       }
+    },
+    "views": {
+      "label": "Vyer",
+      "MINE": "Mina",
+      "UNASSIGNED": "Ej tilldelade",
+      "OVERDUE": "Försenade",
+      "ALL": "Alla",
+      "empty": {
+        "MINE": "Inga öppna ärenden har dig som ansvarig.",
+        "UNASSIGNED": "Alla öppna ärenden du kan se har en ansvarig.",
+        "OVERDUE": "Inget öppet ärende du kan se är försenat.",
+        "ALL": "Inget ärende du kan se är öppet."
+      },
+      "noMatch": "Inga ärenden stämmer med filtren just nu."
+    },
+    "filter": {
+      "label": "Sök och filtrera ärenden",
+      "search": "Sök",
+      "status": "Status",
+      "statusOpen": "Öppna",
+      "statusAny": "Alla, även klara",
+      "type": "Typ",
+      "typeAny": "Alla typer",
+      "priority": "Prioritet",
+      "priorityAny": "Alla prioriteter",
+      "clear": "Rensa filter"
     },
     "costResponsibility": {
       "ASSOCIATION": "Föreningen",
@@ -3970,7 +4163,7 @@
       "send": "Skicka",
       "sending": "Skickar...",
       "closedOwn": "Anmälan är avslutad och tar inte emot fler meddelanden.",
-      "noReporter": "Ingen kan läsa ett svar på det här ärendet: anmälaren har inget konto att läsa det på, eller så saknas anmälare.",
+      "noReporter": "Ingen kan läsa ett svar på det här ärendet: anmälaren har inget konto och ingen privat länk som öppnar ärendet, eller så saknas anmälare.",
       "savedReply": "Sparat svar",
       "savedReplyPick": "Infoga ett sparat svar...",
       "savedReplyTooLong": "Det sparade svaret ryms inte: meddelandet skulle bli längre än {{max}} tecken. Korta först ner det du har skrivit.",
@@ -4006,12 +4199,25 @@
         "unknown": "Filen gick inte att bifoga just nu. Försök igen."
       }
     },
+    "reporterLink": {
+      "live": "Anmälaren har inget konto och läser svaren via en privat länk som skickades med e-post.",
+      "ended": "Länken som skickades till anmälaren öppnar inte längre ärendet: den har dragits tillbaka eller gått ut, eller så avslutades ärendet för mer än 30 dagar sedan.",
+      "pending": "Den privata länken till anmälaren har inte skickats än. Mejlet ligger i kö eller skickas om, så titta igen strax.",
+      "none": "Ingen privat länk skickades till anmälaren: ingen e-postadress lämnades, eller så kunde inget mejl skickas.",
+      "revoke": "Dra tillbaka länken",
+      "revoking": "Drar tillbaka …",
+      "revokeNamed": "{{type}}: dra tillbaka anmälarens privata länk",
+      "errors": {
+        "none": "Anmälaren har ingen privat länk att dra tillbaka.",
+        "unknown": "Länken kunde inte dras tillbaka. Försök igen."
+      }
+    },
     "redaction": {
       "removedOn": "Borttaget av en handläggare <data>{{date}}</data>",
       "purgedOn": "Fritexten togs bort <data>{{date}}</data>",
       "freeTextRemoved": "Fritexten, svaren och bilderna togs bort <data>{{date}}</data>. Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, finns kvar.",
       "title": "Fritext och rättsligt bevarandekrav",
-      "intro": "Så länge inget rättsligt bevarandekrav gäller för själva ärendet kan en handläggare när som helst ta bort beskrivningen, platsen, ett svar, en intern anteckning, en bild eller en fil, till exempel när en person som nämns där har fått radering beviljad. Det som tas bort är borta: ingenting sparar texten, och ingenting skrivs i dess ställe.",
+      "intro": "Så länge inget rättsligt bevarandekrav gäller för själva ärendet kan en handläggare när som helst ta bort beskrivningen, platsen, ett svar, en intern anteckning, en bild, en fil eller texten i en arbetsorder, till exempel när en person som nämns där har fått radering beviljad. Det som tas bort är borta: ingenting sparar texten, och ingenting skrivs i dess ställe.",
       "remove": "Ta bort",
       "removeDescription": "{{type}}: ta bort beskrivningen",
       "removeLocation": "{{type}}: ta bort platsen",
@@ -4019,6 +4225,8 @@
       "removeNote": "Ta bort den interna anteckningen från {{at}}",
       "removePhoto": "Ta bort bilden {{name}}",
       "removeAttachment": "Ta bort filen {{name}}",
+      "removeWorkOrder": "Ta bort texten i arbetsordern från {{at}}",
+      "removeWorkOrderTo": "Ta bort texten i arbetsordern till {{name}} från {{at}}",
       "description": "Beskrivning",
       "location": "Plats",
       "photos": "Anmälarens bilder",
@@ -6428,9 +6636,9 @@
         },
         "issues": {
           "name": "Felanmälningar",
-          "purpose": "Ta emot och åtgärda fel i huset, och meddela den som handlägger ett ärende och den som anmälde det med e-post. Mejlen innehåller ärendenummer, ärendetyp och en länk, och mejlen till den som handlägger ett ärende också prioritet; aldrig vad någon har skrivit.",
+          "purpose": "Ta emot och åtgärda fel i huset, med de arbetsorder som skickas till entreprenörer, och meddela den som handlägger ett ärende och den som anmälde det med e-post. Mejlen om ett ärende innehåller ärendenummer, ärendetyp och en länk, och de till den som handlägger det också prioritet, aldrig vad någon har skrivit. Mejlet med en arbetsorder innehåller den text en handläggare skrev till entreprenören och inget annat från ärendet.",
           "legalBasisNote": "Berättigat intresse: att förvalta fastigheten. Den som anmäler kan självmant skriva uppgifter om hälsa (art. 9).",
-          "retention": "Vad ärendet gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, behålls. Beskrivningen, platsen, svaren, de interna anteckningarna och bilderna gallras det antal år efter avslut som styrelsen bestämmer (1 till 10, 2 som standard) om inte ett rättsligt bevarandekrav gäller, eller tidigare när anmälarens begäran om radering beviljas, och kopplingen till anmälaren tas bort, när den texten är borta, när anmälarens egna personuppgifter gallras. Kontaktuppgifterna i en anmälan från det öppna formuläret gallras 365 dagar efter avslut."
+          "retention": "Vad ärendet gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, behålls. Beskrivningen, platsen, svaren, de interna anteckningarna och bilderna gallras det antal år efter avslut som styrelsen bestämmer (1 till 10, 2 som standard) om inte ett rättsligt bevarandekrav gäller, eller tidigare när anmälarens begäran om radering beviljas. Kopplingen till anmälaren tas bort när anmälarens egna personuppgifter gallras, när den texten är borta och ingen arbetsorders text finns kvar, så att ett rättsligt bevarandekrav eller en begränsning som läggs på personen senare fortfarande behåller texten. Kontaktuppgifterna i en anmälan från det öppna formuläret gallras 365 dagar efter avslut; har en arbetsorder skickats om anmälan sparas e-postadressen i en kodad form som inte går att läsa tillbaka tills arbetsorderns text raderas, så att ett rättsligt bevarandekrav eller en begränsning för den som anmälde fortfarande behåller texten. Texten i en arbetsorder till en entreprenör raderas tio år efter att ärendet avslutats, när ett anspråk om arbetet preskriberas (preskriptionslagen 2 §); när den skickades sparas, och vem den gick till sparas så länge entreprenören finns kvar i registret. Att ta bort en entreprenör från registret raderar namn och e-postadress på dess arbetsorder."
         },
         "documents": {
           "name": "Dokumentarkiv",
@@ -6555,6 +6763,7 @@
           "replies": "Svar skickas via {{host}}.",
           "noMailbox": "Ingen brevlåda är konfigurerad.",
           "economicManager": "Föreningens ekonomiska förvaltare, eller den som annars sköter bokföringen, som får underlaget för den.",
+          "contractors": "Entreprenörer som föreningen anlitar för arbete i huset, som var och en får en arbetsorder om ett ärende: det som den som hanterar ärendet skrev, aldrig felanmälan eller vem som gjorde den. Varje arbetsorder sparar vem den gick till och när, tills entreprenören tas bort ur registret, vilket raderar namn och e-postadress på den.",
           "lantmateriet": "Lantmäteriet (bostadsrättsregistret), dit styrelsen gör det inledande uppgiftslämnandet av registrets uppgifter enligt Lag (2026:485) 3 § och dit föreningen anmäler registerhändelser enligt Lag (2026:484) 3 kap.",
           "lantmaterietReports": "Lantmäteriet (bostadsrättsregistret), dit föreningen anmäler registerhändelser enligt Lag (2026:484) 3 kap."
         },
@@ -7166,7 +7375,7 @@
       "none": "Inget väntar",
       "atLeast": "{{count}} eller fler",
       "queue": {
-        "issues": "Nya ärenden",
+        "issues": "Ärenden",
         "boardMailbox": "Obesvarade trådar i styrelsens brevlåda",
         "motions": "Motioner som inte är mottagna",
         "sublets": "Ansökningar om andrahandsupplåtelse att besluta om",
@@ -7175,6 +7384,11 @@
         "accountRequests": "Kontoansökningar att besluta om",
         "chatReports": "Anmälda inlägg",
         "importProposals": "Föreslagna medlemslistor att granska"
+      },
+      "issues": {
+        "open": "Öppna",
+        "overdue": "Försenade",
+        "unassigned": "Ej tilldelade"
       }
     }
   },

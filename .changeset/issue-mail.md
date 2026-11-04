@@ -28,9 +28,9 @@ number.
   address at that moment is not sent later, unless the issue is assigned again,
   opened again or given a new target date.
 - **Reopened.** A done issue that is opened again is mailed to its assignee, or
-  to everybody who handles it when it has no assignee. Reopened twice within the
-  same clock hour mails once, unless the first mail was not sent because the issue was
-  closed again by then.
+  to everybody who handles it when it has no assignee. Reopened twice within
+  the same clock hour mails once, unless the first mail was not sent because
+  the issue was closed again by then.
 - **A new message.** A reporter's message mails the assignee, or everybody who
   handles the issue when it has none. A handler's message mails the reporter
   when they have an account. A handler's internal note mails nobody. A mail
@@ -43,13 +43,15 @@ number.
   to the mail service. An address changed in the meantime is not mailed either.
   This narrows the window and does not close it: no lock is held while the mail
   service renders and sends, so a restriction or a board-only change committed
-  in that last moment can still be followed by one mail with the number, type
-  and priority and no free text.
-- **No free text.** A mail gives the issue number, the type and a link to the
-  issue queue. A mail to a handler also gives the priority. A mail to a reporter
-  greets them by their own name. Apart from that, a mail never includes what
-  the reporter or a handler wrote, where in the building the issue is, or who
-  reported it. That text does not pass through the mail provider.
+  in that last moment can still be followed by one mail, with no free text in
+  it.
+- **No free text.** A mail greets its recipient by their own name and gives
+  the issue number and the type. A mail to a handler also gives the priority
+  and a link to the issue queue, and an overdue reminder the target date. A mail
+  to a reporter links to the reporter's own list of issues. Apart from that, a
+  mail never includes what the reporter or a handler wrote, where in the
+  building the issue is, or who reported it. That text does not pass through
+  the mail provider.
 - **Issue number.** Every issue has a number, shown in the issue queue, on the
   reporter's own list and in every mail, and returned by the `issue_list` and
   `issue_get` actions. Existing issues are numbered in the order they were

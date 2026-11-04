@@ -25,14 +25,15 @@ import {
 
 /**
  * A redaction names what it reaches: the description or the location alone,
- * or a message, a note, a photograph or a handler's file by its identifier.
+ * or a message, a note, a photograph, a handler's file or a work order by its
+ * identifier.
  * Strict, so a field for replacement text is refused rather than ignored: a
  * redaction takes nothing in place of what it removes (ADR 0057).
  */
 const redactionSchema = z.discriminatedUnion("target", [
   z.strictObject({ target: z.enum(["description", "location"]) }),
   z.strictObject({
-    target: z.enum(["message", "note", "photo", "attachment"]),
+    target: z.enum(["message", "note", "photo", "attachment", "workOrder"]),
     id: z.string().min(1).max(64),
   }),
 ]);

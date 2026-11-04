@@ -70,6 +70,12 @@ vi.mock("../api/issues", async (importOriginal) => ({
   saveIssueReporting: (input: unknown) => saveIssueReporting(input),
 }));
 
+// The contractor list beside the types self-loads as well.
+vi.mock("../api/work-orders", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/work-orders")>()),
+  fetchContractors: () => Promise.resolve({ ok: true, value: [] }),
+}));
+
 /*
  * Where the screen sent the reader instead of rendering a section. A redirect
  * is the router's business; what this file checks is which section the screen

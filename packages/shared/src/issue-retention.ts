@@ -34,6 +34,8 @@ export const ISSUE_TEXT_RETENTION_YEARS = {
  *
  * The description and the location are the issue's own, so they are named
  * alone; the rest are rows of their own and are named with their identifier.
+ * A work order's text is erased and the work order stays, with whom it went to
+ * and when (ADR 0057).
  */
 export const ISSUE_REDACTION_TARGETS = [
   "description",
@@ -42,6 +44,7 @@ export const ISSUE_REDACTION_TARGETS = [
   "note",
   "photo",
   "attachment",
+  "workOrder",
 ] as const;
 
 export type IssueRedactionTarget = (typeof ISSUE_REDACTION_TARGETS)[number];

@@ -8,6 +8,7 @@ import { IssueErasureService } from "./issue-erasure.service";
 import { IssueFreeTextService } from "./issue-free-text.service";
 import { IssueMailer } from "./issue-mailer.service";
 import { IssuePurgeService } from "./issue-purge.service";
+import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import { IssueRedactionService } from "./issue-redaction.service";
 import { IssueRetentionSettingService } from "./issue-retention-setting.service";
 import {
@@ -26,6 +27,13 @@ import {
   IssueTypeAdminController,
   ResponsibilityGuideAdminController,
 } from "./issues.controller";
+import { ContractorService } from "./contractor.service";
+import { WorkOrderMailerService } from "./work-order-mailer.service";
+import { WorkOrderService } from "./work-order.service";
+import {
+  ContractorAdminController,
+  IssueWorkOrderController,
+} from "./work-orders.controller";
 import { ResponsibilityGuideService } from "./responsibility-guide.service";
 
 /**
@@ -33,7 +41,8 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
  * queue whoever handles issues works from, the resident picker a handler
  * names a resident from on an issue they open, the conversation on an
  * issue - its messages, the handlers' notes and files, and the saved replies -
- * the association's responsibility guide, read before filing and when
+ * the contractors a handler sends a work order to, with the record of what was
+ * sent, the association's responsibility guide, read before filing and when
  * deciding who pays, and the mail and the overdue reminder that tell
  * handlers of their issues (`IssueMailer`).
  *
@@ -45,7 +54,8 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
  *
  * The services are exported because the association's public website renders
  * the report form itself, in process, rather than calling this API over HTTP,
- * and the saved replies because the setup wizard seeds them.
+ * the saved replies because the setup wizard seeds them, and the reporter's
+ * private link because its page is the website's too (ADR 0055).
  *
  * IssuePurgeService is a provider and not exported: it is a scheduled job with
  * nobody to call it, and the integration suite reaches it through the module
@@ -57,6 +67,8 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueReportController,
     IssueQueueController,
     IssueTypeAdminController,
+    IssueWorkOrderController,
+    ContractorAdminController,
     ResponsibilityGuideAdminController,
     IssueSavedReplyAdminController,
     IssueRedactionController,
@@ -70,18 +82,23 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueResidentsService,
     IssueConversationService,
     IssueSavedReplyService,
+    IssueReporterLinkService,
     IssueFreeTextService,
     IssueTextPurgeService,
     IssueErasureService,
     IssueRedactionService,
     IssueRetentionSettingService,
     IssueActionsRegistrar,
+    ContractorService,
+    WorkOrderService,
+    WorkOrderMailerService,
     ResponsibilityGuideService,
   ],
   exports: [
     IssueService,
     IssueTypeService,
     IssueSavedReplyService,
+    IssueReporterLinkService,
     ResponsibilityGuideService,
   ],
 })

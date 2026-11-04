@@ -18,6 +18,7 @@ import {
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, LABEL, SECONDARY_BUTTON } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -34,6 +35,7 @@ import { IssueHandling } from "./IssueHandling";
 import { IssuePriorityChip } from "./IssuePriorityChip";
 import { IssueFreeTextSection, useIssueRedaction } from "./IssueRedaction";
 import { IssueStatusChip } from "./IssueStatusChip";
+import { IssueWorkOrders } from "./IssueWorkOrders";
 
 const QUEUE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.queue.errors.issueNotFound",
@@ -66,10 +68,27 @@ export interface IssueQueuePanelProps {
   /** Called after a status change, so the caller can reload the queue. */
   onChanged: () => void;
   /**
+   * Reads the types again. With it, the notice that they could not be read
+   * offers a retry; without it the notice only says so.
+   */
+  onRetryTypes?: () => void;
+  /**
+   * What an empty list says: which view is empty, or that nothing matches
+   * the filter. The queue as a whole, by default.
+   */
+  emptyMessage?: string;
+  /**
    * Whether the reader holds `memberCharges:manage`, so an open issue shows
    * the charges made from it. Courtesy only: the API refuses the read without.
    */
   canManageCharges?: boolean;
+  /**
+   * Whether the queue is being read again. The rows on screen may not be the
+   * ones the new read returns, so their status forms and handling controls are
+   * off until it is back, rather than a change saved on an issue the view
+   * no longer holds.
+   */
+  reading?: boolean;
 }
 
 /**
@@ -82,8 +101,10 @@ export interface IssueQueuePanelProps {
  * go rather than after a refusal.
  *
  * Each row says who the issue is given to, how urgent it is and the day it is
- * meant to be done by, and stands out once that day has passed (decision 10);
- * the handling itself, and the timeline, open under the row.
+ * meant to be done by, and stands out once that day has passed (decision 10):
+ * a heavy edge in the danger colour, the date in it, and the word overdue, so
+ * neither colour nor shape carries it alone. The handling itself, and the
+ * timeline, open under the row.
  *
  * A reporter with protected personal data is rendered without their name or
  * their apartment. The board's own address book prints both because a statutory
@@ -96,7 +117,10 @@ export function IssueQueuePanel({
   issues,
   types,
   onChanged,
+  onRetryTypes,
+  emptyMessage,
   canManageCharges = false,
+  reading = false,
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
   const move = useSaveAction(setIssueStatus, onChanged, (failure) => {
@@ -113,6 +137,14 @@ export function IssueQueuePanel({
    * in flight before the queue reloads.
    */
   const [actingOn, setActingOn] = useState<string | null>(null);
+  /*
+   * How many work orders each issue has sent while the queue is open. The
+   * work orders and the timeline sit under two disclosures, and a sending in
+   * one is a step the other has to read again.
+   */
+  const [workOrdersSent, setWorkOrdersSent] = useState<
+    Readonly<Record<string, number>>
+  >({});
   const saving = move.state.kind === "saving";
   const typeById = new Map((types ?? []).map((type) => [type.id, type]));
 
@@ -121,25 +153,40 @@ export function IssueQueuePanel({
       title={t("issues.queue.title")}
       description={t("issues.queue.description")}
       notice={
-        move.state.kind === "failed" ? (
-          <Notice tone="danger" live>
-            {t(
-              failureMessageKey(
-                move.state.failure,
-                QUEUE_FAILURES,
-                "issues.queue.errors.unknown",
-              ),
-            )}
-          </Notice>
-        ) : types === null ? (
-          <Notice tone="danger" live>
-            {t("issues.queue.statusesUnavailable")}
-          </Notice>
-        ) : null
+        <>
+          {move.state.kind === "failed" ? (
+            <Notice tone="danger" live>
+              {t(
+                failureMessageKey(
+                  move.state.failure,
+                  QUEUE_FAILURES,
+                  "issues.queue.errors.unknown",
+                ),
+              )}
+            </Notice>
+          ) : null}
+          {/*
+            Beside a failed save, not instead of it: with no types no status
+            form renders, so the retry here is the only way back to one.
+          */}
+          {types !== null ? null : onRetryTypes === undefined ? (
+            <Notice tone="danger" live>
+              {t("issues.queue.statusesUnavailable")}
+            </Notice>
+          ) : (
+            <LoadFailure
+              messageKey="issues.queue.statusesUnavailable"
+              onRetry={onRetryTypes}
+              live
+            />
+          )}
+        </>
       }
     >
       {issues.length === 0 ? (
-        <p className="text-body text-ink-muted">{t("issues.queue.empty")}</p>
+        <p className="text-body text-ink-muted">
+          {emptyMessage ?? t("issues.queue.empty")}
+        </p>
       ) : (
         <ul className="flex flex-col gap-3">
           {issues.map((issue) => {
@@ -147,7 +194,7 @@ export function IssueQueuePanel({
             return (
               <li
                 key={issue.id}
-                className="flex flex-col gap-2 rounded-control border border-line bg-page px-3 py-3"
+                className={`flex flex-col gap-2 rounded-control border bg-page px-3 py-3 ${issue.overdue ? "border-l-4 border-line border-l-danger" : "border-line"}`}
               >
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="font-data text-data text-ink-muted">
@@ -262,7 +309,7 @@ export function IssueQueuePanel({
                     key={`${issue.status.id}:${issue.waitingReason ?? ""}`}
                     issue={issue}
                     type={type}
-                    disabled={saving}
+                    disabled={saving || reading}
                     saving={saving && actingOn === issue.id}
                     onDraftChanged={() => {
                       if (move.state.kind === "failed") {
@@ -279,8 +326,21 @@ export function IssueQueuePanel({
                 <HandlingDisclosure
                   issue={issue}
                   type={type}
+                  workOrdersSent={workOrdersSent[issue.id] ?? 0}
                   canManageCharges={canManageCharges}
+                  reading={reading}
                   onChanged={onChanged}
+                />
+
+                <WorkOrdersDisclosure
+                  issue={issue}
+                  onChanged={onChanged}
+                  onSent={() => {
+                    setWorkOrdersSent((counts) => ({
+                      ...counts,
+                      [issue.id]: (counts[issue.id] ?? 0) + 1,
+                    }));
+                  }}
                 />
               </li>
             );
@@ -300,12 +360,16 @@ export function IssueQueuePanel({
 function HandlingDisclosure({
   issue,
   type,
+  workOrdersSent,
   canManageCharges,
+  reading,
   onChanged,
 }: {
   issue: QueuedIssue;
   type: IssueTypeView | undefined;
+  workOrdersSent: number;
   canManageCharges: boolean;
+  reading: boolean;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -322,10 +386,14 @@ function HandlingDisclosure({
         {t("issues.handling.open", { type: issue.typeName })}
       </summary>
       {open ? (
-        <div className="flex flex-col gap-6 pt-2">
+        <fieldset
+          disabled={reading}
+          className="m-0 flex min-w-0 flex-col gap-6 border-0 px-0 pt-2 pb-0"
+        >
           <IssueHandling
             issue={issue}
             type={type}
+            workOrdersSent={workOrdersSent}
             canManageCharges={canManageCharges}
             onChanged={onChanged}
           />
@@ -333,6 +401,48 @@ function HandlingDisclosure({
           <IssueConversation
             issue={issue}
             onStale={onChanged}
+            redaction={redaction}
+          />
+        </fieldset>
+      ) : null}
+    </details>
+  );
+}
+
+/**
+ * The work orders on one issue, under a disclosure of their own: read only
+ * while it is open, as the handling is, and apart from it because a work order
+ * is the one act on an issue that leaves the instance. A work order's text is
+ * removed here, where it is shown, and the queue is read again after it as
+ * after any other removal.
+ */
+function WorkOrdersDisclosure({
+  issue,
+  onChanged,
+  onSent,
+}: {
+  issue: QueuedIssue;
+  onChanged: () => void;
+  onSent: () => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const redaction = useIssueRedaction(issue, onChanged);
+  return (
+    <details
+      className="flex flex-col gap-3"
+      onToggle={(event) => {
+        setOpen(event.currentTarget.open);
+      }}
+    >
+      <summary className="flex min-h-11 cursor-pointer items-center text-small font-semibold">
+        {t("issues.workOrders.open", { type: issue.typeName })}
+      </summary>
+      {open ? (
+        <div className="pt-2">
+          <IssueWorkOrders
+            issue={issue}
+            onSent={onSent}
             redaction={redaction}
           />
         </div>

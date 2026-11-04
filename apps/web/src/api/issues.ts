@@ -3,8 +3,10 @@ import type {
   IssueClosingOutcome,
   IssueCostResponsibility,
   IssueHandledBy,
+  IssueMeaningFilter,
   IssueOutcome,
   IssuePriority,
+  IssueQueueView,
   IssueRedactionTarget,
   IssueReporterGroup,
   IssueSignature,
@@ -77,6 +79,8 @@ export type IssueHandler = AuthorView;
 /** A type on the board's configuration screen, with its default assignee. */
 export type ConfiguredIssueType = IssueTypeView & {
   defaultAssignee: IssueHandler | null;
+  /** Nothing about its issues may reach a contractor (ADR 0055). */
+  ringFenced: boolean;
 };
 
 /** Somebody a type's issues may be given to by default. */
@@ -148,12 +152,26 @@ export interface OwnIssue {
  * `unknown` is a
  * reporter the register no longer holds - issue data outlives nobody, and the
  * queue says so rather than inventing a name.
+ *
+ * `external` is a reporter without an account, from the website's form. Their
+ * `link` is where the private link mailed to them stands (ADR 0055): `live`
+ * opens the issue, so a handler's message reaches them; `ended` was mailed and
+ * no longer opens it (withdrawn, expired, or the issue closed 30 days ago);
+ * `none` was never mailed, because they left no address or none could be sent.
  */
 export type IssueReporter =
   | { kind: "resident"; personId: string; name: string }
   | { kind: "protected" }
-  | { kind: "external"; name: string | null; email: string | null }
+  | {
+      kind: "external";
+      name: string | null;
+      email: string | null;
+      link: ReporterLinkState;
+    }
   | { kind: "unknown" };
+
+/** Where an external reporter's private link stands. */
+export type ReporterLinkState = "live" | "ended" | "pending" | "none";
 
 export type QueuedIssue = OwnIssue & {
   /** The status it stands in, as the board named it for its type. */
@@ -258,6 +276,10 @@ export type IssueTimelineStep = {
   | { kind: "redacted"; target: IssueRedactionTarget | null }
   | { kind: "legalHold"; held: boolean }
   | {
+      kind: "workOrder";
+      delivery: "pending" | "sent" | "failed" | "unconfirmed" | null;
+    }
+  | {
       kind: "costResponsibility";
       from: IssueCostResponsibility | null;
       to: IssueCostResponsibility | null;
@@ -338,22 +360,79 @@ export function attachIssuePhoto(
 }
 
 /**
- * The queue, or the part of it whose status has one meaning.
- *
- * `meaning` absent reads the whole queue, which is what the queue screen works
- * from. The overview asks for one meaning only, to count what is waiting
- * without carrying every report the association ever had.
+ * What the queue screen narrows a view to (decision 15): one meaning or every
+ * open one, a type, a priority, and a search. The server reads the meaning,
+ * never a board's label, and searches only what the reader may read.
  */
-export function fetchIssueQueue(input?: {
-  meaning?: IssueStatusMeaning;
-}): Promise<ApiResult<QueuedIssue[]>> {
-  const meaning = input?.meaning;
+export interface IssueQueueFilter {
+  meaning?: IssueMeaningFilter;
+  typeId?: string;
+  priority?: IssuePriority;
+  /** What the handler typed; blank is no search. */
+  search?: string;
+}
+
+/**
+ * How many issues each view holds under one filter, counted on the server by
+ * the conditions the views are read by.
+ */
+export type IssueQueueCounts = Record<
+  "mine" | "unassigned" | "overdue" | "all",
+  number
+>;
+
+/** The filter as the query string of the queue's reads. */
+function queueQuery(filter: IssueQueueFilter, view?: IssueQueueView): string {
+  const query = new URLSearchParams();
+  if (view !== undefined) {
+    query.set("view", view);
+  }
+  if (filter.meaning !== undefined) {
+    query.set("meaning", filter.meaning);
+  }
+  if (filter.typeId !== undefined) {
+    query.set("typeId", filter.typeId);
+  }
+  if (filter.priority !== undefined) {
+    query.set("priority", filter.priority);
+  }
+  const search = filter.search?.trim() ?? "";
+  if (search !== "") {
+    query.set("q", search);
+  }
+  const text = query.toString();
+  return text === "" ? "" : `?${text}`;
+}
+
+/** One view of the queue and every view's count, read at one moment. */
+export interface IssueQueueSnapshot {
+  issues: QueuedIssue[];
+  counts: IssueQueueCounts;
+}
+
+/**
+ * One view of the queue, narrowed by the filter, with how many issues each
+ * view holds under the same filter. The server reads both in one transaction,
+ * so a count never disagrees with the list read beside it.
+ */
+export function fetchIssueQueueSnapshot(
+  input: { view: IssueQueueView } & IssueQueueFilter,
+): Promise<ApiResult<IssueQueueSnapshot>> {
+  const { view, ...filter } = input;
   return apiRequest(
     "GET",
-    meaning === undefined
-      ? "/api/issue-queue"
-      : `/api/issue-queue?meaning=${encodeURIComponent(meaning)}`,
+    `/api/issue-queue/snapshot${queueQuery(filter, view)}`,
   );
+}
+
+/**
+ * How many issues each view holds under the filter. The board's front page
+ * asks with `meaning: "OPEN"` alone, and reads `all` as the open issues.
+ */
+export function fetchIssueQueueCounts(
+  filter: IssueQueueFilter = {},
+): Promise<ApiResult<IssueQueueCounts>> {
+  return apiRequest("GET", `/api/issue-queue/counts${queueQuery(filter)}`);
 }
 
 /**
@@ -603,6 +682,18 @@ export function updateIssueType(input: {
   );
 }
 
+/** Ring-fences a type from contractors, or lifts its ring-fence. */
+export function setIssueTypeRingFence(input: {
+  id: string;
+  ringFenced: boolean;
+}): Promise<ApiResult<ConfiguredIssueType>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-types/${encodeURIComponent(input.id)}/ring-fence`,
+    { ringFenced: input.ringFenced },
+  );
+}
+
 export function removeIssueType(id: string): Promise<ApiResult<undefined>> {
   return apiRequest("DELETE", `/api/issue-types/${encodeURIComponent(id)}`);
 }
@@ -744,6 +835,19 @@ export function sendIssueMessage(input: {
     "POST",
     `/api/issue-queue/${encodeURIComponent(input.issueId)}/messages`,
     { body: input.body },
+  );
+}
+
+/**
+ * Withdraws the private link mailed to an issue's reporter (ADR 0055). It opens
+ * nothing from the next request on; nobody is mailed.
+ */
+export function revokeIssueReporterLink(
+  issueId: string,
+): Promise<ApiResult<void>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/reporter-link/revoke`,
   );
 }
 

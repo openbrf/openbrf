@@ -31,6 +31,7 @@ const removeIssueType = vi.fn();
 const addIssueStatus = vi.fn();
 const changeIssueStatus = vi.fn();
 const fetchIssueTypeHandlers = vi.fn();
+const setIssueTypeRingFence = vi.fn();
 
 vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
@@ -41,6 +42,7 @@ vi.mock("../api/issues", async (importOriginal) => ({
   addIssueStatus: (input: unknown) => addIssueStatus(input),
   changeIssueStatus: (input: unknown) => changeIssueStatus(input),
   fetchIssueTypeHandlers: () => fetchIssueTypeHandlers(),
+  setIssueTypeRingFence: (input: unknown) => setIssueTypeRingFence(input),
 }));
 
 /** A board member, an administrator and the property manager. */
@@ -96,6 +98,7 @@ function type(
     handledBy: "EVERY_HANDLER",
     defaultPriority: "NORMAL",
     defaultAssignee: null,
+    ringFenced: false,
     reportCount: 0,
     statuses: DEFAULT_STATUSES,
     ...overrides,
@@ -112,6 +115,9 @@ beforeEach(() => {
   removeIssueType.mockReset().mockResolvedValue({ ok: true, value: undefined });
   addIssueStatus.mockReset().mockResolvedValue({ ok: true, value: type() });
   changeIssueStatus.mockReset().mockResolvedValue({ ok: true, value: type() });
+  setIssueTypeRingFence
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: type({ ringFenced: true }) });
 });
 
 async function shown(): Promise<void> {
@@ -119,6 +125,68 @@ async function shown(): Promise<void> {
     expect(screen.getByText("Vatten")).toBeTruthy();
   });
 }
+
+describe("the ring-fence", () => {
+  it("is set through its own request and nothing else, and the list is read again", async () => {
+    const session = userEvent.setup();
+    render(<IssueTypesPanel />);
+    await shown();
+
+    const box = screen.getByLabelText(
+      "Vatten: avskärmad, inget når en entreprenör",
+    );
+    expect(box).toHaveProperty("checked", false);
+    await session.click(box);
+
+    await waitFor(() => {
+      expect(setIssueTypeRingFence).toHaveBeenCalledWith({
+        id: "type-water",
+        ringFenced: true,
+      });
+    });
+    expect(updateIssueType).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(fetchIssueTypes).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("is lifted by clearing the box of a ring-fenced type", async () => {
+    fetchIssueTypes
+      .mockResolvedValueOnce({
+        ok: true,
+        value: [type({ ringFenced: true })],
+      })
+      .mockResolvedValue({
+        ok: true,
+        value: [type({ ringFenced: false })],
+      });
+    const session = userEvent.setup();
+    render(<IssueTypesPanel />);
+    await shown();
+
+    const box = screen.getByLabelText(
+      "Vatten: avskärmad, inget når en entreprenör",
+    );
+    expect(box).toHaveProperty("checked", true);
+    await session.click(box);
+
+    await waitFor(() => {
+      expect(setIssueTypeRingFence).toHaveBeenCalledWith({
+        id: "type-water",
+        ringFenced: false,
+      });
+    });
+    // The list read again after the save shows the fence lifted.
+    await waitFor(() => {
+      expect(fetchIssueTypes).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText("Vatten: avskärmad, inget når en entreprenör"),
+      ).toHaveProperty("checked", false);
+    });
+  });
+});
 
 describe("who may report a type", () => {
   it("is shown in words on every row", async () => {
