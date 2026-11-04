@@ -3996,7 +3996,7 @@
         "releaseNamed": "{{type}}: häv det rättsliga bevarandekravet",
         "releaseConfirm": "Häv",
         "releaseKeep": "Behåll kravet",
-        "releaseHint": "När kravet hävs räknas gallringstiden igen, och fritexten i ett ärende som stängdes för tillräckligt länge sedan gallras redan nästa natt.",
+        "releaseHint": "När kravet hävs räknas gallringstiden igen, och fritexten i ett ärende som stängdes för tillräckligt länge sedan gallras under nätterna som följer.",
         "saving": "Sparar..."
       },
       "errors": {
