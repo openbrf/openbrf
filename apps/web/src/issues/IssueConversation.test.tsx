@@ -552,6 +552,41 @@ describe("the conversation with the reporter", () => {
     expect(screen.queryByText("Grannen har klagat förut.")).toBeNull();
   });
 
+  it("keeps the thread and the notes on screen when only the revision changed and the reads after fail", async () => {
+    // The counterpart of the purge: nothing was removed, so a read that fails
+    // leaves the outcome uncertain and the text the reader already holds
+    // stays rather than being dropped on a guess.
+    const { rerender } = render(
+      <IssueConversation issue={issue()} onStale={vi.fn()} />,
+    );
+    await screen.findByText("Kommer någon i dag?");
+    await screen.findByText("Grannen har klagat förut.");
+
+    fetchIssueMessages.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    fetchIssueNotes.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    rerender(
+      <IssueConversation
+        issue={issue({ updatedAt: "2026-08-21T08:00:00.000Z" })}
+        onStale={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(fetchIssueMessages).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(fetchIssueNotes).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByText("Kommer någon i dag?")).toBeTruthy();
+    expect(screen.getByText("Grannen har klagat förut.")).toBeTruthy();
+  });
+
   it("tells the queue when the issue is no longer the reader's", async () => {
     sendIssueMessage.mockResolvedValue({
       ok: false,
