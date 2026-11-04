@@ -593,6 +593,13 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ISSUE_COST_RESPONSIBILITY_CHANGED",
   ISSUE_MESSAGE_SENT: "register.person.report.action.ISSUE_MESSAGE_SENT",
   ISSUE_NOTE_ADDED: "register.person.report.action.ISSUE_NOTE_ADDED",
+  ISSUE_ENTRY_PERMISSION_SET:
+    "register.person.report.action.ISSUE_ENTRY_PERMISSION_SET",
+  ISSUE_ENTRY_PERMISSION_REMOVED:
+    "register.person.report.action.ISSUE_ENTRY_PERMISSION_REMOVED",
+  ISSUE_PLACE_CHANGED: "register.person.report.action.ISSUE_PLACE_CHANGED",
+  ISSUE_FINDING_MARKED: "register.person.report.action.ISSUE_FINDING_MARKED",
+  ISSUE_FINDING_REMOVED: "register.person.report.action.ISSUE_FINDING_REMOVED",
   ISSUE_REPORTER_LINK_ISSUED:
     "register.person.report.action.ISSUE_REPORTER_LINK_ISSUED",
   ISSUE_REPORTER_LINK_REVOKED:
@@ -1682,6 +1689,16 @@ export function DataSubjectReport({
                     </td>
                     <td className={DATA_CELL}>{day(issue.reportedAt)}</td>
                     <td className={TEXT_CELL}>
+                      {/* The common area is a building record and outlives
+                        the free text, so it is shown above whatever became
+                        of the words. */}
+                      {issue.place !== null && (
+                        <span className="block">
+                          {t("register.person.report.issuePlace", {
+                            place: issue.place,
+                          })}
+                        </span>
+                      )}
                       {issue.locationRedactedAt !== null ? (
                         <RedactedMark at={issue.locationRedactedAt} t={t} />
                       ) : issue.location === null &&
@@ -1705,6 +1722,44 @@ export function DataSubjectReport({
                       ) : (
                         <span className="block whitespace-pre-line">
                           {issue.description}
+                        </span>
+                      )}
+                      {issue.entry !== null && (
+                        <span className="mt-1 block whitespace-pre-line">
+                          {t("register.person.report.issueEntry", {
+                            answer: t(
+                              issue.entry.answer === "YES"
+                                ? "issues.entry.answerYes"
+                                : "issues.entry.answerNo",
+                            ),
+                            // Each answer as it was recorded, a "no" as much
+                            // as a "yes": the copy states what is held, and
+                            // leaves out only what was never asked.
+                            details: [
+                              recordedFlag(
+                                issue.entry.pets,
+                                t("issues.entry.petsShort"),
+                                t("issues.entry.petsNone"),
+                              ),
+                              recordedFlag(
+                                issue.entry.masterKey,
+                                t("issues.entry.masterKeyShort"),
+                                t("issues.entry.masterKeyNone"),
+                              ),
+                              issue.entry.note,
+                            ]
+                              .filter((part) => part !== null)
+                              .join(" · "),
+                          })}
+                          {issue.entry.until === null ? null : (
+                            <>
+                              {" "}
+                              {t("issues.entry.untilLabel")}{" "}
+                              <span className="font-data text-data">
+                                {issue.entry.until}
+                              </span>
+                            </>
+                          )}
                         </span>
                       )}
                     </td>
@@ -3468,4 +3523,13 @@ function Rows({
       </table>
     </div>
   );
+}
+
+/** A yes-or-no answer as recorded, or null for one never given. */
+function recordedFlag(
+  value: boolean | null,
+  yes: string,
+  no: string,
+): string | null {
+  return value === null ? null : value ? yes : no;
 }

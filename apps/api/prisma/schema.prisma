@@ -1863,6 +1863,16 @@ enum AuditAction {
   ISSUE_MESSAGE_SENT
   /// A handler wrote an internal note on an issue. The entry names the issue, the note and the handler as its actor, never the text.
   ISSUE_NOTE_ADDED
+  /// The resident's entry permission on an issue was given or changed, by the resident or by a handler on their behalf. The entry names the issue and the answer, whether pets and the master key were stated and the expiry day as facts, and the person who acted as its actor, never the note.
+  ISSUE_ENTRY_PERMISSION_SET
+  /// The resident's entry permission on an issue was withdrawn by hand. Closing the issue clears it too, and that is recorded on the status change.
+  ISSUE_ENTRY_PERMISSION_REMOVED
+  /// The common-area place an issue is about was set or changed. The entry names the issue and the place either side by identifier, never the issue's text.
+  ISSUE_PLACE_CHANGED
+  /// An issue was marked as a finding of an inspection. The entry names the issue, the kind, the inspection day, the due day and the protocol's attachment as facts.
+  ISSUE_FINDING_MARKED
+  /// An issue's mark as a finding of an inspection was taken off.
+  ISSUE_FINDING_REMOVED
   /// A private link was issued to the reporter of an issue who has no account, and mailed to the address they gave (ADR 0055). The entry names the issue and the link, never the address or the token.
   ISSUE_REPORTER_LINK_ISSUED
   /// A handler withdrew the private link of an issue's reporter (ADR 0055). The entry names the issue, the link and the handler as its actor.
@@ -4374,6 +4384,24 @@ enum IssueHandledBy {
   BOARD
 }
 
+/// The resident's answer to whether the association or its contractor may enter
+/// the apartment an issue is about (tillträde, BRL 7 kap. 13 §). Spelled once
+/// for both applications in `@openbrf/shared` (issue-fit.ts).
+enum IssueEntryAnswer {
+  YES
+  NO
+}
+
+/// The statutory inspection an issue is a finding of (decision 31): the
+/// compulsory ventilation inspection, a lift inspection or a fire safety
+/// inspection. Spelled once for both applications in `@openbrf/shared`
+/// (issue-fit.ts).
+enum IssueFindingKind {
+  OVK
+  LIFT
+  FIRE
+}
+
 /// A category of issue, configured by the board, with its settings (ADR 0054).
 ///
 /// Monolingual by decision 59: the name is the association's own writing about
@@ -4628,6 +4656,31 @@ model Issue {
   /// building to whoever loaded the form.
   location String?
 
+  /// The common-area place the issue is about, from the association's own short
+  /// list (decision 30), beside the free-text location. Never an apartment: the
+  /// list is the laundry room, the lift, the yard. A building fact, so it stays
+  /// when the free text is purged (ADR 0057), and what makes a repeat fault
+  /// countable. Restrict: a place in use is switched off, never removed.
+  placeId String?
+  place   IssuePlace? @relation(fields: [placeId], references: [id], onDelete: Restrict)
+
+  /// The resident's entry permission (tillträde, decision 29), on an issue about
+  /// an apartment: the answer and, for a yes, a note on how to get in, whether
+  /// there are pets, whether the master key may be used and the day the
+  /// permission lapses. All null until somebody answers. Personal data about
+  /// somebody's home, so it is cleared when the issue closes: a CHECK holds
+  /// every one of these to null while `closedAt` is set, and the service clears
+  /// them in the transaction that closes. Not a place for a door code, which
+  /// the service refuses (`findDoorCode`).
+  entryAnswer    IssueEntryAnswer?
+  entryNote      String?
+  entryPets      Boolean?
+  entryMasterKey Boolean?
+  entryUntil     DateTime?         @db.Date
+
+  /// The mark of an inspection finding, when the issue is one (decision 31).
+  finding IssueFinding?
+
   description String
 
   /// When a handler redacted the description or the location (ADR 0057): the
@@ -4691,6 +4744,7 @@ model Issue {
   @@index([reporterEmailIndex])
   @@index([assigneePersonId])
   @@index([enteredByPersonId])
+  @@index([placeId])
   @@index([closedAt])
   @@map("issue")
 }
@@ -5088,6 +5142,9 @@ model IssueAttachment {
 
   sortOrder Int @default(0)
 
+  /// The finding this file is the protocol of, when it is (decision 31).
+  protocolOf IssueFinding?
+
   createdAt DateTime @default(now())
 
   @@index([issueId, sortOrder])
@@ -5160,6 +5217,72 @@ model IssueSavedReply {
 
   @@index([sortOrder])
   @@map("issue_saved_reply")
+}
+
+/// A common-area place an issue can be about (decision 30): the laundry room,
+/// the lift, the yard. The association's own short list, monolingual and stored
+/// as written like an issue type's name. Never an apartment: a list of homes
+/// would enumerate the building, and an issue about one has its apartment.
+///
+/// Written by `issues:configure`, read by everybody who files or handles an
+/// issue. Switched off rather than removed once an issue names it, so the count
+/// of faults in the lift survives the board tidying its list.
+model IssuePlace {
+  id String @id @default(cuid())
+
+  name String
+
+  /// Whether it is offered for new issues.
+  active Boolean @default(true)
+
+  sortOrder Int @default(0)
+
+  issues Issue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sortOrder])
+  @@map("issue_place")
+}
+
+/// The mark of a statutory inspection finding on an issue (decision 31): an
+/// OVK, lift or fire finding, with the protocol attached and a real target date.
+///
+/// A finding has no date of its own: it is the issue's target date, so the
+/// Overdue view and the reminders read it as they read any other. A finding
+/// cannot be marked without one, and the service holds the target date of an issue that carries
+/// a finding in place. A lift's must fall within a month of the inspection
+/// (BFS 2025:11 1 kap. 17 §), the only date the law sets. The inspections'
+/// schedule is the 2027 reminders' and is not here.
+///
+/// The protocol is one of the handler-only files on the issue
+/// (`IssueAttachment`), never a photograph the reporter reads. The first mark
+/// places a legal hold on the issue (`legalHoldAt`), so while it stands no
+/// redaction, clock or erasure request removes the protocol. Taking the mark
+/// off leaves the hold. SetNull: once a handler has released the hold and the
+/// file is removed from the issue - by a redaction, by the purge of the
+/// free-text layer - the mark stays as the building's record that there was a
+/// finding, without the protocol.
+model IssueFinding {
+  id String @id @default(cuid())
+
+  issueId String @unique
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  kind IssueFindingKind
+
+  /// The day of the inspection the protocol is dated.
+  inspectedOn DateTime @db.Date
+
+  protocolAttachmentId String?                @unique
+  protocolAttachment   IssueAttachment? @relation(fields: [protocolAttachmentId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind, inspectedOn])
+  @@map("issue_finding")
 }
 
 // ---------------------------------------------------------------------------

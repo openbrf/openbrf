@@ -130,6 +130,19 @@ export type {
   IssueWaitingReason,
 } from "./issue-status.ts";
 export {
+  findDoorCode,
+  ISSUE_ENTRY_ANSWERS,
+  ISSUE_FINDING_KINDS,
+  ISSUE_FIT_LIMITS,
+  latestFindingTargetDate,
+  LIFT_FINDING_MONTHS,
+} from "./issue-fit.ts";
+export type {
+  DoorCodeMatch,
+  IssueEntryAnswer,
+  IssueFindingKind,
+} from "./issue-fit.ts";
+export {
   ISSUE_COST_RESPONSIBILITIES,
   MAINTENANCE_RESPONSIBILITIES,
   RESPONSIBILITY_GUIDE_LIMITS,

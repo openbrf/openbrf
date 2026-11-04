@@ -207,3 +207,36 @@ export async function lockIssueSavedReplies(
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"issue-saved-replies"}))`;
 }
+
+/**
+ * The lock a transaction takes before it changes the association's list of
+ * common-area places: the bound on how many there are is a count followed by
+ * an insert, and a new instance's seed writes only into an empty list. One key
+ * for the whole list, which is the association's one list.
+ */
+export async function lockIssuePlaces(
+  tx: Prisma.TransactionClient,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"issue-places"}))`;
+}
+
+/**
+ * Holds a common-area place a write is about to name, and says whether it is
+ * still offered.
+ *
+ * The place is read before the issue names it, and the board can remove it in
+ * between: the write's foreign key would then fail with P2003, which the
+ * reporting path would answer as a removed type and a handler's change as a
+ * 500. `FOR KEY SHARE` makes the removal wait for this transaction, and the
+ * database then refuses it as `place-in-use`. Renaming a place or switching it
+ * off does not wait: an issue filed while the board switches its place off is
+ * the same as one filed a moment before.
+ */
+export async function holdOfferedPlace(
+  tx: Prisma.TransactionClient,
+  placeId: string,
+): Promise<boolean> {
+  const rows = await tx.$queryRaw<{ active: boolean }[]>`
+    SELECT active FROM issue_place WHERE id = ${placeId} FOR KEY SHARE`;
+  return rows[0]?.active === true;
+}

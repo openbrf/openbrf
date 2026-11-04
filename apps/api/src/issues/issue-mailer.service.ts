@@ -277,10 +277,14 @@ export interface IssueOverdueJob {
   [key: string]: unknown;
 }
 
-/** Who wrote an issue message, for the mail that says there is a new one. */
+/**
+ * Who wrote an issue message, and which stored message it is, for the mail
+ * that says there is a new one. The message is required: its notice names it,
+ * so a delivery that finds it erased by the free-text purge sends nothing.
+ */
 export type IssueMessageAuthor =
-  | { kind: "reporter"; messageId?: string }
-  | { kind: "handler"; personId: string; messageId?: string };
+  | { kind: "reporter"; messageId: string }
+  | { kind: "handler"; personId: string; messageId: string };
 
 /** What every decision here reads of an issue. */
 const ISSUE_SELECT = {

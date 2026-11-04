@@ -132,6 +132,11 @@ the naming rules there.
   reporter. The writes this record adds, once they are registered, answer a
   ring-fenced case as not found by the same omission.
 - **An internal note**, read or written.
+- **The resident's permission to enter** (decision 29), **the common-area place**
+  of a case (decision 30) and **the mark of an inspection finding with its
+  protocol** (decision 31), read or written. The first is the resident's answer
+  about their home, kept only until the case closes; the other two are
+  not offered either until a decision of their own offers them.
 - **A reply to a reporter**, and **anything that reaches a contractor**: issuing a
   work order, sending it, issuing or revoking its link. Each leaves the instance
   or reaches a person, and decision 34 keeps them on the board's screen.

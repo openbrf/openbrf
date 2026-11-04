@@ -931,6 +931,11 @@
           "SUPPORT_SESSION_STARTED": "Supporter signed in",
           "SUPPORT_REQUEST": "Supporter looked",
           "SUPPORT_SESSION_ENDED": "Supporter signed out",
+          "ISSUE_ENTRY_PERMISSION_SET": "An answer about entering an apartment was given on an issue",
+          "ISSUE_ENTRY_PERMISSION_REMOVED": "An answer about entering an apartment was withdrawn on an issue",
+          "ISSUE_PLACE_CHANGED": "The common area of an issue was set or changed",
+          "ISSUE_FINDING_MARKED": "An issue was marked as an inspection finding",
+          "ISSUE_FINDING_REMOVED": "An issue's mark as an inspection finding was removed",
           "ISSUE_REPORTER_LINK_ISSUED": "A private link to an issue was mailed to its reporter",
           "ISSUE_REPORTER_LINK_REVOKED": "The reporter's private link to an issue was withdrawn"
         },
@@ -1010,7 +1015,9 @@
           "issue": "This issue",
           "typeDefault": "Every new issue of this type"
         },
-        "issueCostResponsibility": "Who pays: {{who}}"
+        "issueCostResponsibility": "Who pays: {{who}}",
+        "issueEntry": "Permission to enter: {{answer}}. {{details}}",
+        "issuePlace": "Common area: {{place}}"
       },
       "requests": {
         "kind": {
@@ -2127,6 +2134,33 @@
         "radiators": "Radiators",
         "commonAreas": "Stairwells, the laundry room and other shared spaces",
         "buildingShell": "Roof, facade and exterior maintenance"
+      }
+    },
+    "issuePlaces": {
+      "title": "Common areas",
+      "description": "The short list a report can name beside its free-text location, such as laundry room, lift and yard. It makes a fault that keeps coming back in the same place countable.",
+      "loading": "Reading the common areas...",
+      "loadFailed": "The common areas could not be read just now.",
+      "empty": "No common areas.",
+      "nameLabel": "Name",
+      "nameNamed": "{{name}}: name",
+      "active": "Offered",
+      "activeNamed": "{{name}}: offered for new reports",
+      "issueCount_one": "{{count}} issue",
+      "issueCount_other": "{{count}} issues",
+      "save": "Save",
+      "remove": "Remove",
+      "removeNamed": "Remove {{name}}",
+      "addLabel": "New common area",
+      "add": "Add",
+      "neverApartments": "Common areas only, never apartments. An issue about a home has its apartment. One that issues name can be switched off, not removed.",
+      "errors": {
+        "notFound": "That common area is gone. The list has been read again.",
+        "nameTaken": "There is already a common area with that name.",
+        "nameApartment": "A common area is never an apartment. Name the room or the yard.",
+        "inUse": "Issues name this common area, so it cannot be removed. Switch it off instead.",
+        "tooMany": "The association already keeps as many common areas as it may.",
+        "unknown": "The common areas could not be changed just now. Please try again."
       }
     }
   },
@@ -3846,8 +3880,13 @@
         "postNotFound": "The post does not exist, or you cannot read it. The report was not sent.",
         "postNotReportable": "Only whoever wrote the post and the board can report an issue from it. The report was not sent.",
         "postAlreadyReported": "Somebody has already reported an issue from this post. The report was not sent.",
+        "placeNotFound": "That common area is no longer offered. Choose another or none.",
+        "placeWithApartment": "A common area is chosen only when the report is not about an apartment. Choose one or the other.",
         "ringFencedPost": "A report of this type is not made from a post. Report it from the form instead."
-      }
+      },
+      "place": "Common area",
+      "placeNone": "None in particular",
+      "placeHint": "Choose one if the problem is in a common area. Describe exactly where in the field below."
     },
     "photos": {
       "title": "Photographs",
@@ -3869,7 +3908,8 @@
       "place": "Where",
       "noApartment": "This report is not about an apartment.",
       "noPlace": "No place in the building was given.",
-      "enteredByHandler": "Entered by whoever handles issues."
+      "enteredByHandler": "Entered by whoever handles issues.",
+      "commonArea": "Common area:"
     },
     "queue": {
       "title": "The issue queue",
@@ -3906,7 +3946,8 @@
       "assignee": "Assignee",
       "targetDate": "Target date",
       "overdue": "Overdue",
-      "enteredBy": "Entered by"
+      "enteredBy": "Entered by",
+      "finding": "Finding: {{kind}}"
     },
     "errors": {
       "forbidden": "Your account is not allowed to do that.",
@@ -3998,6 +4039,13 @@
       "legalHoldReleased": "Released the legal hold",
       "costResponsibility": "Who pays set to {{who}}",
       "costResponsibilityRemoved": "Who pays was removed",
+      "placeSet": "Common area set",
+      "placeRemoved": "Common area removed",
+      "entryWithdrawn": "Answer about entering withdrawn",
+      "entryAnsweredByResident": "The resident answered about entering: {{answer}}",
+      "entryRecorded": "Answer about entering recorded: {{answer}}",
+      "findingMarked": "Marked as a finding: {{kind}}",
+      "findingRemoved": "Mark as a finding removed",
       "workOrder": {
         "written": "A work order was written for a contractor",
         "pending": "A work order is on its way to a contractor",
@@ -4212,6 +4260,101 @@
         "tooLarge": "The file is larger than allowed.",
         "unsupported": "Only an image (PNG, JPEG, WebP, GIF) or a PDF can be attached.",
         "unknown": "The file could not be attached just now. Please try again."
+      }
+    },
+    "seededPlaces": {
+      "laundryRoom": "Laundry room",
+      "lift": "Lift",
+      "yard": "Yard",
+      "stairwell": "Stairwell",
+      "basement": "Basement",
+      "attic": "Attic",
+      "bicycleRoom": "Bicycle room",
+      "garage": "Garage",
+      "wasteRoom": "Waste room"
+    },
+    "places": {
+      "title": "Issues per common area",
+      "description": "How many issues name each common area, closed ones included, so a fault that keeps coming back in the same place is seen as one.",
+      "counts": "{{issues}} issues, {{open}} open",
+      "showOnly": "Show only {{place}}",
+      "showAll": "Show all",
+      "hint": "Counts the issues you may open. Issues the board keeps to itself are counted for the board only."
+    },
+    "entry": {
+      "title": "Permission to enter",
+      "intro": "Tell us whether the association or a contractor may enter your apartment when you are not at home. It is kept only until the issue is closed.",
+      "introHandler": "Record the resident's answer, given by telephone or at the door. It is kept only until the issue is closed.",
+      "answerLabel": "May the association enter?",
+      "answerYes": "Yes",
+      "answerNo": "No",
+      "petsLabel": "There are pets in the home",
+      "petsShort": "pets",
+      "petsNone": "no pets",
+      "masterKeyLabel": "The master key may be used",
+      "masterKeyShort": "master key",
+      "masterKeyNone": "master key may not be used",
+      "noteLabel": "How to get in",
+      "noteHint": "For example who to ring, or when someone is at home. Never write a door code here.",
+      "doorCodeWarning": "This reads like a door code. Door codes are never stored in this note, because everyone who handles the issue could read it. Say who to ring or when someone is at home instead.",
+      "untilLabel": "Applies until and including",
+      "clearedAtClosing": "The answer is cleared when the issue is closed.",
+      "save": "Save answer",
+      "saving": "Saving...",
+      "withdraw": "Withdraw answer",
+      "expired": "The permission lapsed on <data>{{date}}</data>.",
+      "errors": {
+        "doorCode": "The note reads like a door code and was not saved. Say who to ring or when someone is at home instead.",
+        "untilPast": "That day has already passed. Choose today or a later day.",
+        "needsApartment": "Permission to enter belongs to an issue about an apartment.",
+        "notResident": "Only someone who lives in the apartment can give permission to enter. You can still say no or withdraw an answer.",
+        "closed": "The issue is closed, so the answer cannot be changed. The list has been read again.",
+        "notFound": "That issue is gone, or no longer yours. The list has been read again.",
+        "personalIdentityNumber": "The note carries a personal identity number. Remove it and save again.",
+        "dateInvalid": "That is not a date. Choose one from the calendar.",
+        "unknown": "The answer could not be saved just now. Please try again."
+      }
+    },
+    "fit": {
+      "place": {
+        "label": "Common area",
+        "none": "None in particular"
+      },
+      "finding": {
+        "title": "Inspection finding",
+        "intro": "Mark the issue as a finding of an OVK, lift or fire inspection. It needs the protocol, attached below under Files, and a target date. Residents are not shown it.",
+        "current": "Marked as a finding: {{kind}}.",
+        "protocolIs": "Protocol: {{name}}",
+        "protocolGone": "The protocol has been removed from the issue.",
+        "kind": "Inspection",
+        "kindNone": "Choose...",
+        "kinds": {
+          "OVK": "Ventilation (OVK)",
+          "LIFT": "Lift",
+          "FIRE": "Fire safety"
+        },
+        "inspectedOn": "Inspected on",
+        "targetDate": "Target date",
+        "liftRule": "A lift's remaining faults are to be put right within a month of the inspection (BFS 2025:11 1 kap. 17 §). The latest day is <data>{{date}}</data>.",
+        "useLatest": "Use that day",
+        "protocol": "Protocol",
+        "protocolNone": "Choose a file...",
+        "protocolHint": "One of the files attached to this issue for handlers.",
+        "attachFirst": "Attach the protocol under Files first, then choose it here.",
+        "mark": "Mark as finding",
+        "change": "Save finding",
+        "remove": "Remove the mark"
+      },
+      "errors": {
+        "issueNotFound": "That issue is gone, or no longer yours to handle. The queue has been read again.",
+        "closed": "The issue is closed. The queue has been read again.",
+        "placeNotFound": "That common area is no longer offered. The list has been read again.",
+        "placeWithApartment": "The issue is about an apartment, so it takes no common area.",
+        "findingNeedsTargetDate": "A finding needs a target date.",
+        "findingTargetDateTooLate": "A lift's remaining faults are to be put right within a month of the inspection. Choose an earlier day.",
+        "protocolNotFound": "That file is not attached to this issue any more. The list has been read again.",
+        "dateInvalid": "That is not a date. Choose one from the calendar.",
+        "unknown": "The issue could not be changed just now. Please try again."
       }
     },
     "reporterLink": {
