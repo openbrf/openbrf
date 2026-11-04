@@ -177,7 +177,7 @@ describe("IssueWorkOrders", () => {
     });
     expect(
       await screen.findByText(
-        "Arbetsordern till Rörfirman är sparad och på väg.",
+        "Arbetsordern till Rörfirman är sparad. Loggen nedan visar om mejlet gick iväg.",
       ),
     ).toBeTruthy();
     // The record is read again after the send, and the issue's timeline is
@@ -481,6 +481,28 @@ describe("removing a work order's text", () => {
     });
   });
 
+  it("drops the text on screen at once, while the read after a removal is still out", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ workOrders: [SENT] }),
+    });
+    const user = userEvent.setup();
+    render(<WithRedaction of={UNHELD} onChanged={vi.fn()} />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: /^Ta bort texten i arbetsordern till Rörfirman från/,
+      }),
+    );
+    // The read that follows never answers within the test.
+    fetchIssueWorkOrders.mockReturnValue(new Promise(() => undefined));
+    await user.click(screen.getByRole("button", { name: "Ta bort för gott" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Byt packningen.")).toBeNull();
+    });
+  });
+
   it("offers no removal while a legal hold stands, nor for a text already gone", async () => {
     fetchIssueWorkOrders.mockResolvedValue({
       ok: true,
@@ -581,7 +603,7 @@ describe("removing a work order's text", () => {
 
     expect(
       await screen.findByText(
-        "Arbetsordern till Rörfirman är sparad och på väg.",
+        "Arbetsordern till Rörfirman är sparad. Loggen nedan visar om mejlet gick iväg.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/bevarandekrav/)).toBeNull();

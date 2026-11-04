@@ -1026,6 +1026,23 @@ describe("what is sent is what was previewed", () => {
     );
     expect(await prisma.workOrder.count({ where: { issueId } })).toBe(1);
 
+    // A handler redacts the text meanwhile (ADR 0057). The same press, on the
+    // same preview, still finds the first order: it must not mail the words
+    // that were removed.
+    await prisma.workOrder.updateMany({
+      where: { issueId },
+      data: { body: null, redactedAt: new Date() },
+    });
+    const afterRedaction = await workOrder(as(board), issueId, {
+      ...payload,
+      previewToken,
+    });
+    expect(afterRedaction.statusCode).toBe(409);
+    expect(afterRedaction.json<{ reason: string }>().reason).toBe(
+      "work-order-duplicate",
+    );
+    expect(await prisma.workOrder.count({ where: { issueId } })).toBe(1);
+
     // The manager has sent their budget's worth in the last hour.
     const budgetIssue = await filed(plain, "budget");
     await prisma.workOrder.createMany({
@@ -1038,7 +1055,7 @@ describe("what is sent is what was previewed", () => {
         deliveryStatus: "SENT" as const,
       })),
     });
-    const spent = await previewAndSend(as(manager), issueId, {
+    const spent = await previewAndSend(as(manager), budgetIssue, {
       contractorId: plumber.id,
       body: "Kom på måndag.",
     });

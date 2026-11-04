@@ -24,7 +24,8 @@ a preview, and the issue keeps the record of it (ADR 0055).
   preview, and the server sends only what was previewed: if the contractor's
   name or address changed after the preview, or the preview is over half an
   hour old, the handler is asked to preview again. The same work order sent
-  twice within half an hour is refused, and one person may send twenty work
+  twice within half an hour is refused, also when the first one's text has been
+  removed in between, and one person may send twenty work
   orders an hour. An issue that is closed is offered no work order until it
   is reopened. The preview says when this instance has no mail server set
   up.

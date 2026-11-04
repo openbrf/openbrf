@@ -182,6 +182,10 @@ export function IssueWorkOrders({
   useEffect(() => {
     if (shownAtRedaction.current !== redactionRevision) {
       shownAtRedaction.current = redactionRevision;
+      // The copy on screen goes with the removal, not with the read after it:
+      // were that read to fail or be slow, the words just removed would stand
+      // in the log beside the notice, as the conversation's lists are dropped.
+      setData(null);
       setReads((count) => count + 1);
     }
   }, [redactionRevision]);

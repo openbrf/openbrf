@@ -283,7 +283,8 @@ row is locked while the sending reads it, so a board member who changes the
 address at the same moment changes it either before the sending, which is then
 refused and previewed again, or after it. The same text to the same contractor
 on the same case within half an hour, as long as a preview lasts, is refused
-as a second press, and one
+as a second press, also after a handler has redacted the text of the first (its
+words are gone, and sending again would mail them), and one
 handler may send twenty work orders an hour.
 
 The audit entry names the case, the work order, the contractor and the sender,
@@ -309,9 +310,13 @@ before the case is closed. Bookkeeping needs less, to the end of the seventh
 year after the financial year (bokföringslagen (1999:1078) 7 kap. 2 §), and
 past ten years storage limitation (GDPR art. 5(1)(e)) leaves the text no
 purpose. A legal hold or a restriction against the case's reporter keeps it
-longer. A dispute with the contractor that interrupts the limitation starts ten
-years again, and nothing keeps the text for it until the legal hold on a case
-that [ADR 0057](0057-purging-issues-in-two-layers.md) describes is built. A
+longer, and so does a legal hold on the case itself, which a handler places at
+`POST /api/issue-queue/:id/legal-hold` (ADR 0057): the purge skips the text
+while it stands, and a redaction is refused. A dispute with the contractor that
+interrupts the limitation starts ten years again, and the clock does not see
+it: unless a handler places the hold on the case, the text is erased on the
+tenth anniversary, and a claim still open under preskriptionslagen (1981:130)
+2 § loses its evidence. Placing the hold is the handler's act, not the system's. A
 reporter's data subject access report lists, under each of their cases, the
 work orders sent about it: to whom, when, and whether the mail went out, not
 the text, which may be about other people.

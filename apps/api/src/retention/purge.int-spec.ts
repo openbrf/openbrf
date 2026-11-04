@@ -2037,7 +2037,14 @@ describe("an issue a work order's text still stands on", () => {
   const workOrderFirstId = `purge-wo-issue-wo-first-${suffix}`;
   const freeTextFirstId = `purge-wo-issue-text-first-${suffix}`;
   const redactedId = `purge-wo-issue-redacted-${suffix}`;
-  const laterIds = [workOrderFirstId, freeTextFirstId, redactedId];
+  const fileRedactedId = `purge-wo-issue-file-${suffix}`;
+  const fileRedactedFileId = `purge-wo-file-${suffix}`;
+  const laterIds = [
+    workOrderFirstId,
+    freeTextFirstId,
+    redactedId,
+    fileRedactedId,
+  ];
   const WORK_ORDER_TEXT = "Byt packningen i koket hos grannen i 1202.";
   let issuePurge: IssuePurgeService;
   let textPurge: IssueTextPurgeService;
@@ -2145,6 +2152,7 @@ describe("an issue a work order's text still stands on", () => {
         prisma.issue.deleteMany({
           where: { id: { in: [reportedId, requestedId, ...laterIds] } },
         }),
+      () => prisma.mediaFile.deleteMany({ where: { id: fileRedactedFileId } }),
       () =>
         prisma.legalHold.deleteMany({
           where: { personId: { in: woPersonIds } },
@@ -2261,18 +2269,22 @@ describe("an issue a work order's text still stands on", () => {
    * note added once the issue was reopened: the request is closed, so no job
    * erases it on the request, and it waits on the clock. The link stays while
    * either text stands, and whichever removal takes the last of them clears it.
-   * Each test relies on the one above having carried the request out.
+   * Each test carries the request out itself when no earlier test did, so one
+   * run alone (a name filter) fails on what it tests and not on its set-up.
    */
   async function laterIssueWithFreeText(id: string): Promise<void> {
-    await expect(
+    const executed = () =>
       prisma.dataSubjectRequest.count({
         where: {
           personId: requester,
           kind: "ERASURE",
           executedAt: { not: null },
         },
-      }),
-    ).resolves.toBe(1);
+      });
+    if ((await executed()) === 0) {
+      await purge.purgePerson(requester, notDueAt, retentionDays);
+    }
+    await expect(executed()).resolves.toBe(1);
     await reportedWithWorkOrder(id, requester);
     await prisma.issueNote.create({
       data: { issueId: id, body: "Grannen i 1202 var inte hemma." },
@@ -2364,6 +2376,51 @@ describe("an issue a work order's text still stands on", () => {
     });
     expect(entry.context).toEqual({
       target: "description",
+      reporterDetached: true,
+    });
+  });
+
+  it("clears the reporter of an executed request when a handler removes the last file", async () => {
+    await laterIssueWithFreeText(fileRedactedId);
+    // The work order's text and the note are gone already; a photograph is
+    // the last free text standing, and the link stays while it does.
+    await prisma.workOrder.updateMany({
+      where: { issueId: fileRedactedId },
+      data: { body: null },
+    });
+    await prisma.issueNote.deleteMany({ where: { issueId: fileRedactedId } });
+    await prisma.mediaFile.create({
+      data: {
+        id: fileRedactedFileId,
+        storageKey: `purge/${suffix}/redacted-photo.jpg`,
+        encryption: "NONE",
+        contentType: "image/jpeg",
+        byteSize: 1024,
+        checksum: `sha-redacted-photo-${suffix}`,
+        fileName: "redacted-photo.jpg",
+        visibility: "INTERNAL",
+        requiredCapability: "issues:handle",
+        uploadedByPersonId: people.board,
+      },
+    });
+    const photo = await prisma.issuePhoto.create({
+      data: { issueId: fileRedactedId, fileId: fileRedactedFileId },
+    });
+    expect(await reporterOf(fileRedactedId)).toBe(requester);
+
+    await app.get(IssueRedactionService).redact(people.board, fileRedactedId, {
+      target: "photo",
+      id: photo.id,
+    });
+    expect(await reporterOf(fileRedactedId)).toBeNull();
+
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "ISSUE_REDACTED", targetId: fileRedactedId },
+      select: { context: true },
+    });
+    expect(entry.context).toEqual({
+      target: "photo",
+      id: photo.id,
       reporterDetached: true,
     });
   });

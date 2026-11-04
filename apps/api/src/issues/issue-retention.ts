@@ -79,7 +79,10 @@ export const ISSUE_RETENTION_DAYS = 365;
  *
  * Counted in days as every clock here is, 3,653 of them: ten years of 365 and
  * the three leap days ten years can hold, so the text never goes before the
- * tenth anniversary of the closing.
+ * tenth anniversary of the closing. Where the ten years hold only two leap
+ * days the tenth anniversary falls at 3,652 days and the text stays one more
+ * day (closed 2025-03-01, erased from 2035-03-02); the docs say "ten years"
+ * and mean this window.
  */
 export const WORK_ORDER_BODY_RETENTION_DAYS = 3653;
 

@@ -333,6 +333,9 @@ export class IssueRedactionService {
       throw targetNotFound();
     }
     refuseHeld(await requireHandled(this.prisma, issueId, handlerPersonId));
+    // Read before any lock, as `redactText` reads it: the file may be the last
+    // free text standing, and removing it then detaches the reporter.
+    const reporterPersonId = await this.reporterOf(issueId);
 
     // Whether the file was removed: false for one already gone and for one
     // the lock above found no longer the redaction's to take.
@@ -342,17 +345,30 @@ export class IssueRedactionService {
       // A storage failure fails the redaction, and the file stays to retry.
       bytesFirst: true,
       keep: async (tx) => {
+        // The reporter's legal hold key before the issue's own lock, the order
+        // the person purge and `redactText` take them in.
+        if (reporterPersonId !== null) {
+          await lockLegalHold(tx, reporterPersonId);
+        }
         await lockIssueForHandling(tx, issueId);
         refuseHeld(await requireHandled(tx, issueId, handlerPersonId));
         return (await this.fileOf(tx, issueId, redaction)) !== fileId;
       },
       onRemoved: async (tx) => {
+        // The last free text on the issue may be this file: the reporter of an
+        // erased request is then detached, as a text redaction does.
+        const reporterDetached = await this.detachIfFinished(
+          tx,
+          issueId,
+          reporterPersonId,
+        );
         await this.record(
           tx,
           handlerPersonId,
           issueId,
           redaction.target,
           redaction.id,
+          reporterDetached,
         );
       },
     });

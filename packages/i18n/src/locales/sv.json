@@ -3951,7 +3951,7 @@
       "send": "Skicka till {{name}}",
       "sending": "Skickar...",
       "edit": "Ändra",
-      "sent": "Arbetsordern till {{name}} är sparad och på väg.",
+      "sent": "Arbetsordern till {{name}} är sparad. Loggen nedan visar om mejlet gick iväg.",
       "errors": {
         "issueNotFound": "Ärendet finns inte längre, eller är inte längre ditt att hantera.",
         "contractorNotFound": "Entreprenören finns inte längre på listan. Listan har lästs om.",

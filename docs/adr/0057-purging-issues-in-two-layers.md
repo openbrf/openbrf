@@ -57,7 +57,8 @@ countable.
 free-text location, every issue message and internal note, the text of every
 work order and the contractor's notes, and every photograph and every file a
 contractor uploaded, removed from storage and not only unlinked. What stays of a
-work order is the record of who received it and when, and which kinds of data it
+work order is the record of who received it (until that contractor is removed
+from the list, which clears the name and address) and when, and which kinds of data it
 carried, because that is what art. 15(1)(c) and art. 19 ask the association to
 answer (decision 23); its words go too, on a clock of their own (below). The free-text
 location goes with them because decision 33 removes free text, and "the bathroom
@@ -75,7 +76,8 @@ board mailbox here (decision 33). A ring-fenced type has a clock of its own, one
 year after closing, which the board cannot change while the legal review of
 decision 32 is pending.
 
-The text of a work order has a clock of its own too: ten years after closing,
+The text of a work order has a clock of its own too: ten years after closing
+(3,653 days, so never before the tenth anniversary and up to a day after it),
 whatever the board's setting. The owner asked on 2026-11-03 for it to be kept as
 long as the law allows, and ten years is where the general limitation period
 for a claim about the work ends (preskriptionslagen (1981:130) 2 §); the reasons
@@ -126,7 +128,8 @@ photograph or an uploaded file. Redacting replaces the text with a mark saying
 it was redacted and when; nothing keeps the earlier text, so a redaction is not
 an edit with a history. Removing a file removes it from storage. A work order
 whose text is redacted stays on the case with whom it went to and when, which is
-the record of the disclosure; one whose mail has not gone out yet is not sent,
+the record of the disclosure (the recipient's name and address go if the
+contractor is later removed from the list, [ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md#the-mailed-work-order)); one whose mail has not gone out yet is not sent,
 and is recorded as not sent.
 
 Each act is recorded in the audit log against the case, by its own action, with

@@ -3951,7 +3951,7 @@
       "send": "Send to {{name}}",
       "sending": "Sending...",
       "edit": "Change it",
-      "sent": "The work order to {{name}} is recorded and on its way.",
+      "sent": "The work order to {{name}} is recorded. The log below says whether the mail went out.",
       "errors": {
         "issueNotFound": "That issue is gone, or no longer yours to handle.",
         "contractorNotFound": "That contractor is no longer on the list. The list has been read again.",

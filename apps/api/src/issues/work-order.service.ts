@@ -356,7 +356,15 @@ export class WorkOrderService {
       where: {
         issueId,
         contractorId: prepared.contractorId,
-        body: prepared.body,
+        // The same text, or a work order whose text a handler has since
+        // redacted: its text is gone, so a press of the same button cannot be
+        // told from a new work order by what it says, and sending again would
+        // mail the words the handler removed. Within the preview's life only;
+        // a corrected work order is sent when it has passed.
+        OR: [
+          { body: prepared.body },
+          { body: null, redactedAt: { not: null } },
+        ],
         createdAt: {
           gte: new Date(now.getTime() - WORK_ORDER_DUPLICATE_WINDOW_MS),
         },
