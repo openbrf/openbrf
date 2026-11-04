@@ -4039,7 +4039,7 @@
       "send": "Send to {{name}}",
       "sending": "Sending...",
       "edit": "Change it",
-      "sent": "The work order to {{name}} is recorded. The log below says whether the mail went out.",
+      "sent": "The work order to {{name}} is recorded. The list of work orders below says whether the mail went out.",
       "errors": {
         "issueNotFound": "That issue is gone, or no longer yours to handle.",
         "contractorNotFound": "That contractor is no longer on the list. The list has been read again.",
@@ -4050,10 +4050,11 @@
         "unknown": "The work order could not be prepared or sent just now. Please try again.",
         "previewStale": "The contractor's details or the text changed since the preview. Preview it again before sending.",
         "issueClosed": "This issue is closed. Reopen it before writing a work order.",
-        "duplicate": "This work order was sent to this contractor a short while ago. Check the record above before sending it again.",
+        "duplicate": "This work order was sent to this contractor a short while ago. Check the list of work orders above before sending it again.",
         "budgetSpent": "You have sent as many work orders as one person may in an hour. Try again later."
       },
       "recipientRemoved": "A contractor since removed from the list",
+      "addressUnreadable": "The address could not be read.",
       "bodyErased": "The text was erased when the issue's retention period ran out."
     },
     "open": {

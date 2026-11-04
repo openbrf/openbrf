@@ -214,9 +214,9 @@ export class IssueTextPurgeService implements OnModuleInit {
             MAX_ATTEMPTS_PER_RUN,
           )} attempts, ${String(
             considered - purged,
-          )} of which removed nothing (${String(failed)} failed removals, ${String(
+          )} of which did not finish (${String(failed)} failed removals, ${String(
             unfinished,
-          )} unfinished issues, the rest kept); issues behind the ones that did not succeed wait until those do.`,
+          )} issues with a file still standing, the rest kept); issues behind the ones that did not succeed wait until those do.`,
         );
       } else {
         this.logger.log(

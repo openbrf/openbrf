@@ -107,7 +107,7 @@ describe("one run of the issue text purge", () => {
     // The run says that the issues behind the failures wait, as an error.
     expect(logged).toHaveBeenCalledWith(
       expect.stringContaining(
-        "1000 of which removed nothing (1000 failed removals, 0 unfinished issues, the rest kept)",
+        "1000 of which did not finish (1000 failed removals, 0 issues with a file still standing, the rest kept)",
       ),
     );
     expect(logged).toHaveBeenCalledWith(
@@ -115,7 +115,7 @@ describe("one run of the issue text purge", () => {
     );
   });
 
-  it("counts only the attempts that removed nothing when some removals succeed", async () => {
+  it("counts only the attempts that did not finish when some removals succeed", async () => {
     const { service } = build((id) => (id === "p1-0" ? "removed" : "fail"));
 
     const summary = await service.run(NOW, 2);
@@ -125,7 +125,7 @@ describe("one run of the issue text purge", () => {
     expect(summary).toEqual({ considered: 1000, purged: 1, failed: 999 });
     expect(logged).toHaveBeenCalledWith(
       expect.stringContaining(
-        "999 of which removed nothing (999 failed removals, 0 unfinished issues, the rest kept)",
+        "999 of which did not finish (999 failed removals, 0 issues with a file still standing, the rest kept)",
       ),
     );
   });
@@ -167,7 +167,7 @@ describe("one run of the issue text purge", () => {
     expect(summary).toEqual({ considered: 1000, purged: 0, failed: 0 });
     expect(logged).toHaveBeenCalledWith(
       expect.stringContaining(
-        "1000 of which removed nothing (0 failed removals, 1000 unfinished issues, the rest kept)",
+        "1000 of which did not finish (0 failed removals, 1000 issues with a file still standing, the rest kept)",
       ),
     );
   });
@@ -182,7 +182,7 @@ describe("one run of the issue text purge", () => {
     expect(summary).toEqual({ considered: 1000, purged: 0, failed: 0 });
     expect(logged).toHaveBeenCalledWith(
       expect.stringContaining(
-        "1000 of which removed nothing (0 failed removals, 0 unfinished issues, the rest kept)",
+        "1000 of which did not finish (0 failed removals, 0 issues with a file still standing, the rest kept)",
       ),
     );
   });

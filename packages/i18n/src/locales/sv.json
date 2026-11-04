@@ -4039,7 +4039,7 @@
       "send": "Skicka till {{name}}",
       "sending": "Skickar...",
       "edit": "Ändra",
-      "sent": "Arbetsordern till {{name}} är sparad. Loggen nedan visar om mejlet gick iväg.",
+      "sent": "Arbetsordern till {{name}} är sparad. Listan med arbetsorder nedan visar om mejlet gick iväg.",
       "errors": {
         "issueNotFound": "Ärendet finns inte längre, eller är inte längre ditt att hantera.",
         "contractorNotFound": "Entreprenören finns inte längre på listan. Listan har lästs om.",
@@ -4054,6 +4054,7 @@
         "budgetSpent": "Du har skickat så många arbetsorder som en person får skicka på en timme. Försök igen senare."
       },
       "recipientRemoved": "En entreprenör som sedan tagits bort från listan",
+      "addressUnreadable": "Adressen kunde inte läsas.",
       "bodyErased": "Texten raderades när ärendets lagringstid gick ut."
     },
     "open": {

@@ -261,6 +261,15 @@ offer none of the three for any case
 board's own screen and for the token routes. It holds whatever marks a case as
 ring-fenced, which is open (ADR 0054, question 5).
 
+A closed issue is offered no work order until it is reopened. Previewing or
+sending one on an issue in the `DONE` meaning is refused as `issue-closed`,
+after the ring-fence is checked, and the work-order list says the issue is
+`closed`, so the screen offers none. The text's retention clock runs from the
+closing (ADR 0057), and reopening clears `closedAt`. This is a rule about when
+a handler may write, not about what may reach a contractor, as the ring-fence
+is: closing an issue does not recall a work order already written, and the
+retention rationale below does not rely on it.
+
 ### Audit
 
 Issuing a link, revoking it, and each answer a contractor gives (accepted,
