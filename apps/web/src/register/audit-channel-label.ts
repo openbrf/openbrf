@@ -21,4 +21,5 @@ export const AUDIT_CHANNEL_LABEL = {
   PLUGIN: "register.person.report.channel.PLUGIN",
   MANAGEMENT: "register.person.report.channel.MANAGEMENT",
   SUPPORT: "register.person.report.channel.SUPPORT",
+  LINK: "register.person.report.channel.LINK",
 } as const satisfies Record<AuditChannelName, TranslationKey>;

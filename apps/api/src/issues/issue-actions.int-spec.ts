@@ -27,6 +27,7 @@ import {
 } from "../testing/integration-env";
 import { MediaService } from "../media/media.service";
 import { createIssueTypeFixture } from "../testing/issue-fixtures";
+import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import { IssueTypeService } from "./issue-type.service";
 import { IssueService } from "./issue.service";
 import { IssueMailer } from "./issue-mailer.service";
@@ -870,6 +871,7 @@ describe("what the queue carries beyond the instance", () => {
           app.get(MediaService),
           app.get(FieldEncryptionService),
           app.get(AuditLogService),
+          app.get(IssueReporterLinkService),
           app.get(IssueMailer),
         );
 

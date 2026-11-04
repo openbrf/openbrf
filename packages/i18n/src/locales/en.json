@@ -143,6 +143,14 @@
       "bodyUndated": "{{event}} for {{apartment}} was recorded on {{triggeredOn}} and has to be reported to Lantmäteriet.",
       "noDeadlineNotice": "Lag (2026:484) 3 kap. 3 § tredje stycket sets no deadline for this report, so none is stated here."
     },
+    "issueReporterLink": {
+      "subject": "Your report to {{association}}",
+      "heading": "Thank you for your report",
+      "body": "The association has received your report ({{type}}). Through the link below you can follow the issue, read the association's answers and write to the association.",
+      "action": "Open your issue",
+      "footerNotice": "You are receiving this because you reported an issue to {{association}}.",
+      "keepPrivate": "The link is personal: whoever has it can read and write in the issue, so do not share it. It stops working 30 days after the issue is closed or 365 days after the latest message in it, whichever comes first; until a message is written, the 365 days count from this mail."
+    },
     "issueHandlerNotice": {
       "footerNotice": "You are receiving this because you handle issues for {{association}}.",
       "facts": "Issue {{number}} · {{type}} · Priority: {{priority}}",
@@ -902,7 +910,9 @@
           "SUPPORT_SESSION_ISSUED": "Support sign-in link issued",
           "SUPPORT_SESSION_STARTED": "Supporter signed in",
           "SUPPORT_REQUEST": "Supporter looked",
-          "SUPPORT_SESSION_ENDED": "Supporter signed out"
+          "SUPPORT_SESSION_ENDED": "Supporter signed out",
+          "ISSUE_REPORTER_LINK_ISSUED": "A private link to an issue was mailed to its reporter",
+          "ISSUE_REPORTER_LINK_REVOKED": "The reporter's private link to an issue was withdrawn"
         },
         "pluginRecorded": "Plugin {{plugin}}: {{event}}",
         "channel": {
@@ -913,7 +923,8 @@
           "PLUGIN": "A plugin",
           "MANAGEMENT": "The management API",
           "SUPPORT": "Support access",
-          "unknown": "Written before the log recorded the channel."
+          "unknown": "Written before the log recorded the channel.",
+          "LINK": "A private link"
         },
         "dispatchingPlugin": "Plugin:",
         "dispatchingPluginUnknown": "Written before the log recorded the plugin.",
@@ -3622,6 +3633,41 @@
       "calendar": "Calendar",
       "brokerInformation": "Broker information",
       "requestAccount": "Request an account"
+    },
+    "issueLink": {
+      "title": "Your issue",
+      "type": "Type",
+      "status": "Status",
+      "received": "Received",
+      "meaning": {
+        "NEW": "Received",
+        "IN_PROGRESS": "In progress",
+        "WAITING": "Waiting",
+        "DONE": "Closed"
+      },
+      "conversation": "Messages",
+      "empty": "No messages yet. The association answers here.",
+      "removed": "This message was removed by the association.",
+      "signature": {
+        "BOARD": "The board",
+        "PROPERTY_MANAGER": "The property manager"
+      },
+      "you": "You",
+      "message": "Write to the association",
+      "messageHint": "Do not write personal identity numbers. Files cannot be attached here.",
+      "send": "Send",
+      "closedNotice": "This issue is closed and takes no more messages. If you have something new to report, make a new report on the association's website.",
+      "private": "The link is personal, so do not share it. It stops working 30 days after the issue is closed or one year after the latest message in it, whichever comes first; until a message is written, the year counts from when the link was mailed.",
+      "notFoundTitle": "This link opens no issue",
+      "notFoundBody": "The link may have expired or been withdrawn. Contact the association through its website if you need help with your issue.",
+      "notice": {
+        "sent": "Your message has been sent to the association.",
+        "refused": "The message could not be read. Write a text of at most 4,000 characters and try again.",
+        "identity": "The message contains a personal identity number and was not sent. Remove it and try again.",
+        "closed": "This issue is closed and takes no more messages.",
+        "limited": "This issue takes no more messages right now. Try again later.",
+        "full": "This issue has reached the most messages a link accepts. No further messages can be sent through it."
+      }
     }
   },
   "signup": {
@@ -3996,7 +4042,7 @@
       "send": "Send",
       "sending": "Sending...",
       "closedOwn": "This report is closed and takes no more messages.",
-      "noReporter": "Nobody can read an answer on this issue: its reporter has no account to read it in, or it has no reporter.",
+      "noReporter": "Nobody can read an answer on this issue: its reporter has no account and no private link that opens it, or it has no reporter.",
       "savedReply": "Saved reply",
       "savedReplyPick": "Insert a saved reply...",
       "savedReplyTooLong": "That saved reply does not fit: the message would be longer than {{max}} characters. Shorten what you have written first.",
@@ -4030,6 +4076,19 @@
         "tooLarge": "The file is larger than allowed.",
         "unsupported": "Only an image (PNG, JPEG, WebP, GIF) or a PDF can be attached.",
         "unknown": "The file could not be attached just now. Please try again."
+      }
+    },
+    "reporterLink": {
+      "live": "The reporter has no account and reads your answers through a private link that was mailed to them.",
+      "ended": "The link mailed to the reporter no longer opens the issue: it was withdrawn or has expired, or the issue closed more than 30 days ago.",
+      "pending": "The private link for the reporter has not been mailed yet. The mail is queued or is being retried, so check again shortly.",
+      "none": "No private link was mailed to the reporter: they left no email address, or no mail could be sent.",
+      "revoke": "Withdraw the link",
+      "revoking": "Withdrawing…",
+      "revokeNamed": "{{type}}: withdraw the reporter's private link",
+      "errors": {
+        "none": "The reporter has no private link to withdraw.",
+        "unknown": "The link could not be withdrawn. Try again."
       }
     },
     "redaction": {
