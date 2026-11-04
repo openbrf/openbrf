@@ -144,6 +144,16 @@ interface Rows {
   /** A plugin's record about a person, live or set aside (ADR 0047). */
   pluginRecords?: { person: string; setAside?: boolean }[];
   keyOrders?: { person: string; closedAt: Date | null }[];
+  /**
+   * An issue the person reported: whether it is in the DONE meaning, whether a
+   * legal hold of its own stands, and whether any of its free text does.
+   */
+  issues?: {
+    person: string;
+    done: boolean;
+    held?: boolean;
+    textStanding?: boolean;
+  }[];
   motions?: { person: string; closedAt: Date | null }[];
   subletApplications?: {
     person: string;
@@ -287,6 +297,26 @@ function build(rows: Rows): ErasureDbClient {
     postReport: {
       count: async ({ where }: { where: { reporterPersonId: unknown } }) =>
         countNaming(rows.postReports, where.reporterPersonId),
+    },
+    issue: {
+      count: async ({
+        where,
+      }: {
+        where: { reporterPersonId: unknown; status?: unknown };
+      }) =>
+        (rows.issues ?? []).filter((row) => {
+          if (
+            !namesPerson(where.reporterPersonId, row.person) ||
+            row.textStanding === false
+          ) {
+            return false;
+          }
+          const held = row.held ?? false;
+          // The erased half names the DONE meaning; the kept half does not.
+          return where.status !== undefined
+            ? row.done && !held
+            : !row.done || held;
+        }).length,
     },
     keyOrder: {
       count: async ({
@@ -433,6 +463,33 @@ describe("what a granted erasure request still owes one person", () => {
     await expect(
       erasureRemainder(client, PERSON, NOW, encryption),
     ).resolves.toEqual([{ domain: "plugin records", owed: 2, kept: 0 }]);
+  });
+
+  it("owes the free text of a closed issue, and keeps an open or held one", async () => {
+    // ADR 0057: an issue still open is with the board, and one under a legal
+    // hold of its own is kept for its claim. Each holds the request open with
+    // its reason; an issue whose free text is already gone holds nothing.
+    const client = build({
+      issues: [
+        { person: PERSON, done: true },
+        { person: PERSON, done: true, textStanding: false },
+        { person: PERSON, done: false },
+        { person: PERSON, done: true, held: true },
+        { person: OTHER, done: true },
+      ],
+    });
+
+    await expect(
+      erasureRemainder(client, PERSON, NOW, encryption),
+    ).resolves.toEqual([
+      {
+        domain: "issues",
+        owed: 1,
+        kept: 2,
+        keptBecause:
+          "an issue they reported is still open, or under a legal hold of its own",
+      },
+    ]);
   });
 
   it("counts an open motion as kept rather than as owed", async () => {

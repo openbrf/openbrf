@@ -379,7 +379,7 @@ without a seat handles a type the board handles alone.
 Who pays and the responsibility guide add kostnadsansvar (cost responsibility),
 ansvarsfördelning (responsibility guide), underhållsansvar (maintenance
 responsibility) and rättelseanmaning (notice to remedy), and the _charge_ row
-says a charge may name the case it was made from.
+says a charge may name the issue it was made from.
 
 ## Open questions
 

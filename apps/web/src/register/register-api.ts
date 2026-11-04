@@ -512,6 +512,10 @@ export type ReportAuditAction =
   | "ISSUE_COST_RESPONSIBILITY_CHANGED"
   | "ISSUE_MESSAGE_SENT"
   | "ISSUE_NOTE_ADDED"
+  | "ISSUE_REDACTED"
+  | "ISSUE_LEGAL_HOLD_PLACED"
+  | "ISSUE_LEGAL_HOLD_RELEASED"
+  | "ISSUE_RETENTION_RECORDED"
   | "ISSUE_RESIDENTS_LISTED"
   | "MOVE_IN_RECORDED"
   | "MOVE_OUT_RECORDED"
@@ -825,6 +829,11 @@ export interface DataSubjectReport {
     costResponsibility: IssueCostResponsibility | null;
     location: string | null;
     description: string;
+    /** When a handler removed the description or the location (ADR 0057). */
+    descriptionRedactedAt: string | null;
+    locationRedactedAt: string | null;
+    /** When the purge removed the issue's free-text layer (ADR 0057). */
+    freeTextRemovedAt: string | null;
     reportedAt: string;
     photographs: number;
   }[];
@@ -1423,6 +1432,7 @@ export type ErasureDomain =
   | "bookings"
   | "eventSignups"
   | "feed"
+  | "issues"
   | "keyOrders"
   | "motions"
   | "pluginRecords"

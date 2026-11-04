@@ -98,6 +98,11 @@ export {
 } from "./issue-conversation.ts";
 export type { IssueMessageSide, IssueSignature } from "./issue-conversation.ts";
 export {
+  ISSUE_REDACTION_TARGETS,
+  ISSUE_TEXT_RETENTION_YEARS,
+} from "./issue-retention.ts";
+export type { IssueRedactionTarget } from "./issue-retention.ts";
+export {
   ISSUE_CLOSING_OUTCOMES,
   ISSUE_HANDLED_BY,
   ISSUE_OUTCOMES,
