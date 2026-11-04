@@ -1135,12 +1135,14 @@ describe("the search", () => {
     expect(JSON.stringify(row)).not.toContain(shieldedApartment.number);
   });
 
-  it("masks a row by the protection its name match used, when the reporter becomes protected as the read goes on", async () => {
+  // Runs `read` while the reporter becomes protected once the name lookup has
+  // answered and before the rows' reporters are read, the way another request
+  // committing between the two reads would. Restores the reporter after.
+  async function readWhileReporterBecomesProtected<T>(
+    read: () => Promise<T>,
+  ): Promise<{ result: T; protectedNow: boolean }> {
     const transaction = prisma.$transaction.bind(prisma);
     let protectedNow = false;
-    // Protects the reporter once the name lookup has answered and before the
-    // rows' reporters are read, the way another request committing between
-    // the two reads would.
     const spy = vi.spyOn(prisma, "$transaction").mockImplementation((async (
       first: unknown,
       options?: unknown,
@@ -1185,21 +1187,7 @@ describe("the search", () => {
       );
     }) as never);
     try {
-      const read = await app
-        .get(IssueService)
-        .readQueueSnapshot(board.personId, "ALL", {
-          typeId: searched.id,
-          search: `Rune ${resident.lastName}`,
-        });
-      expect(protectedNow).toBe(true);
-      // The row was found by the name, so it is shown with the name: one
-      // reading says both, and the snapshot holds the person as unprotected.
-      const [row] = read.issues;
-      expect(row?.id).toBe(filed.leak);
-      expect(row?.reporter).toMatchObject({
-        kind: "resident",
-        personId: resident.personId,
-      });
+      return { result: await read(), protectedNow };
     } finally {
       spy.mockRestore();
       await prisma.person.update({
@@ -1207,7 +1195,46 @@ describe("the search", () => {
         data: { protectedPersonalData: false },
       });
     }
+  }
+
+  it("masks a row by the protection its name match used, when the reporter becomes protected as the snapshot is read", async () => {
+    const { result, protectedNow } = await readWhileReporterBecomesProtected(
+      () =>
+        app.get(IssueService).readQueueSnapshot(board.personId, "ALL", {
+          typeId: searched.id,
+          search: `Rune ${resident.lastName}`,
+        }),
+    );
+    expect(protectedNow).toBe(true);
+    // The row was found by the name, so it is shown with the name: one
+    // reading says both, and the snapshot holds the person as unprotected.
+    const [row] = result.issues;
+    expect(row?.id).toBe(filed.leak);
+    expect(row?.reporter).toMatchObject({
+      kind: "resident",
+      personId: resident.personId,
+    });
     // Restored: the search finds the issue by the name again.
+    expect(await search(board, `Rune ${resident.lastName}`)).toEqual([
+      filed.leak,
+    ]);
+  });
+
+  it("masks a listed row by the protection its name match used, when the reporter becomes protected as the list is read", async () => {
+    const { result, protectedNow } = await readWhileReporterBecomesProtected(
+      () =>
+        app.get(IssueService).listQueue(board.personId, "ALL", {
+          typeId: searched.id,
+          search: `Rune ${resident.lastName}`,
+        }),
+    );
+    expect(protectedNow).toBe(true);
+    const [row] = result;
+    expect(row?.id).toBe(filed.leak);
+    expect(row?.reporter).toMatchObject({
+      kind: "resident",
+      personId: resident.personId,
+    });
     expect(await search(board, `Rune ${resident.lastName}`)).toEqual([
       filed.leak,
     ]);
