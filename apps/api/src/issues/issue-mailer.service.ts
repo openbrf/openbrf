@@ -77,14 +77,14 @@ import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
  *
  * An issue handed to a person, away and back, or reopened twice, before the
  * first notice is delivered would pass that check twice. The notices of an
- * assignment and of a reopening are therefore throttled by person and issue by
- * {@link REPEATED_NOTICE_SECONDS}: the queue creates no second job for the same
- * event in the same slot. A slot is a clock hour, as the queue cuts time, and
- * not a window that opens with the first notice: a repeat just after the hour
- * turns is a notice of its own. The slot belongs to a notice that was sent or is
- * still to be: one the delivery skipped, because what it told of had stopped
- * being so, or that was given up on, gives it back, so a later assignment or
- * reopening of the same person is told of.
+ * assignment and of a reopening are therefore throttled to one per person and
+ * issue in each slot of {@link REPEATED_NOTICE_SECONDS}: the queue creates no
+ * second job for the same event in the same slot. A slot is a clock hour, as
+ * the queue cuts time, and not a window that opens with the first notice: a
+ * repeat just after the hour turns is a notice of its own. The slot belongs to
+ * a notice that was sent or is still to be: one the delivery skipped, because
+ * what it told of had stopped being so, or that was given up on, gives it
+ * back, so a later assignment or reopening of the same person is told of.
  *
  * One job holds a slot, and only that job may send while it does. A delivery
  * that finds nothing to send decides under the issue's lock, which every act
