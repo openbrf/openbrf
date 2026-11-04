@@ -558,6 +558,8 @@ describe("the clock", () => {
     expect(after.map((entry) => entry.id)).toContain(newer.id);
 
     // And a run whose removal of the oldest keeps failing still takes the rest.
+    // It reads one issue at a time, so the newer issue is on a later page than
+    // the oldest and a run that reads only its first page never reaches it.
     const refuse = vi
       .spyOn(storage, "remove")
       .mockImplementation((key: string) =>
@@ -566,7 +568,7 @@ describe("the clock", () => {
           : Promise.resolve(),
       );
     try {
-      const summary = await clock.run(new Date(), 2);
+      const summary = await clock.run(new Date(), 2, 1);
       expect(summary.failed).toBeGreaterThanOrEqual(1);
     } finally {
       refuse.mockRestore();

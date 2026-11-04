@@ -35,7 +35,8 @@ An issue now has two layers, and only one of them is kept for good.
   stays open meanwhile and says why.
 
 A person's access report says when the text of an issue they reported was
-removed, by a handler or by the nightly job, instead of printing it blank.
+removed, whether a handler redacted it, the nightly job removed it or a granted
+erasure request did, instead of printing it blank.
 
 Every redaction, legal hold and change of the setting is recorded in the audit
 log with who did it, and never the text or a file's name.
