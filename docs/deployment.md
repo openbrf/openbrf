@@ -498,6 +498,20 @@ application connecting as the owner - so that refusal, rather than a missing
 value in the env file, is the error an operator will read whose application
 starts without the data volume the password is on.
 
+## The database's time zone
+
+The connection the application reads and writes its data through, and the one
+the demo-data seed uses, ask for the UTC time zone when they open, whatever the
+server's `TimeZone` is. A database in another zone therefore cannot shift a time
+the application writes with SQL of its own. This holds for a managed database
+and for one you installed yourself, and needs nothing set in the database. An
+`options` parameter in `DATABASE_URL` or `DATABASE_URL_RUNTIME` is kept, with
+the request for UTC after it. The migrations, the deploy steps' own sessions and
+the job queue's connections use the server's setting. The shipped PostgreSQL
+image is UTC; a database of your own whose zone is not should be set to UTC with
+`ALTER DATABASE ... SET TimeZone TO 'UTC'`, which the schema owner check above
+accepts.
+
 ## The database passwords
 
 None of the three has to be supplied. Each one the env file leaves empty is

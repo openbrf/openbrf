@@ -9,6 +9,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { ENV } from "../config/config.module";
 import { applicationDatabaseUrl, type Env } from "../config/env";
 import { PrismaClient } from "../generated/prisma/client";
+import { pinnedSessionConfig } from "./session-time-zone";
 
 /**
  * The database client.
@@ -21,6 +22,9 @@ import { PrismaClient } from "../generated/prisma/client";
  * archive tables. That is what makes the append-only guards unbypassable
  * rather than merely inconvenient: a table owner can disable a trigger, so the
  * application must not be the owner. See prisma/sql/harden-runtime-role.sql.
+ *
+ * Every connection asks for the UTC time zone, whatever the server defaults to:
+ * see session-time-zone.ts.
  */
 @Injectable()
 export class PrismaService
@@ -30,10 +34,11 @@ export class PrismaService
   constructor(@Inject(ENV) env: Env) {
     const connectionString = applicationDatabaseUrl(env);
     super({
-      adapter: new PrismaPg({
-        connectionString,
-        max: env.OPENBRF_DATABASE_POOL_SIZE,
-      }),
+      adapter: new PrismaPg(
+        pinnedSessionConfig(connectionString, {
+          max: env.OPENBRF_DATABASE_POOL_SIZE,
+        }),
+      ),
     });
 
     if (
