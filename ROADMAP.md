@@ -356,6 +356,17 @@ locally the application runs from source beside the PostgreSQL that
       it went to and when stays, except that removing a contractor from the
       list clears their name and address from the work orders sent them. This is how a work order travels while the
       contractor's own link waits for its legal review (ADR 0055)
+- [x] Damage cases and ring-fenced issue types: a handler marks an issue as an
+      insurance damage with the insurer, the claim number, the day and the
+      cause, and the mark places a legal hold so the issue's text outlasts its
+      purge clock. The board ring-fences an issue type, as the set a new
+      instance starts with does for disturbances between neighbours: the board
+      alone reads its issues, the property manager never, and nothing about
+      them leaves the board - no work order, no mail to anybody, no post, no
+      connected app or AI package, and not the website's form. Its free text is
+      purged one year after closing, a clock the board does not set, pending
+      the legal review, and the ring-fence is never lifted from a type issues
+      were reported under (ADR 0054, decisions 28 and 32)
 - [x] Mail about issues: a new issue to its assignee, or to the type's handlers
       when it lands unassigned; an urgent one to every handler of its type; an
       assignment to the new assignee; a reopened one to its assignee; and one

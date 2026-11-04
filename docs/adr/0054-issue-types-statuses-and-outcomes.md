@@ -5,7 +5,9 @@ Date: 2026-11-02
 ## Status
 
 Accepted. The questions under [Open questions](#open-questions) are left to the
-owner, except questions 4 and 6, which the owner has decided. The first of four
+owner, except questions 4 and 6, which the owner has decided, and question 5,
+which has an interim answer the owner may change (see
+[The interim answer to question 5](#the-interim-answer-to-question-5)). The first of four
 records for the issue module (ADRs 0054 to 0057). It replaces the rule the schema
 states over `IssueStatus`, "Deliberately three states", and the audience on
 `IssueType`. Changes the glossary rows _issue_ (ärende) and _issue type_
@@ -422,6 +424,42 @@ handling change had taken.
   from the picker described under [Cases a handler opens](#cases-a-handler-opens):
   the apartment first, then who lives there today, with protected residents
   masked and no search. The address book stays closed to the property manager.
+
+### The interim answer to question 5
+
+Taken on 2026-11-04 by the change that built the ring-fence, as a default the
+plan allows ("the CTO may change a default and must say so"); the owner may
+change it.
+
+- **A setting any type may carry**, `IssueType.ringFenced`, rather than the
+  seeded type alone. A board that calls its complaints about neighbours
+  something else, or keeps two such types, holds them to the same rules. The
+  Swedish set a new instance starts with has Störningar ring-fenced, offered to
+  residents and handled by the board only. An instance seeded before it has no
+  Störningar type, and the board adds one and ring-fences it.
+- **Set by the board**, under `issues:configure` - a board member with a seat
+  or an administrator, never the property manager - through a request of its
+  own, audited as `ISSUE_TYPE_RING_FENCE_CHANGED`.
+- **Ring-fencing hands the type to the board.** `handledBy` becomes `BOARD`, and
+  whoever that shuts out is unassigned as when the board keeps any type to
+  itself. A CHECK holds a ring-fenced type to `BOARD`, so the property manager
+  is kept out by the board-only rule every read and write already asks, and no
+  second rule had to be threaded through them.
+- **Never on the website's form.** A type the form offers is not ring-fenced
+  until the board takes the form off it, and a ring-fenced type cannot be put on
+  the form, held by a second CHECK. The form's reporter is answered by mail
+  alone, and nothing about a ring-fenced issue is mailed.
+- **Never lifted once anything was reported under the type.** Lifting would hand
+  the earlier reports to the property manager, the AI package and connected
+  apps, and put them back on the board's own clock, which the plan says the
+  board may not set for them. A type ring-fenced by mistake is switched off and
+  replaced.
+
+What else the ring-fence does is in the glossary's row _ring-fenced issue type_
+(avskärmad ärendetyp): no mail about one to anybody, no report under it from a
+post, nothing on `mcp` or `ai` ([ADR 0056](0056-issue-handling-on-mcp-and-ai.md)),
+no work order ([ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md)),
+and its own clock ([ADR 0057](0057-purging-issues-in-two-layers.md)).
 
 ## Consequences
 

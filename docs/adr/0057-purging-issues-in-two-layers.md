@@ -74,7 +74,11 @@ the board's setting, counted from `closedAt`. The setting is a whole number of
 years from 1 to 10, 2 by default, and the board sets it. Two has no legal source: it matches motions, subletting and the
 board mailbox here (decision 33). A ring-fenced type has a clock of its own, one
 year after closing, which the board cannot change while the legal review of
-decision 32 is pending.
+decision 32 is pending. It is a named constant, `RING_FENCED_ISSUE_TEXT_RETENTION_YEARS`
+in `@openbrf/shared`, which the review changes and no setting does; the purge
+takes the shorter of it and the board's setting, and reads whether a type is
+ring-fenced on every run, so a type ring-fenced later brings its closed cases
+onto the shorter clock from the next night.
 
 The text of a work order has a clock of its own too: ten years after closing
 (3,653 days, so never before the tenth anniversary and up to a day after it),

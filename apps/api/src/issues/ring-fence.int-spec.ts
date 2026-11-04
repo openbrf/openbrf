@@ -298,6 +298,8 @@ async function wholeQueue(
 
 /** Whether this suite made the association row, and so removes it. */
 let createdAssociation = false;
+/** The website form's switch as this suite found it, put back afterwards. */
+let publicReportingBefore = false;
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
@@ -328,6 +330,12 @@ beforeAll(async () => {
       data: { id: 1, name: "Brf Eksemplet" },
     });
   }
+  publicReportingBefore = (
+    await prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { issueReportingPublic: true },
+    })
+  ).issueReportingPublic;
   await prisma.association.update({
     where: { id: 1 },
     data: { issueReportingPublic: true },
@@ -435,7 +443,7 @@ afterAll(async () => {
   } else {
     await prisma.association.update({
       where: { id: 1 },
-      data: { issueReportingPublic: false },
+      data: { issueReportingPublic: publicReportingBefore },
     });
   }
   await app.close();

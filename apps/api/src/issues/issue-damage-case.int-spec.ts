@@ -213,6 +213,15 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(async () => {
+  // The mail an issue a handler opens queues for the other handlers.
+  const filed = await prisma.issue.findMany({
+    where: { typeId: { in: Object.values(typeIds) } },
+    select: { id: true },
+  });
+  await prisma.$executeRawUnsafe(
+    "DELETE FROM pgboss.job WHERE data->>'issueId' = ANY($1::text[])",
+    filed.map((issue) => issue.id),
+  );
   await prisma.issue.deleteMany({
     where: { typeId: { in: Object.values(typeIds) } },
   });
