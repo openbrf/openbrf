@@ -12,9 +12,10 @@ import {
 import { issueReporterNoticeMail } from "./issue-reporter-notice.template";
 
 /**
- * The mails about an issue: the number, the type, the priority and a link,
- * and nothing anybody wrote (decision 21 of the issue module plan). What the
- * flows put into them is held to that in `issue-mail.int-spec.ts`.
+ * The mails about an issue: the number, the type and a link, and in a mail to
+ * a handler the priority as well. Nothing anybody wrote goes into them
+ * (decision 21 of the issue module plan). What the flows put into them is held
+ * to that in `issue-mail.int-spec.ts`.
  */
 
 const TEST_ENV = {

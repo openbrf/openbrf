@@ -79,6 +79,7 @@ import {
 import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import { IssueMailer } from "./issue-mailer.service";
 import { IssueError } from "./issue.error";
+import { workOrderKnownNotSent } from "./work-order-delivery";
 
 /**
  * How many photographs one report may carry.
@@ -473,6 +474,13 @@ export type IssueTimelineStep = {
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
   | { kind: "knownFault"; published: boolean }
+  /**
+   * A work order was written; the work orders themselves say to whom. How its
+   * mail ended is read from the work order as the timeline is read, because
+   * the entry is written when the mail is queued and is never rewritten:
+   * `null` when the work order is no longer there to ask.
+   */
+  | { kind: "workOrder"; delivery: IssueTimelineWorkOrderDelivery | null }
   /** A handler redacted a text or removed a file (ADR 0057). */
   | { kind: "redacted"; target: IssueRedactionTarget | null }
   | { kind: "legalHold"; held: boolean }
@@ -500,6 +508,10 @@ export interface IssueChargeBasis {
     | { kind: "person"; personId: string }
     | null;
 }
+
+/** How a work order's mail stands, for its step in the timeline. */
+export type IssueTimelineWorkOrderDelivery =
+  "pending" | "sent" | "failed" | "unconfirmed";
 
 /**
  * How many issues one page of the queue answers with.
@@ -2062,6 +2074,31 @@ export class IssueService {
       },
     });
 
+    const workOrders = entries.some(
+      (entry) => entry.action === "ISSUE_WORK_ORDER_SENT",
+    )
+      ? await this.prisma.workOrder.findMany({
+          where: { issueId },
+          select: { id: true, deliveryStatus: true, deliveryFailure: true },
+        })
+      : [];
+    const deliveryOf = new Map(
+      workOrders.map((order) => [
+        order.id,
+        order.deliveryStatus === "SENT"
+          ? ("sent" as const)
+          : order.deliveryStatus === "PENDING"
+            ? ("pending" as const)
+            : // Only a failure after which nothing left this instance reads
+              // "not sent"; a mail driver's error (`send-failed`) and a sending
+              // that may have gone out are unconfirmed, as on the work order
+              // list and in the data subject report.
+              workOrderKnownNotSent(order.deliveryFailure)
+              ? ("failed" as const)
+              : ("unconfirmed" as const),
+      ]),
+    );
+
     const viewOf = await readAuthors(this.prisma, [
       ...entries
         .filter((entry) => !byReporter(entry.context))
@@ -2087,6 +2124,7 @@ export class IssueService {
           // The reporter, who is never named on the timeline.
           byReporter(entry.context) ? null : person(entry.actorPersonId),
           person,
+          deliveryOf,
         ),
       ),
     ];
@@ -3399,6 +3437,7 @@ const TIMELINE_ACTIONS = [
   "ISSUE_TARGET_DATE_CHANGED",
   "ISSUE_ACCESS_CHANGED",
   "ISSUE_KNOWN_FAULT_CHANGED",
+  "ISSUE_WORK_ORDER_SENT",
   "ISSUE_REDACTED",
   "ISSUE_LEGAL_HOLD_PLACED",
   "ISSUE_LEGAL_HOLD_RELEASED",
@@ -3422,6 +3461,7 @@ function timelineStep(
   },
   actor: IssueHandlerView | null,
   person: (id: string | null) => IssueHandlerView | null,
+  deliveryOf: ReadonlyMap<string, IssueTimelineWorkOrderDelivery>,
 ): IssueTimelineStep {
   const context =
     entry.context !== null &&
@@ -3475,6 +3515,13 @@ function timelineStep(
         at,
         actor,
         published: context.published === true,
+      };
+    case "ISSUE_WORK_ORDER_SENT":
+      return {
+        kind: "workOrder",
+        at,
+        actor,
+        delivery: deliveryOf.get(text("workOrderId") ?? "") ?? null,
       };
     case "ISSUE_REDACTED":
       return {

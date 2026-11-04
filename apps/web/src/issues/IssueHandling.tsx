@@ -6,7 +6,7 @@ import {
   type IssueRedactionTarget,
 } from "@openbrf/shared";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { Trans, useTranslation } from "react-i18next";
 
 import type { ApiResult } from "../api/client";
@@ -38,6 +38,7 @@ import { DATA_TAGS } from "../ui/data-tags";
 import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { usePoll } from "../ui/use-poll";
 import {
   ISSUE_COST_RESPONSIBILITY_LABEL,
   ISSUE_MEANING_LABEL,
@@ -47,6 +48,9 @@ import {
 } from "./issue-labels";
 import { IssueHandlerName, issueHandlerName } from "./IssueHandlerName";
 import { ResponsibilityGuideTable } from "./ResponsibilityGuideTable";
+
+/** How often the timeline is read again while a work order's mail is on its way. */
+const WORK_ORDER_POLL_MS = 4000;
 
 const HANDLING_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.handling.errors.issueNotFound",
@@ -116,16 +120,25 @@ function personIdOf(handler: IssueHandler | null): string {
  * panel, as the queue has one for status moves; every save reads the queue
  * again, and with it this panel's drafts, which are keyed to the issue's
  * values so a draft never offers to save what the queue already holds.
+ *
+ * A work order's step says how its mail stands, which the mail worker changes
+ * after the handler sent it. So the timeline is read again whenever a work
+ * order is sent from the issue beside it (`workOrdersSent`), and every few
+ * seconds while a step still says the mail is on its way, the way the work
+ * orders' own record is.
  */
 export function IssueHandling({
   issue,
   type,
+  workOrdersSent,
   canManageCharges = false,
   onChanged,
 }: {
   issue: QueuedIssue;
   /** The issue's type, for the board's names of the statuses on the timeline. */
   type: IssueTypeView | undefined;
+  /** How many work orders were sent from this issue while the queue was open. */
+  workOrdersSent: number;
   /**
    * Whether the reader holds `memberCharges:manage`, which decides whether the
    * charges made from the issue are read at all. Courtesy only: the API
@@ -167,7 +180,37 @@ export function IssueHandling({
     return () => {
       active = false;
     };
-  }, [issue.id, revision, reads]);
+  }, [issue.id, revision, reads, workOrdersSent]);
+
+  /*
+   * The timeline alone, and only while a work order's mail is on its way. Each
+   * answer is matched to the read it was asked under, so one that a save, a
+   * newer revision or a sending has since superseded is dropped; a failed
+   * attempt keeps what is shown, and the next attempt asks again.
+   */
+  const readKey = `${issue.id}:${revision}:${String(reads)}:${String(workOrdersSent)}`;
+  const readKeyRef = useRef(readKey);
+  useEffect(() => {
+    readKeyRef.current = readKey;
+  }, [readKey]);
+  const mailPending =
+    timeline?.some(
+      (step) => step.kind === "workOrder" && step.delivery === "pending",
+    ) ?? false;
+  usePoll(
+    async (stillWanted) => {
+      const askedUnder = readKeyRef.current;
+      const timelineRead = await fetchIssueTimeline(issue.id);
+      if (
+        stillWanted() &&
+        timelineRead.ok &&
+        askedUnder === readKeyRef.current
+      ) {
+        setTimeline(timelineRead.value);
+      }
+    },
+    { intervalMs: WORK_ORDER_POLL_MS, enabled: mailPending },
+  );
 
   const guide = useHandlerGuide(issue);
 
@@ -672,6 +715,15 @@ function AccessForm({
   );
 }
 
+/** What a work order's step says, by how its mail stands. */
+const WORK_ORDER_STEP_LABELS = {
+  written: "issues.timeline.workOrder.written",
+  pending: "issues.timeline.workOrder.pending",
+  sent: "issues.timeline.workOrder.sent",
+  failed: "issues.timeline.workOrder.failed",
+  unconfirmed: "issues.timeline.workOrder.unconfirmed",
+} as const;
+
 /** What one step of the timeline says happened. */
 function TimelineSentence({
   step,
@@ -768,6 +820,8 @@ function TimelineSentence({
             : t("issues.timeline.knownFaultWithdrawn")}
         </>
       );
+    case "workOrder":
+      return <>{t(WORK_ORDER_STEP_LABELS[step.delivery ?? "written"])}</>;
     case "redacted":
       return (
         <>
@@ -807,4 +861,5 @@ const REDACTED_STEP: Readonly<Record<IssueRedactionTarget, TranslationKey>> = {
   note: "issues.timeline.redacted.note",
   photo: "issues.timeline.redacted.photo",
   attachment: "issues.timeline.redacted.attachment",
+  workOrder: "issues.timeline.redacted.workOrder",
 };

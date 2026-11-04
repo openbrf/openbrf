@@ -57,9 +57,10 @@ countable.
 free-text location, every issue message and internal note, the text of every
 work order and the contractor's notes, and every photograph and every file a
 contractor uploaded, removed from storage and not only unlinked. What stays of a
-work order is the record of who received it and when, and which kinds of data it
+work order is the record of who received it (until that contractor is removed
+from the list, which clears the name and address) and when, and which kinds of data it
 carried, because that is what art. 15(1)(c) and art. 19 ask the association to
-answer (decision 23); its words go with the rest. The free-text
+answer (decision 23); its words go too, on a clock of their own (below). The free-text
 location goes with them because decision 33 removes free text, and "the bathroom
 in 1101, the neighbour's dog" is free text whatever field it was typed into.
 
@@ -75,11 +76,34 @@ board mailbox here (decision 33). A ring-fenced type has a clock of its own, one
 year after closing, which the board cannot change while the legal review of
 decision 32 is pending.
 
+The text of a work order has a clock of its own too: ten years after closing
+(3,653 days, so never before the tenth anniversary and up to a day after it),
+whatever the board's setting. The owner asked on 2026-11-03 for it to be kept as
+long as the law allows, and ten years is where the general limitation period
+for a claim about the work ends (preskriptionslagen (1981:130) 2 §); the reasons
+are in [ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md#the-mailed-work-order).
+The nightly issue purge already erases it on that clock (`WORK_ORDER_BODY_RETENTION_DAYS`),
+and a handler may redact it sooner ([Redaction](#redaction)).
+A report from the website's form is tied to its reporter only by the address
+index, so the purge that removes its contact details after 365 days keeps that
+index while a work order's text stands, and the transaction that erases the last
+text clears it: a hold or a restriction placed later on the person who wrote in
+still reaches the text (see [Erasure and the closing job](#erasure-and-the-closing-job):
+no case whose text stands may lose its selector). A case reported by a person
+in the register keeps its reporter column the same way: the person purge does
+not detach it while a work order's text stands, and detaches it on a later run
+once the text is gone. For a person whose erasure request has been executed,
+whom no later run selects, the transaction that removes the last text on the
+case clears it: the work-order text purge once the free-text layer is gone too,
+or the removal of the free-text layer (by the clock, the issue erasure job or a
+handler's redaction) once no work order's text stands.
+
 A case reopened before its date stops the clock, because reopening clears
 `closedAt`. The 30 days in which a reply reopens a case (ADR 0054) are inside the
 shortest clock.
 
-The clock does not run while a legal hold applies:
+Neither clock, the free-text layer's or a work order's text's, runs while a
+legal hold applies:
 
 - **on the case**, which marking a case as a damage case sets (decision 28) and
   which is placed and released with a date, as a person's legal hold is;
@@ -102,7 +126,11 @@ A handler the case lets in may at any time redact the text of a description, a
 location, an issue message, an internal note or a work order, and remove a
 photograph or an uploaded file. Redacting replaces the text with a mark saying
 it was redacted and when; nothing keeps the earlier text, so a redaction is not
-an edit with a history. Removing a file removes it from storage.
+an edit with a history. Removing a file removes it from storage. A work order
+whose text is redacted stays on the case with whom it went to and when, which is
+the record of the disclosure (the recipient's name and address go if the
+contractor is later removed from the list, [ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md#the-mailed-work-order)); one whose mail has not gone out yet is not sent,
+and is recorded as not sent.
 
 Each act is recorded in the audit log against the case, by its own action, with
 the field it reached and never the text (the rule that an entry's context holds
@@ -156,7 +184,11 @@ free-text layer is gone. It runs at `53 3`, after the clock and the issue erasur
 job, so a case either job finishes loses its reporter the same night, once the
 person's window has run out or their request is executed, in the transaction that
 records the person's purge; a case a handler finishes by redaction loses it on
-the next night. The person purge's scan of reporter columns reads only finished
+the next night. The exception is a person whose erasure request has been executed
+while a work order's text still stood: no later run selects them, so the
+transaction that erases the last text clears the column, whether the clock erased
+it or a handler's redaction did, unless a legal hold or a restriction keeps them.
+The person purge's scan of reporter columns reads only finished
 cases, so a person whose case still waits is not selected for it night after night.
 
 Detaching is not erasing what the person wrote, and a clock that removes it

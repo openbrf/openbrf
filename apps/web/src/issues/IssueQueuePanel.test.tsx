@@ -1,7 +1,14 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import "../i18n";
 import type {
@@ -634,6 +641,10 @@ describe("the status of a report", () => {
 });
 
 describe("handling an issue", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   function show(queued: QueuedIssue = issue(), onChanged = vi.fn()) {
     render(
       <IssueQueuePanel issues={[queued]} types={TYPES} onChanged={onChanged} />,
@@ -1061,6 +1072,12 @@ describe("handling an issue", () => {
           waitingReason: "CONTRACTOR",
           outcome: null,
         },
+        {
+          kind: "workOrder",
+          at: "2026-08-21T10:00:00.000Z",
+          actor: null,
+          delivery: "failed",
+        },
       ],
     });
     const session = userEvent.setup();
@@ -1078,6 +1095,53 @@ describe("handling an issue", () => {
     // The board's own name for the status, from the type.
     expect(steps[2]).toContain("Flyttat till Hos rörmokaren");
     expect(steps[2]).toContain("Namnet visas inte (skyddade personuppgifter)");
+    // A work order whose mail did not go is not said to have been sent.
+    expect(steps[3]).toContain("skickades inte");
+  });
+
+  it("reads the timeline again while a work order's mail is on its way, and then stops", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reported = {
+      kind: "reported",
+      at: "2026-08-20T08:00:00.000Z",
+      actor: null,
+    };
+    const workOrder = {
+      kind: "workOrder",
+      at: "2026-08-21T10:00:00.000Z",
+      actor: null,
+    };
+    fetchIssueTimeline.mockResolvedValue({
+      ok: true,
+      value: [reported, { ...workOrder, delivery: "pending" }],
+    });
+    const session = userEvent.setup({
+      advanceTimers: (ms) => vi.advanceTimersByTime(ms),
+    });
+    show();
+    await openHandling(session);
+    expect(
+      await screen.findByText("En arbetsorder är på väg till en entreprenör"),
+    ).toBeTruthy();
+
+    // The mail worker hands it to the mail server; nothing on the screen
+    // changes, so only the poll can bring the new state.
+    fetchIssueTimeline.mockResolvedValue({
+      ok: true,
+      value: [reported, { ...workOrder, delivery: "sent" }],
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(
+      await screen.findByText("En arbetsorder skickades till en entreprenör"),
+    ).toBeTruthy();
+
+    const settled = fetchIssueTimeline.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    expect(fetchIssueTimeline).toHaveBeenCalledTimes(settled);
   });
 
   it("adds a status just saved to the timeline while it stays open", async () => {
