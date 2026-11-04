@@ -23,8 +23,9 @@ the common area it is about, and the mark of an inspection finding.
   The answer is cleared when the issue is closed, in the same step
   that closes it, and the database refuses a closed issue that holds one. A
   note that reads like a door code is refused, with a sentence saying why, and
-  is never stored, while a time such as 08.00-12.00 or a date is not; a note a handler writes is also refused while it carries a
-  personal identity number. The answer is on the resident's data subject access
+  is never stored. A time such as 08.00-12.00 or a date is not taken for a door
+  code. A note a handler writes is also refused while it carries a personal
+  identity number. The answer is on the resident's data subject access
   report while the issue is open. The purge of a person clears it from an issue
   whose text is already gone, when it detaches them from that issue, and
   removing the apartment from the register clears it from the issues about that
