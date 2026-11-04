@@ -1,6 +1,8 @@
 import type {
   AuthorView,
   IssueClosingOutcome,
+  IssueEntryAnswer,
+  IssueFindingKind,
   IssueCostResponsibility,
   IssueHandledBy,
   IssueMeaningFilter,
@@ -103,6 +105,69 @@ export interface IssueApartment {
   address: string;
 }
 
+/** A common-area place, as a reporter or a handler picks it (decision 30). */
+export interface IssuePlaceChoice {
+  id: string;
+  name: string;
+}
+
+/** A place with how many of the issues this handler may open name it. */
+export interface IssuePlaceCount extends IssuePlaceChoice {
+  active: boolean;
+  issues: number;
+  open: number;
+}
+
+/** A place as the board edits it. */
+export interface ConfiguredIssuePlace extends IssuePlaceChoice {
+  active: boolean;
+  sortOrder: number;
+  issueCount: number;
+}
+
+export interface IssuePlaceInput {
+  name: string;
+  active?: boolean;
+  sortOrder?: number;
+}
+
+/** The resident's entry permission on an issue (decision 29). */
+export interface IssueEntry {
+  answer: IssueEntryAnswer;
+  note: string | null;
+  pets: boolean | null;
+  masterKey: boolean | null;
+  /** `YYYY-MM-DD`, or null for no end. */
+  until: string | null;
+  /** Past its last day; still shown until the issue closes. */
+  expired: boolean;
+}
+
+/** What the resident, or a handler for them, answers. */
+export interface IssueEntryInput {
+  answer: IssueEntryAnswer;
+  note?: string | null;
+  pets?: boolean;
+  masterKey?: boolean;
+  until?: string | null;
+}
+
+/** The mark of an inspection finding on an issue (decision 31). */
+export interface IssueFinding {
+  kind: IssueFindingKind;
+  /** `YYYY-MM-DD`. */
+  inspectedOn: string;
+  /** One of the issue's handler files, or null once it has been removed. */
+  protocol: { attachmentId: string; fileName: string } | null;
+}
+
+export interface IssueFindingInput {
+  kind: IssueFindingKind;
+  inspectedOn: string;
+  protocolAttachmentId: string;
+  targetDate: string;
+}
+
 export interface IssuePhoto {
   id: string;
   url: string;
@@ -123,8 +188,12 @@ export interface OwnIssue {
   typeId: string;
   typeName: string;
   location: string | null;
+  /** The common-area place it is about, or null. */
+  place: IssuePlaceChoice | null;
   description: string;
   apartment: IssueApartment | null;
+  /** The resident's answer about entering the apartment, or null. */
+  entry: IssueEntry | null;
   photos: IssuePhoto[];
   /** Whether a handler opened it on the reporter's behalf; never which one. */
   enteredByHandler: boolean;
@@ -174,6 +243,11 @@ export type IssueReporter =
 export type ReporterLinkState = "live" | "ended" | "pending" | "none";
 
 export type QueuedIssue = OwnIssue & {
+  /**
+   * Filed against an apartment, true also while `apartment` is withheld for a
+   * protected reporter. Decides between the entry permission and a place.
+   */
+  aboutApartment: boolean;
   /** The status it stands in, as the board named it for its type. */
   status: { id: string; label: string };
   waitingReason: IssueWaitingReason | null;
@@ -192,6 +266,8 @@ export type QueuedIssue = OwnIssue & {
   enteredBy: IssueHandler | null;
   /** Closed to every handler but the board on its own. */
   boardOnly: boolean;
+  /** The inspection it is a finding of, or null. */
+  finding: IssueFinding | null;
   /** Since when a legal hold stands on the issue, or null. */
   legalHoldAt: string | null;
   /**
@@ -211,6 +287,7 @@ export interface ReportIssueInput {
   typeId: string;
   apartmentId?: string | null;
   location?: string | null;
+  placeId?: string | null;
   description: string;
   /**
    * The post in the feed this report is made from ("Gör felanmälan"), which
@@ -238,6 +315,7 @@ export interface OpenIssueInput {
   /** A residency the resident picker offered; absent for an internal issue. */
   residencyId?: string;
   location?: string;
+  placeId?: string;
   description: string;
 }
 
@@ -273,6 +351,15 @@ export type IssueTimelineStep = {
   | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
+  | { kind: "place"; placeId: string | null }
+  | {
+      kind: "entry";
+      /** The answer given, or null when it was withdrawn. */
+      answer: IssueEntryAnswer | null;
+      /** Answered by the resident; then the step has no actor. */
+      byReporter: boolean;
+    }
+  | { kind: "finding"; findingKind: IssueFindingKind | null }
   | { kind: "redacted"; target: IssueRedactionTarget | null }
   | { kind: "legalHold"; held: boolean }
   | {
@@ -339,6 +426,17 @@ export function fetchReportableTypes(): Promise<
   );
 }
 
+/** The common-area places a report may name. */
+/**
+ * The places a reporter may name. Bounded as the place counts are, by
+ * `ISSUE_PLACES_TIMEOUT_MS`: the issues screen waits for this read with the
+ * others before it shows the report form, and files a report without a place
+ * when it fails.
+ */
+export function fetchIssuePlaces(): Promise<ApiResult<IssuePlaceChoice[]>> {
+  return readPlaces("/api/issues/places");
+}
+
 export function fetchOwnApartments(): Promise<ApiResult<IssueApartment[]>> {
   return apiRequest("GET", "/api/issues/apartments");
 }
@@ -372,6 +470,8 @@ export function attachIssuePhoto(
 export interface IssueQueueFilter {
   meaning?: IssueMeaningFilter;
   typeId?: string;
+  /** Only the issues that name this common-area place (decision 30). */
+  placeId?: string;
   priority?: IssuePriority;
   /** What the handler typed; blank is no search. */
   search?: string;
@@ -397,6 +497,9 @@ function queueQuery(filter: IssueQueueFilter, view?: IssueQueueView): string {
   }
   if (filter.typeId !== undefined) {
     query.set("typeId", filter.typeId);
+  }
+  if (filter.placeId !== undefined) {
+    query.set("placeId", filter.placeId);
   }
   if (filter.priority !== undefined) {
     query.set("priority", filter.priority);
@@ -610,6 +713,139 @@ export function setIssueBoardOnly(input: {
     `/api/issue-queue/${encodeURIComponent(input.issueId)}/access`,
     { boardOnly: input.boardOnly },
   );
+}
+
+/** Answers the entry question on one's own report. */
+export function answerOwnEntry(input: {
+  issueId: string;
+  entry: IssueEntryInput;
+}): Promise<ApiResult<{ entry: IssueEntry | null }>> {
+  return apiRequest(
+    "PUT",
+    `/api/issues/${encodeURIComponent(input.issueId)}/entry-permission`,
+    input.entry,
+  );
+}
+
+export function withdrawOwnEntry(
+  issueId: string,
+): Promise<ApiResult<{ entry: IssueEntry | null }>> {
+  return apiRequest(
+    "DELETE",
+    `/api/issues/${encodeURIComponent(issueId)}/entry-permission`,
+  );
+}
+
+/**
+ * How long a screen waits for the whole of a places read, body included. The
+ * issues screen reads the places with the reporter's lists, and the queue reads
+ * the place counts with the issues, and neither draws until all are in, so a
+ * server that never answers, or stops halfway through the answer, would leave
+ * it loading with no retry; past this the read comes back as a failed one and
+ * the screen goes on without places. The whole read is bounded, not only the
+ * wait for the headers as `answerTimeoutMs` would: the answer is a short list,
+ * so one still arriving after this is one that has stalled.
+ */
+export const ISSUE_PLACES_TIMEOUT_MS = 10_000;
+
+/** A GET of a places list under `ISSUE_PLACES_TIMEOUT_MS`. */
+async function readPlaces<T>(path: string): Promise<ApiResult<T>> {
+  const deadline = new AbortController();
+  const timer = setTimeout(() => {
+    deadline.abort();
+  }, ISSUE_PLACES_TIMEOUT_MS);
+  try {
+    return await apiRequest("GET", path, undefined, {
+      signal: deadline.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The places with how many issues this handler may open name each. */
+export function fetchIssuePlaceCounts(): Promise<ApiResult<IssuePlaceCount[]>> {
+  return readPlaces("/api/issue-queue/places");
+}
+
+export function setIssuePlace(input: {
+  issueId: string;
+  placeId: string | null;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/place`,
+    { placeId: input.placeId },
+  );
+}
+
+/** A handler records the resident's answer to the entry question. */
+export function answerEntry(input: {
+  issueId: string;
+  entry: IssueEntryInput;
+}): Promise<ApiResult<{ entry: IssueEntry | null }>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/entry-permission`,
+    input.entry,
+  );
+}
+
+export function withdrawEntry(
+  issueId: string,
+): Promise<ApiResult<{ entry: IssueEntry | null }>> {
+  return apiRequest(
+    "DELETE",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/entry-permission`,
+  );
+}
+
+export function markIssueFinding(input: {
+  issueId: string;
+  finding: IssueFindingInput;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/finding`,
+    input.finding,
+  );
+}
+
+export function removeIssueFinding(
+  issueId: string,
+): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "DELETE",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/finding`,
+  );
+}
+
+/** The places, as the board edits them. */
+export function fetchConfiguredPlaces(): Promise<
+  ApiResult<ConfiguredIssuePlace[]>
+> {
+  return apiRequest("GET", "/api/issue-places");
+}
+
+export function createIssuePlace(
+  input: IssuePlaceInput,
+): Promise<ApiResult<ConfiguredIssuePlace>> {
+  return apiRequest("POST", "/api/issue-places", input);
+}
+
+export function updateIssuePlace(input: {
+  id: string;
+  values: IssuePlaceInput;
+}): Promise<ApiResult<ConfiguredIssuePlace>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-places/${encodeURIComponent(input.id)}`,
+    input.values,
+  );
+}
+
+export function removeIssuePlace(id: string): Promise<ApiResult<undefined>> {
+  return apiRequest("DELETE", `/api/issue-places/${encodeURIComponent(id)}`);
 }
 
 /**

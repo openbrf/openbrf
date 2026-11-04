@@ -373,8 +373,10 @@ const FULL_REPORT: Report = {
       outcome: null,
       waitingReason: null,
       costResponsibility: null,
+      place: null,
       location: "Storgatan 12, entren",
       description: ISSUE_DESCRIPTION,
+      entry: null,
       descriptionRedactedAt: null,
       locationRedactedAt: null,
       freeTextRemovedAt: null,
@@ -1877,6 +1879,106 @@ describe("what the document prints", () => {
     expect(
       within(done as HTMLElement).getByText("Vem betalar: Bostadsrättshavaren"),
     ).toBeTruthy();
+  });
+
+  it("prints the answer about getting in with what the resident said", async () => {
+    // The fixture's issue has no entry, so the block is not drawn there; this
+    // one has all of it, and the access report is the copy the person keeps.
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          entry: {
+            answer: "YES",
+            pets: true,
+            masterKey: true,
+            note: "Ring på dörren två gånger",
+            until: "2026-12-24",
+          },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const row = screen.getByText(/Tillträde: Ja\./).closest("tr");
+    expect(row).not.toBeNull();
+    const text = (row as HTMLElement).textContent ?? "";
+    expect(text).toContain("husdjur · huvudnyckel · Ring på dörren två gånger");
+    expect(text).toContain("Gäller till och med 2026-12-24");
+  });
+
+  it("prints the answer about getting in as no when the resident said no", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          entry: {
+            answer: "NO",
+            pets: null,
+            masterKey: null,
+            note: null,
+            until: null,
+          },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText(/Tillträde: Nej\./)).toBeTruthy();
+    expect(screen.queryByText(/Tillträde: Ja\./)).toBeNull();
+  });
+
+  it("prints a recorded no about pets and the master key, not only a yes", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          entry: {
+            answer: "YES",
+            pets: false,
+            masterKey: false,
+            note: null,
+            until: null,
+          },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const row = screen.getByText(/Tillträde: Ja\./).closest("tr");
+    expect(row).not.toBeNull();
+    expect((row as HTMLElement).textContent ?? "").toContain(
+      "inga husdjur · huvudnyckel får inte användas",
+    );
+  });
+
+  it("names the common area an issue is about, also once its text is gone", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          place: "Tvättstuga",
+          location: null,
+          description: "",
+          freeTextRemovedAt: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText("Gemensamt utrymme: Tvättstuga")).toBeTruthy();
   });
 
   it("names whom an issue was sent to, and a removed contractor as one", async () => {

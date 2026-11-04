@@ -4,6 +4,8 @@ import { ActionsModule } from "../actions/actions.module";
 import { MediaModule } from "../media/media.module";
 import { IssueActionsRegistrar } from "./issue-actions.registrar";
 import { IssueConversationService } from "./issue-conversation.service";
+import { IssueFitService } from "./issue-fit.service";
+import { IssuePlaceService } from "./issue-place.service";
 import { IssueErasureService } from "./issue-erasure.service";
 import { IssueFreeTextService } from "./issue-free-text.service";
 import { IssueMailer } from "./issue-mailer.service";
@@ -21,6 +23,7 @@ import { IssueTextPurgeService } from "./issue-text-purge.service";
 import { IssueTypeService } from "./issue-type.service";
 import { IssueService } from "./issue.service";
 import {
+  IssuePlaceAdminController,
   IssueQueueController,
   IssueReportController,
   IssueSavedReplyAdminController,
@@ -73,6 +76,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     ContractorAdminController,
     ResponsibilityGuideAdminController,
     IssueSavedReplyAdminController,
+    IssuePlaceAdminController,
     IssueRedactionController,
     IssueRetentionController,
   ],
@@ -84,6 +88,8 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueResidentsService,
     IssueConversationService,
     IssueSavedReplyService,
+    IssueFitService,
+    IssuePlaceService,
     IssueReporterLinkService,
     IssueFreeTextService,
     IssueTextPurgeService,
@@ -101,6 +107,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueService,
     IssueTypeService,
     IssueSavedReplyService,
+    IssuePlaceService,
     IssueReporterLinkService,
     WorkOrderLinkService,
     ResponsibilityGuideService,

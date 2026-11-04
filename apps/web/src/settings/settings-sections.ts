@@ -133,6 +133,7 @@ export type SettingsPanelId =
   | "contractors"
   | "responsibilityGuide"
   | "issueSavedReplies"
+  | "issuePlaces"
   | "issueRetention"
   | "bookableResources"
   | "motionDeadline"
@@ -285,6 +286,13 @@ export const SETTINGS_PANELS: readonly SettingsPanel[] = [
   {
     // The board's words to reporters, written by whoever configures issues.
     id: "issueSavedReplies",
+    section: "issues-bookings",
+    needs: "settings",
+    shownTo: (access) => access.canRead && access.canConfigureIssues,
+  },
+  {
+    // The board's list of common areas, written by whoever configures issues.
+    id: "issuePlaces",
     section: "issues-bookings",
     needs: "settings",
     shownTo: (access) => access.canRead && access.canConfigureIssues,

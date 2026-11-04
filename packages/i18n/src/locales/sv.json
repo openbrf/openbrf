@@ -942,6 +942,11 @@
           "SUPPORT_SESSION_STARTED": "Supportperson loggade in",
           "SUPPORT_REQUEST": "Supportperson tittade",
           "SUPPORT_SESSION_ENDED": "Supportperson loggade ut",
+          "ISSUE_ENTRY_PERMISSION_SET": "Ett svar om tillträde till en lägenhet gavs i ett ärende",
+          "ISSUE_ENTRY_PERMISSION_REMOVED": "Ett svar om tillträde till en lägenhet togs tillbaka i ett ärende",
+          "ISSUE_PLACE_CHANGED": "Det gemensamma utrymmet i ett ärende angavs eller ändrades",
+          "ISSUE_FINDING_MARKED": "Ett ärende markerades som besiktningsanmärkning",
+          "ISSUE_FINDING_REMOVED": "Ett ärendes markering som besiktningsanmärkning togs bort",
           "ISSUE_REPORTER_LINK_ISSUED": "En privat länk till ett ärende skickades till anmälaren",
           "ISSUE_REPORTER_LINK_REVOKED": "Anmälarens privata länk till ett ärende drogs tillbaka"
         },
@@ -1023,7 +1028,9 @@
           "issue": "Det här ärendet",
           "typeDefault": "Varje nytt ärende av typen"
         },
-        "issueCostResponsibility": "Vem betalar: {{who}}"
+        "issueCostResponsibility": "Vem betalar: {{who}}",
+        "issueEntry": "Tillträde: {{answer}}. {{details}}",
+        "issuePlace": "Gemensamt utrymme: {{place}}"
       },
       "requests": {
         "kind": {
@@ -2133,6 +2140,33 @@
         "radiators": "Radiatorer",
         "commonAreas": "Trapphus, tvättstuga och andra gemensamma utrymmen",
         "buildingShell": "Tak, fasad och yttre underhåll"
+      }
+    },
+    "issuePlaces": {
+      "title": "Gemensamma utrymmen",
+      "description": "Den korta lista en anmälan kan peka ut vid sidan av den fria platsangivelsen, till exempel tvättstuga, hiss och gård. Den gör ett fel som återkommer på samma plats räknebart.",
+      "loading": "Läser in de gemensamma utrymmena...",
+      "loadFailed": "De gemensamma utrymmena kunde inte läsas in just nu.",
+      "empty": "Inga gemensamma utrymmen.",
+      "nameLabel": "Namn",
+      "nameNamed": "{{name}}: namn",
+      "active": "Erbjuds",
+      "activeNamed": "{{name}}: erbjuds för nya anmälningar",
+      "issueCount_one": "{{count}} ärende",
+      "issueCount_other": "{{count}} ärenden",
+      "save": "Spara",
+      "remove": "Ta bort",
+      "removeNamed": "Ta bort {{name}}",
+      "addLabel": "Nytt gemensamt utrymme",
+      "add": "Lägg till",
+      "neverApartments": "Bara gemensamma utrymmen, aldrig lägenheter. Ett ärende om en bostad har sin lägenhet. Ett utrymme som ärenden pekar ut kan stängas av men inte tas bort.",
+      "errors": {
+        "notFound": "Det gemensamma utrymmet finns inte längre. Listan har lästs in igen.",
+        "nameTaken": "Det finns redan ett gemensamt utrymme med det namnet.",
+        "nameApartment": "Ett gemensamt utrymme är aldrig en lägenhet. Namnge rummet eller gården.",
+        "inUse": "Ärenden pekar ut det här gemensamma utrymmet, så det kan inte tas bort. Stäng av det i stället.",
+        "tooMany": "Föreningen har redan så många gemensamma utrymmen som den får ha.",
+        "unknown": "De gemensamma utrymmena kunde inte ändras just nu. Försök igen."
       }
     }
   },
@@ -3732,7 +3766,7 @@
         "identity": "Meddelandet innehåller ett personnummer och skickades inte. Ta bort det och försök igen.",
         "closed": "Ärendet är avslutat och tar inte emot fler meddelanden.",
         "limited": "Ärendet tar inte emot fler meddelanden just nu. Försök igen senare.",
-        "full": "Ärendet har nått det högsta antal meddelanden som en länk tar emot. Fler meddelanden kan inte skickas via länken."
+        "full": "Ärendet har nått det högsta antalet meddelanden som en länk tar emot. Fler meddelanden kan inte skickas via länken."
       }
     },
     "workOrderLink": {
@@ -3897,8 +3931,13 @@
         "unknown": "Anmälan kunde inte skickas just nu. Försök igen.",
         "postNotFound": "Inlägget finns inte, eller så kan du inte läsa det. Anmälan skickades inte.",
         "postNotReportable": "Bara den som skrev inlägget och styrelsen kan göra en felanmälan från det. Anmälan skickades inte.",
-        "postAlreadyReported": "Någon har redan gjort en felanmälan från det här inlägget. Anmälan skickades inte."
-      }
+        "postAlreadyReported": "Någon har redan gjort en felanmälan från det här inlägget. Anmälan skickades inte.",
+        "placeNotFound": "Det gemensamma utrymmet erbjuds inte längre. Välj ett annat eller inget.",
+        "placeWithApartment": "Ett gemensamt utrymme väljs bara när anmälan inte gäller en lägenhet. Välj det ena eller det andra."
+      },
+      "place": "Gemensamt utrymme",
+      "placeNone": "Inget särskilt",
+      "placeHint": "Välj ett om problemet finns i ett gemensamt utrymme. Beskriv exakt var i fältet nedan."
     },
     "photos": {
       "title": "Foton",
@@ -3920,7 +3959,8 @@
       "place": "Var",
       "noApartment": "Anmälan gäller ingen lägenhet.",
       "noPlace": "Ingen plats i huset angavs.",
-      "enteredByHandler": "Upplagt av den som hanterar ärenden."
+      "enteredByHandler": "Upplagt av den som hanterar ärenden.",
+      "commonArea": "Gemensamt utrymme:"
     },
     "queue": {
       "title": "Ärendekön",
@@ -3957,7 +3997,8 @@
       "assignee": "Ansvarig",
       "targetDate": "Senast klart",
       "overdue": "Försenat",
-      "enteredBy": "Upplagt av"
+      "enteredBy": "Upplagt av",
+      "finding": "Besiktningsanmärkning: {{kind}}"
     },
     "errors": {
       "forbidden": "Ditt konto får inte göra det.",
@@ -4051,6 +4092,13 @@
       "legalHoldReleased": "Hävde det rättsliga bevarandekravet",
       "costResponsibility": "Vem betalar satt till {{who}}",
       "costResponsibilityRemoved": "Vem betalar togs bort",
+      "placeSet": "Gemensamt utrymme angavs",
+      "placeRemoved": "Gemensamt utrymme togs bort",
+      "entryWithdrawn": "Svaret om tillträde togs tillbaka",
+      "entryAnsweredByResident": "Den boende svarade om tillträde: {{answer}}",
+      "entryRecorded": "Svar om tillträde antecknades: {{answer}}",
+      "findingMarked": "Markerades som besiktningsanmärkning: {{kind}}",
+      "findingRemoved": "Markeringen som besiktningsanmärkning togs bort",
       "workOrder": {
         "written": "En arbetsorder skrevs till en entreprenör",
         "pending": "En arbetsorder är på väg till en entreprenör",
@@ -4340,6 +4388,101 @@
         "tooLarge": "Filen är större än vad som tillåts.",
         "unsupported": "Bara en bild (PNG, JPEG, WebP, GIF) eller en pdf kan bifogas.",
         "unknown": "Filen gick inte att bifoga just nu. Försök igen."
+      }
+    },
+    "seededPlaces": {
+      "laundryRoom": "Tvättstuga",
+      "lift": "Hiss",
+      "yard": "Gård",
+      "stairwell": "Trapphus",
+      "basement": "Källare",
+      "attic": "Vind",
+      "bicycleRoom": "Cykelrum",
+      "garage": "Garage",
+      "wasteRoom": "Soprum"
+    },
+    "places": {
+      "title": "Ärenden per gemensamt utrymme",
+      "description": "Hur många ärenden som pekar ut varje gemensamt utrymme, även avslutade, så att ett fel som återkommer på samma plats syns som ett.",
+      "counts": "{{issues}} ärenden, {{open}} öppna",
+      "showOnly": "Visa bara {{place}}",
+      "showAll": "Visa alla",
+      "hint": "Räknar de ärenden du får öppna. Ärenden som styrelsen håller för sig själv räknas bara för styrelsen."
+    },
+    "entry": {
+      "title": "Tillträde",
+      "intro": "Berätta om föreningen eller en entreprenör får gå in i din lägenhet när du inte är hemma. Uppgiften sparas bara tills ärendet är avslutat.",
+      "introHandler": "Anteckna den boendes svar, givet i telefon eller vid dörren. Uppgiften sparas bara tills ärendet är avslutat.",
+      "answerLabel": "Får föreningen gå in?",
+      "answerYes": "Ja",
+      "answerNo": "Nej",
+      "petsLabel": "Det finns husdjur i bostaden",
+      "petsShort": "husdjur",
+      "petsNone": "inga husdjur",
+      "masterKeyLabel": "Huvudnyckeln får användas",
+      "masterKeyShort": "huvudnyckel",
+      "masterKeyNone": "huvudnyckel får inte användas",
+      "noteLabel": "Hur man kommer in",
+      "noteHint": "Till exempel vem man ringer, eller när någon är hemma. Skriv aldrig en portkod här.",
+      "doorCodeWarning": "Det här ser ut som en portkod. Portkoder sparas aldrig i den här anteckningen, eftersom alla som hanterar ärendet skulle kunna läsa den. Skriv i stället vem man ringer eller när någon är hemma.",
+      "untilLabel": "Gäller till och med",
+      "clearedAtClosing": "Svaret rensas när ärendet avslutas.",
+      "save": "Spara svar",
+      "saving": "Sparar...",
+      "withdraw": "Ta tillbaka svaret",
+      "expired": "Tillträdet gick ut den <data>{{date}}</data>.",
+      "errors": {
+        "doorCode": "Anteckningen ser ut som en portkod och sparades inte. Skriv i stället vem man ringer eller när någon är hemma.",
+        "untilPast": "Den dagen har redan varit. Välj i dag eller en senare dag.",
+        "needsApartment": "Tillträde hör till ett ärende om en lägenhet.",
+        "notResident": "Bara den som bor i lägenheten kan ge tillträde. Du kan fortfarande svara nej eller ta tillbaka ett svar.",
+        "closed": "Ärendet är avslutat, så svaret kan inte ändras. Listan har lästs in igen.",
+        "notFound": "Ärendet finns inte längre, eller är inte längre ditt. Listan har lästs in igen.",
+        "personalIdentityNumber": "Anteckningen innehåller ett personnummer. Ta bort det och spara igen.",
+        "dateInvalid": "Det är inget datum. Välj ett i kalendern.",
+        "unknown": "Svaret kunde inte sparas just nu. Försök igen."
+      }
+    },
+    "fit": {
+      "place": {
+        "label": "Gemensamt utrymme",
+        "none": "Inget särskilt"
+      },
+      "finding": {
+        "title": "Besiktningsanmärkning",
+        "intro": "Markera ärendet som en anmärkning från en OVK-, hiss- eller brandbesiktning. Det kräver protokollet, bifogat under Filer, och ett senast klart-datum. Boende ser det inte.",
+        "current": "Markerat som besiktningsanmärkning: {{kind}}.",
+        "protocolIs": "Protokoll: {{name}}",
+        "protocolGone": "Protokollet har tagits bort från ärendet.",
+        "kind": "Besiktning",
+        "kindNone": "Välj...",
+        "kinds": {
+          "OVK": "Ventilation (OVK)",
+          "LIFT": "Hiss",
+          "FIRE": "Brandskydd"
+        },
+        "inspectedOn": "Besiktigad den",
+        "targetDate": "Senast klart",
+        "liftRule": "Kvarstående fel på en hiss ska åtgärdas inom en månad från besiktningen (BFS 2025:11 1 kap. 17 §). Senast <data>{{date}}</data>.",
+        "useLatest": "Använd det datumet",
+        "protocol": "Protokoll",
+        "protocolNone": "Välj en fil...",
+        "protocolHint": "En av filerna som bifogats ärendet för handläggare.",
+        "attachFirst": "Bifoga protokollet under Filer först och välj det sedan här.",
+        "mark": "Markera som anmärkning",
+        "change": "Spara anmärkning",
+        "remove": "Ta bort markeringen"
+      },
+      "errors": {
+        "issueNotFound": "Ärendet finns inte längre, eller är inte längre ditt att hantera. Kön har lästs in igen.",
+        "closed": "Ärendet är avslutat. Kön har lästs in igen.",
+        "placeNotFound": "Det gemensamma utrymmet erbjuds inte längre. Listan har lästs in igen.",
+        "placeWithApartment": "Ärendet gäller en lägenhet, så det får inget gemensamt utrymme.",
+        "findingNeedsTargetDate": "En anmärkning behöver ett senast klart-datum.",
+        "findingTargetDateTooLate": "Kvarstående fel på en hiss ska åtgärdas inom en månad från besiktningen. Välj ett tidigare datum.",
+        "protocolNotFound": "Filen är inte längre bifogad ärendet. Listan har lästs in igen.",
+        "dateInvalid": "Det är inget datum. Välj ett i kalendern.",
+        "unknown": "Ärendet kunde inte ändras just nu. Försök igen."
       }
     },
     "reporterLink": {

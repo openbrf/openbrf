@@ -46,6 +46,7 @@ import {
   ISSUE_PRIORITY_LABEL,
   ISSUE_WAITING_REASON_LABEL,
 } from "./issue-labels";
+import { IssueFitHandling } from "./IssueFitHandling";
 import { IssueHandlerName, issueHandlerName } from "./IssueHandlerName";
 import { ResponsibilityGuideTable } from "./ResponsibilityGuideTable";
 
@@ -56,6 +57,10 @@ const HANDLING_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.handling.errors.issueNotFound",
   "assignee-not-a-handler": "issues.handling.errors.assigneeNotAHandler",
   "target-date-invalid": "issues.handling.errors.targetDateInvalid",
+  // An issue marked as a finding keeps a target date, and a lift's within a
+  // month of its inspection; this form is where a handler clears or moves it.
+  "finding-needs-target-date": "issues.fit.errors.findingNeedsTargetDate",
+  "finding-target-date-too-late": "issues.fit.errors.findingTargetDateTooLate",
   "invalid-body": "issues.handling.errors.unknown",
 };
 
@@ -132,6 +137,7 @@ export function IssueHandling({
   type,
   workOrdersSent,
   canManageCharges = false,
+  filesRevision = 0,
   onChanged,
 }: {
   issue: QueuedIssue;
@@ -145,6 +151,11 @@ export function IssueHandling({
    * refuses the read without it.
    */
   canManageCharges?: boolean;
+  /**
+   * Changes when a file is added to or removed from the issue beside this
+   * panel, which the finding's protocol list reads again on.
+   */
+  filesRevision?: number;
   onChanged: () => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
@@ -334,6 +345,18 @@ export function IssueHandling({
         disabled={busy}
         onSave={(boardOnly) => {
           void save.submit({ kind: "access", boardOnly });
+        }}
+      />
+
+      {/* A save there writes a timeline step too, and taking a finding off
+        moves neither the revision nor the status: the timeline is read
+        again here, as after a save of this panel's own. */}
+      <IssueFitHandling
+        issue={issue}
+        filesRevision={filesRevision}
+        onChanged={() => {
+          setReads((count) => count + 1);
+          onChanged();
         }}
       />
 
@@ -816,6 +839,46 @@ function TimelineSentence({
           {step.boardOnly
             ? t("issues.timeline.boardOnly")
             : t("issues.timeline.everyHandler")}
+        </>
+      );
+    case "place":
+      return (
+        <>
+          {step.placeId === null
+            ? t("issues.timeline.placeRemoved")
+            : t("issues.timeline.placeSet")}
+        </>
+      );
+    case "entry":
+      return (
+        <>
+          {step.answer === null
+            ? t("issues.timeline.entryWithdrawn")
+            : step.byReporter
+              ? t("issues.timeline.entryAnsweredByResident", {
+                  answer: t(
+                    step.answer === "YES"
+                      ? "issues.entry.answerYes"
+                      : "issues.entry.answerNo",
+                  ),
+                })
+              : t("issues.timeline.entryRecorded", {
+                  answer: t(
+                    step.answer === "YES"
+                      ? "issues.entry.answerYes"
+                      : "issues.entry.answerNo",
+                  ),
+                })}
+        </>
+      );
+    case "finding":
+      return (
+        <>
+          {step.findingKind === null
+            ? t("issues.timeline.findingRemoved")
+            : t("issues.timeline.findingMarked", {
+                kind: t(`issues.fit.finding.kinds.${step.findingKind}`),
+              })}
         </>
       );
     case "workOrder":

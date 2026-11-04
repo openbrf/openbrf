@@ -21,6 +21,7 @@
 
 import type {
   AuditChannelName,
+  IssueEntryAnswer,
   IssueCostResponsibility,
   IssueOutcome,
   IssueStatusMeaning,
@@ -561,8 +562,25 @@ export interface ReportIssue {
    * (ADR 0054). Never an amount: a charge made from it is in `charges`.
    */
   costResponsibility: IssueCostResponsibility | null;
+  /**
+   * The name of the common area the issue is about (decision 30), or null.
+   * A building record rather than free text, so the purge leaves it.
+   */
+  place: string | null;
   location: string | null;
   description: string;
+  /**
+   * What the person answered about entering their apartment (decision 29),
+   * while the issue is open: it is cleared when the issue closes. Null when
+   * they have not answered, and after closing.
+   */
+  entry: {
+    answer: IssueEntryAnswer;
+    note: string | null;
+    pets: boolean | null;
+    masterKey: boolean | null;
+    until: string | null;
+  } | null;
   /**
    * When a handler redacted the description or the location, and when the
    * purge removed the whole free-text layer (ADR 0057). Removed text is empty
