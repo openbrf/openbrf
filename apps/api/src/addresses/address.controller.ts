@@ -7,6 +7,7 @@ import {
   Param,
   Post,
   Put,
+  Req,
 } from "@nestjs/common";
 import {
   ADDRESS_LIMITS,
@@ -16,6 +17,8 @@ import {
 } from "@openbrf/shared";
 import { z } from "zod";
 
+import { webActor } from "../audit/actor-context";
+import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import {
   AddressService,
@@ -140,7 +143,10 @@ export class ApartmentController {
   @Delete(":id")
   @RequireCapability("addressBook:write")
   @HttpCode(204)
-  async remove(@Param("id") id: string): Promise<void> {
-    await this.addresses.removeApartment(id);
+  async remove(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<void> {
+    await this.addresses.removeApartment(id, webActor(request));
   }
 }

@@ -21,6 +21,7 @@ import {
   SUPPORTED_LOCALES,
 } from "../i18n/i18n.service";
 import { DataProtectionSeedService } from "../data-protection/data-protection-seed.service";
+import { IssuePlaceService } from "../issues/issue-place.service";
 import { IssueSavedReplyService } from "../issues/issue-saved-reply.service";
 import { IssueTypeService } from "../issues/issue-type.service";
 import { lockSystemRole } from "../roles/role-lock";
@@ -117,6 +118,7 @@ export class SetupService implements OnModuleInit {
     private readonly claims: SetupClaimService,
     private readonly issueTypes: IssueTypeService,
     private readonly issueSavedReplies: IssueSavedReplyService,
+    private readonly issuePlaces: IssuePlaceService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -396,6 +398,25 @@ export class SetupService implements OnModuleInit {
         this.logger.error(
           "Setup finished, but the starting saved replies could not be " +
             "written. The board adds its own under Settings: " +
+            failureName(cause),
+          failureFrames(cause),
+        );
+      }
+    }
+
+    /*
+     * The common-area places a new instance starts with (decision 30), beside
+     * the issue types and for their reason, in their own try.
+     */
+    if (association.setupCompletedAt === null) {
+      try {
+        await this.issuePlaces.seedDefaults(
+          this.i18n.translatorFor(association.defaultLocale),
+        );
+      } catch (cause) {
+        this.logger.error(
+          "Setup finished, but the starting places could not be written. " +
+            "The board adds its own under Settings: " +
             failureName(cause),
           failureFrames(cause),
         );

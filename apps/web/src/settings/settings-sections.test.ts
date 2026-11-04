@@ -68,6 +68,7 @@ describe("the panels", () => {
     ["contractors", "issues:configure"],
     ["responsibilityGuide", "issues:configure"],
     ["issueSavedReplies", "issues:configure"],
+    ["issuePlaces", "issues:configure"],
     ["issueRetention", "issues:configure"],
     ["bookableResources", "bookings:configure"],
     ["themes", "association:manage"],

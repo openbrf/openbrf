@@ -270,6 +270,20 @@ export function IssueQueuePanel({
                   <span>
                     {t("issues.mine.place")} <IssueLocation issue={issue} />
                   </span>
+                  {issue.place === null ? null : (
+                    <span>
+                      {t("issues.mine.commonArea")} {issue.place.name}
+                    </span>
+                  )}
+                  {issue.finding === null ? null : (
+                    <span className="font-semibold text-ink">
+                      {t("issues.queue.finding", {
+                        kind: t(
+                          `issues.fit.finding.kinds.${issue.finding.kind}`,
+                        ),
+                      })}
+                    </span>
+                  )}
                 </p>
 
                 <p className="flex flex-wrap gap-4 text-small text-ink-muted">
@@ -399,6 +413,12 @@ function HandlingDisclosure({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const redaction = useIssueRedaction(issue, onChanged);
+  /*
+   * Bumped by a file uploaded in the conversation below, which the finding's
+   * protocol list above it reads again on: neither panel writes to the issue's
+   * own row, so nothing else tells the one that did not upload.
+   */
+  const [uploads, setUploads] = useState(0);
   return (
     <details
       className="flex flex-col gap-3"
@@ -419,12 +439,16 @@ function HandlingDisclosure({
             type={type}
             workOrdersSent={workOrdersSent}
             canManageCharges={canManageCharges}
+            filesRevision={uploads + redaction.revision}
             onChanged={onChanged}
           />
           <IssueFreeTextSection issue={issue} control={redaction} />
           <IssueConversation
             issue={issue}
             onStale={onChanged}
+            onUploaded={() => {
+              setUploads((count) => count + 1);
+            }}
             redaction={redaction}
           />
         </fieldset>

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import {
   attachIssuePhoto,
   type IssueApartment,
+  type IssuePlaceChoice,
   type ReportableIssueType,
   reportIssue,
   type ResponsibilityGuide,
@@ -44,6 +45,8 @@ const REPORT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "post-not-found": "issues.report.errors.postNotFound",
   "post-not-reportable": "issues.report.errors.postNotReportable",
   "post-already-reported": "issues.report.errors.postAlreadyReported",
+  "place-not-found": "issues.report.errors.placeNotFound",
+  "place-with-apartment": "issues.report.errors.placeWithApartment",
   "invalid-body": "issues.report.errors.unknown",
 };
 
@@ -57,6 +60,11 @@ export interface ReportIssuePanelProps {
    */
   types: readonly ReportableIssueType[];
   apartments: readonly IssueApartment[];
+  /**
+   * The association's common-area places (decision 30), offered beside the
+   * free-text location when the problem is not in a home. Empty offers none.
+   */
+  places?: readonly IssuePlaceChoice[];
   /**
    * What the form opens with when the report is made from a post in the feed
    * ("Gör felanmälan"): the post's text and images, and the post the report is
@@ -76,7 +84,13 @@ export interface ReportIssuePanelProps {
   onReported: (fromPostId: string | null) => void;
 }
 
-const EMPTY = { typeId: "", apartmentId: "", location: "", description: "" };
+const EMPTY = {
+  typeId: "",
+  apartmentId: "",
+  placeId: "",
+  location: "",
+  description: "",
+};
 
 /**
  * The report form.
@@ -106,6 +120,7 @@ const EMPTY = { typeId: "", apartmentId: "", location: "", description: "" };
 export function ReportIssuePanel({
   types,
   apartments,
+  places = [],
   prefill,
   guide = null,
   onReported,
@@ -146,6 +161,7 @@ export function ReportIssuePanel({
     async (input: {
       typeId: string;
       apartmentId: string | null;
+      placeId: string | null;
       location: string | null;
       description: string;
       photos: readonly File[];
@@ -154,6 +170,7 @@ export function ReportIssuePanel({
       const filed = await reportIssue({
         typeId: input.typeId,
         apartmentId: input.apartmentId,
+        placeId: input.placeId,
         location: input.location,
         description: input.description,
         ...(input.postId === null ? {} : { postId: input.postId }),
@@ -184,11 +201,25 @@ export function ReportIssuePanel({
     },
   );
 
+  /*
+   * The choices as the form shows them. A draft outlives a re-read of the
+   * lists, and a choice the lists no longer hold (a type or place the board
+   * switched off, a home the reporter moved out of) matches no option, so its
+   * select shows none chosen. It is sent as none, as it is shown, rather than
+   * sent unseen and refused with nothing on the form to correct.
+   */
+  const typeId = offered(draft.typeId, types);
+  const apartmentId = offered(draft.apartmentId, apartments);
+  // A place is for what is not in a home: choosing an apartment leaves it out,
+  // so a report never carries both.
+  const placeId = apartmentId === "" ? offered(draft.placeId, places) : "";
+
   const onSend = (): void => {
     setFailedPhotos([]);
     void submit.submit({
-      typeId: draft.typeId,
-      apartmentId: draft.apartmentId === "" ? null : draft.apartmentId,
+      typeId,
+      apartmentId: apartmentId === "" ? null : apartmentId,
+      placeId: placeId === "" ? null : placeId,
       location: draft.location.trim() === "" ? null : draft.location.trim(),
       description: draft.description.trim(),
       photos,
@@ -203,7 +234,7 @@ export function ReportIssuePanel({
     setPhotos((current) => [...current, ...chosen].slice(0, MAX_PHOTOS));
   };
 
-  const ready = draft.typeId !== "" && draft.description.trim() !== "";
+  const ready = typeId !== "" && draft.description.trim() !== "";
 
   if (types.length === 0) {
     return (
@@ -273,7 +304,7 @@ export function ReportIssuePanel({
           {t("issues.report.type")}
           <select
             name="issueType"
-            value={draft.typeId}
+            value={typeId}
             onChange={(event) => {
               setDraft({ ...draft, typeId: event.target.value });
             }}
@@ -293,7 +324,7 @@ export function ReportIssuePanel({
             {t("issues.report.apartment")}
             <select
               name="issueApartment"
-              value={draft.apartmentId}
+              value={apartmentId}
               onChange={(event) => {
                 setDraft({ ...draft, apartmentId: event.target.value });
               }}
@@ -306,6 +337,28 @@ export function ReportIssuePanel({
                 </option>
               ))}
             </select>
+          </label>
+        )}
+
+        {places.length === 0 || apartmentId !== "" ? null : (
+          <label className={LABEL}>
+            {t("issues.report.place")}
+            <select
+              name="issuePlace"
+              value={placeId}
+              onChange={(event) => {
+                setDraft({ ...draft, placeId: event.target.value });
+              }}
+              className={FIELD}
+            >
+              <option value="">{t("issues.report.placeNone")}</option>
+              {places.map((place) => (
+                <option key={place.id} value={place.id}>
+                  {place.name}
+                </option>
+              ))}
+            </select>
+            <span className={HINT}>{t("issues.report.placeHint")}</span>
           </label>
         )}
 
@@ -422,4 +475,9 @@ export function ReportIssuePanel({
       </LockedForm>
     </Panel>
   );
+}
+
+/** `id` while `choices` still holds it, otherwise none (""). */
+function offered(id: string, choices: readonly { id: string }[]): string {
+  return choices.some((choice) => choice.id === id) ? id : "";
 }
