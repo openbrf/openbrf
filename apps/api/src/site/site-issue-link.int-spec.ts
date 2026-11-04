@@ -1217,13 +1217,11 @@ describe("D. rate limits and abuse", () => {
       await closing;
       expect(sent.length).toBe(before + 1);
       expect(
-        (
-          await prisma.issueReporterLink.findUnique({
-            where: { issueId: id },
-            select: { mailedAt: true },
-          })
-        )?.mailedAt,
-      ).not.toBeNull();
+        await prisma.issueReporterLink.findUnique({
+          where: { issueId: id },
+          select: { mailedAt: true },
+        }),
+      ).toEqual({ mailedAt: expect.any(Date) });
     } finally {
       release();
     }
