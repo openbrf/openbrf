@@ -2614,7 +2614,9 @@ export const SCREENS: readonly Screen[] = [
      * leaves no mail behind.
      */
     name: "board-issues-work-order",
-    goto: appPath("/board/issues"),
+    // Alla, where the lift issue the handling screen opened lands: it is given
+    // to nobody, and the queue opens on Mina.
+    goto: appPath("/board/issues?view=all"),
     prepare: [
       // The first, for the reason the handling screen gives.
       { click: { text: /^Arbetsorder för Hiss$/, first: true } },
