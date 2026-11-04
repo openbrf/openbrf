@@ -167,6 +167,12 @@ export type IssueReference =
 export interface IssueLinks {
   mergedInto: IssueReference | null;
   duplicates: Extract<IssueReference, { kind: "issue" }>[];
+  /**
+   * How many issues are merged into this one, those the reader does not
+   * handle included: merging this one into another is refused while there are
+   * any.
+   */
+  duplicateCount: number;
   follows: IssueReference | null;
   followUps: Extract<IssueReference, { kind: "issue" }>[];
 }
@@ -341,21 +347,35 @@ export interface IssueStatusChangeInput {
   sortOrder?: number;
 }
 
+/**
+ * How long a read the report form waits for may take, body included. The form
+ * is drawn when its reads have all answered, so one that never settles would
+ * hold it behind the loading notice; a read that is given up comes back as the
+ * same failure as one that got no answer, which the screen offers a retry for.
+ */
+const READ_TIMEOUT_MS = 10_000;
+
 export function fetchReportableTypes(): Promise<
   ApiResult<ReportableIssueType[]>
 > {
   return previewing(
-    apiRequest<ReportableIssueType[]>("GET", "/api/issues/types"),
+    apiRequest<ReportableIssueType[]>("GET", "/api/issues/types", undefined, {
+      signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+    }),
     previewedIssueTypes,
   );
 }
 
 export function fetchOwnApartments(): Promise<ApiResult<IssueApartment[]>> {
-  return apiRequest("GET", "/api/issues/apartments");
+  return apiRequest("GET", "/api/issues/apartments", undefined, {
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+  });
 }
 
 export function fetchOwnIssues(): Promise<ApiResult<OwnIssue[]>> {
-  return apiRequest("GET", "/api/issues/mine");
+  return apiRequest("GET", "/api/issues/mine", undefined, {
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+  });
 }
 
 export function reportIssue(
@@ -541,7 +561,11 @@ export function withdrawKnownFault(
 
 /** The known faults the house is told of, for the report form. */
 export function fetchKnownFaults(): Promise<ApiResult<KnownFault[]>> {
-  return apiRequest("GET", "/api/issues/known-faults");
+  // Bounded, body included, for the reason the responsibility guide's read is:
+  // the report form waits for this with its other reads.
+  return apiRequest("GET", "/api/issues/known-faults", undefined, {
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+  });
 }
 
 /**
@@ -551,7 +575,7 @@ export function fetchKnownFaults(): Promise<ApiResult<KnownFault[]>> {
 export function sendToDuplicateReporters(input: {
   issueId: string;
   body: string;
-}): Promise<ApiResult<{ sent: number }>> {
+}): Promise<ApiResult<{ sent: number; skipped: number }>> {
   return apiRequest(
     "POST",
     `/api/issue-queue/${encodeURIComponent(input.issueId)}/duplicate-messages`,
@@ -595,7 +619,7 @@ export function fetchReporterResponsibilityGuide(): Promise<
    * unbounded.
    */
   return apiRequest("GET", "/api/issues/responsibility-guide", undefined, {
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
   });
 }
 

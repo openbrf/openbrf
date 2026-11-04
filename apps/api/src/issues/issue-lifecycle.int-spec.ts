@@ -396,6 +396,47 @@ describe("a reply on a closed issue", () => {
     expect(timeline.body.includes(resident.lastName)).toBe(false);
   });
 
+  it("reopens the issue on the 30th day after it closed", async () => {
+    const issueId = await filed(plain);
+    await close(issueId, plain);
+    const { closedAt } = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: { closedAt: true },
+    });
+    if (closedAt === null) {
+      throw new Error("closing wrote no date");
+    }
+
+    // The window includes its last day: a reply a minute short of 30 days
+    // after closing still reopens. Not at the very instant, which a clock that
+    // keeps running would overshoot.
+    const message = await atMoment(
+      new Date(closedAt.getTime() + 30 * DAY_MS - 60_000),
+      async () => {
+        const mine = await issues.listOwn(resident.personId);
+        expect(mine.find((issue) => issue.id === issueId)?.replyMode).toBe(
+          "REOPENS",
+        );
+        return conversation.replyAsReporter(
+          resident.personId,
+          issueId,
+          "Det läcker igen.",
+        );
+      },
+    );
+    expect(message).toMatchObject({ side: "REPORTER" });
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: { statusId: true, outcome: true, closedAt: true },
+      }),
+    ).toEqual({
+      statusId: plain.statusIds.IN_PROGRESS,
+      outcome: null,
+      closedAt: null,
+    });
+  });
+
   it("does not reopen it on the 31st day, and offers a new report instead", async () => {
     const issueId = await filed(plain);
     await close(issueId, plain);
@@ -613,7 +654,7 @@ describe("merging duplicates", () => {
       { body: "En tekniker kommer på torsdag." },
     );
     expect(sent.statusCode).toBe(201);
-    expect(sent.json()).toEqual({ sent: 2 });
+    expect(sent.json()).toEqual({ sent: 2, skipped: 0 });
 
     for (const [who, id] of [
       [resident, first],
@@ -804,6 +845,7 @@ describe("merging duplicates", () => {
     expect(links.json()).toEqual({
       mergedInto: { kind: "hidden" },
       duplicates: [],
+      duplicateCount: 0,
       follows: null,
       followUps: [],
     });
@@ -936,6 +978,17 @@ describe("a known fault", () => {
       knownFault: { body: NOTICE, signature: "BOARD" },
       // The report itself stays the reporter's and the handlers'.
       issue: null,
+    });
+
+    // The post is read the way the known faults are: not while the board
+    // keeps the issue to itself.
+    await as(board, "POST", `/api/issue-queue/${issueId}/access`, {
+      boardOnly: true,
+    });
+    const kept = await as(neighbour, "GET", `/api/feed/posts/${post.id}`);
+    expect(kept.json()).toMatchObject({ knownFault: null });
+    await as(board, "POST", `/api/issue-queue/${issueId}/access`, {
+      boardOnly: false,
     });
 
     await as(board, "DELETE", `/api/issue-queue/${issueId}/known-fault`);

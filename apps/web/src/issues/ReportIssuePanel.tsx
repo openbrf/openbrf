@@ -75,6 +75,12 @@ export interface ReportIssuePanelProps {
    * this changes.
    */
   followUp?: Pick<OwnIssue, "id" | "typeId" | "typeName">;
+  /**
+   * What the reporter had written as a reply the server then refused as
+   * closed, which the report starts from so they do not retype it. Read once,
+   * when the form is mounted.
+   */
+  followUpDraft?: string;
   /** Called when the reporter drops the follow-up and writes a plain report. */
   onFollowUpCancelled?: () => void;
   /** The known faults the house is told of, shown before the form. */
@@ -124,26 +130,24 @@ export function ReportIssuePanel({
   apartments,
   prefill,
   followUp,
+  followUpDraft = "",
   onFollowUpCancelled,
   knownFaults = [],
   guide = null,
   onReported,
 }: ReportIssuePanelProps): ReactElement {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(
-    prefill === undefined
-      ? {
-          ...EMPTY,
-          // The earlier report's type, while it is still one this account
-          // may report under.
-          typeId:
-            followUp !== undefined &&
-            types.some((type) => type.id === followUp.typeId)
-              ? followUp.typeId
-              : "",
-        }
-      : { ...EMPTY, description: prefill.description },
-  );
+  const [draft, setDraft] = useState({
+    ...EMPTY,
+    // The earlier report's type, while it is still one this account may
+    // report under. A report made from a post may follow one up too.
+    typeId:
+      followUp !== undefined &&
+      types.some((type) => type.id === followUp.typeId)
+        ? followUp.typeId
+        : "",
+    description: prefill === undefined ? followUpDraft : prefill.description,
+  });
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const [photos, setPhotos] = useState<readonly File[]>(
     prefill?.photos.slice(0, MAX_PHOTOS) ?? [],

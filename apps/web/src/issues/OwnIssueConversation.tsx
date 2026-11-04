@@ -46,8 +46,12 @@ export function OwnIssueConversation({
    * list again, and the field follows what it then says.
    */
   onChanged: () => void;
-  /** Told when the reporter asks for a new report following this one up. */
-  onFollowUp: () => void;
+  /**
+   * Told when the reporter asks for a new report following this one up, with
+   * the reply the server refused as closed, when there was one, so the new
+   * report can start from it.
+   */
+  onFollowUp: (refusedReply: string) => void;
 }): ReactElement {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -75,9 +79,15 @@ function Thread({
 }: {
   issue: OwnIssue;
   onChanged: () => void;
-  onFollowUp: () => void;
+  onFollowUp: (refusedReply: string) => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
+  /*
+   * The reply the server refused as closed. Past the reopening window the
+   * field gives way to the follow-up button and its draft goes with it, so
+   * the text is kept here, in the thread that outlives the field.
+   */
+  const [refusedReply, setRefusedReply] = useState("");
   const [messages, setMessages] = useState<OwnIssueMessage[] | null>(null);
   const [readFailed, setReadFailed] = useState(false);
   /** Bumped after a send, which reads the conversation again. */
@@ -152,7 +162,9 @@ function Thread({
             <button
               type="button"
               className={SECONDARY_BUTTON}
-              onClick={onFollowUp}
+              onClick={() => {
+                onFollowUp(refusedReply);
+              }}
             >
               {t("issues.conversation.followUp")}
             </button>
@@ -181,8 +193,9 @@ function Thread({
             // once it is read again.
             onChanged();
           }}
-          onRefused={(reason) => {
+          onRefused={(reason, body) => {
             if (reason === "issue-closed") {
+              setRefusedReply(body);
               onChanged();
             }
           }}

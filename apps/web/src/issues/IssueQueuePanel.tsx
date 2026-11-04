@@ -64,6 +64,8 @@ export interface IssueQueuePanelProps {
   types: readonly IssueTypeView[] | null;
   /** Called after a status change, so the caller can reload the queue. */
   onChanged: () => void;
+  /** Which read of the queue this is, so what an open row keeps beside it is read again with it. */
+  queueRead?: number;
   /**
    * Whether the reader holds `memberCharges:manage`, so an open issue shows
    * the charges made from it. Courtesy only: the API refuses the read without.
@@ -95,6 +97,7 @@ export function IssueQueuePanel({
   issues,
   types,
   onChanged,
+  queueRead = 0,
   canManageCharges = false,
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
@@ -279,6 +282,7 @@ export function IssueQueuePanel({
                   type={type}
                   candidates={issues}
                   canManageCharges={canManageCharges}
+                  queueRead={queueRead}
                   onChanged={onChanged}
                 />
               </li>
@@ -301,6 +305,7 @@ function HandlingDisclosure({
   type,
   candidates,
   canManageCharges,
+  queueRead,
   onChanged,
 }: {
   issue: QueuedIssue;
@@ -308,6 +313,7 @@ function HandlingDisclosure({
   /** The issues on screen, which this one may be merged into. */
   candidates: readonly QueuedIssue[];
   canManageCharges: boolean;
+  queueRead: number;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -333,6 +339,7 @@ function HandlingDisclosure({
           <IssueLifecycle
             issue={issue}
             candidates={candidates}
+            queueRead={queueRead}
             onChanged={onChanged}
           />
           <IssueConversation issue={issue} onStale={onChanged} />

@@ -62,7 +62,13 @@ vi.mock("../api/issues", async (importOriginal) => ({
   fetchIssueLinks: () =>
     Promise.resolve({
       ok: true,
-      value: { mergedInto: null, duplicates: [], follows: null, followUps: [] },
+      value: {
+        mergedInto: null,
+        duplicates: [],
+        duplicateCount: 0,
+        follows: null,
+        followUps: [],
+      },
     }),
   setIssueCostResponsibility: (input: unknown) =>
     setIssueCostResponsibility(input),

@@ -34,6 +34,12 @@ interface Loaded {
    */
   types: readonly IssueTypeView[] | null;
   loadFailed: boolean;
+  /**
+   * Which read these came from, growing with every read applied, so a row
+   * that keeps something beside the queue (an issue's links) can read it
+   * again when the queue is.
+   */
+  read: number;
 }
 
 const EMPTY: Loaded = {
@@ -41,6 +47,7 @@ const EMPTY: Loaded = {
   queue: [],
   types: null,
   loadFailed: false,
+  read: 0,
 };
 
 /**
@@ -85,6 +92,7 @@ export function IssueQueueScreen({
             queue: queue.ok ? queue.value : [],
             types: types.ok ? types.value : null,
             loadFailed: !queue.ok,
+            read: version,
           });
         }
       },
@@ -100,7 +108,7 @@ export function IssueQueueScreen({
     };
   }, [reload]);
 
-  const { ready, queue, types, loadFailed } = loaded;
+  const { ready, queue, types, loadFailed, read } = loaded;
 
   return (
     <BoardPage
@@ -131,6 +139,7 @@ export function IssueQueueScreen({
           issues={queue}
           types={types}
           onChanged={reload}
+          queueRead={read}
           canManageCharges={viewer.capabilities.includes(
             "memberCharges:manage",
           )}

@@ -514,7 +514,7 @@ export class IssueQueueController {
     @Param("id") id: string,
     @Body() body: unknown,
     @Req() request: RequestWithPrincipal,
-  ): Promise<{ sent: number }> {
+  ): Promise<{ sent: number; skipped: number }> {
     return this.conversation.replyToDuplicates(
       actingPersonId(request),
       id,

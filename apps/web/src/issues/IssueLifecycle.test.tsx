@@ -34,6 +34,7 @@ vi.mock("../api/issues", async (importOriginal) => ({
 const NO_LINKS: IssueLinks = {
   mergedInto: null,
   duplicates: [],
+  duplicateCount: 0,
   follows: null,
   followUps: [],
 };
@@ -80,7 +81,10 @@ beforeEach(() => {
   fetchIssueLinks.mockResolvedValue({ ok: true, value: NO_LINKS });
   publishKnownFault.mockResolvedValue({ ok: true, value: issue() });
   mergeIssue.mockResolvedValue({ ok: true, value: issue() });
-  sendToDuplicateReporters.mockResolvedValue({ ok: true, value: { sent: 2 } });
+  sendToDuplicateReporters.mockResolvedValue({
+    ok: true,
+    value: { sent: 2, skipped: 0 },
+  });
 });
 
 describe("the known fault", () => {
@@ -126,6 +130,7 @@ describe("the known fault", () => {
 
   it("is withdrawn once published", async () => {
     withdrawKnownFault.mockResolvedValue({ ok: true, value: issue() });
+    const onChanged = vi.fn();
     const session = userEvent.setup();
     render(
       <IssueLifecycle
@@ -137,11 +142,14 @@ describe("the known fault", () => {
           },
         })}
         candidates={[]}
-        onChanged={() => undefined}
+        onChanged={onChanged}
       />,
     );
     await session.click(screen.getByRole("button", { name: "Ta bort" }));
     expect(withdrawKnownFault).toHaveBeenCalledWith("issue-1");
+    await waitFor(() => {
+      expect(onChanged).toHaveBeenCalledTimes(1);
+    });
   });
 });
 
@@ -206,6 +214,7 @@ describe("merging", () => {
       ok: true,
       value: {
         ...NO_LINKS,
+        duplicateCount: 1,
         duplicates: [
           {
             kind: "issue",
@@ -262,6 +271,7 @@ describe("merging", () => {
       ok: true,
       value: {
         ...NO_LINKS,
+        duplicateCount: 1,
         duplicates: [
           {
             kind: "issue",
@@ -297,5 +307,122 @@ describe("merging", () => {
         body: "Tekniker kommer torsdag.",
       });
     });
+  });
+
+  it("says how many merged reports were not reached because their reporter has no account", async () => {
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: {
+        ...NO_LINKS,
+        duplicateCount: 3,
+        duplicates: ["issue-2", "issue-3", "issue-4"].map((id) => ({
+          kind: "issue",
+          id,
+          typeName: "Hiss",
+          meaning: "DONE",
+          createdAt: "2026-08-19T08:00:00.000Z",
+        })),
+      },
+    });
+    sendToDuplicateReporters.mockResolvedValue({
+      ok: true,
+      value: { sent: 2, skipped: 1 },
+    });
+    const session = userEvent.setup();
+    render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[]}
+        onChanged={() => undefined}
+      />,
+    );
+
+    await session.type(
+      await screen.findByLabelText(
+        "Hiss: meddelande till anmälarna till de sammanslagna anmälningarna",
+      ),
+      "Tekniker kommer torsdag.",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    expect(await screen.findByText(/Skickat till 2 anmälare\./)).toBeTruthy();
+    expect(screen.getByText(/1 sammanslagen anmälan nåddes inte/)).toBeTruthy();
+  });
+
+  it("does not offer a merge while issues this handler does not see were merged into it", async () => {
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: { ...NO_LINKS, duplicateCount: 1 },
+    });
+    render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER]}
+        onChanged={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(fetchIssueLinks).toHaveBeenCalledTimes(1);
+    });
+    expect(
+      screen.queryByLabelText("Hiss: slå samman med ett annat ärende"),
+    ).toBeNull();
+  });
+
+  it("hides what it knew of the links when a later read of them fails", async () => {
+    const { rerender } = render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER]}
+        queueRead={1}
+        onChanged={() => undefined}
+      />,
+    );
+    expect(
+      await screen.findByLabelText("Hiss: slå samman med ett annat ärende"),
+    ).toBeTruthy();
+
+    fetchIssueLinks.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    rerender(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER]}
+        queueRead={2}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(await screen.findByText(/kopplingar kunde inte läsas/)).toBeTruthy();
+    expect(
+      screen.queryByLabelText("Hiss: slå samman med ett annat ärende"),
+    ).toBeNull();
+  });
+
+  it("names the merge candidates by more than their type, day and first words", async () => {
+    const twin = issue({
+      id: "issue-5",
+      location: "Port 14, hissen",
+      createdAt: "2026-08-19T08:00:00.000Z",
+      status: { id: "s-waiting", label: "Väntar på tekniker" },
+    });
+    render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER, twin]}
+        onChanged={() => undefined}
+      />,
+    );
+
+    const picker = await screen.findByLabelText(
+      "Hiss: slå samman med ett annat ärende",
+    );
+    const labels = [...picker.querySelectorAll("option")].map(
+      (option) => option.textContent,
+    );
+    expect(new Set(labels).size).toBe(labels.length);
   });
 });

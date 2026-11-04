@@ -114,6 +114,8 @@ export function IssuesScreen({
   const [reportedFrom, setReportedFrom] = useState<string | null>(null);
   /** The closed report a new one follows up, while the reporter writes it. */
   const [followUp, setFollowUp] = useState<OwnIssue | null>(null);
+  /** The reply that report refused as closed, which the new one starts from. */
+  const [followUpDraft, setFollowUpDraft] = useState("");
   /*
    * What the report form is keyed on besides a post: counted up when a
    * follow-up is chosen or cancelled, never when a report is filed, so the form
@@ -283,7 +285,7 @@ export function IssuesScreen({
               // filed: its notices belong to the form that filed it.
               key={
                 fromPost.kind === "read"
-                  ? fromPost.prefill.postId
+                  ? `${fromPost.prefill.postId}:${String(formEpoch)}`
                   : `form-${String(formEpoch)}`
               }
               types={types}
@@ -292,20 +294,26 @@ export function IssuesScreen({
               guide={loaded.guide}
               {...(fromPost.kind === "read"
                 ? { prefill: fromPost.prefill }
-                : followUp === null
-                  ? {}
-                  : {
-                      followUp,
-                      onFollowUpCancelled: () => {
-                        setFollowUp(null);
-                        setFormEpoch((epoch) => epoch + 1);
-                      },
-                    })}
+                : {})}
+              // Independent of the post: a follow-up chosen from the list is
+              // filed as one whether or not the form opened from a post.
+              {...(followUp === null
+                ? {}
+                : {
+                    followUp,
+                    followUpDraft,
+                    onFollowUpCancelled: () => {
+                      setFollowUp(null);
+                      setFollowUpDraft("");
+                      setFormEpoch((epoch) => epoch + 1);
+                    },
+                  })}
               onReported={(postId) => {
                 setReportedFrom(postId);
                 // The form stays mounted, so its notices stay; it files the
                 // next report as a new one.
                 setFollowUp(null);
+                setFollowUpDraft("");
                 reload();
               }}
             />
@@ -313,11 +321,12 @@ export function IssuesScreen({
           <OwnIssuesPanel
             issues={own}
             onChanged={reload}
-            onFollowUp={(issue) => {
-              if (followUp?.id !== issue.id) {
+            onFollowUp={(issue, refusedReply) => {
+              if (followUp?.id !== issue.id || refusedReply !== "") {
                 setFormEpoch((epoch) => epoch + 1);
               }
               setFollowUp(issue);
+              setFollowUpDraft(refusedReply);
               formRef.current?.scrollIntoView({ block: "start" });
             }}
           />

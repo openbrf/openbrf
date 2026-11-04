@@ -74,6 +74,17 @@ export interface IssueAttachmentView {
 }
 
 /**
+ * The budget of the transaction that writes to every merged reporter.
+ *
+ * It writes a message and an audit entry per duplicate, and nothing caps how
+ * many issues merge into one, so Prisma's default of five seconds could roll
+ * back the whole broadcast on a large merged set. It stays one transaction so
+ * that the reporters all hear it or none does, and the issue lock it holds is
+ * the one merging takes. Thirty seconds, as the reports hold theirs.
+ */
+const DUPLICATE_MESSAGE_TRANSACTION_TIMEOUT_MS = 30_000;
+
+/**
  * The conversation on an issue: the issue messages between its reporter and
  * its handlers, and the internal notes and files the handlers keep beside it
  * (decisions 18 and 19).
@@ -215,68 +226,79 @@ export class IssueConversationService {
     handlerPersonId: string,
     issueId: string,
     body: string,
-  ): Promise<{ sent: number }> {
+  ): Promise<{ sent: number; skipped: number }> {
     refusePersonalIdentityNumbers({ body });
-    const sent = await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
-      await lockErasureEligibility(tx, handlerPersonId);
-      await lockIssueForHandling(tx, issueId);
-      await this.requireHandled(tx, issueId, handlerPersonId);
-      const scope = await issueReaderScope(tx, handlerPersonId, now);
-      const duplicates = await tx.issue.findMany({
-        where: {
-          mergedIntoIssueId: issueId,
-          reporterPersonId: { not: null },
-          ...issuesHandledWhere(scope),
-        },
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        select: { id: true, reporterPersonId: true },
-      });
-      const accounts = await tx.user.findMany({
-        where: {
-          personId: {
-            in: duplicates.flatMap((duplicate) =>
-              duplicate.reporterPersonId === null
-                ? []
-                : [duplicate.reporterPersonId],
-            ),
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        const now = new Date();
+        await lockErasureEligibility(tx, handlerPersonId);
+        await lockIssueForHandling(tx, issueId);
+        await this.requireHandled(tx, issueId, handlerPersonId);
+        const scope = await issueReaderScope(tx, handlerPersonId, now);
+        const duplicates = await tx.issue.findMany({
+          where: {
+            mergedIntoIssueId: issueId,
+            reporterPersonId: { not: null },
+            ...issuesHandledWhere(scope),
           },
-        },
-        select: { personId: true },
-      });
-      const readers = new Set(accounts.map((account) => account.personId));
-      const readable = duplicates.filter(
-        (duplicate) =>
-          duplicate.reporterPersonId !== null &&
-          readers.has(duplicate.reporterPersonId),
-      );
-      if (readable.length === 0) {
-        throw new IssueError(
-          "Nobody can read an answer on the issues merged into this one.",
-          "no-reporter",
-        );
-      }
-      const signature = await signatureOf(tx, handlerPersonId, now);
-      for (const duplicate of readable) {
-        const written = await tx.issueMessage.create({
-          data: {
-            issueId: duplicate.id,
-            side: "HANDLER",
-            authorPersonId: handlerPersonId,
-            signature,
-            body,
-          },
-          select: { id: true },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: { id: true, reporterPersonId: true },
         });
-        await this.recordMessage(tx, written.id, duplicate.id, handlerPersonId);
-      }
-      return readable.length;
-    });
+        const accounts = await tx.user.findMany({
+          where: {
+            personId: {
+              in: duplicates.flatMap((duplicate) =>
+                duplicate.reporterPersonId === null
+                  ? []
+                  : [duplicate.reporterPersonId],
+              ),
+            },
+          },
+          select: { personId: true },
+        });
+        const readers = new Set(accounts.map((account) => account.personId));
+        const readable = duplicates.filter(
+          (duplicate) =>
+            duplicate.reporterPersonId !== null &&
+            readers.has(duplicate.reporterPersonId),
+        );
+        if (readable.length === 0) {
+          throw new IssueError(
+            "Nobody can read an answer on the issues merged into this one.",
+            "no-reporter",
+          );
+        }
+        const signature = await signatureOf(tx, handlerPersonId, now);
+        for (const duplicate of readable) {
+          const written = await tx.issueMessage.create({
+            data: {
+              issueId: duplicate.id,
+              side: "HANDLER",
+              authorPersonId: handlerPersonId,
+              signature,
+              body,
+            },
+            select: { id: true },
+          });
+          await this.recordMessage(
+            tx,
+            written.id,
+            duplicate.id,
+            handlerPersonId,
+          );
+        }
+        return {
+          sent: readable.length,
+          skipped: duplicates.length - readable.length,
+        };
+      },
+      { timeout: DUPLICATE_MESSAGE_TRANSACTION_TIMEOUT_MS },
+    );
 
     this.logger.log(
-      `Issue ${issueId} has a message to the reporters of ${sent} duplicates`,
+      `Issue ${issueId} has a message to the reporters of ${result.sent} duplicates`,
     );
-    return { sent };
+    return result;
   }
 
   /**

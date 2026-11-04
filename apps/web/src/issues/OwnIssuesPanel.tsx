@@ -16,7 +16,7 @@ export interface OwnIssuesPanelProps {
    */
   onChanged: () => void;
   /** Told when the reporter asks for a new report following up a closed one. */
-  onFollowUp: (issue: OwnIssue) => void;
+  onFollowUp: (issue: OwnIssue, refusedReply: string) => void;
 }
 
 /**
@@ -116,8 +116,8 @@ export function OwnIssuesPanel({
               <OwnIssueConversation
                 issue={issue}
                 onChanged={onChanged}
-                onFollowUp={() => {
-                  onFollowUp(issue);
+                onFollowUp={(refusedReply) => {
+                  onFollowUp(issue, refusedReply);
                 }}
               />
             </li>

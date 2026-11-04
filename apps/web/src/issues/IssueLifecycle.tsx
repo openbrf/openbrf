@@ -70,17 +70,27 @@ const STALE_REASONS: ReadonlySet<string> = new Set([
 export function IssueLifecycle({
   issue,
   candidates,
+  queueRead = 0,
   onChanged,
 }: {
   issue: QueuedIssue;
   /** The other issues on screen, which this one may be merged into. */
   candidates: readonly QueuedIssue[];
+  /**
+   * Which read of the queue the issue came from. A reporter's follow-up moves
+   * nothing of this issue, so the links are read again with the queue instead.
+   */
+  queueRead?: number;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
   const [links, setLinks] = useState<IssueLinks | null>(null);
   const [readFailed, setReadFailed] = useState(false);
   const [reads, setReads] = useState(0);
+  const [toDuplicates, setToDuplicates] = useState<{
+    sent: number;
+    skipped: number;
+  } | null>(null);
   const revision = `${issue.updatedAt}:${issue.status.id}`;
   /*
    * Every change made here may change the links - an issue merged into this
@@ -103,13 +113,16 @@ export function IssueLifecycle({
         setLinks(read.value);
         setReadFailed(false);
       } else {
+        // Not the links of an earlier read beside the notice that this one
+        // failed: the forms that act on them stay hidden until one succeeds.
+        setLinks(null);
         setReadFailed(true);
       }
     });
     return () => {
       active = false;
     };
-  }, [issue.id, revision, reads]);
+  }, [issue.id, revision, reads, queueRead]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -148,14 +161,28 @@ export function IssueLifecycle({
             send={(body) =>
               sendToDuplicateReporters({ issueId: issue.id, body })
             }
-            onSent={() => undefined}
+            onSent={setToDuplicates}
           />
+          {toDuplicates === null ? null : (
+            <Notice tone={toDuplicates.skipped > 0 ? "warn" : "ok"} live>
+              {t("issues.lifecycle.toDuplicatesSent", {
+                count: toDuplicates.sent,
+              })}
+              {toDuplicates.skipped > 0
+                ? ` ${t("issues.lifecycle.toDuplicatesSkipped", {
+                    count: toDuplicates.skipped,
+                  })}`
+                : ""}
+            </Notice>
+          )}
         </section>
       ) : null}
 
       {links !== null &&
       issue.outcome !== "DUPLICATE" &&
-      links.duplicates.length === 0 ? (
+      // Every merged issue, not only those this handler sees: the server
+      // refuses a merge of an issue anything was merged into.
+      links.duplicateCount === 0 ? (
         <MergeForm issue={issue} candidates={candidates} onChanged={changed} />
       ) : null}
     </div>
@@ -483,11 +510,20 @@ function MergeForm({
 
 /**
  * An issue as the merge picker names it: its type, the day it was filed and
- * the first words of where it is, which the handler already reads in the
- * queue beside it.
+ * the apartment when it names one, where it stands and the first words of
+ * where it is, which the handler already reads in the queue beside it. The
+ * apartment and the status tell apart two issues filed alike on the same day.
  */
 function candidateLabel(candidate: QueuedIssue): string {
   const where = candidate.location ?? candidate.description;
   const excerpt = where.length > 40 ? `${where.slice(0, 40)}…` : where;
-  return `${candidate.typeName} · ${localDayOfInstant(candidate.createdAt)} · ${excerpt}`;
+  return [
+    candidate.typeName,
+    localDayOfInstant(candidate.createdAt),
+    candidate.apartment?.number,
+    candidate.status.label,
+    excerpt,
+  ]
+    .filter((part) => part !== undefined && part !== "")
+    .join(" · ");
 }

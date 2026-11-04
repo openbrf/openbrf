@@ -440,6 +440,52 @@ describe("known faults and a report that follows up another", () => {
     });
   });
 
+  it("files a follow-up chosen while the form is open from a post, and starts from the text it was refused", async () => {
+    fetchPost.mockResolvedValue(ok(LIFT));
+    fetchOwnIssues.mockResolvedValue(
+      ok([
+        {
+          id: "issue-old",
+          meaning: "DONE",
+          typeId: "type-lift",
+          typeName: "Hiss",
+          location: null,
+          description: "Hissen stod still i våras.",
+          apartment: null,
+          photos: [],
+          enteredByHandler: false,
+          replyMode: "NEW_REPORT",
+          mergedIntoMeaning: null,
+          createdAt: "2026-03-20T08:00:00.000Z",
+          updatedAt: "2026-04-20T08:00:00.000Z",
+        },
+      ]),
+    );
+    fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    const session = userEvent.setup();
+    render(<IssuesScreen viewer={READER} fromPostId="post-1" />);
+
+    await session.click(await screen.findByText("Meddelanden om Hiss"));
+    await session.click(
+      await screen.findByRole("button", { name: "Gör en ny anmälan om detta" }),
+    );
+    expect(
+      await screen.findByText(
+        "Den här anmälan följer upp din tidigare anmälan om Hiss.",
+      ),
+    ).toBeTruthy();
+    await session.click(screen.getByRole("button", { name: "Skicka anmälan" }));
+
+    await waitFor(() => {
+      expect(reportIssue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          postId: "post-1",
+          followsIssueId: "issue-old",
+        }),
+      );
+    });
+  });
+
   it("keeps the notice and the failed-photograph warning after a follow-up is filed", async () => {
     fetchOwnIssues.mockResolvedValue(
       ok([

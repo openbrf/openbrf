@@ -195,6 +195,12 @@ export interface IssueLinksView {
   mergedInto: IssueReferenceView | null;
   /** The issues merged into this one, that the reader handles. */
   duplicates: Extract<IssueReferenceView, { kind: "issue" }>[];
+  /**
+   * How many issues are merged into this one, those the reader does not
+   * handle included, which merging this one into another is refused for. A
+   * number and nothing of the issues behind it.
+   */
+  duplicateCount: number;
   /** The earlier issue this one follows up, when it does. */
   follows: IssueReferenceView | null;
   /** The later issues that follow this one up, that the reader handles. */
@@ -614,7 +620,12 @@ export class IssueService {
 
     const issue = await this.prisma.$transaction(async (tx) => {
       if (followsIssueId !== null) {
-        await requireFollowable(tx, followsIssueId, principal.personId);
+        await requireFollowable(
+          tx,
+          followsIssueId,
+          principal.personId,
+          type.id,
+        );
       }
       const filed = await this.file(tx, data);
       if (postId !== null) {
@@ -1654,17 +1665,19 @@ export class IssueService {
             orderBy: [{ createdAt: "asc" }, { id: "asc" }],
             select: REFERENCE_SELECT,
           });
-        const [linked, duplicates, followUps] = await Promise.all([
-          read({
-            id: {
-              in: [issue.mergedIntoIssueId, issue.followsIssueId].filter(
-                (id): id is string => id !== null,
-              ),
-            },
-          }),
-          read({ mergedIntoIssueId: issueId }),
-          read({ followsIssueId: issueId }),
-        ]);
+        const [linked, duplicates, followUps, duplicateCount] =
+          await Promise.all([
+            read({
+              id: {
+                in: [issue.mergedIntoIssueId, issue.followsIssueId].filter(
+                  (id): id is string => id !== null,
+                ),
+              },
+            }),
+            read({ mergedIntoIssueId: issueId }),
+            read({ followsIssueId: issueId }),
+            tx.issue.count({ where: { mergedIntoIssueId: issueId } }),
+          ]);
         const named = (id: string | null): IssueReferenceView | null => {
           if (id === null) {
             return null;
@@ -1675,6 +1688,7 @@ export class IssueService {
         return {
           mergedInto: named(issue.mergedIntoIssueId),
           duplicates: duplicates.map(toReference),
+          duplicateCount,
           follows: named(issue.followsIssueId),
           followUps: followUps.map(toReference),
         };
@@ -2499,12 +2513,32 @@ type QueueRecord = Prisma.IssueGetPayload<{ include: typeof ISSUE_INCLUDE }>;
  * Refuses a follow-up of anything but one's own issue that is done: another
  * person's issue is answered as one that does not exist, and an open one takes
  * a reply instead.
+ *
+ * Under the locks a handler's reopening of the earlier issue takes, so the
+ * status read here is the one the new issue is saved against: the locks of the
+ * earlier issue's type and of the type being filed under, in one sorted order,
+ * and then the earlier issue's own. The type before the issue is the order
+ * `lockIssueForHandling` keeps, and sorting the types keeps two follow-ups
+ * whose earlier and new types are swapped from waiting on each other.
+ * `file` takes the new type's lock again, which a transaction already holds.
  */
 async function requireFollowable(
   tx: Prisma.TransactionClient,
   issueId: string,
   reporterPersonId: string,
+  newTypeId: string,
 ): Promise<void> {
+  const own = await tx.issue.findFirst({
+    where: { id: issueId, reporterPersonId },
+    select: { typeId: true },
+  });
+  if (own === null) {
+    throw new IssueError("No such issue.", "issue-not-found");
+  }
+  for (const typeId of [...new Set([own.typeId, newTypeId])].sort()) {
+    await lockIssueType(tx, typeId);
+  }
+  await lockIssue(tx, issueId);
   const earlier = await tx.issue.findFirst({
     where: { id: issueId, reporterPersonId },
     select: { status: { select: { meaning: true } } },
