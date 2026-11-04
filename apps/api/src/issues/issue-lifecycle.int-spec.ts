@@ -907,6 +907,38 @@ describe("merging duplicates", () => {
     expect(links.json()).toMatchObject({ duplicates: [], duplicateCount: 1 });
   });
 
+  it("accepts a merge into an issue with one duplicate below the limit", async () => {
+    const kept = await filed(plain, neighbour);
+    const extra = await filed(plain, resident);
+    await prisma.issue.createMany({
+      data: Array.from(
+        { length: ISSUE_LINK_LIMITS.duplicates - 1 },
+        (_, index) => ({
+          id: `il-near-${String(index)}-${suffix}`,
+          typeId: plain.id,
+          statusId: plain.statusIds.DONE,
+          outcome: "DUPLICATE" as const,
+          closedAt: new Date(),
+          mergedIntoIssueId: kept,
+          reporterPersonId: null,
+          description: `Dublett ${String(index)} ${suffix}`,
+          location: `Plats ${String(index)} ${suffix}`,
+        }),
+      ),
+    });
+
+    const merged = await as(board, "POST", `/api/issue-queue/${extra}/merge`, {
+      intoIssueId: kept,
+    });
+    expect(merged.statusCode).toBe(201);
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: extra },
+        select: { mergedIntoIssueId: true },
+      }),
+    ).toEqual({ mergedIntoIssueId: kept });
+  });
+
   it("refuses a merge into an issue that already has as many duplicates as one may", async () => {
     const kept = await filed(plain, neighbour);
     const extra = await filed(plain, resident);
