@@ -187,6 +187,25 @@ export interface ContactMessage {
 }
 
 /**
+ * An issue reported through the website's issue report form by somebody who
+ * has no account (ADR 0055).
+ *
+ * Like everything a capture can photograph, it is published: an address on the
+ * reserved `.test` domain, and nothing that could be about anybody.
+ */
+export interface PubliclyReportedIssue {
+  /** The issue type, by name. The walk adds it, open to the public, if absent. */
+  readonly type: string;
+  readonly description: string;
+  /**
+   * Where the private link is mailed. The walk adds a suffix of its own, so a
+   * walk against a stack that is already up does not spend the address's mails
+   * for the day on the walks before it.
+   */
+  readonly email: string;
+}
+
+/**
  * Somebody put in the register and moved into an apartment over the API.
  *
  * Like everything a capture can photograph, it is published: a name nobody
@@ -226,6 +245,36 @@ export type Action =
    * the screens after it photograph the website as the board left it.
    */
   | { readonly postContactMessages: readonly ContactMessage[] }
+  /**
+   * Report this issue through the public issue report form, then reopen the
+   * screen, which reads the queue when it opens.
+   *
+   * Over HTTP as a visitor would, from a page with the form written for the
+   * purpose and removed again afterwards, and with the board's switch for
+   * public reports put back as it was. The report leaves an address, so the
+   * instance mails it a private link, which `openMailedLink` follows.
+   */
+  | { readonly reportIssuePublicly: PubliclyReportedIssue }
+  /**
+   * Go to the private link the instance mailed to this address, as the
+   * reporter does: the newest message to it, read out of the stack's mailbox.
+   *
+   * The address as `reportIssuePublicly` was given it; the walk adds the same
+   * suffix. No entry could know the link in advance, since its token exists
+   * only in the mail.
+   */
+  | { readonly openMailedLink: string }
+  /**
+   * Open the handling of the issue `reportIssuePublicly` filed from this
+   * address, in the queue on screen.
+   *
+   * The address as `reportIssuePublicly` was given it; the walk adds the same
+   * suffix, and the queue row shows the reporter's address, so the row is this
+   * walk's own. Neither the type, which the handling control names, nor where
+   * the row sits can tell it from older reports earlier walks left on a stack
+   * that was already up: the queue orders by status meaning first.
+   */
+  | { readonly openPubliclyReportedIssue: string }
   /**
    * Install this plugin from the stack's catalog as the board does, and wait
    * until the restart that ends the install has brought its view back.
@@ -639,6 +688,20 @@ const COMMON_AREA = "Bastu";
 
 /** The settings card the common areas are kept in. */
 const COMMON_AREAS_CARD = "Gemensamma utrymmen";
+
+/**
+ * A fault reported from the website by somebody without an account (ADR 0055),
+ * and what the board writes on it: to the reporter, and to itself. About the
+ * building, and nobody's own words.
+ */
+const PUBLIC_REPORT = {
+  type: "Trappbelysning",
+  description: "Lampan i trapphuset på plan tre blinkar och slocknar.",
+  email: "anmalare@eksemplet.test",
+} as const;
+const PUBLIC_REPORT_ANSWER =
+  "Tack, vi har beställt en elektriker. Vi hör av oss när den kommer.";
+const PUBLIC_REPORT_NOTE = "Elektrikern har nyckel till elcentralen.";
 
 /**
  * A "YYYY-MM-DD" date some whole days from today.
@@ -2602,6 +2665,78 @@ export const SCREENS: readonly Screen[] = [
     // The timeline's first step, which is there only once its read is back.
     waitFor: { text: "Upplagt som internt ärende" },
     capture: "page",
+  },
+  {
+    /*
+     * A report from the website by somebody without an account, who left an
+     * address and so was mailed a private link (ADR 0055). The handling says
+     * the reporter reads the answers through that link and offers to withdraw
+     * it, and the administrator writes the reporter an answer and the board an
+     * internal note, so the reporter's page below can show the one and not the
+     * other.
+     */
+    name: "board-issues-reporter-link",
+    as: "administrator",
+    goto: appPath("/board/issues?view=all"),
+    prepare: [
+      { reportIssuePublicly: PUBLIC_REPORT },
+      // By the row that carries this walk's address: a stack that was already
+      // up holds the reports of earlier walks, of the same type and words,
+      // which would otherwise take this walk's note and answer.
+      { openPubliclyReportedIssue: PUBLIC_REPORT.email },
+      { see: { text: /^Anmälaren har inget konto och läser svaren/ } },
+      {
+        fill: { label: `${PUBLIC_REPORT.type}: intern anteckning` },
+        value: PUBLIC_REPORT_NOTE,
+      },
+      { click: { button: "Lägg till anteckning" } },
+      { see: { text: PUBLIC_REPORT_NOTE } },
+      {
+        fill: { label: `${PUBLIC_REPORT.type}: meddelande till anmälaren` },
+        value: PUBLIC_REPORT_ANSWER,
+      },
+      { click: { button: "Skicka" } },
+      { see: { text: PUBLIC_REPORT_ANSWER } },
+    ],
+    waitFor: {
+      button: `${PUBLIC_REPORT.type}: dra tillbaka anmälarens privata länk`,
+    },
+    capture: "page",
+  },
+  {
+    /*
+     * The page the private link opens: the issue's type, status and day, and
+     * the conversation, signed as the board and never with a name. The internal
+     * note the entry above added is not on it, and neither is who handles the
+     * issue. Text only, so there is no file field.
+     */
+    name: "site-issue-link",
+    as: "nobody",
+    prepare: [{ openMailedLink: PUBLIC_REPORT.email }],
+    waitFor: { text: PUBLIC_REPORT_ANSWER },
+    capture: "page",
+  },
+  {
+    name: "site-issue-link-sent",
+    prepare: [
+      {
+        fill: { label: "Skriv till föreningen" },
+        value: "Tack, jag är hemma hela onsdagen.",
+      },
+      { click: { button: "Skicka" } },
+    ],
+    waitFor: { text: "Ditt meddelande har skickats till föreningen." },
+    capture: "page",
+  },
+  {
+    /*
+     * What every link that opens nothing gets, whether it never existed, has
+     * expired or was withdrawn: one page, so none of them can be told from
+     * another.
+     */
+    name: "site-issue-link-not-found",
+    goto: `/arende/obrf_rl_${"A".repeat(43)}`,
+    waitFor: { heading: "Länken öppnar inget ärende" },
   },
 
   // --- motions ---------------------------------------------------------------

@@ -333,6 +333,11 @@ export class IssuePurgeService implements OnModuleInit {
         return false;
       }
 
+      // The reporter's private link goes with the address it was mailed to
+      // (ADR 0055). It opened nothing once the address was cleared; the row is
+      // removed so nothing is left pointing at a reporter who is gone.
+      await tx.issueReporterLink.deleteMany({ where: { issueId } });
+
       await this.audit.record(
         {
           action: "SERVICE_DATA_PURGED",

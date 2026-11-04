@@ -558,6 +558,8 @@ describe("the clock", () => {
     expect(after.map((entry) => entry.id)).toContain(newer.id);
 
     // And a run whose removal of the oldest keeps failing still takes the rest.
+    // It reads one issue at a time, so the newer issue is on a later page than
+    // the oldest and a run that reads only its first page never reaches it.
     const refuse = vi
       .spyOn(storage, "remove")
       .mockImplementation((key: string) =>
@@ -566,7 +568,7 @@ describe("the clock", () => {
           : Promise.resolve(),
       );
     try {
-      const summary = await clock.run(new Date(), 2);
+      const summary = await clock.run(new Date(), 2, 1);
       expect(summary.failed).toBeGreaterThanOrEqual(1);
     } finally {
       refuse.mockRestore();
@@ -884,6 +886,62 @@ describe("redaction", () => {
     expect((await read(issue.id))._count.photos).toBe(0);
     expect(await stored(issue.photo.storageKey)).toBe(false);
     expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(1);
+  });
+
+  it("answers a file another redaction already removed as done, and writes and logs nothing", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: null,
+    });
+    const mediaEntries = () =>
+      prisma.auditLogEntry.findMany({
+        where: {
+          targetKind: "media",
+          targetId: issue.photo.fileId,
+          action: "MEDIA_DELETED",
+        },
+      });
+
+    // A second handler's redaction takes the file between this one finding the
+    // photograph and removing its file, which is the only way the removal finds
+    // the file gone: asked again afterwards, the photograph no longer exists
+    // and the redaction is refused as having nothing to reach.
+    const remove = media.remove.bind(media);
+    let rival: Promise<boolean> | undefined;
+    const rivalled = vi
+      .spyOn(media, "remove")
+      .mockImplementationOnce(async (...args) => {
+        rival = remove(issue.photo.fileId, board.personId, "WEB");
+        await rival;
+        return remove(...args);
+      });
+    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => {});
+    try {
+      const response = await inject({
+        method: "POST",
+        url: `/api/issue-queue/${issue.id}/redactions`,
+        headers: { cookie: boardCookie },
+        payload: { target: "photo", id: issue.photo.id },
+      });
+
+      expect(response.statusCode).toBe(204);
+      expect(rivalled).toHaveBeenCalledTimes(1);
+      expect(await rival).toBe(true);
+      expect(
+        log.mock.calls.filter(([message]) =>
+          String(message).includes(`Issue ${issue.id} had its`),
+        ),
+      ).toHaveLength(0);
+    } finally {
+      log.mockRestore();
+      rivalled.mockRestore();
+    }
+
+    // The rival's removal is the one entry for the file, and the redaction
+    // that found it gone wrote none of its own.
+    expect(await mediaEntries()).toHaveLength(1);
+    expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
+    expect((await read(issue.id))._count.photos).toBe(0);
   });
 
   it("takes no replacement text, and is refused to a reporter and under a legal hold", async () => {

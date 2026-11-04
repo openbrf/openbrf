@@ -10,6 +10,7 @@ import { IssueErasureService } from "./issue-erasure.service";
 import { IssueFreeTextService } from "./issue-free-text.service";
 import { IssueMailer } from "./issue-mailer.service";
 import { IssuePurgeService } from "./issue-purge.service";
+import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import { IssueRedactionService } from "./issue-redaction.service";
 import { IssueRetentionSettingService } from "./issue-retention-setting.service";
 import {
@@ -48,7 +49,8 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
  *
  * The services are exported because the association's public website renders
  * the report form itself, in process, rather than calling this API over HTTP,
- * and the saved replies because the setup wizard seeds them.
+ * the saved replies because the setup wizard seeds them, and the reporter's
+ * private link because its page is the website's too (ADR 0055).
  *
  * IssuePurgeService is a provider and not exported: it is a scheduled job with
  * nobody to call it, and the integration suite reaches it through the module
@@ -76,6 +78,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueSavedReplyService,
     IssueFitService,
     IssuePlaceService,
+    IssueReporterLinkService,
     IssueFreeTextService,
     IssueTextPurgeService,
     IssueErasureService,
@@ -89,6 +92,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueTypeService,
     IssueSavedReplyService,
     IssuePlaceService,
+    IssueReporterLinkService,
     ResponsibilityGuideService,
   ],
 })

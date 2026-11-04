@@ -136,6 +136,21 @@ const RESERVED_SLUGS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Names a new page is not given, though a page that already has one still
+ * opens.
+ *
+ * The page a reporter's private link opens sits under /arende (ADR 0055). A
+ * page written at /arende before keeps its address and its forms: the page is
+ * reached because the link's route has a segment more, and its forms post to
+ * /arende/kontakt and /arende/felanmalan, which the link's routes leave to the
+ * website because they match only a segment shaped like a token. Every other
+ * read below /arende is the link's, so the name is not offered to a page
+ * written from now on. The English spelling is held on the news index's
+ * argument.
+ */
+const CLAIMED_BELOW: ReadonlySet<string> = new Set(["arende", "case"]);
+
+/**
  * The shape a slug must have.
  *
  * Lowercase, digits and single-position hyphens, starting on an alphanumeric.
@@ -160,6 +175,11 @@ export function isSlugShaped(slug: string): boolean {
 
 export function isUsableSlug(slug: string): boolean {
   return isSlugShaped(slug) && !RESERVED_SLUGS.has(slug);
+}
+
+/** Whether a page may be given this address now: usable, and not claimed. */
+export function isWritableSlug(slug: string): boolean {
+  return isUsableSlug(slug) && !CLAIMED_BELOW.has(slug);
 }
 
 /**

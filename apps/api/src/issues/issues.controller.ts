@@ -53,6 +53,7 @@ import {
   type IssuePlaceCount,
   IssuePlaceService,
 } from "./issue-place.service";
+import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import {
   type IssueSavedReplyView,
   IssueSavedReplyService,
@@ -308,9 +309,12 @@ function requirePrincipal(request: RequestWithPrincipal): Principal {
  *
  * The capability sits on the class, so a route added here later inherits it
  * rather than being open by omission. There is deliberately no @Public() route
- * anywhere in this module: the website's form is server-rendered by the site
- * layer, which calls the services directly, so the application exposes no
- * unauthenticated write surface for issues at all.
+ * anywhere in this module's controllers (ADR 0055). The website's form is
+ * server-rendered by the site layer, which calls the services directly, and
+ * the ways to an issue without a session are the site layer's link controllers
+ * alone: the reporter's private link (`SiteIssueLinkController`), and the
+ * contractor's once it is built. Each resolves its token before it reads
+ * anything else and reaches one issue's own part, never a principal's.
  */
 @Controller("api/issues")
 @RequireCapability("issues:report")
@@ -504,6 +508,7 @@ export class IssueQueueController {
     private readonly savedReplies: IssueSavedReplyService,
     private readonly fit: IssueFitService,
     private readonly places: IssuePlaceService,
+    private readonly reporterLinks: IssueReporterLinkService,
   ) {}
 
   /**
@@ -661,6 +666,19 @@ export class IssueQueueController {
       id,
       conversationSchema.parse(body).body,
     );
+  }
+
+  /**
+   * Withdraws the private link mailed to the issue's reporter (ADR 0055). It
+   * opens nothing from the next request on, and nobody is mailed.
+   */
+  @Post(":id/reporter-link/revoke")
+  @HttpCode(204)
+  async revokeReporterLink(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<void> {
+    await this.reporterLinks.revoke(actingPersonId(request), id);
   }
 
   /** The handlers' internal notes, which the reporter never reads. */
