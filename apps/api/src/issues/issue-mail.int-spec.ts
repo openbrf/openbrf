@@ -1478,7 +1478,11 @@ describe("an issue message", () => {
       // its transaction is kept open while a message on the second issue
       // counts. That one has to wait for the reporter's budget lock: counting
       // without it, it would not see the first and be mailed about too.
-      const racing: Promise<unknown>[] = [];
+      // The write on the second issue is handled from the moment it starts: a
+      // rejection is recorded here, never left unhandled while the transaction
+      // is open, and thrown once the transaction is over.
+      const racing: { ended?: Promise<void>; failure?: { error: unknown } } =
+        {};
       await mailer.ensureQueues();
       try {
         await prisma.$transaction(
@@ -1497,7 +1501,12 @@ describe("an issue message", () => {
                 kind: "reporter",
               }),
             ).toBe(1);
-            racing.push(write(second));
+            racing.ended = write(second).then(
+              () => undefined,
+              (error: unknown) => {
+                racing.failure = { error };
+              },
+            );
             await untilWaitingForLock(
               `issue-message-budget:person:${resident.personId}`,
               "the reporter's message budget lock",
@@ -1509,12 +1518,23 @@ describe("an issue message", () => {
         );
       } catch (error) {
         // The transaction has rolled back and let go of the lock, so the write
-        // that waited for it ends; settle it so it is not left unhandled, and
-        // let the failure that matters be the one reported.
-        await Promise.allSettled(racing);
+        // that waited for it ends. Give it a moment, no longer: a write stuck
+        // on something else must not hold the failure that matters back until
+        // the suite's timeout.
+        let timer: NodeJS.Timeout | undefined;
+        await Promise.race([
+          racing.ended,
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, 2_000);
+          }),
+        ]);
+        clearTimeout(timer);
         throw error;
       }
-      await Promise.all(racing);
+      await racing.ended;
+      if (racing.failure !== undefined) {
+        throw racing.failure.error;
+      }
 
       // Four more at once, two on each issue, all past the budget.
       await Promise.all(
