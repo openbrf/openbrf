@@ -1230,8 +1230,12 @@ describe("D. rate limits and abuse", () => {
       where: { issueId: id },
       select: { expiresAt: true },
     });
+    const year = 365 * 24 * 60 * 60 * 1000;
     expect(link.expiresAt.getTime()).toBeGreaterThan(
-      Date.now() + 360 * 24 * 60 * 60 * 1000,
+      Date.now() + year - 60_000,
+    );
+    expect(link.expiresAt.getTime()).toBeLessThanOrEqual(
+      Date.now() + year + 60_000,
     );
   });
 
@@ -1602,8 +1606,13 @@ describe("J. logging and audit", () => {
     });
 
     // Selected by what such an entry would be, never by a count of the whole
-    // log, which other suites write to at the same time.
-    const since = new Date();
+    // log, which other suites write to at the same time. The start of the
+    // window is the database's clock, which stamps an entry: the process's
+    // clock can run behind it and let the entry above fall inside the window.
+    const [window] = await prisma.$queryRaw<{ now: Date }[]>`
+      SELECT clock_timestamp() AS now
+    `;
+    const since = window?.now ?? new Date();
     await page(`obrf_rl_${"J".repeat(43)}`);
     await post(`obrf_rl_${"J".repeat(43)}`, "Gissning");
     await page("nonsense");
