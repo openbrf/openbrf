@@ -7,6 +7,7 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { NO_ENTRY_PERMISSION } from "../issues/issue-fit-views";
 import { ISSUE_FREE_TEXT_STANDING } from "../issues/issue-free-text";
 import { lockIssue, lockWorkOrderSender } from "../issues/issue-lock";
 import { WORK_ORDER_TEXT_STANDING } from "../issues/issue-retention";
@@ -997,6 +998,15 @@ export class PurgeService implements OnModuleInit {
           reporterNameCipher: null,
           reporterEmailCipher: null,
           reporterEmailIndex: null,
+          /*
+           * What the person said about getting into their home (decision 29)
+           * goes with them: it is their answer, and it is cleared when the
+           * issue closes in any case, so an open issue is the only one that
+           * can hold it. An open issue whose text still stands is not selected
+           * here and keeps both until it closes; one whose text a handler
+           * redacted is, and loses the answer with the reference.
+           */
+          ...NO_ENTRY_PERMISSION,
         },
       });
 

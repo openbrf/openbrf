@@ -1,10 +1,22 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { floorOfApartmentNumber } from "@openbrf/shared";
 
+import { type ActorContext, auditActor } from "../audit/actor-context";
+import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import { isUniqueViolation } from "../database/unique-violation";
 import { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { NO_ENTRY_PERMISSION } from "../issues/issue-fit-views";
+
+/**
+ * The budget of an apartment's removal. It locks every issue of the apartment,
+ * waiting on any write under way on one, and writes one audit entry per answer
+ * it takes off, each its own round trip; nothing caps how many issues an
+ * apartment has. Prisma's default of five seconds would roll the removal back
+ * with P2028, which tells the board nothing it can act on.
+ */
+const REMOVAL_TRANSACTION = { timeout: 30_000, maxWait: 20_000 } as const;
 
 export class AddressError extends DomainError {
   readonly status: number;
@@ -68,7 +80,10 @@ export interface ApartmentRowInput {
 export class AddressService {
   private readonly logger = new Logger(AddressService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditLogService,
+  ) {}
 
   async list(): Promise<AddressView[]> {
     const addresses = await this.prisma.address.findMany({
@@ -254,7 +269,7 @@ export class AddressService {
    * most: those rows cannot be deleted at all, by anyone, so an apartment they
    * name is permanent.
    */
-  async removeApartment(id: string): Promise<void> {
+  async removeApartment(id: string, actor: ActorContext): Promise<void> {
     const apartment = await this.prisma.apartment.findUnique({
       where: { id },
       include: {
@@ -307,7 +322,49 @@ export class AddressService {
     }
 
     try {
-      await this.prisma.apartment.delete({ where: { id } });
+      /*
+       * An issue about the apartment outlives it (its key is SetNull), but a
+       * resident's permission to enter belongs to an issue about an apartment
+       * (BRL 7 kap. 13 §): with the home gone from the register it lets nobody
+       * in anywhere, so it goes in the same transaction as the apartment, and
+       * a delete the keys refuse leaves it standing.
+       *
+       * Every issue of the apartment, not only those with an answer: the
+       * read takes each row's lock, so an entry write already under way is
+       * waited for and its answer read once it is committed, and one that
+       * comes after it finds the apartment gone and is refused
+       * (`IssueFitService.writeEntry`). Read without the lock, or filtered on
+       * the answer, it would miss a row whose answer is not yet committed,
+       * and the key's SetNull would then leave that answer standing on an
+       * issue about no apartment.
+       *
+       * Each answer taken off is recorded as a withdrawal by whoever removed
+       * the apartment, as a handler's is, so the issue's timeline does not end
+       * on an answer it no longer holds. Facts only: never the note.
+       */
+      await this.prisma.$transaction(async (tx) => {
+        const issues = await tx.$queryRaw<
+          { id: string; entryAnswer: string | null }[]
+        >`SELECT "id", "entryAnswer" FROM "issue" WHERE "apartmentId" = ${id} ORDER BY "id" FOR UPDATE`;
+        for (const issue of issues) {
+          if (issue.entryAnswer === null) continue;
+          await this.audit.record(
+            {
+              action: "ISSUE_ENTRY_PERMISSION_REMOVED",
+              ...auditActor(actor),
+              targetKind: "issue",
+              targetId: issue.id,
+              context: { byReporter: false, apartmentRemoved: true },
+            },
+            tx,
+          );
+        }
+        await tx.issue.updateMany({
+          where: { apartmentId: id },
+          data: NO_ENTRY_PERMISSION,
+        });
+        await tx.apartment.delete({ where: { id } });
+      }, REMOVAL_TRANSACTION);
     } catch (cause) {
       /*
        * The counts above narrow the window; the foreign keys close it. A charge

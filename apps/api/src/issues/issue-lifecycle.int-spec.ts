@@ -714,6 +714,60 @@ describe("merging duplicates", () => {
     });
   });
 
+  it("clears the duplicate's entry permission as it closes it, and says so on the status change", async () => {
+    const kept = await filed(plain, neighbour);
+    const duplicate = await filed(plain, resident);
+    // Written directly: the merge is under test, not the resident's answer.
+    await prisma.issue.update({
+      where: { id: duplicate },
+      data: {
+        entryAnswer: "YES",
+        entryNote: "Ring på",
+        entryPets: true,
+        entryMasterKey: false,
+      },
+    });
+
+    const merged = await as(
+      board,
+      "POST",
+      `/api/issue-queue/${duplicate}/merge`,
+      { intoIssueId: kept },
+    );
+    expect(merged.statusCode).toBe(201);
+    expect(merged.json()).toMatchObject({ outcome: "DUPLICATE", entry: null });
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: duplicate },
+        select: {
+          entryAnswer: true,
+          entryNote: true,
+          entryPets: true,
+          entryMasterKey: true,
+          entryUntil: true,
+        },
+      }),
+    ).toEqual({
+      entryAnswer: null,
+      entryNote: null,
+      entryPets: null,
+      entryMasterKey: null,
+      entryUntil: null,
+    });
+    const change = await prisma.auditLogEntry.findFirst({
+      where: {
+        targetKind: "issue",
+        targetId: duplicate,
+        action: "ISSUE_STATUS_CHANGED",
+      },
+      select: { context: true },
+    });
+    expect(change?.context).toMatchObject({
+      outcome: "DUPLICATE",
+      entryPermissionCleared: true,
+    });
+  });
+
   it("tells every reporter of the duplicates, each on their own report, a protected one masked as before", async () => {
     const kept = await filed(plain, neighbour);
     const first = await filed(plain, resident);

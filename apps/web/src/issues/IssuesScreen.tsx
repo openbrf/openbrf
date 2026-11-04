@@ -11,12 +11,15 @@ import { useTranslation } from "react-i18next";
 import type { Viewer } from "../api/instance";
 import {
   fetchKnownFaults,
+  fetchIssuePlaces,
   fetchOwnApartments,
   fetchOwnIssues,
   fetchReportableTypes,
   fetchReporterResponsibilityGuide,
   type IssueApartment,
   type KnownFault,
+  type IssueEntry,
+  type IssuePlaceChoice,
   type OwnIssue,
   type ReportableIssueType,
   type ResponsibilityGuide,
@@ -48,6 +51,7 @@ interface Loaded {
   ready: boolean;
   types: readonly ReportableIssueType[];
   apartments: readonly IssueApartment[];
+  places: readonly IssuePlaceChoice[];
   own: readonly OwnIssue[];
   knownFaults: readonly KnownFault[];
   /**
@@ -63,6 +67,7 @@ const EMPTY: Loaded = {
   ready: false,
   types: [],
   apartments: [],
+  places: [],
   own: [],
   knownFaults: [],
   guide: null,
@@ -156,23 +161,31 @@ export function IssuesScreen({
   }, [fromPostId, canReport, t]);
 
   /**
-   * One read of the three lists, the known faults and the guide. A list that
-   * could not be read comes back `null`, so a re-read that fails on one of them
-   * leaves what the screen already shows in place instead of replacing it with
-   * an empty list. The known faults are the exception `reload` names.
+   * One read of the three lists, the places, the known faults and the guide.
+   * A list that could not be read comes back `null`, so a re-read that fails
+   * on one of them leaves what the screen already shows in place instead of
+   * replacing it with an empty list. The known faults are the exception
+   * `reload` names.
+   *
+   * The places alone do not fail the screen: a place is optional on a report,
+   * so without them the form still reports an issue in the apartment, as the
+   * queue tolerates a places read that fails.
    */
   const read = useCallback(async () => {
-    const [types, apartments, own, knownFaults, guide] = await Promise.all([
-      canReport ? fetchReportableTypes() : null,
-      canReport ? fetchOwnApartments() : null,
-      canReport ? fetchOwnIssues() : null,
-      canReport ? fetchKnownFaults() : null,
-      canReport ? fetchReporterResponsibilityGuide() : null,
-    ]);
+    const [types, apartments, places, own, knownFaults, guide] =
+      await Promise.all([
+        canReport ? fetchReportableTypes() : null,
+        canReport ? fetchOwnApartments() : null,
+        canReport ? fetchIssuePlaces() : null,
+        canReport ? fetchOwnIssues() : null,
+        canReport ? fetchKnownFaults() : null,
+        canReport ? fetchReporterResponsibilityGuide() : null,
+      ]);
 
     return {
       types: types?.ok === true ? types.value : null,
       apartments: apartments?.ok === true ? apartments.value : null,
+      places: places?.ok === true ? places.value : null,
       own: own?.ok === true ? own.value : null,
       knownFaults: knownFaults?.ok === true ? knownFaults.value : null,
       /**
@@ -210,6 +223,7 @@ export function IssuesScreen({
           types: next.types ?? (next.asked ? previous.types : []),
           apartments:
             next.apartments ?? (next.asked ? previous.apartments : []),
+          places: next.places ?? (next.asked ? previous.places : []),
           own: next.own ?? (next.asked ? previous.own : []),
           /*
            * Not kept on a failed read, unlike the lists: a known fault leaves
@@ -236,7 +250,27 @@ export function IssuesScreen({
     };
   }, [reload]);
 
-  const { ready, types, apartments, own, knownFaults, loadFailed } = loaded;
+  /**
+   * The answer about entering an issue, as its save answered it. Applied
+   * before the re-read that follows, so the summary and the withdraw button
+   * show what was saved even when that re-read fails and the list it read
+   * before stays on screen. A re-read that lands afterwards replaces it with
+   * the same answer, read from the server.
+   */
+  const applyEntry = useCallback(
+    (issueId: string, entry: IssueEntry | null): void => {
+      setLoaded((previous) => ({
+        ...previous,
+        own: previous.own.map((issue) =>
+          issue.id === issueId ? { ...issue, entry } : issue,
+        ),
+      }));
+    },
+    [],
+  );
+
+  const { ready, types, apartments, places, own, knownFaults, loadFailed } =
+    loaded;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -294,6 +328,7 @@ export function IssuesScreen({
               }
               types={types}
               apartments={apartments}
+              places={places}
               knownFaults={knownFaults}
               guide={loaded.guide}
               {...(fromPost.kind === "read"
@@ -325,6 +360,7 @@ export function IssuesScreen({
           <OwnIssuesPanel
             issues={own}
             onChanged={reload}
+            onEntrySaved={applyEntry}
             onFollowUp={(issue, refusedReply) => {
               if (followUp?.id !== issue.id || refusedReply !== "") {
                 setFormEpoch((epoch) => epoch + 1);

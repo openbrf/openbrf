@@ -12,7 +12,9 @@ import { useTranslation } from "react-i18next";
 import type { Viewer } from "../api/instance";
 import {
   fetchHandlerIssueTypes,
+  fetchIssuePlaceCounts,
   fetchIssueQueueSnapshot,
+  type IssuePlaceCount,
   type IssueQueueCounts,
   type IssueQueueFilter,
   type IssueTypeView,
@@ -34,6 +36,7 @@ import {
   VIEW_LABEL,
   VIEW_PARAM,
 } from "./issue-queue-views";
+import { IssuePlaceCountsPanel } from "./IssuePlaceCountsPanel";
 import { IssueQueuePanel } from "./IssueQueuePanel";
 import { OpenIssuePanel } from "./OpenIssuePanel";
 
@@ -48,10 +51,20 @@ interface Filter {
   status: StatusChoice;
   /** A type's identifier, or empty for every type. */
   typeId: string;
+  /**
+   * A common-area place's identifier (decision 30), or empty for the whole
+   * queue. Chosen on the place's row of the counts, not in the bar.
+   */
+  placeId: string;
   priority: IssuePriority | "";
 }
 
-const NO_FILTER: Filter = { status: "OPEN", typeId: "", priority: "" };
+const NO_FILTER: Filter = {
+  status: "OPEN",
+  typeId: "",
+  placeId: "",
+  priority: "",
+};
 
 /** Everything one read of the queue produces, applied in one step. */
 interface Loaded {
@@ -99,6 +112,13 @@ const EMPTY: Loaded = {
  */
 type Types = readonly IssueTypeView[] | null | undefined;
 
+/**
+ * The common-area places with how many issues name each: undefined until they
+ * are first read, null when they could not be. Read apart from the queue, as
+ * the types are, and not drawn when the read fails.
+ */
+type Places = readonly IssuePlaceCount[] | null | undefined;
+
 /** The status filter's words for each choice. */
 const STATUS_CHOICE_LABEL: Readonly<Record<StatusChoice, TranslationKey>> = {
   OPEN: "issues.filter.statusOpen",
@@ -124,7 +144,9 @@ const STATUS_CHOICE_LABEL: Readonly<Record<StatusChoice, TranslationKey>> = {
  * status, type, priority and a search - narrows every view alike and opens on
  * the open issues, so each view starts as the work still to do. The search is
  * asked of the server, which matches only what the reader may read: a
- * protected reporter's name and apartment match nothing.
+ * protected reporter's name and apartment match nothing. Above the views, the
+ * common-area places with their counts (decision 30): choosing one narrows
+ * every view to it, as the filter does, and clearing the filter leaves it.
  *
  * Hiding the queue is courtesy only. The API refuses the read either way.
  */
@@ -142,6 +164,7 @@ export function IssueQueueScreen({
   const [search, setSearch] = useState("");
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   const [types, setTypes] = useState<Types>(undefined);
+  const [places, setPlaces] = useState<Places>(undefined);
   /*
    * Bumped to read the queue again under whatever view and filter are current
    * then: a save, an issue opened or a retry asks for it. A save started under
@@ -180,6 +203,7 @@ export function IssueQueueScreen({
       ? {}
       : { meaning: meaningFilterOf(filter.status) }),
     ...(filter.typeId === "" ? {} : { typeId: filter.typeId }),
+    ...(filter.placeId === "" ? {} : { placeId: filter.placeId }),
     ...(filter.priority === "" ? {} : { priority: filter.priority }),
     ...(search === "" ? {} : { search }),
   };
@@ -249,6 +273,41 @@ export function IssueQueueScreen({
     };
   }, [canHandle, readCount, typesReadCount]);
 
+  /*
+   * The places' counts, read again with the queue after a save, an issue
+   * opened or a retry, since any of those can move a count, and when a place
+   * is chosen or left, so the row chosen from is current. Not for the other
+   * changes of view or filter: they count every issue the reader may open.
+   */
+  useEffect(() => {
+    if (!canHandle) {
+      return;
+    }
+    let current = true;
+    void fetchIssuePlaceCounts().then((read) => {
+      if (current) {
+        const listed = read.ok ? read.value : null;
+        setPlaces(listed);
+        /*
+         * The control that leaves a place is on that place's row of the
+         * counts. Without the counts, or with counts that no longer list the
+         * place (switched off with nothing left on it, or removed), a queue
+         * narrowed to it would be narrowed by something the screen no longer
+         * shows. Clearing the place reads the queue again unnarrowed.
+         */
+        setFilter((now) =>
+          now.placeId === "" ||
+          (listed !== null && listed.some((place) => place.id === now.placeId))
+            ? now
+            : { ...now, placeId: "" },
+        );
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [canHandle, readCount, filter.placeId]);
+
   const ready = loaded.key !== null;
   // The list on screen answers an earlier filter, or an earlier read under
   // this one, until this read's answer lands.
@@ -257,6 +316,7 @@ export function IssueQueueScreen({
   const narrowed =
     filter.status !== NO_FILTER.status ||
     filter.typeId !== "" ||
+    filter.placeId !== "" ||
     filter.priority !== "" ||
     search !== "";
 
@@ -272,6 +332,16 @@ export function IssueQueueScreen({
        */}
       {types === undefined || types === null ? null : (
         <OpenIssuePanel types={types} onOpened={reload} />
+      )}
+
+      {places === undefined || places === null ? null : (
+        <IssuePlaceCountsPanel
+          places={places}
+          selected={filter.placeId}
+          onSelect={(placeId) => {
+            setFilter((current) => ({ ...current, placeId }));
+          }}
+        />
       )}
 
       <ViewNav

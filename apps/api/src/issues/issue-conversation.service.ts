@@ -19,6 +19,7 @@ import {
   handlesIssues,
   issueReaderScope,
   issuesHandledWhere,
+  requireHandledIssue,
 } from "./issue-handlers";
 import { lockIssueForHandling, lockIssuesForHandling } from "./issue-lock";
 import {
@@ -118,8 +119,8 @@ const DUPLICATE_MESSAGE_ATTEMPTS = 3;
  *
  * Its own service beside `IssueService`, reading the same rules from the same
  * places rather than restating them: who handles an issue is
- * `issueReaderScope` and `issuesHandledWhere`, asked of the database on every
- * read and write, so an issue the board keeps to itself keeps its
+ * `requireHandledIssue`, `IssueService`'s own read, asked of the database on
+ * every read and write, so an issue the board keeps to itself keeps its
  * conversation, notes and files with it, and is answered to anybody else as an
  * issue that does not exist. Who reported it is the issue's own
  * `reporterPersonId`, asked the same way.
@@ -699,30 +700,24 @@ export class IssueConversationService {
     return issue;
   }
 
-  /**
-   * An issue this person handles, or the refusal that answers an issue that
-   * does not exist: one the reader may not open is not one they may learn of.
-   * The rule `IssueService` reads every issue by.
-   */
+  /** An issue this person handles (`requireHandledIssue`). */
   private async requireHandled(
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
     now: Date = new Date(),
   ) {
-    const scope = await issueReaderScope(db, readerPersonId, now);
-    const issue = await db.issue.findFirst({
-      where: { id: issueId, ...issuesHandledWhere(scope) },
-      select: {
+    return requireHandledIssue(
+      db,
+      issueId,
+      readerPersonId,
+      {
         id: true,
         reporterPersonId: true,
         _count: { select: { attachments: true } },
       },
-    });
-    if (issue === null) {
-      throw new IssueError("No such issue.", "issue-not-found");
-    }
-    return issue;
+      now,
+    );
   }
 
   /**

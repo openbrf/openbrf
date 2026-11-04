@@ -155,8 +155,9 @@ export type ReporterLinkReplyOutcome =
  *   "last used", no audit entry. Mail scanners and link previews open every
  *   link in a message, and must not be able to do anything by it.
  * - **The form cannot mail a stranger at will.** One link mail per issue,
- *   never sent again, and at most three a day to one address, counted in the
- *   database. There is no way to ask for the link again.
+ *   not sent again (save the one failure `deliver` names), and at most three
+ *   a day to one address, counted in the database. There is no way to ask for
+ *   the link again.
  */
 @Injectable()
 export class IssueReporterLinkService implements OnModuleInit {
@@ -255,9 +256,11 @@ export class IssueReporterLinkService implements OnModuleInit {
    * there and its link not withdrawn is read again in the same place, under
    * the issue's lock.
    *
-   * A link whose mail is refused (a restriction, a close, no mail settings)
-   * or abandoned after its retries is deleted, so it no longer counts toward
-   * its address's three a day; one still being retried counts.
+   * A link whose mail is refused (a restriction, a close, no mail settings,
+   * or, on a retry, an address whose three a day are spent) or abandoned
+   * after its retries is deleted, so it no longer counts toward its address's
+   * three a day; one still being retried counts. A retry that refuses before
+   * it mints a token deletes the unmailed link the earlier attempt left too.
    *
    * Answers whether a mail went. Nothing is mailed, and no link issued, for a
    * report that no longer has an address, that already has its link, that a
@@ -304,9 +307,11 @@ export class IssueReporterLinkService implements OnModuleInit {
       if (issue.closedAt !== null) {
         // Closed before the mail went: a link would open the page for a few
         // days at most, and the reporter learns nothing a mail should carry.
+        await this.releaseEarlier(tx, existing);
         return null;
       }
       if (await this.isRestricted(tx, issue.reporterEmailIndex)) {
+        await this.releaseEarlier(tx, existing);
         return null;
       }
 
@@ -330,6 +335,7 @@ export class IssueReporterLinkService implements OnModuleInit {
         this.logger.log(
           `Issue ${issueId} gets no private link: its address has had as many today as it may.`,
         );
+        await this.releaseEarlier(tx, existing);
         return null;
       }
 
@@ -502,6 +508,25 @@ export class IssueReporterLinkService implements OnModuleInit {
         tokenDigest: issued.tokenDigest,
         mailedAt: null,
       },
+    });
+  }
+
+  /**
+   * Gives back the slot of a link an earlier attempt issued and did not mail,
+   * when a retry finds it will not mail it either: the issue closed, its
+   * address restricted or that address's budget spent. The caller holds the
+   * issue's lock, which the stamp is written under too, and has read the link
+   * as neither mailed nor withdrawn.
+   */
+  private async releaseEarlier(
+    tx: Prisma.TransactionClient,
+    existing: { id: string } | null,
+  ): Promise<void> {
+    if (existing === null) {
+      return;
+    }
+    await tx.issueReporterLink.deleteMany({
+      where: { id: existing.id, mailedAt: null, revokedAt: null },
     });
   }
 
