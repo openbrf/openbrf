@@ -744,7 +744,12 @@ export type QueuedIssueRow = {
   readonly typeName: string;
   readonly description: string;
   readonly photos: readonly { readonly url: string }[];
-  readonly reporter: { readonly kind: string; readonly name?: string };
+  readonly reporter: {
+    readonly kind: string;
+    readonly name?: string;
+    /** For an external reporter: where their private link stands. */
+    readonly link?: "live" | "ended" | "none";
+  };
 };
 
 export async function listIssueQueue(
@@ -1058,6 +1063,36 @@ export async function postContactForm(
   if (response.status() !== 303) {
     throw new Error(
       `POST /${slug}/kontakt answered ${String(response.status())}, not the redirect a stored message gets`,
+    );
+  }
+}
+
+/**
+ * Reports an issue through the issue report form on a published page, as a
+ * visitor would: a plain form post, answered with a redirect back to the page.
+ * `type` is the issue type's id, which is what the form's select posts.
+ *
+ * A report the form could not read is redirected too, to the page with `fel`
+ * rather than `skickat`, so the address is what tells the two apart.
+ */
+export async function postIssueReportForm(
+  request: APIRequestContext,
+  baseUrl: string,
+  slug: string,
+  input: { type: string; description: string; email?: string },
+): Promise<void> {
+  const response = await request.post(`${baseUrl}/${slug}/felanmalan`, {
+    form: {
+      type: input.type,
+      description: input.description,
+      ...(input.email === undefined ? {} : { email: input.email }),
+    },
+    maxRedirects: 0,
+  });
+  const location = response.headers()["location"] ?? "";
+  if (response.status() !== 303 || !location.includes("skickat=")) {
+    throw new Error(
+      `POST /${slug}/felanmalan answered ${String(response.status())} to ${location || "nowhere"}, not the redirect a stored report gets`,
     );
   }
 }

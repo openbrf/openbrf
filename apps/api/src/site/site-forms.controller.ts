@@ -42,6 +42,8 @@ import {
   type SiteFormKind,
 } from "./site-forms";
 import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
+import { acceptLanguage } from "./site-request";
+import { preferredLocale } from "./visitor-locale";
 
 /**
  * The three things anybody can write into this instance from the street: a
@@ -425,6 +427,9 @@ export class SiteFormsController {
         description: parsed.data.description,
         reporterName: parsed.data.name ?? null,
         reporterEmail: parsed.data.email ?? null,
+        // The language the form was read in, for the mail with the private
+        // link, when the browser asked for one this instance speaks.
+        reporterLocale: preferredLocale(acceptLanguage(request)),
       });
     } catch (error) {
       if (error instanceof IssueError) {
@@ -545,10 +550,7 @@ export class SiteFormsController {
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<void> {
-    const acceptLanguage = request.headers["accept-language"];
-    const html = await this.renderer.notFound(
-      typeof acceptLanguage === "string" ? acceptLanguage : undefined,
-    );
+    const html = await this.renderer.notFound(acceptLanguage(request));
     void reply.code(404).headers(SITE_HTML_HEADERS).send(html);
   }
 }

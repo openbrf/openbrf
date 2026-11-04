@@ -593,6 +593,10 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ISSUE_COST_RESPONSIBILITY_CHANGED",
   ISSUE_MESSAGE_SENT: "register.person.report.action.ISSUE_MESSAGE_SENT",
   ISSUE_NOTE_ADDED: "register.person.report.action.ISSUE_NOTE_ADDED",
+  ISSUE_REPORTER_LINK_ISSUED:
+    "register.person.report.action.ISSUE_REPORTER_LINK_ISSUED",
+  ISSUE_REPORTER_LINK_REVOKED:
+    "register.person.report.action.ISSUE_REPORTER_LINK_REVOKED",
   ISSUE_REDACTED: "register.person.report.action.ISSUE_REDACTED",
   ISSUE_LEGAL_HOLD_PLACED:
     "register.person.report.action.ISSUE_LEGAL_HOLD_PLACED",

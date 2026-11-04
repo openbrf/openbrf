@@ -2080,6 +2080,50 @@ describe("what the document prints", () => {
     }
   });
 
+  it("says an issue's text was removed in the subject's language, not the reader's", async () => {
+    /*
+     * The marks that stand in place of a removed text are written into the
+     * document, so they take the document's translator like every label around
+     * them: the reader is on English and the subject has asked for Swedish.
+     */
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    await i18n.changeLanguage("en");
+    try {
+      renderReport({
+        ...FULL_REPORT,
+        person: { ...FULL_REPORT.person, preferredLocale: "sv" },
+        issues: [
+          {
+            ...issue,
+            issueId: "issue-redacted",
+            location: null,
+            description: "",
+            descriptionRedactedAt: "2026-10-01T09:00:00.000Z",
+            locationRedactedAt: "2026-10-02T09:00:00.000Z",
+          },
+          {
+            ...issue,
+            issueId: "issue-purged",
+            location: null,
+            description: "",
+            freeTextRemovedAt: "2026-11-03T03:21:00.000Z",
+          },
+        ],
+      });
+      await screen.findByText("Brf Eksemplet");
+
+      expect(screen.getAllByText(/Borttaget av en handläggare/)).toHaveLength(
+        2,
+      );
+      expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(2);
+      expect(screen.queryByText(/Removed by a handler/)).toBeNull();
+      expect(screen.queryByText(/Free text removed on/)).toBeNull();
+    } finally {
+      await i18n.changeLanguage("sv");
+    }
+  });
+
   it("says an empty section is empty rather than leaving a gap", async () => {
     // A printed document with a blank under a heading reads as one that lost
     // something. The report's whole job is to be a complete statement of what

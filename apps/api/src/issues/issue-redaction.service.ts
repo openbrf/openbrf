@@ -97,12 +97,10 @@ export class IssueRedactionService {
     issueId: string,
     redaction: IssueRedaction,
   ): Promise<void> {
-    let changed = true;
-    if (redaction.target === "photo" || redaction.target === "attachment") {
-      changed = await this.removeFile(handlerPersonId, issueId, redaction);
-    } else {
-      changed = await this.redactText(handlerPersonId, issueId, redaction);
-    }
+    const changed =
+      redaction.target === "photo" || redaction.target === "attachment"
+        ? await this.removeFile(handlerPersonId, issueId, redaction)
+        : await this.redactText(handlerPersonId, issueId, redaction);
     // Only an act that changed something, as only that one is in the audit
     // log: a text already redacted is answered as done and says nothing.
     if (changed) {
