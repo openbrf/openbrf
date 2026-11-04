@@ -288,7 +288,16 @@ const SHAPES: Record<SeedKey, SeedShape> = {
   issues: {
     source: "SERVICE_DATA",
     legalBasis: "LEGITIMATE_INTEREST",
-    dataSubjectCategories: ["member", "resident", "external"],
+    // The reporters, among them somebody who has since moved out, and the
+    // handlers the issues are given to and mailed: a board member, and the
+    // property manager among the external.
+    dataSubjectCategories: [
+      "member",
+      "resident",
+      "formerResident",
+      "boardMember",
+      "external",
+    ],
     personalDataCategories: [
       "name",
       "apartment",

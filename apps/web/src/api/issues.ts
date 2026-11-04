@@ -113,6 +113,8 @@ export interface IssuePhoto {
  */
 export interface OwnIssue {
   id: string;
+  /** The issue number (ärendenummer), which every mail about it names. */
+  number: number;
   meaning: IssueStatusMeaning;
   typeId: string;
   typeName: string;
