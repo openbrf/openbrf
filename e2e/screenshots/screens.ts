@@ -2525,7 +2525,8 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "board-issues",
     as: "administrator",
-    goto: appPath("/board/issues"),
+    // Alla: the queue opens on Mina, and the administrator is given nothing.
+    goto: appPath("/board/issues?view=all"),
     waitFor: { heading: "Ärendekön" },
     capture: "page",
   },
@@ -2539,7 +2540,8 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "board-issues-handling",
     as: "administrator",
-    goto: appPath("/board/issues"),
+    // Alla, where the issue opened below lands: it is given to nobody.
+    goto: appPath("/board/issues?view=all"),
     prepare: [
       { see: { heading: "Lägg upp ett ärende" } },
       { select: { combobox: "Vad gäller det" }, option: "Hiss" },
