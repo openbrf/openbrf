@@ -91,27 +91,30 @@ export class IssueFreeTextService {
   ): Promise<FreeTextRemovalOutcome> {
     const files = await this.filesOf(this.prisma, issueId);
     let filesRemoved = 0;
+    // The refusal can come after files had gone, and those cannot be put back:
+    // say so, since the outcome reads as if the run took nothing.
+    const kept = (): "kept" => {
+      if (filesRemoved > 0) {
+        this.logger.log(
+          `Issue ${issueId} kept its free text after ${String(filesRemoved)} files were removed`,
+        );
+      }
+      return "kept";
+    };
     for (const fileId of files) {
-      let kept = false;
+      let refused = false;
       const removed = await this.media.remove(fileId, null, "SYSTEM", {
         recordFileName: false,
         // A file whose object could not be removed stays on the issue, and so
         // does the erasure: the issue is selected again tomorrow.
         bytesFirst: true,
         keep: async (tx) => {
-          kept = !(await removal.stillDue(tx));
-          return kept;
+          refused = !(await removal.stillDue(tx));
+          return refused;
         },
       });
-      if (kept) {
-        if (filesRemoved > 0) {
-          // The refusal came after files had gone, and those cannot be put
-          // back: say so, since the outcome reads as if the run took nothing.
-          this.logger.log(
-            `Issue ${issueId} kept its free text after ${String(filesRemoved)} files were removed`,
-          );
-        }
-        return "kept";
+      if (refused) {
+        return kept();
       }
       if (removed) {
         filesRemoved += 1;
@@ -120,7 +123,7 @@ export class IssueFreeTextService {
 
     return this.prisma.$transaction(async (tx) => {
       if (!(await removal.stillDue(tx))) {
-        return "kept";
+        return kept();
       }
 
       const current = await tx.issue.findUnique({
@@ -128,7 +131,7 @@ export class IssueFreeTextService {
         select: { description: true, location: true },
       });
       if (current === null) {
-        return "kept";
+        return kept();
       }
       const { count: messages } = await tx.issueMessage.deleteMany({
         where: { issueId },
