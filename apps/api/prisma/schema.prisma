@@ -4897,8 +4897,8 @@ model IssueReporterLink {
   /// When the mail carrying it was handed to the mail server; null until then.
   mailedAt DateTime?
 
-  /// The link's own end, 365 days after the latest issue message or its issue,
-  /// whichever is later. An issue that stays open does not keep a link alive
+  /// The link's own end, 365 days after the latest issue message or the day the
+  /// link was issued, whichever is later. An issue that stays open does not keep a link alive
   /// on its own (ADR 0055).
   expiresAt DateTime
 

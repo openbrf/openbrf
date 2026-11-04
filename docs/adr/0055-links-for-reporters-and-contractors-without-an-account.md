@@ -285,8 +285,9 @@ wrote this record:
 
 1. **How long a reporter's link stays usable.** Answered by the threat review's
    control B4 and built that way (see [Expiry and revocation](#expiry-and-revocation)):
-   30 days after closing, and 365 days after the latest message while the issue
-   stays open. The owner may set other numbers; each is one constant.
+   the link ends at the first of 30 days after closing and 365 days after the
+   issue's latest message (or after the day the link was issued, if no message
+   came). The owner may set other numbers; each is one constant.
 2. **How a contractor's link reaches the contractor.** The register the plan
    describes holds a name, a trade and a telephone number (decision 23), so it
    has no address to mail the link or the work order to.
