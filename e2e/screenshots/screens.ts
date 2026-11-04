@@ -2625,7 +2625,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "board-issues-reporter-link",
     as: "administrator",
-    goto: appPath("/board/issues"),
+    goto: appPath("/board/issues?view=all"),
     prepare: [
       { reportIssuePublicly: PUBLIC_REPORT },
       // By the row that carries this walk's address: a stack that was already
