@@ -22,12 +22,13 @@ import { IssuePurgeService } from "../issues/issue-purge.service";
 import {
   REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY,
   REPORTER_LINK_MESSAGES_PER_HOUR,
+  REPORTER_LINK_MESSAGES_PER_ISSUE,
   REPORTER_LINK_QUEUE,
   IssueReporterLinkService,
 } from "../issues/issue-reporter-link.service";
 import { IssueService } from "../issues/issue.service";
 import type { SendMailInput } from "../mail/mail.service";
-import { MailService } from "../mail/mail.service";
+import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import type { SentMail } from "../mail/mail-driver";
 import {
   type IssueReporterLinkMailProps,
@@ -923,6 +924,27 @@ describe("D. rate limits and abuse", () => {
     );
   });
 
+  it("D4: a link that has written all it may is told so, and not to try later", async () => {
+    const { issueId, token } = await reported();
+    await prisma.issueMessage.createMany({
+      data: Array.from(
+        { length: REPORTER_LINK_MESSAGES_PER_ISSUE },
+        (_, n) => ({
+          issueId,
+          side: "REPORTER" as const,
+          authorPersonId: null,
+          body: `Meddelande ${String(n)}`,
+          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        }),
+      ),
+    });
+    const over = await post(token, "Ett till");
+    expect(over.headers.location).toBe(`/arende/${token}?svar=full`);
+    expect(
+      await prisma.issueMessage.count({ where: { issueId, side: "REPORTER" } }),
+    ).toBe(REPORTER_LINK_MESSAGES_PER_ISSUE);
+  });
+
   it("D5: strangers' failed guesses never lock a live link", async () => {
     const { token } = await reported();
     for (let n = 0; n < 40; n += 1) {
@@ -1035,6 +1057,10 @@ describe("D. rate limits and abuse", () => {
 
       expect(await delivering).toBe(false);
       expect(sent.length).toBe(before);
+      // Refused, so the link is given up and no longer counts for its address.
+      expect(
+        await prisma.issueReporterLink.count({ where: { issueId: id } }),
+      ).toBe(0);
     } finally {
       release();
       await granting.catch(() => undefined);
@@ -1106,10 +1132,66 @@ describe("D. rate limits and abuse", () => {
 
       expect(await delivering).toBe(false);
       expect(sent.length).toBe(before);
+      expect(
+        await prisma.issueReporterLink.count({ where: { issueId: id } }),
+      ).toBe(0);
     } finally {
       release();
       await holding.catch(() => undefined);
     }
+  });
+
+  it("D6: a link that was refused or abandoned gives its slot back; one still being retried keeps it", async () => {
+    const email = `rl-slots-${suffix}@exempel.se`;
+    const report = async () =>
+      (
+        await issues.reportPublicly({
+          typeId: publicType.id,
+          location: null,
+          description: "Plats i dagsgränsen",
+          reporterName: null,
+          reporterEmail: email,
+        })
+      ).id;
+
+    await reported({ email });
+    await reported({ email });
+
+    // The mail server refuses (the job will be retried): the link is issued,
+    // unmailed, and still counts.
+    const retried = await report();
+    vi.spyOn(mail, "send").mockRejectedValueOnce(new Error("connection reset"));
+    await expect(links.deliver(retried)).rejects.toThrow("connection reset");
+    expect(
+      await prisma.issueReporterLink.count({ where: { issueId: retried } }),
+    ).toBe(1);
+    const blocked = await report();
+    expect(await links.deliver(blocked)).toBe(false);
+
+    // Retries spent: the slot goes back and the next report is mailed.
+    await links.abandon(retried);
+    expect(
+      await prisma.issueReporterLink.count({ where: { issueId: retried } }),
+    ).toBe(0);
+    const before = sent.length;
+    expect(await links.deliver(blocked)).toBe(true);
+    expect(sent.length).toBe(before + 1);
+  });
+
+  it("D6: an instance without mail settings issues no link that holds a slot", async () => {
+    const email = `rl-unconfigured-${suffix}@exempel.se`;
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Ingen e-post inställd",
+      reporterName: null,
+      reporterEmail: email,
+    });
+    vi.spyOn(mail, "send").mockRejectedValueOnce(new MailNotConfiguredError());
+    expect(await links.deliver(id)).toBe(false);
+    expect(
+      await prisma.issueReporterLink.count({ where: { issueId: id } }),
+    ).toBe(0);
   });
 
   it("D6: an issue closed while the mail is being sent waits for the stamp", async () => {

@@ -3623,7 +3623,8 @@
         "refused": "The message could not be read. Write a text of at most 4,000 characters and try again.",
         "identity": "The message contains a personal identity number and was not sent. Remove it and try again.",
         "closed": "This issue is closed and takes no more messages.",
-        "limited": "This issue takes no more messages right now. Try again later."
+        "limited": "This issue takes no more messages right now. Try again later.",
+        "full": "This issue has reached the most messages a link accepts. No further messages can be sent through it."
       }
     }
   },

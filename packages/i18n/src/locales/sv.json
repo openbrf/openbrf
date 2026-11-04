@@ -3623,7 +3623,8 @@
         "refused": "Meddelandet kunde inte läsas. Skriv en text på högst 4 000 tecken och försök igen.",
         "identity": "Meddelandet innehåller ett personnummer och skickades inte. Ta bort det och försök igen.",
         "closed": "Ärendet är avslutat och tar inte emot fler meddelanden.",
-        "limited": "Ärendet tar inte emot fler meddelanden just nu. Försök igen senare."
+        "limited": "Ärendet tar inte emot fler meddelanden just nu. Försök igen senare.",
+        "full": "Ärendet har nått det högsta antal meddelanden som en länk tar emot. Fler meddelanden kan inte skickas via länken."
       }
     }
   },

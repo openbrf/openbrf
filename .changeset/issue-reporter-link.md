@@ -27,7 +27,9 @@ through a private link (ADR 0055).
   works, writes to the reporter while it does, and can withdraw it. Every link
   that opens nothing gets the same page.
 - **Limits.** Thirty page reads and five messages a minute from one address,
-  and ten messages an hour and a hundred in all through one link.
+  and ten messages an hour and a hundred in all through one link. A reporter
+  who reaches the hundred is told that no further messages are accepted, not
+  to try again later.
 - **Website addresses.** A new page can no longer be given the address
   `/arende` or `/case`. A page that already has one keeps it, and its contact
   and issue report forms keep working.

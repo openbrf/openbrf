@@ -5,7 +5,10 @@ import { Prisma } from "../generated/prisma/client";
  * When a reporter's private link opens anything, asked in one place (ADR 0055).
  *
  * A link opens its issue while all of these hold, read together in one query on
- * the database's clock, on every request, with nothing cached:
+ * the database's clock, on every request, with nothing cached. The clock is
+ * `clock_timestamp()`, not `now()`: `now()` is the start of the transaction,
+ * and a write that waited for the issue's lock must judge the link at the
+ * moment it got it:
  *
  * - **it was mailed.** A link whose mail never reached the mail server is
  *   held by nobody.
@@ -56,12 +59,12 @@ type Db = Prisma.TransactionClient | PrismaService;
 const LIVE = Prisma.sql`
   l."mailedAt" IS NOT NULL
   AND l."revokedAt" IS NULL
-  AND l."expiresAt" > now()
+  AND l."expiresAt" > clock_timestamp()
   AND i."reporterPersonId" IS NULL
   AND i."reporterEmailCipher" IS NOT NULL
   AND (
     i."closedAt" IS NULL
-    OR i."closedAt" > now() - make_interval(days => ${REPORTER_LINK_DAYS_AFTER_CLOSING})
+    OR i."closedAt" > clock_timestamp() - make_interval(days => ${REPORTER_LINK_DAYS_AFTER_CLOSING})
   )`;
 
 /**
@@ -111,7 +114,7 @@ export async function extendReporterLink(
     UPDATE "issue_reporter_link"
     SET "expiresAt" = GREATEST(
       "expiresAt",
-      now() + make_interval(days => ${REPORTER_LINK_DAYS_AFTER_LAST_MESSAGE})
+      clock_timestamp() + make_interval(days => ${REPORTER_LINK_DAYS_AFTER_LAST_MESSAGE})
     )
     WHERE "id" = ${linkId} AND "revokedAt" IS NULL`;
 }

@@ -83,6 +83,7 @@ const NOTICE_FOR: Readonly<
   sent: "sent",
   closed: "closed",
   limited: "limited",
+  full: "full",
 };
 
 /**

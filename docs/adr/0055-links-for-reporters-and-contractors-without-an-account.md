@@ -167,6 +167,11 @@ message and the stamp that records it then fails, the job's retry mints a new
 token and mails that, and the first mail's link opens nothing. Only the digest
 is kept, so the first token cannot be sent again.
 
+A link that was issued and will not be mailed (a restriction granted, the issue
+closed, no mail settings, or the retries spent) is deleted, so it no longer
+counts toward its address's three a day. A link whose mail is still being
+retried keeps its place in the count.
+
 ### The contractor's photographs
 
 The first anonymous upload, and bounded accordingly:

@@ -31,7 +31,7 @@ import {
 
 /** What the reporter has just done, read from a closed set in the query. */
 export type IssueLinkNotice =
-  "sent" | "refused" | "identity" | "closed" | "limited";
+  "sent" | "refused" | "identity" | "closed" | "limited" | "full";
 
 /** The query parameter the answer to a message names its outcome in. */
 export const ISSUE_LINK_NOTICE_PARAM = "svar";
@@ -42,6 +42,7 @@ const NOTICES: ReadonlySet<string> = new Set<IssueLinkNotice>([
   "identity",
   "closed",
   "limited",
+  "full",
 ]);
 
 /** The notice a query value names, or none for anything else. */
@@ -175,5 +176,7 @@ function renderNotice(
       return formRefusal(t("site.issueLink.notice.closed"));
     case "limited":
       return formRefusal(t("site.issueLink.notice.limited"));
+    case "full":
+      return formRefusal(t("site.issueLink.notice.full"));
   }
 }

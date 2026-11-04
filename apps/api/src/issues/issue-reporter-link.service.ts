@@ -114,8 +114,10 @@ export type ReporterLinkReplyOutcome =
   | "sent"
   /** The issue is closed and takes no more messages. */
   | "closed"
-  /** The link has written as much as it may for now, or at all. */
+  /** The link has written as much as it may this hour; later it may again. */
   | "limited"
+  /** The link has written as much as it ever may: no later try helps. */
+  | "full"
   /** The token opens nothing: the same answer for every reason. */
   | "not-found";
 
@@ -169,13 +171,25 @@ export class IssueReporterLinkService implements OnModuleInit {
     });
     await this.jobs.work<ReporterLinkJob>(
       REPORTER_LINK_ABANDONED_QUEUE,
-      (data) => {
-        // The identifier only: never the address, and there is no token.
-        this.logger.error(
-          `Gave up mailing the private link of issue ${data.issueId}; its reporter has none.`,
-        );
+      async (data) => {
+        await this.abandon(data.issueId);
       },
     );
+  }
+
+  /**
+   * A link mail whose retries are spent. The link was never mailed and nobody
+   * holds it, so it is deleted and its slot in the address's daily budget goes
+   * back. A link that was mailed in the meantime is left alone.
+   */
+  async abandon(issueId: string): Promise<void> {
+    // The identifier only: never the address, and there is no token.
+    this.logger.error(
+      `Gave up mailing the private link of issue ${issueId}; its reporter has none.`,
+    );
+    await this.prisma.issueReporterLink.deleteMany({
+      where: { issueId, mailedAt: null },
+    });
   }
 
   /** The queues, created before a transaction puts a job on one. */
@@ -225,6 +239,10 @@ export class IssueReporterLinkService implements OnModuleInit {
    * message waits for it. Whether the issue is still open, its address still
    * there and its link not withdrawn is read again in the same place, under
    * the issue's lock.
+   *
+   * A link whose mail is refused (a restriction, a close, no mail settings)
+   * or abandoned after its retries is deleted, so it no longer counts toward
+   * its address's three a day; one still being retried counts.
    *
    * Answers whether a mail went. Nothing is mailed, and no link issued, for a
    * report that no longer has an address, that already has its link, that a
@@ -304,7 +322,7 @@ export class IssueReporterLinkService implements OnModuleInit {
       const tokenDigest = reporterLinkDigest(token);
       /*
        * Every instant that decides what the link opens is the database's:
-       * `LIVE` reads `now()`, so the lifetime is set from it too. A new link
+       * `LIVE` reads the database's clock, so the lifetime is set from it too. A new link
        * is created already expired and then extended by the one statement
        * `extendReporterLink` is, in this transaction, so no reader sees it so.
        */
@@ -360,6 +378,7 @@ export class IssueReporterLinkService implements OnModuleInit {
         await lockLegalHoldRegistry(tx);
         await lockIssue(tx, issueId);
         if (await this.isRestricted(tx, issued.emailIndex)) {
+          await this.releaseUnsent(tx, issued);
           return false;
         }
         const still = await tx.issue.findUnique({
@@ -377,6 +396,7 @@ export class IssueReporterLinkService implements OnModuleInit {
           still.reporterLink === null ||
           still.reporterLink.revokedAt !== null
         ) {
+          await this.releaseUnsent(tx, issued);
           return false;
         }
 
@@ -400,6 +420,7 @@ export class IssueReporterLinkService implements OnModuleInit {
             this.logger.warn(
               `Issue ${issueId} is filed but its private link was not mailed: this instance has no SMTP settings.`,
             );
+            await this.releaseUnsent(tx, issued);
             return false;
           }
           // The class of the failure only: a rejection can quote the address
@@ -446,6 +467,26 @@ export class IssueReporterLinkService implements OnModuleInit {
 
     this.logger.log(`Mailed the private link of issue ${issueId}`);
     return true;
+  }
+
+  /**
+   * Gives back the slot of a link that was issued and will not be mailed: a
+   * restriction, a close or an instance without mail settings stopped the send.
+   * A link whose send is still being tried keeps its slot, and a mailed link
+   * is never touched. Only the digest this delivery minted, so a later
+   * delivery's link is left alone.
+   */
+  private async releaseUnsent(
+    tx: Prisma.TransactionClient,
+    issued: { linkId: string; tokenDigest: string },
+  ): Promise<void> {
+    await tx.issueReporterLink.deleteMany({
+      where: {
+        id: issued.linkId,
+        tokenDigest: issued.tokenDigest,
+        mailedAt: null,
+      },
+    });
   }
 
   /**
@@ -518,10 +559,11 @@ export class IssueReporterLinkService implements OnModuleInit {
           count(*) AS "total"
         FROM "issue_message"
         WHERE "issueId" = ${link.issueId} AND "side" = 'REPORTER'`;
-      if (
-        Number(counts?.lastHour ?? 0) >= REPORTER_LINK_MESSAGES_PER_HOUR ||
-        Number(counts?.total ?? 0) >= REPORTER_LINK_MESSAGES_PER_ISSUE
-      ) {
+      // The total first: it never drops, so it is the answer that stays true.
+      if (Number(counts?.total ?? 0) >= REPORTER_LINK_MESSAGES_PER_ISSUE) {
+        return { kind: "full" as const };
+      }
+      if (Number(counts?.lastHour ?? 0) >= REPORTER_LINK_MESSAGES_PER_HOUR) {
         return { kind: "limited" as const };
       }
 
