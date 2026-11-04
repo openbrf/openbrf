@@ -2,7 +2,6 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
-import { Logger } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
@@ -24,6 +23,7 @@ import {
 } from "../testing/issue-fixtures";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
 import { IssueErasureService } from "./issue-erasure.service";
+import { IssueRedactionService } from "./issue-redaction.service";
 import { IssueTextPurgeService } from "./issue-text-purge.service";
 import { IssueService } from "./issue.service";
 
@@ -52,6 +52,7 @@ let storage: StorageService;
 let clock: IssueTextPurgeService;
 let erasure: IssueErasureService;
 let personPurge: PurgeService;
+let redaction: IssueRedactionService;
 
 const suffix = process.hrtime.bigint().toString(36);
 const PASSWORD = "a-long-enough-password";
@@ -109,6 +110,16 @@ function inject(options: {
         ...options.headers,
       },
     });
+}
+
+/**
+ * Silences and watches the line the redaction service logs for an act that
+ * changed something. The spy is on the service's own logger, so what another
+ * service logs neither fills it nor is silenced, and a check that it was never
+ * called does not depend on the words of a line.
+ */
+function spyOnRedactionLog() {
+  return vi.spyOn(redaction["logger"], "log").mockImplementation(() => {});
 }
 
 async function signIn(email: string): Promise<string> {
@@ -307,6 +318,7 @@ beforeAll(async () => {
   clock = app.get(IssueTextPurgeService);
   erasure = app.get(IssueErasureService);
   personPurge = app.get(PurgeService);
+  redaction = app.get(IssueRedactionService);
 
   const existing = await prisma.association.findUnique({
     where: { id: 1 },
@@ -798,7 +810,7 @@ describe("redaction", () => {
       reporterPersonId: resident.personId,
       closedDaysAgo: null,
     });
-    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => {});
+    const log = spyOnRedactionLog();
     try {
       for (const _ of [1, 2]) {
         await inject({
@@ -888,61 +900,85 @@ describe("redaction", () => {
     expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(1);
   });
 
-  it("answers a file another redaction already removed as done, and writes and logs nothing", async () => {
-    const issue = await seed({
-      reporterPersonId: resident.personId,
-      closedDaysAgo: null,
-    });
-    const mediaEntries = () =>
-      prisma.auditLogEntry.findMany({
-        where: {
-          targetKind: "media",
-          targetId: issue.photo.fileId,
-          action: "MEDIA_DELETED",
-        },
+  // A second handler's redaction takes the file while this one is removing it,
+  // which is the only way the removal finds the file gone: asked again
+  // afterwards, the photograph no longer exists and the redaction is refused as
+  // having nothing to reach. The rival goes in at each of the two places the
+  // removal can be overtaken before its own transaction has taken the file.
+  it.each([
+    ["before the removal opens its transaction", "before"],
+    [
+      "inside the transaction, before the check on the issue and the photograph",
+      "in-keep",
+    ],
+  ] as const)(
+    "answers a file another redaction already removed %s as done, and writes and logs nothing",
+    async (_place, when) => {
+      const issue = await seed({
+        reporterPersonId: resident.personId,
+        closedDaysAgo: null,
       });
+      const mediaEntries = () =>
+        prisma.auditLogEntry.findMany({
+          where: {
+            targetKind: "media",
+            targetId: issue.photo.fileId,
+            action: "MEDIA_DELETED",
+          },
+        });
 
-    // A second handler's redaction takes the file between this one finding the
-    // photograph and removing its file, which is the only way the removal finds
-    // the file gone: asked again afterwards, the photograph no longer exists
-    // and the redaction is refused as having nothing to reach.
-    const remove = media.remove.bind(media);
-    let rival: Promise<boolean> | undefined;
-    const rivalled = vi
-      .spyOn(media, "remove")
-      .mockImplementationOnce(async (...args) => {
+      const remove = media.remove.bind(media);
+      let rival: Promise<boolean> | undefined;
+      const takeFile = () => {
         rival = remove(issue.photo.fileId, board.personId, "WEB");
-        await rival;
-        return remove(...args);
-      });
-    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => {});
-    try {
-      const response = await inject({
-        method: "POST",
-        url: `/api/issue-queue/${issue.id}/redactions`,
-        headers: { cookie: boardCookie },
-        payload: { target: "photo", id: issue.photo.id },
-      });
+        return rival;
+      };
+      const rivalled = vi
+        .spyOn(media, "remove")
+        .mockImplementationOnce(async (id, actor, channel, options = {}) => {
+          if (when === "before") {
+            await takeFile();
+            return remove(id, actor, channel, options);
+          }
+          // The check the redaction passes runs in the transaction that
+          // deletes the row, after the row was read there.
+          const { keep } = options;
+          if (keep === undefined) {
+            throw new Error("The redaction passed no check to run.");
+          }
+          return remove(id, actor, channel, {
+            ...options,
+            keep: async (tx, file) => {
+              await takeFile();
+              return keep(tx, file);
+            },
+          });
+        });
+      const log = spyOnRedactionLog();
+      try {
+        const response = await inject({
+          method: "POST",
+          url: `/api/issue-queue/${issue.id}/redactions`,
+          headers: { cookie: boardCookie },
+          payload: { target: "photo", id: issue.photo.id },
+        });
 
-      expect(response.statusCode).toBe(204);
-      expect(rivalled).toHaveBeenCalledTimes(1);
-      expect(await rival).toBe(true);
-      expect(
-        log.mock.calls.filter(([message]) =>
-          String(message).includes(`Issue ${issue.id} had its`),
-        ),
-      ).toHaveLength(0);
-    } finally {
-      log.mockRestore();
-      rivalled.mockRestore();
-    }
+        expect(response.statusCode).toBe(204);
+        expect(rivalled).toHaveBeenCalledTimes(1);
+        expect(await rival).toBe(true);
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+        rivalled.mockRestore();
+      }
 
-    // The rival's removal is the one entry for the file, and the redaction
-    // that found it gone wrote none of its own.
-    expect(await mediaEntries()).toHaveLength(1);
-    expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
-    expect((await read(issue.id))._count.photos).toBe(0);
-  });
+      // The rival's removal is the one entry for the file, and the redaction
+      // that found it gone wrote none of its own.
+      expect(await mediaEntries()).toHaveLength(1);
+      expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
+      expect((await read(issue.id))._count.photos).toBe(0);
+    },
+  );
 
   it("takes no replacement text, and is refused to a reporter and under a legal hold", async () => {
     const issue = await seed({

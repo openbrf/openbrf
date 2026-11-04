@@ -546,6 +546,13 @@ describe("the conversation with the reporter", () => {
     await waitFor(() => {
       expect(fetchIssueNotes).toHaveBeenCalledTimes(2);
     });
+    // The notice is the proof the failed reads were applied: without it the
+    // check below can pass before they reached the screen.
+    expect(
+      await screen.findByText(
+        /Meddelandena, anteckningarna eller filerna gick inte att läsa just nu/,
+      ),
+    ).toBeTruthy();
     await waitFor(() => {
       expect(screen.queryByText("Kommer någon i dag?")).toBeNull();
     });
@@ -583,6 +590,13 @@ describe("the conversation with the reporter", () => {
     await waitFor(() => {
       expect(fetchIssueNotes).toHaveBeenCalledTimes(2);
     });
+    // The notice is the proof the failed reads were applied: without it the
+    // check below can pass before they reached the screen.
+    expect(
+      await screen.findByText(
+        /Meddelandena, anteckningarna eller filerna gick inte att läsa just nu/,
+      ),
+    ).toBeTruthy();
     expect(screen.getByText("Kommer någon i dag?")).toBeTruthy();
     expect(screen.getByText("Grannen har klagat förut.")).toBeTruthy();
   });
