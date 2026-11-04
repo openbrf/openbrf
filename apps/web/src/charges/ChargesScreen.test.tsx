@@ -48,10 +48,10 @@ const removeCharge = vi.fn();
 const recordCharge = vi.fn();
 const correctCharge = vi.fn();
 const loadChargeParties = vi.fn();
-const fetchIssueCharges = vi.fn();
+const fetchIssueChargeBasis = vi.fn();
 
 vi.mock("./charges-api", () => ({
-  fetchIssueCharges: (issueId: string) => fetchIssueCharges(issueId),
+  fetchIssueChargeBasis: (issueId: string) => fetchIssueChargeBasis(issueId),
   VAT_TREATMENTS: ["EXEMPT", "RATE"],
   fetchDebitingList: (from: string, to: string) => fetchDebitingList(from, to),
   exportDebitingList: (from: string, to: string) =>
@@ -835,10 +835,7 @@ describe("a charge made from an issue", () => {
   } as const;
 
   it("opens the form filled in from the issue, and links the charge to it", async () => {
-    fetchIssueCharges.mockResolvedValue({
-      ok: true,
-      value: { issue: BASIS, charges: [] },
-    });
+    fetchIssueChargeBasis.mockResolvedValue({ ok: true, value: BASIS });
     recordCharge.mockResolvedValue({ ok: true, value: LIST.rows[0] });
     const session = userEvent.setup();
     render(<ChargesScreen fromIssueId="issue-1" />);
@@ -846,7 +843,7 @@ describe("a charge made from an issue", () => {
     expect(
       await screen.findByText(/görs från ärendet Vattenläcka/),
     ).toBeTruthy();
-    expect(fetchIssueCharges).toHaveBeenCalledWith("issue-1");
+    expect(fetchIssueChargeBasis).toHaveBeenCalledWith("issue-1");
     const reason = screen.getByLabelText(
       "Vad debiteringen avser",
     ) as HTMLInputElement;
@@ -876,8 +873,34 @@ describe("a charge made from an issue", () => {
     });
   });
 
+  it("reads the issue again when the address leaves it and names it again, rather than filling the form from the first visit", async () => {
+    fetchIssueChargeBasis.mockResolvedValueOnce({ ok: true, value: BASIS });
+    const view = render(<ChargesScreen fromIssueId="issue-1" />);
+    expect(
+      await screen.findByText(/görs från ärendet Vattenläcka/),
+    ).toBeTruthy();
+
+    view.rerender(<ChargesScreen fromIssueId={null} />);
+    await waitFor(() => {
+      expect(screen.queryByText(/görs från ärendet/)).toBeNull();
+    });
+
+    // The issue has been given another type since the first read.
+    fetchIssueChargeBasis.mockResolvedValueOnce({
+      ok: true,
+      value: { ...BASIS, typeName: "Fönsterbyte" },
+    });
+    view.rerender(<ChargesScreen fromIssueId="issue-1" />);
+
+    expect(
+      await screen.findByText(/görs från ärendet Fönsterbyte/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/görs från ärendet Vattenläcka/)).toBeNull();
+    expect(fetchIssueChargeBasis).toHaveBeenCalledTimes(2);
+  });
+
   it("opens the form empty, and says so, when the issue cannot be read", async () => {
-    fetchIssueCharges.mockResolvedValue({
+    fetchIssueChargeBasis.mockResolvedValue({
       ok: false,
       failure: { status: 404, reason: "issue-not-found" },
     });

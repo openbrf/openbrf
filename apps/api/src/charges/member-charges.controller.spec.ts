@@ -95,3 +95,22 @@ describe("the charges of an issue", () => {
     expect(answer.charges).toEqual(rows);
   });
 });
+
+describe("the basis of an issue", () => {
+  it("is one read of the issue, without the charges", async () => {
+    const listForIssue = vi.fn();
+    const chargeBasis = vi
+      .fn()
+      .mockResolvedValue(basis({ kind: "apartment", apartmentId: "a-1" }));
+    const subject = new MemberChargesController(
+      { listForIssue } as unknown as MemberChargeService,
+      { chargeBasis } as unknown as IssueService,
+    );
+
+    const answer = await subject.basisForIssue(ISSUE_ID, request);
+
+    expect(chargeBasis).toHaveBeenCalledExactlyOnceWith(READER, ISSUE_ID);
+    expect(listForIssue).not.toHaveBeenCalled();
+    expect(answer.party).toEqual({ kind: "apartment", apartmentId: "a-1" });
+  });
+});

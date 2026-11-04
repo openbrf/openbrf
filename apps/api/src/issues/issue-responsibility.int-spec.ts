@@ -25,7 +25,7 @@ import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
-import { lockResponsibilityGuide } from "./issue-lock";
+import { lockIssueForHandling, lockResponsibilityGuide } from "./issue-lock";
 import {
   type ResponsibilityGuideItemView,
   ResponsibilityGuideService,
@@ -599,6 +599,58 @@ describe("a charge made from an issue", () => {
     expect(read.json<{ charges: unknown[] }>().charges).toEqual([]);
   });
 
+  it("decides whether the actor handles the issue under the lock every write on an issue takes, so a charge waits for a change of who handles it", async () => {
+    /*
+     * An administrator changing the type's handlers or setting the issue
+     * board-only does it under `lockIssueForHandling`. A charge that read the
+     * scope without it could link to an issue its actor stopped handling in
+     * between. Held here as that change holds it, the charge has to wait
+     * behind the lock rather than answer first - which is what fails if the
+     * charge stops taking it.
+     */
+    const issueId = await filed("charge-waits-for-handling");
+    let reached: (pid: number) => void = () => undefined;
+    const holding = new Promise<number>((resolve) => {
+      reached = resolve;
+    });
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      const other = prisma.$transaction(
+        async (tx) => {
+          await lockIssueForHandling(tx, issueId);
+          reached(await backendPid(tx));
+          await gate;
+        },
+        { timeout: 30_000 },
+      );
+      const holder = await holding;
+
+      let answered = false;
+      const request = chargeFrom(issueId, "455.00").finally(() => {
+        answered = true;
+      });
+      let waited = false;
+      try {
+        await waitFor(
+          async () => answered || (await waitersBehind(prisma, holder)) > 0,
+        );
+        waited = !answered;
+      } finally {
+        release();
+        await other;
+      }
+      expect(waited, "the charge waits for the issue's handling lock").toBe(
+        true,
+      );
+      expect((await request).issueId).toBe(issueId);
+    } finally {
+      release();
+    }
+  });
+
   it("withholds the link once the reporter has protected personal data, for a charge on the person and on the apartment, on both reads", async () => {
     const issueId = await filed("shielded", shielded.personId);
     const onApartment = await chargeFrom(issueId, "410.00");
@@ -711,6 +763,20 @@ describe("a charge made from an issue", () => {
       });
     }
     expect(JSON.stringify(recorded)).not.toContain(issueId);
+
+    // The reporter's own access report is their copy of what the association
+    // holds about them, and the issue is theirs: it names the issue.
+    const own = await app
+      .get(DataSubjectReportService)
+      .portable(shielded.personId);
+    const recordedOnThem = own.auditEntries.filter(
+      (entry) =>
+        entry.action === "MEMBER_CHARGE_RECORDED" &&
+        entry.targetId === onPerson.chargeId,
+    );
+    expect(recordedOnThem).toHaveLength(1);
+    expect(recordedOnThem[0]?.context).toMatchObject({ issueId });
+    expect(recordedOnThem[0]?.context).not.toHaveProperty("issueWithheld");
   });
 
   it("withholds the charges when the protection lands between the issue's check and the charge read", async () => {
