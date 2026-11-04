@@ -273,7 +273,6 @@ export class IssueConversationService {
     issueId: string,
     body: string,
   ): Promise<{ sent: number; skipped: number } | null> {
-    const now = new Date();
     await lockErasureEligibility(tx, handlerPersonId);
     const candidates = await tx.issue.findMany({
       where: { mergedIntoIssueId: issueId },
@@ -281,7 +280,10 @@ export class IssueConversationService {
     });
     const locked = new Set(candidates.map((candidate) => candidate.id));
     await lockIssuesForHandling(tx, [issueId, ...locked]);
-    await this.requireHandled(tx, issueId, handlerPersonId);
+    // Read the clock after the lock waits: a board seat that ended during one
+    // must not leave board-only duplicates in reach or the signature on BOARD.
+    const now = new Date();
+    await this.requireHandled(tx, issueId, handlerPersonId, now);
     const merged = await tx.issue.findMany({
       where: { mergedIntoIssueId: issueId },
       select: { id: true },
@@ -692,8 +694,9 @@ export class IssueConversationService {
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
+    now: Date = new Date(),
   ) {
-    const scope = await issueReaderScope(db, readerPersonId, new Date());
+    const scope = await issueReaderScope(db, readerPersonId, now);
     const issue = await db.issue.findFirst({
       where: { id: issueId, ...issuesHandledWhere(scope) },
       select: {
