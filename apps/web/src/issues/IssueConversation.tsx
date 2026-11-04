@@ -197,9 +197,9 @@ export function IssueConversation({
       onStale();
     }
   };
-  // Only a reporter with an account reads the conversation. One who left an address
-  // alone, as a report from the website's form may, has no way to see a reply,
-  // and nothing is mailed (decision 21).
+  // Only a reporter with an account reads the conversation. One who left an
+  // address alone, as a report from the website's form may, has no way to see a
+  // reply, and nothing is mailed (decision 21).
   const reachable =
     issue.reporter.kind === "resident" || issue.reporter.kind === "protected";
   const named = { type: issue.typeName };
