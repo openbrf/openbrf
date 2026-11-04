@@ -349,6 +349,57 @@ describe("merging", () => {
     expect(screen.getByText(/1 sammanslagen anmälan nåddes inte/)).toBeTruthy();
   });
 
+  it("drops the count an earlier message reached when the next one is refused", async () => {
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: {
+        ...NO_LINKS,
+        duplicateCount: 1,
+        duplicates: [
+          {
+            kind: "issue",
+            id: "issue-2",
+            typeName: "Hiss",
+            meaning: "DONE",
+            createdAt: "2026-08-19T08:00:00.000Z",
+          },
+        ],
+      },
+    });
+    sendToDuplicateReporters.mockResolvedValueOnce({
+      ok: true,
+      value: { sent: 1, skipped: 0 },
+    });
+    const session = userEvent.setup();
+    render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[]}
+        onChanged={() => undefined}
+      />,
+    );
+    const field = await screen.findByLabelText(
+      "Hiss: meddelande till anmälarna till de sammanslagna anmälningarna",
+    );
+    await session.type(field, "Tekniker kommer torsdag.");
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+    expect(await screen.findByText(/Skickat till 1 anmälare\./)).toBeTruthy();
+
+    sendToDuplicateReporters.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 409, reason: "no-reporter" },
+    });
+    await session.type(field, "Tekniker kommer fredag i stället.");
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    await waitFor(() => {
+      expect(sendToDuplicateReporters).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/Skickat till 1 anmälare\./)).toBeNull();
+    });
+  });
+
   it("does not offer a merge while issues this handler does not see were merged into it", async () => {
     fetchIssueLinks.mockResolvedValue({
       ok: true,

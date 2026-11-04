@@ -158,9 +158,12 @@ export function IssueLifecycle({
             sendingLabel={t("issues.conversation.sending")}
             failures={DUPLICATE_MESSAGE_FAILURES}
             fallback="issues.conversation.errors.unknown"
-            send={(body) =>
-              sendToDuplicateReporters({ issueId: issue.id, body })
-            }
+            send={(body) => {
+              // The notice is the latest send's, so a refusal never stands
+              // beside the count an earlier one reached.
+              setToDuplicates(null);
+              return sendToDuplicateReporters({ issueId: issue.id, body });
+            }}
             onSent={setToDuplicates}
           />
           {toDuplicates === null ? null : (

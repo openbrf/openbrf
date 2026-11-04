@@ -16,7 +16,7 @@ import { readImageHeader } from "../media/image-bytes";
 import { mediaUrl, MediaService } from "../media/media.service";
 import { lockErasureEligibility } from "../retention/erasure-lock";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
-import { lockIssueForHandling } from "./issue-lock";
+import { lockIssueForHandling, lockIssuesForHandling } from "./issue-lock";
 import { IssueError, type IssueTextLocation } from "./issue.error";
 import type { IssueHandlerView } from "./issue.service";
 
@@ -83,6 +83,14 @@ export interface IssueAttachmentView {
  * the one merging takes. Thirty seconds, as the reports hold theirs.
  */
 const DUPLICATE_MESSAGE_TRANSACTION_TIMEOUT_MS = 30_000;
+
+/**
+ * How many times that transaction starts over when an issue is merged into the
+ * one written from while it takes its locks (`replyToDuplicates`). A merge is a
+ * handler's deliberate act, so a second one inside the same moment is rare and
+ * a third rarer still.
+ */
+const DUPLICATE_MESSAGE_ATTEMPTS = 3;
 
 /**
  * The conversation on an issue: the issue messages between its reporter and
@@ -214,13 +222,16 @@ export class IssueConversationService {
    *
    * Only to a duplicate this handler handles, and whose reporter can read a
    * thread, by the rule `replyAsHandler` holds a single message to. Refused
-   * with `no-reporter` when there is nobody to read it. Under the lock of the
-   * issue merged into, which merging takes too, so the duplicates written to
-   * are the ones it has. The duplicates themselves are not locked: a handler
-   * reopening one of them meanwhile (which takes it out of the merge) may
-   * interleave, and its reporter then gets a message that was meant for the
-   * duplicates a moment earlier. It is the same text on their own report,
-   * harmless, and not worth holding a lock on every duplicate for.
+   * with `no-reporter` when there is nobody to read it.
+   *
+   * Under the handling locks of the issue merged into and of every duplicate,
+   * taken together (`lockIssuesForHandling`), so a duplicate the board keeps to
+   * itself meanwhile, under its own type's lock, is not written to after the
+   * read that found it handled. The duplicates are read unlocked first, to know
+   * which locks to take, and again once they are held. The lock of the issue
+   * merged into keeps any further merge out from then on, but one may land
+   * between the two reads, on a type not locked; the transaction then starts
+   * over rather than take that type's lock out of order.
    */
   async replyToDuplicates(
     handlerPersonId: string,
@@ -228,77 +239,108 @@ export class IssueConversationService {
     body: string,
   ): Promise<{ sent: number; skipped: number }> {
     refusePersonalIdentityNumbers({ body });
-    const result = await this.prisma.$transaction(
-      async (tx) => {
-        const now = new Date();
-        await lockErasureEligibility(tx, handlerPersonId);
-        await lockIssueForHandling(tx, issueId);
-        await this.requireHandled(tx, issueId, handlerPersonId);
-        const scope = await issueReaderScope(tx, handlerPersonId, now);
-        const duplicates = await tx.issue.findMany({
-          where: {
-            mergedIntoIssueId: issueId,
-            reporterPersonId: { not: null },
-            ...issuesHandledWhere(scope),
-          },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          select: { id: true, reporterPersonId: true },
-        });
-        const accounts = await tx.user.findMany({
-          where: {
-            personId: {
-              in: duplicates.flatMap((duplicate) =>
-                duplicate.reporterPersonId === null
-                  ? []
-                  : [duplicate.reporterPersonId],
-              ),
-            },
-          },
-          select: { personId: true },
-        });
-        const readers = new Set(accounts.map((account) => account.personId));
-        const readable = duplicates.filter(
-          (duplicate) =>
-            duplicate.reporterPersonId !== null &&
-            readers.has(duplicate.reporterPersonId),
-        );
-        if (readable.length === 0) {
-          throw new IssueError(
-            "Nobody can read an answer on the issues merged into this one.",
-            "no-reporter",
-          );
-        }
-        const signature = await signatureOf(tx, handlerPersonId, now);
-        for (const duplicate of readable) {
-          const written = await tx.issueMessage.create({
-            data: {
-              issueId: duplicate.id,
-              side: "HANDLER",
-              authorPersonId: handlerPersonId,
-              signature,
-              body,
-            },
-            select: { id: true },
-          });
-          await this.recordMessage(
-            tx,
-            written.id,
-            duplicate.id,
-            handlerPersonId,
-          );
-        }
-        return {
-          sent: readable.length,
-          skipped: duplicates.length - readable.length,
-        };
-      },
-      { timeout: DUPLICATE_MESSAGE_TRANSACTION_TIMEOUT_MS },
-    );
+    let result: { sent: number; skipped: number } | null = null;
+    for (
+      let attempt = 0;
+      result === null && attempt < DUPLICATE_MESSAGE_ATTEMPTS;
+      attempt += 1
+    ) {
+      result = await this.prisma.$transaction(
+        (tx) => this.writeToDuplicates(tx, handlerPersonId, issueId, body),
+        { timeout: DUPLICATE_MESSAGE_TRANSACTION_TIMEOUT_MS },
+      );
+    }
+    if (result === null) {
+      throw new Error(
+        `Issues kept merging into ${issueId} while a message to their reporters was written.`,
+      );
+    }
 
     this.logger.log(
       `Issue ${issueId} has a message to the reporters of ${result.sent} duplicates`,
     );
     return result;
+  }
+
+  /**
+   * One attempt at `replyToDuplicates`: `null` when an issue was merged into
+   * this one between the unlocked read and the locks, which the caller answers
+   * by starting over.
+   */
+  private async writeToDuplicates(
+    tx: Prisma.TransactionClient,
+    handlerPersonId: string,
+    issueId: string,
+    body: string,
+  ): Promise<{ sent: number; skipped: number } | null> {
+    const now = new Date();
+    await lockErasureEligibility(tx, handlerPersonId);
+    const candidates = await tx.issue.findMany({
+      where: { mergedIntoIssueId: issueId },
+      select: { id: true },
+    });
+    const locked = new Set(candidates.map((candidate) => candidate.id));
+    await lockIssuesForHandling(tx, [issueId, ...locked]);
+    await this.requireHandled(tx, issueId, handlerPersonId);
+    const merged = await tx.issue.findMany({
+      where: { mergedIntoIssueId: issueId },
+      select: { id: true },
+    });
+    if (merged.some((duplicate) => !locked.has(duplicate.id))) {
+      return null;
+    }
+    const scope = await issueReaderScope(tx, handlerPersonId, now);
+    const duplicates = await tx.issue.findMany({
+      where: {
+        mergedIntoIssueId: issueId,
+        reporterPersonId: { not: null },
+        ...issuesHandledWhere(scope),
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, reporterPersonId: true },
+    });
+    const accounts = await tx.user.findMany({
+      where: {
+        personId: {
+          in: duplicates.flatMap((duplicate) =>
+            duplicate.reporterPersonId === null
+              ? []
+              : [duplicate.reporterPersonId],
+          ),
+        },
+      },
+      select: { personId: true },
+    });
+    const readers = new Set(accounts.map((account) => account.personId));
+    const readable = duplicates.filter(
+      (duplicate) =>
+        duplicate.reporterPersonId !== null &&
+        readers.has(duplicate.reporterPersonId),
+    );
+    if (readable.length === 0) {
+      throw new IssueError(
+        "Nobody can read an answer on the issues merged into this one.",
+        "no-reporter",
+      );
+    }
+    const signature = await signatureOf(tx, handlerPersonId, now);
+    for (const duplicate of readable) {
+      const written = await tx.issueMessage.create({
+        data: {
+          issueId: duplicate.id,
+          side: "HANDLER",
+          authorPersonId: handlerPersonId,
+          signature,
+          body,
+        },
+        select: { id: true },
+      });
+      await this.recordMessage(tx, written.id, duplicate.id, handlerPersonId);
+    }
+    return {
+      sent: readable.length,
+      skipped: duplicates.length - readable.length,
+    };
   }
 
   /**

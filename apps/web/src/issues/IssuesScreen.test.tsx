@@ -386,6 +386,63 @@ describe("known faults and a report that follows up another", () => {
     expect(screen.getByText("Förvaltaren")).toBeTruthy();
   });
 
+  it("stops showing a known fault when the faults cannot be read again", async () => {
+    fetchKnownFaults.mockResolvedValueOnce(
+      ok([
+        {
+          body: "Hissen i port 14 står still. Tekniker kommer torsdag.",
+          signature: "PROPERTY_MANAGER",
+          publishedAt: "2026-08-20T08:00:00.000Z",
+          typeName: "Hiss",
+        },
+      ]),
+    );
+    const report = {
+      id: "issue-1",
+      meaning: "IN_PROGRESS" as const,
+      typeId: "type-lift",
+      typeName: "Hiss",
+      location: null,
+      description: "Hissen står still.",
+      apartment: null,
+      photos: [],
+      enteredByHandler: false,
+      replyMode: "MESSAGE" as const,
+      mergedIntoMeaning: null,
+      createdAt: "2026-08-20T08:00:00.000Z",
+      updatedAt: "2026-08-20T08:00:00.000Z",
+    };
+    fetchOwnIssues.mockResolvedValueOnce(ok([report]));
+    fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    sendOwnIssueMessage.mockResolvedValue(refused(409, "issue-closed"));
+    const session = userEvent.setup();
+    render(<IssuesScreen viewer={READER} />);
+
+    expect(
+      await screen.findByText(
+        "Hissen i port 14 står still. Tekniker kommer torsdag.",
+      ),
+    ).toBeTruthy();
+    // The re-read that a closed answer asks for fails on the known faults.
+    fetchKnownFaults.mockResolvedValue(refused(500, "unknown"));
+    fetchOwnIssues.mockResolvedValue(
+      ok([{ ...report, meaning: "DONE", replyMode: "NEW_REPORT" }]),
+    );
+    await session.click(screen.getByText("Meddelanden om Hiss"));
+    await session.type(
+      await screen.findByLabelText("Hiss: ditt meddelande"),
+      "Hallå",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    await screen.findByText("Ärendena kunde inte läsas just nu.");
+    expect(
+      screen.queryByText(
+        "Hissen i port 14 står still. Tekniker kommer torsdag.",
+      ),
+    ).toBeNull();
+  });
+
   it("files a new report linked to a closed one, on its type", async () => {
     fetchOwnIssues.mockResolvedValue(
       ok([
@@ -442,30 +499,40 @@ describe("known faults and a report that follows up another", () => {
 
   it("files a follow-up chosen while the form is open from a post, and starts from the text it was refused", async () => {
     fetchPost.mockResolvedValue(ok(LIFT));
-    fetchOwnIssues.mockResolvedValue(
-      ok([
-        {
-          id: "issue-old",
-          meaning: "DONE",
-          typeId: "type-lift",
-          typeName: "Hiss",
-          location: null,
-          description: "Hissen stod still i våras.",
-          apartment: null,
-          photos: [],
-          enteredByHandler: false,
-          replyMode: "NEW_REPORT",
-          mergedIntoMeaning: null,
-          createdAt: "2026-03-20T08:00:00.000Z",
-          updatedAt: "2026-04-20T08:00:00.000Z",
-        },
-      ]),
-    );
+    const report = {
+      id: "issue-old",
+      meaning: "IN_PROGRESS" as const,
+      typeId: "type-lift",
+      typeName: "Hiss",
+      location: null,
+      description: "Hissen stod still i våras.",
+      apartment: null,
+      photos: [],
+      enteredByHandler: false,
+      replyMode: "MESSAGE" as const,
+      mergedIntoMeaning: null,
+      createdAt: "2026-03-20T08:00:00.000Z",
+      updatedAt: "2026-04-20T08:00:00.000Z",
+    };
+    fetchOwnIssues.mockResolvedValueOnce(ok([report]));
     fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    sendOwnIssueMessage.mockResolvedValue(refused(409, "issue-closed"));
     const session = userEvent.setup();
     render(<IssuesScreen viewer={READER} fromPostId="post-1" />);
 
-    await session.click(await screen.findByText("Meddelanden om Hiss"));
+    expect(
+      await screen.findByDisplayValue("Hissen i port 14 står still igen."),
+    ).toBeTruthy();
+    // The re-read that the closed answer asks for: the window has passed.
+    fetchOwnIssues.mockResolvedValue(
+      ok([{ ...report, meaning: "DONE", replyMode: "NEW_REPORT" }]),
+    );
+    await session.click(screen.getByText("Meddelanden om Hiss"));
+    await session.type(
+      await screen.findByLabelText("Hiss: ditt meddelande"),
+      "Det står still igen sedan i morse.",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
     await session.click(
       await screen.findByRole("button", { name: "Gör en ny anmälan om detta" }),
     );
@@ -474,6 +541,10 @@ describe("known faults and a report that follows up another", () => {
         "Den här anmälan följer upp din tidigare anmälan om Hiss.",
       ),
     ).toBeTruthy();
+    // The reporter's own refused reply, not the post's text.
+    expect(
+      (screen.getByLabelText("Vad har hänt") as HTMLTextAreaElement).value,
+    ).toBe("Det står still igen sedan i morse.");
     await session.click(screen.getByRole("button", { name: "Skicka anmälan" }));
 
     await waitFor(() => {
@@ -481,6 +552,7 @@ describe("known faults and a report that follows up another", () => {
         expect.objectContaining({
           postId: "post-1",
           followsIssueId: "issue-old",
+          description: "Det står still igen sedan i morse.",
         }),
       );
     });

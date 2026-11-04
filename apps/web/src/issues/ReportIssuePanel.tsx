@@ -77,8 +77,8 @@ export interface ReportIssuePanelProps {
   followUp?: Pick<OwnIssue, "id" | "typeId" | "typeName">;
   /**
    * What the reporter had written as a reply the server then refused as
-   * closed, which the report starts from so they do not retype it. Read once,
-   * when the form is mounted.
+   * closed, which the report starts from so they do not retype it, in place
+   * of a post's text when there is one. Read once, when the form is mounted.
    */
   followUpDraft?: string;
   /** Called when the reporter drops the follow-up and writes a plain report. */
@@ -146,7 +146,12 @@ export function ReportIssuePanel({
       types.some((type) => type.id === followUp.typeId)
         ? followUp.typeId
         : "",
-    description: prefill === undefined ? followUpDraft : prefill.description,
+    // The reporter's own refused reply before a post's text: it is what they
+    // wrote about this fault, and the post is still linked either way.
+    description:
+      followUpDraft !== "" || prefill === undefined
+        ? followUpDraft
+        : prefill.description,
   });
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const [photos, setPhotos] = useState<readonly File[]>(

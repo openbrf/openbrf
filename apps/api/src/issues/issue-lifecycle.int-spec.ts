@@ -58,6 +58,8 @@ const shielded = person("shielded", "Sara", "Skyddad");
 /** Signed in, and living somewhere else: not a resident of this house. */
 const outsider = person("outsider", "Olle", "Utomstaende");
 const people = [board, manager, resident, neighbour, shielded, outsider];
+/** A reporter in the register with no account, so no thread to read. */
+const accountless = { personId: `il-accountless-${suffix}` };
 const personIds = people.map((entry) => entry.personId);
 
 const typeIds = {
@@ -234,6 +236,13 @@ beforeAll(async () => {
       password: PASSWORD,
     });
   }
+  await prisma.person.create({
+    data: {
+      id: accountless.personId,
+      firstName: "Kalle",
+      lastName: `Kontolos${suffix}`,
+    },
+  });
   await prisma.boardPosition.create({
     data: {
       personId: board.personId,
@@ -319,7 +328,9 @@ afterAll(async () => {
   await prisma.boardPosition.deleteMany({
     where: { personId: { in: personIds } },
   });
-  await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+  await prisma.person.deleteMany({
+    where: { id: { in: [...personIds, accountless.personId] } },
+  });
   await prisma.apartment.deleteMany({
     where: { id: `il-apartment-${suffix}` },
   });
@@ -692,6 +703,33 @@ describe("merging duplicates", () => {
     expect(page.body.includes(shielded.lastName)).toBe(false);
   });
 
+  it("counts a reporter without an account as not reached, and reaches a duplicate of another type", async () => {
+    const kept = await filed(plain, neighbour);
+    const reached = await filed(boardOnly, resident);
+    const unreached = await filed(plain, accountless);
+    for (const id of [reached, unreached]) {
+      const merged = await as(board, "POST", `/api/issue-queue/${id}/merge`, {
+        intoIssueId: kept,
+      });
+      expect(merged.statusCode).toBe(201);
+    }
+
+    const sent = await as(
+      board,
+      "POST",
+      `/api/issue-queue/${kept}/duplicate-messages`,
+      { body: "Hissen är lagad." },
+    );
+    expect(sent.statusCode).toBe(201);
+    expect(sent.json()).toEqual({ sent: 1, skipped: 1 });
+    expect(
+      await prisma.issueMessage.count({ where: { issueId: reached } }),
+    ).toBe(1);
+    expect(
+      await prisma.issueMessage.count({ where: { issueId: unreached } }),
+    ).toBe(0);
+  });
+
   it("refuses a message to the duplicates' reporters when nobody can read it", async () => {
     const kept = await filed(plain, neighbour);
     const internal = await filed(plain, null);
@@ -849,6 +887,19 @@ describe("merging duplicates", () => {
       follows: null,
       followUps: [],
     });
+  });
+
+  it("counts a duplicate hidden from a handler, so the merge is not offered where it would be refused", async () => {
+    const kept = await filed(plain, neighbour);
+    const hidden = await filed(boardOnly, resident);
+    const merged = await as(board, "POST", `/api/issue-queue/${hidden}/merge`, {
+      intoIssueId: kept,
+    });
+    expect(merged.statusCode).toBe(201);
+
+    const links = await as(manager, "GET", `/api/issue-queue/${kept}/links`);
+    expect(links.statusCode).toBe(200);
+    expect(links.json()).toMatchObject({ duplicates: [], duplicateCount: 1 });
   });
 
   it("leaves the issue merged into when the duplicate is reopened", async () => {

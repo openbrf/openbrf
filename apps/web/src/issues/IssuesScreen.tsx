@@ -159,7 +159,7 @@ export function IssuesScreen({
    * One read of the three lists, the known faults and the guide. A list that
    * could not be read comes back `null`, so a re-read that fails on one of them
    * leaves what the screen already shows in place instead of replacing it with
-   * an empty list.
+   * an empty list. The known faults are the exception `reload` names.
    */
   const read = useCallback(async () => {
     const [types, apartments, own, knownFaults, guide] = await Promise.all([
@@ -211,8 +211,12 @@ export function IssuesScreen({
           apartments:
             next.apartments ?? (next.asked ? previous.apartments : []),
           own: next.own ?? (next.asked ? previous.own : []),
-          knownFaults:
-            next.knownFaults ?? (next.asked ? previous.knownFaults : []),
+          /*
+           * Not kept on a failed read, unlike the lists: a known fault leaves
+           * the house when its issue closes or the board keeps it to itself,
+           * and a copy kept from before would go on showing one that has.
+           */
+          knownFaults: next.knownFaults ?? [],
           guide: next.guide === undefined ? previous.guide : next.guide,
           loadFailed: next.loadFailed,
         }));
