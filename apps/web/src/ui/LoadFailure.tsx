@@ -21,24 +21,29 @@ import { Notice } from "./Notice";
  * and answer as a whole, and a control here that guessed would repeat the wrong
  * request.
  *
- * `live` is deliberately off. This notice is on screen before a reader reaches
- * it, which is the standing case the tone rule reserves for a quiet notice, and
- * a screen reader announcing "could not be read" over whatever the reader was
- * doing would be reporting an event that had already happened.
+ * `live` is off unless a caller sets it. This notice is usually on screen
+ * before a reader reaches it, which is the standing case the tone rule reserves
+ * for a quiet notice, and a screen reader announcing "could not be read" over
+ * whatever the reader was doing would be reporting an event that had already
+ * happened. A read that fails while the reader is already on the screen, after
+ * a save, is an event that has just happened, and sets `live`.
  */
 export function LoadFailure({
   messageKey,
   onRetry,
+  live,
 }: {
   /** The sentence this screen uses for its own failed read. */
   messageKey: TranslationKey;
   /** The screen's read, run again. */
   onRetry: () => void;
+  /** Set when the failure appears while the reader is already on the screen. */
+  live?: boolean;
 }): ReactElement {
   const { t } = useTranslation();
 
   return (
-    <Notice tone="danger">
+    <Notice tone="danger" live={live}>
       {/*
         A span rather than a div: Notice renders its children inside one, and a
         div there is markup no parser is obliged to keep in the shape it was

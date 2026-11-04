@@ -43,13 +43,15 @@ number.
   to the mail service. An address changed in the meantime is not mailed either.
   This narrows the window and does not close it: no lock is held while the mail
   service renders and sends, so a restriction or a board-only change committed
-  in that last moment can still be followed by one mail with the number, type
-  and priority and no free text.
-- **No free text.** A mail gives the issue number, the type and a link to the
-  issue queue. A mail to a handler also gives the priority. A mail to a reporter
-  greets them by their own name. Apart from that, a mail never includes what
-  the reporter or a handler wrote, where in the building the issue is, or who
-  reported it. That text does not pass through the mail provider.
+  in that last moment can still be followed by one mail, with no free text in
+  it.
+- **No free text.** A mail greets its recipient by their own name and gives
+  the issue number and the type. A mail to a handler also gives the priority
+  and a link to the issue queue, and an overdue reminder the target date. A mail
+  to a reporter links to the reporter's own list of issues. Apart from that, a
+  mail never includes what the reporter or a handler wrote, where in the
+  building the issue is, or who reported it. That text does not pass through
+  the mail provider.
 - **Issue number.** Every issue has a number, shown in the issue queue, on the
   reporter's own list and in every mail, and returned by the `issue_list` and
   `issue_get` actions. Existing issues are numbered in the order they were

@@ -1,3 +1,4 @@
+import { addLocalDays, formatLocalDay, localDayOf } from "@openbrf/shared";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
 import * as api from "../src/api";
@@ -103,6 +104,7 @@ const DESCRIPTION = `Det droppar fran taket i badrummet, ${uniqueSurname("rappor
  *   property manager works the queue   1         1        7              -
  *   board decides on the public form   1         1        1              7
  *   board renames and adds a status    1         1        1              7
+ *   board works the four views          1         1        1              5
  *
  * The harness column is the administrator sign-in inside the register fixture,
  * on the address the shared fixtures gave this test. Activation adds one to a
@@ -251,9 +253,15 @@ async function ensureIssueFixture(
  * and found by its heading: the sign for both who work it, then what it is for.
  * The page holds the queue and nothing of a resident's, so the page's main
  * landmark is the queue.
+ *
+ * On Alla unless told otherwise: the queue opens on Mina, the handler's own
+ * work, and the reports these tests follow are nobody's.
  */
-async function openIssueQueue(page: Page): Promise<Locator> {
-  await page.goto(appPath("/board/issues"));
+async function openIssueQueue(
+  page: Page,
+  view: "mine" | "unassigned" | "overdue" | "all" = "all",
+): Promise<Locator> {
+  await page.goto(appPath(`/board/issues?view=${view}`));
   await expect(
     page.getByRole("heading", {
       level: 1,
@@ -262,6 +270,34 @@ async function openIssueQueue(page: Page): Promise<Locator> {
     }),
   ).toBeVisible();
   return page.getByRole("main");
+}
+
+/** The queue's search and filter, found by the landmark's name. */
+function queueFilter(page: Page): Locator {
+  return page.getByRole("search", { name: "Sök och filtrera ärenden" });
+}
+
+/**
+ * One of the queue's selects, by the word that labels it.
+ *
+ * Not `getByLabel`: a select sits inside its label, so the label's text takes in
+ * the names of every option, and a status or type named after another filter
+ * ("Statusar-...") would match that filter's label too. The accessible name
+ * starts with the label's own word, then the chosen option.
+ */
+function queueSelect(page: Page, label: string): Locator {
+  return queueFilter(page).getByRole("combobox", {
+    name: new RegExp(`^${label}(\\s|$)`),
+  });
+}
+
+/**
+ * Widens the queue's status filter to closed issues as well. The queue opens
+ * on the open ones, so a report closed by an earlier test, or closed in front
+ * of the test that closes it, would otherwise leave the list.
+ */
+async function showClosedToo(page: Page): Promise<void> {
+  await queueSelect(page, "Status").selectOption({ label: "Alla, även klara" });
 }
 
 test("a resident reports an issue with a photograph", async ({
@@ -350,6 +386,8 @@ test("the board takes the report on and marks it done", async ({
   await expect(
     queue.getByRole("heading", { name: "Ärendekön", exact: true }),
   ).toBeVisible();
+  // Closed issues too, so the report stays in the list once it is done.
+  await showClosedToo(page);
 
   const row = queue
     .getByRole("listitem")
@@ -491,6 +529,8 @@ test("the property manager works the queue and is never shown the address book",
   await expect(
     queue.getByText("Styrelse och förvaltare", { exact: true }),
   ).toBeVisible();
+  // The board closed the report in the test before this one.
+  await showClosedToo(page);
   await expect(
     queue.getByRole("listitem").filter({ hasText: DESCRIPTION }).first(),
   ).toBeVisible();
@@ -570,4 +610,137 @@ test("the board decides whether the website carries a report form", async ({
      */
     await api.setPublicIssueReporting(request, stack.baseUrl, true);
   }
+});
+
+test("the board works the queue from Mina, Ej tilldelade, Försenade and Alla", async ({
+  page,
+  api: request,
+  clientAddress,
+}) => {
+  await ensureIssueFixture(request, clientAddress);
+  /*
+   * A type of this test's own, with three issues of its own under it, so the
+   * numbers on the views are this test's once the filter is narrowed to it:
+   * one given to the administrator, one given to them and past its target
+   * date, and one given to nobody.
+   */
+  const typeName = uniqueSurname("Vyer");
+  const type = await api.createIssueType(request, stack.baseUrl, {
+    name: typeName,
+    reporters: ["HANDLERS"],
+  });
+  const administrator = await api.viewer(request, stack.baseUrl);
+  const mine = `Hissen i port A stannar, ${uniqueSurname("mina")}.`;
+  const late = `Porten går inte i lås, ${uniqueSurname("sen")}.`;
+  const lamp = uniqueSurname("trapplampa");
+  const nobodys = `Lampan i trapphuset är trasig, ${lamp}.`;
+  for (const description of [mine, late]) {
+    const opened = await api.openInternalIssue(request, stack.baseUrl, {
+      typeId: type.id,
+      description,
+    });
+    await api.assignIssue(
+      request,
+      stack.baseUrl,
+      opened.id,
+      administrator.personId,
+    );
+    if (description === late) {
+      await api.setIssueTargetDate(
+        request,
+        stack.baseUrl,
+        opened.id,
+        formatLocalDay(addLocalDays(localDayOf(new Date()), -1)),
+      );
+    }
+  }
+  await api.openInternalIssue(request, stack.baseUrl, {
+    typeId: type.id,
+    description: nobodys,
+  });
+
+  await browseAs(page, clientAddress, "administrator");
+  await signInThroughTheScreen(
+    page,
+    ADMINISTRATOR.email,
+    ADMINISTRATOR.password,
+  );
+
+  /*
+   * The board's front page gives the open, the overdue and the unassigned
+   * issues, as the server counts the views: the suite runs one spec at a time,
+   * so nothing writes between the two reads.
+   */
+  const front = await api.issueQueueCounts(request, stack.baseUrl, {
+    meaning: "OPEN",
+  });
+  await page.goto(appPath("/board"));
+  const issuesRow = page
+    .getByRole("main")
+    .getByRole("listitem")
+    .filter({ has: page.getByRole("link", { name: "Ärenden", exact: true }) });
+  await expect(
+    issuesRow.getByRole("link", { name: `Öppna ${front.all}`, exact: true }),
+  ).toBeVisible();
+  await expect(
+    issuesRow.getByRole("link", {
+      name: `Ej tilldelade ${front.unassigned}`,
+      exact: true,
+    }),
+  ).toBeVisible();
+  await issuesRow
+    .getByRole("link", { name: `Försenade ${front.overdue}`, exact: true })
+    .click();
+
+  // The number leads to the view it counts.
+  await expect(page).toHaveURL(/\/board\/issues\?view=overdue$/);
+  const views = page.getByRole("navigation", { name: "Vyer" });
+  await expect(views.getByRole("link", { name: /^Försenade/ })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+
+  // Narrowed to this test's type, every number is this test's three issues.
+  await queueSelect(page, "Typ").selectOption({ label: typeName });
+  for (const name of ["Mina 2", "Ej tilldelade 1", "Försenade 1", "Alla 3"]) {
+    await expect(views.getByRole("link", { name, exact: true })).toBeVisible();
+  }
+
+  const rows = page
+    .getByRole("main")
+    .getByRole("listitem")
+    .filter({ hasText: typeName });
+  const row = (description: string): Locator =>
+    rows.filter({ hasText: description });
+
+  // Försenade: the issue past its target date, marked as overdue.
+  await expect(rows).toHaveCount(1);
+  await expect(row(late).getByText("Försenat", { exact: true })).toBeVisible();
+
+  // Mina: the two given to the administrator, and not the one given to nobody.
+  await views.getByRole("link", { name: "Mina 2", exact: true }).click();
+  await expect(page).toHaveURL(/\/board\/issues\?view=mine$/);
+  await expect(rows).toHaveCount(2);
+  await expect(row(mine)).toBeVisible();
+  await expect(row(late)).toBeVisible();
+
+  // Ej tilldelade: the one given to nobody.
+  await views
+    .getByRole("link", { name: "Ej tilldelade 1", exact: true })
+    .click();
+  await expect(rows).toHaveCount(1);
+  await expect(row(nobodys)).toBeVisible();
+
+  // Alla: all three, and the search narrows them and their numbers together.
+  await views.getByRole("link", { name: "Alla 3", exact: true }).click();
+  await expect(rows).toHaveCount(3);
+  await queueFilter(page).getByLabel("Sök").fill(lamp);
+  await expect(rows).toHaveCount(1);
+  await expect(row(nobodys)).toBeVisible();
+  await expect(
+    views.getByRole("link", { name: "Alla 1", exact: true }),
+  ).toBeVisible();
+  await expect(
+    views.getByRole("link", { name: "Mina 0", exact: true }),
+  ).toBeVisible();
 });
