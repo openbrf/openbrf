@@ -125,7 +125,24 @@ export interface JobSendOptions {
   expireInSeconds?: number;
   /** Queue a job lands on once its retries are spent. */
   deadLetter?: string;
+  /**
+   * With `singletonSeconds`, the key a job is throttled by: a second job of the
+   * same queue and key sent in the same time slot is not created.
+   */
+  singletonKey?: string;
+  /** Length in seconds of the slot `singletonKey` throttles within. */
+  singletonSeconds?: number;
+  /**
+   * The job's id, a UUID the caller chose, for a job whose data names it: one
+   * that gives back its own slot with {@link JobQueueService.releaseSingleton}.
+   * The queue makes one up otherwise.
+   */
+  id?: string;
 }
+
+/** The states a job is in, as the queue backend names them. */
+export type JobState =
+  "created" | "retry" | "active" | "completed" | "cancelled" | "failed";
 
 /**
  * The part of an open database transaction a job insert needs.
@@ -348,17 +365,57 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
    * The queue must already exist: `ensureQueue` talks to the database on its
    * own connection, and calling it here would put a queue's creation inside
    * somebody else's transaction. Callers await it before they open one.
+   *
+   * Answers the job's id, or null where the queue declined to create one: a
+   * job sent with a `singletonKey` and `singletonSeconds` whose slot is taken
+   * is dropped without an error.
    */
   async sendInTransaction<Data extends object>(
     tx: TransactionalSql,
     name: string,
     data: Data,
     options?: JobSendOptions,
-  ): Promise<void> {
-    await this.boss.send(name, data, {
+  ): Promise<string | null> {
+    return this.boss.send(name, data, {
       ...options,
       db: transactionalDb(tx),
     });
+  }
+
+  /**
+   * Frees the slot one throttled job holds, so a job sent with the same
+   * `singletonKey` in the same time slot is created instead of dropped.
+   *
+   * The queue's unique index counts every job but a cancelled one, a job that
+   * finished without doing its work included. A caller whose job found nothing
+   * to do - a notice for an assignment that was undone - gives the slot back
+   * with this, and keeps it for a job that did its work.
+   *
+   * By the job's id, which the caller chose when it sent the job (see
+   * {@link JobSendOptions.id}): never by the key, which another job of the
+   * same key in a later slot holds too, and whose slot is that job's to keep.
+   * Only a job in one of `states` is freed; the job itself is left as it is.
+   * Compared as text, so an id that is not a UUID frees nothing rather than
+   * failing.
+   *
+   * Answers whether the slot was freed.
+   */
+  async releaseSingleton(
+    tx: TransactionalSql,
+    name: string,
+    jobId: string,
+    states: readonly JobState[],
+  ): Promise<boolean> {
+    const freed = await tx.$queryRawUnsafe<unknown[]>(
+      `UPDATE ${JOB_SCHEMA}.job SET singleton_on = NULL
+       WHERE name = $1 AND id::text = $2 AND singleton_on IS NOT NULL
+         AND state::text = ANY($3::text[])
+       RETURNING id`,
+      name,
+      jobId,
+      [...states],
+    );
+    return freed.length > 0;
   }
 
   /**

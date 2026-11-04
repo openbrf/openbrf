@@ -635,6 +635,59 @@ describe("a resident and the handlers converse", () => {
   });
 });
 
+describe("a message is mailed as a notice", () => {
+  it("queues a notice about the message and never its words, and mails nothing for a note", async () => {
+    const issueId = await filed(plain);
+    const queued = async (): Promise<string[]> =>
+      (
+        await prisma.$queryRawUnsafe<{ data: unknown }[]>(
+          "SELECT data FROM pgboss.job WHERE name = 'issue-notice' AND data->>'issueId' = $1 ORDER BY created_on, id",
+          issueId,
+        )
+      ).map((row) => JSON.stringify(row.data));
+    try {
+      const before = (await queued()).length;
+      const asked = await write(
+        resident,
+        `/api/issues/${issueId}/messages`,
+        "Hemligt ord från boende.",
+      );
+      expect(asked.statusCode).toBe(201);
+      const answered = await write(
+        manager,
+        `/api/issue-queue/${issueId}/messages`,
+        "Hemligt ord från förvaltaren.",
+      );
+      expect(answered.statusCode).toBe(201);
+      const afterMessages = (await queued()).slice(before);
+      expect(afterMessages.some((job) => job.includes('"message"'))).toBe(true);
+      expect(
+        afterMessages.some(
+          (job) =>
+            job.includes('"reporterMessage"') &&
+            job.includes(resident.personId),
+        ),
+      ).toBe(true);
+      for (const job of afterMessages) {
+        expect(job).not.toContain("Hemligt");
+      }
+
+      const afterNote = await write(
+        manager,
+        `/api/issue-queue/${issueId}/notes`,
+        "Hemlig anteckning.",
+      );
+      expect(afterNote.statusCode).toBe(201);
+      expect((await queued()).length).toBe(before + afterMessages.length);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        "DELETE FROM pgboss.job WHERE name = 'issue-notice' AND data->>'issueId' = $1",
+        issueId,
+      );
+    }
+  });
+});
+
 describe("internal notes and the handlers' files", () => {
   it("keeps notes and files from the reporter, and gives them to every handler the issue lets in", async () => {
     const issueId = await filed(plain);

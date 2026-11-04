@@ -142,6 +142,47 @@
       },
       "bodyUndated": "{{event}} for {{apartment}} was recorded on {{triggeredOn}} and has to be reported to Lantmäteriet.",
       "noDeadlineNotice": "Lag (2026:484) 3 kap. 3 § tredje stycket sets no deadline for this report, so none is stated here."
+    },
+    "issueHandlerNotice": {
+      "footerNotice": "You are receiving this because you handle issues for {{association}}.",
+      "facts": "Issue {{number}} · {{type}} · Priority: {{priority}}",
+      "action": "Open the issue queue",
+      "assigned": {
+        "subject": "Issue {{number}} has been assigned to you: {{type}}",
+        "heading": "An issue has been assigned to you",
+        "body": "You are the assignee of issue {{number}}, {{type}}. What was reported is in the issue queue, not in this email."
+      },
+      "filed": {
+        "subject": "New issue {{number}}: {{type}}",
+        "heading": "A new issue with no assignee",
+        "body": "Issue {{number}}, {{type}}, has come in and nobody is assigned to it yet. What was reported is in the issue queue, not in this email."
+      },
+      "urgent": {
+        "subject": "Urgent issue {{number}}: {{type}}",
+        "heading": "An issue is urgent",
+        "body": "Issue {{number}}, {{type}}, has the priority Urgent, and you are among those who handle it. What was reported is in the issue queue, not in this email."
+      },
+      "overdue": {
+        "subject": "Issue {{number}} is past its target date: {{type}}",
+        "heading": "One of your issues is overdue",
+        "body": "Issue {{number}}, {{type}}, was meant to be done by {{targetDate}} and is not closed. You are its assignee. In the issue queue you can move the date or close the issue."
+      },
+      "reopened": {
+        "subject": "Issue {{number}} has been reopened: {{type}}",
+        "heading": "A closed issue has been reopened",
+        "body": "Issue {{number}}, {{type}}, was closed and has been opened again. What happened is in the issue queue, not in this email."
+      },
+      "message": {
+        "subject": "New message on issue {{number}}: {{type}}",
+        "heading": "The reporter has replied",
+        "body": "The reporter has written a new issue message on issue {{number}}, {{type}}. The message is in the issue queue, not in this email."
+      }
+    },
+    "issueReporterNotice": {
+      "subject": "New message on your issue {{number}}: {{type}}",
+      "heading": "You have a new message",
+      "body": "There is a new message on your issue {{number}}, {{type}}. The message is among your issues, not in this email.",
+      "action": "Open your issues"
     }
   },
   "sms": {
@@ -3624,6 +3665,7 @@
     }
   },
   "issues": {
+    "number": "Issue {{number}}",
     "navLabel": "Issues",
     "title": "Issues",
     "intro": "Report a problem with the building, and follow what happens to it.",
@@ -4062,7 +4104,7 @@
         "releaseNamed": "{{type}}: release the legal hold",
         "releaseConfirm": "Release",
         "releaseKeep": "Keep the hold",
-        "releaseHint": "Once released, the retention clock runs again, and the free text of an issue closed long enough ago is removed the next night.",
+        "releaseHint": "Once released, the retention clock runs again, and the free text of an issue closed long enough ago is removed in the nights that follow.",
         "saving": "Saving..."
       },
       "errors": {
@@ -6452,7 +6494,7 @@
         },
         "issues": {
           "name": "Issue reports",
-          "purpose": "Receiving and dealing with problems in the building.",
+          "purpose": "Receiving and dealing with problems in the building, and telling whoever handles an issue, and whoever reported it, by email. The emails carry the issue number, the issue type and a link, and the emails to whoever handles an issue the priority too; never what anybody wrote.",
           "legalBasisNote": "Legitimate interest: managing the property. A reporter may volunteer data about health (art. 9).",
           "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands, or earlier on the reporter's granted erasure request, and the link to the reporter is detached, once that text is gone, when the reporter's own personal data is purged. A public-form report's contact details are purged 365 days after it is closed."
         },

@@ -341,6 +341,17 @@ locally the application runs from source beside the PostgreSQL that
       of who did what and when, read from the audit log. The people an issue
       can be assigned to are named and nothing more, so the property manager is
       never shown the address book (ADR 0054)
+- [x] Mail about issues: a new issue to its assignee, or to the type's handlers
+      when it lands unassigned; an urgent one to every handler of its type; an
+      assignment to the new assignee; a reopened one to its assignee; and one
+      reminder to the assignee the morning after the target date has passed.
+      A mail gives the issue number, the type and a link, a mail to a handler
+      the priority too, and never anything a reporter or a handler wrote.
+      Nobody is mailed about their own action. A person whose processing is
+      restricted is checked again just before the mail is handed over, which
+      narrows the window in which a restriction is not seen but does not close
+      it. Every issue has a number, shown in the queue and on the
+      reporter's own list
 - [x] Who pays for an issue: a handler records the association, the
       tenant-owner or unclear, and never an amount. "Create a charge" opens a
       charge filled in from the issue, the amount is entered there and lives
@@ -363,7 +374,8 @@ locally the application runs from source beside the PostgreSQL that
       one of them saying that what was reported is the tenant-owner's under the
       bylaws, which a handler starts a message from. Text the board writes back
       is refused while it carries a personal identity number. No row stores a
-      name, nothing of it is mailed, and no action offers it to a connected app
+      name, a mail says only that there is a new message and never what it says,
+      and no action offers it to a connected app
       or the AI package (ADR 0056)
 - [x] After an issue closes: a reply from its reporter within 30 days of
       closing reopens it, back to its type's in-progress status with its

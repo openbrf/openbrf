@@ -168,6 +168,7 @@ describe("which panels a seat is given", () => {
 
 const issue = (overrides: Partial<OwnIssue>): OwnIssue => ({
   id: "issue",
+  number: 1,
   meaning: "NEW",
   typeId: "type",
   typeName: "Tvättstuga",

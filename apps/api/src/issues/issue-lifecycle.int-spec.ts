@@ -16,6 +16,7 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { IssueConversationService } from "./issue-conversation.service";
+import { ISSUE_NOTICE_QUEUE } from "./issue-mailer.service";
 import { IssueService } from "./issue.service";
 
 /**
@@ -185,6 +186,23 @@ async function own(who: { personId: string }, issueId: string) {
     throw new Error(`${issueId} is not among the reporter's issues`);
   }
   return found;
+}
+
+/** Who is mailed what about one issue: the queued notices, as person and event. */
+async function noticesOf(
+  issueId: string,
+): Promise<{ personId: string; event: string }[]> {
+  const rows = await prisma.$queryRawUnsafe<
+    { data: { personId: string; event: string } }[]
+  >(
+    "SELECT data FROM pgboss.job WHERE name = $1 AND data->>'issueId' = $2 ORDER BY created_on, id",
+    ISSUE_NOTICE_QUEUE,
+    issueId,
+  );
+  return rows.map((row) => ({
+    personId: row.data.personId,
+    event: row.data.event,
+  }));
 }
 
 /** Runs `act` with the clock moved to `at`, and puts it back afterwards. */
@@ -384,6 +402,14 @@ describe("a reply on a closed issue", () => {
       closedAt: null,
       messages: [{ body: "Det läcker igen." }],
     });
+
+    // Whoever handles it is mailed that it is open again, and never the
+    // reporter whose reply reopened it.
+    const mailed = await noticesOf(issueId);
+    expect(mailed.some((notice) => notice.event === "reopened")).toBe(true);
+    expect(mailed.some((notice) => notice.personId === resident.personId)).toBe(
+      false,
+    );
 
     // The timeline says the reporter reopened it, and names nobody.
     const timeline = await as(
@@ -667,6 +693,12 @@ describe("merging duplicates", () => {
     );
     expect(sent.statusCode).toBe(201);
     expect(sent.json()).toEqual({ sent: 2, skipped: 0 });
+
+    // Each reporter is mailed that there is a new message, never what it says.
+    expect(await noticesOf(first)).toContainEqual({
+      personId: resident.personId,
+      event: "reporterMessage",
+    });
 
     for (const [who, id] of [
       [resident, first],

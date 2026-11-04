@@ -40,4 +40,9 @@ What happens to an issue after it closes, merging duplicates, and known faults.
 
 Text a handler writes, a known fault or a message to the merged reporters, is
 refused while it carries a personal identity number. None of this is offered to
-a connected app or the AI package, and nothing of it is mailed.
+a connected app or the AI package.
+
+A reply that reopens an issue mails its assignee, or everybody who handles it
+when it has none, that it is open again, as any reopening does. A message to the
+reporters of merged reports mails each reporter that there is a new message.
+Neither mail says what the message says. A known fault is mailed to nobody.

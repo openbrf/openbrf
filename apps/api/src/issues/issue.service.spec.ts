@@ -6,6 +6,7 @@ import type { PrismaService } from "../database/prisma.service";
 import type { MediaService } from "../media/media.service";
 import type { IssueTypeService } from "./issue-type.service";
 import { IssueService } from "./issue.service";
+import type { IssueMailer } from "./issue-mailer.service";
 
 /**
  * A page of the triage queue over a fake database, for the one interleaving
@@ -145,6 +146,7 @@ function build(issueReads: (typeof PROTECTED_ISSUE)[][], protectedFrom = 2) {
     {} as MediaService,
     {} as FieldEncryptionService,
     {} as AuditLogService,
+    {} as IssueMailer,
   );
   return { service, issueFindMany };
 }
