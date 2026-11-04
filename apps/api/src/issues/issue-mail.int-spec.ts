@@ -240,16 +240,23 @@ async function holdsSlot(job: IssueNoticeJob): Promise<boolean> {
 const TEST_TIMEOUT_MS = 30_000;
 
 /**
- * Waits for the queue's throttle slot to turn when fewer than
- * {@link TEST_TIMEOUT_MS} of it are left.
+ * Slack kept above {@link TEST_TIMEOUT_MS} when the slot is checked: the
+ * test's own timer starts only after the hook returns, and the clock is read
+ * before that, so a test needs more than its timeout of the slot left.
+ */
+const SLOT_MARGIN_MS = 1_000;
+
+/**
+ * Waits for the queue's throttle slot to turn when less than
+ * {@link TEST_TIMEOUT_MS} plus {@link SLOT_MARGIN_MS} of it is left.
  *
  * The queue cuts the database's clock into slots of
  * {@link REPEATED_NOTICE_SECONDS}, each starting on the hour, and a repeated
  * assignment or reopening notice is dropped only within the slot of the first.
  * A test that queues a notice and then a repeat expects both in one slot, and
  * one started a second before the hour turns would see the repeat queued. A
- * test that starts with a timeout's worth of its slot left, and passes, cannot
- * cross the turn.
+ * test that starts with a timeout's worth of its slot left, and a margin, and
+ * passes, cannot cross the turn.
  */
 async function clearOfTheSlotTurn(): Promise<void> {
   const slotMs = REPEATED_NOTICE_SECONDS * 1000;
@@ -260,7 +267,7 @@ async function clearOfTheSlotTurn(): Promise<void> {
     );
     expect(row).toBeDefined();
     const leftMs = slotMs - ((row?.nowMs ?? 0) % slotMs);
-    if (leftMs >= TEST_TIMEOUT_MS) {
+    if (leftMs >= TEST_TIMEOUT_MS + SLOT_MARGIN_MS) {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, leftMs + 100));
