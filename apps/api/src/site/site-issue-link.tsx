@@ -132,7 +132,10 @@ export function renderIssueLinkPage(
           <button type="submit">{t("site.issueLink.send")}</button>
         </form>
       ) : view.messageLimitReached ? (
-        <p>{t("site.issueLink.notice.full")}</p>
+        // After the redirect the notice above already says it.
+        notice === "full" ? null : (
+          <p>{t("site.issueLink.notice.full")}</p>
+        )
       ) : (
         <p>{t("site.issueLink.closedNotice")}</p>
       )}

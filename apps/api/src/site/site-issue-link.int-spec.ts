@@ -949,6 +949,11 @@ describe("D. rate limits and abuse", () => {
     expect(told.body).toContain(
       "Fler meddelanden kan inte skickas via länken.",
     );
+    // ...once: the page does not repeat the notice under the conversation.
+    expect(
+      told.body.split("Fler meddelanden kan inte skickas via länken.").length -
+        1,
+    ).toBe(1);
     expect(
       await prisma.issueMessage.count({ where: { issueId, side: "REPORTER" } }),
     ).toBe(REPORTER_LINK_MESSAGES_PER_ISSUE);
