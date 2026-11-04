@@ -238,7 +238,8 @@ export function ReportIssuePanel({
       setDraft(EMPTY);
       setPhotos([]);
       setFromPostId(null);
-      onReported(fromPostId);
+      // The post the report was sent with: none for a follow-up.
+      onReported(followUp === undefined ? fromPostId : null);
     },
   );
 

@@ -641,6 +641,7 @@ describe("known faults and a report that follows up another", () => {
     expect(
       (screen.getByLabelText("Vad har hänt") as HTMLTextAreaElement).value,
     ).toBe("Det står still igen sedan i morse.");
+    const readsBefore = fetchOwnIssues.mock.calls.length;
     await session.click(screen.getByRole("button", { name: "Skicka anmälan" }));
 
     await waitFor(() => {
@@ -654,6 +655,13 @@ describe("known faults and a report that follows up another", () => {
     // The post may already name the report followed up, which the server
     // refuses to name a second one: a follow-up carries no post.
     expect(reportIssue.mock.calls.at(-1)?.[0]).not.toHaveProperty("postId");
+    // Nor does the screen say the report is tied to a post it was not sent
+    // with. The own reports are read again once the report is filed, which is
+    // after the screen has taken in where it came from.
+    await waitFor(() => {
+      expect(fetchOwnIssues.mock.calls.length).toBeGreaterThan(readsBefore);
+    });
+    expect(screen.queryByText("Tillbaka till inlägget")).toBeNull();
   });
 
   it("keeps the notice and the failed-photograph warning after a follow-up is filed", async () => {
