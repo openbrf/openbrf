@@ -27,12 +27,14 @@ const fetchIssueQueueSnapshot = vi.fn();
 const fetchHandlerIssueTypes = vi.fn();
 const fetchOwnIssues = vi.fn();
 const setIssueStatus = vi.fn();
+const fetchIssuePlaceCounts = vi.fn();
 
 vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
   fetchIssueQueueSnapshot: (input: unknown) => fetchIssueQueueSnapshot(input),
   fetchHandlerIssueTypes: () => fetchHandlerIssueTypes(),
   fetchOwnIssues: () => fetchOwnIssues(),
+  fetchIssuePlaceCounts: () => fetchIssuePlaceCounts(),
   setIssueStatus: (input: unknown) => setIssueStatus(input),
 }));
 
@@ -94,8 +96,11 @@ function issue(
     typeId: "type-water",
     typeName: "Vatten",
     location: null,
+    place: null,
     description: "Det droppar i taket.",
     apartment: { id: "a-1", number: "1401", address: "Storgatan 12" },
+    entry: null,
+    finding: null,
     photos: [],
     reporter: { kind: "resident", personId: "p-1", name: "Rune Boende" },
     createdAt: "2026-08-20T08:00:00.000Z",
@@ -166,6 +171,7 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ ok: true, value: [typeWater] });
   fetchOwnIssues.mockReset().mockResolvedValue({ ok: true, value: [] });
+  fetchIssuePlaceCounts.mockReset().mockResolvedValue({ ok: true, value: [] });
   setIssueStatus.mockReset().mockResolvedValue({ ok: true, value: issue() });
 });
 
@@ -716,5 +722,165 @@ describe("a save that finishes under another view or filter", () => {
     });
     expect(screen.getByText("Akut läcka.")).toBeTruthy();
     expect(screen.queryByText("Det droppar i taket.")).toBeNull();
+  });
+});
+
+describe("the place filter", () => {
+  /** The whole queue holds a water leak; narrowed to the lift, a stuck lift. */
+  function queueByPlace(): void {
+    fetchIssueQueueSnapshot.mockImplementation((input: { placeId?: string }) =>
+      Promise.resolve(
+        input.placeId === "p-lift"
+          ? answer([
+              issue({ id: "issue-lift", description: "Hissen står still." }),
+            ])
+          : answer([
+              issue({ id: "issue-water", description: "Det droppar i taket." }),
+            ]),
+      ),
+    );
+  }
+
+  /** The place each read of the queue asked for, in order. */
+  function placesAsked(): (string | undefined)[] {
+    return fetchIssueQueueSnapshot.mock.calls.map(
+      ([input]) => (input as { placeId?: string }).placeId,
+    );
+  }
+
+  const LIFT = { id: "p-lift", name: "Hiss", active: true, issues: 1, open: 1 };
+
+  it("narrows the view to the place chosen, and the filter's clear leaves it", async () => {
+    const session = userEvent.setup();
+    queueByPlace();
+    fetchIssuePlaceCounts.mockResolvedValue({ ok: true, value: [LIFT] });
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Visa bara Hiss" }),
+    );
+
+    expect(await screen.findByText("Hissen står still.")).toBeTruthy();
+    expect(screen.queryByText("Det droppar i taket.")).toBeNull();
+    // The place narrows the view the screen opened on, with its filter.
+    expect(fetchIssueQueueSnapshot).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        view: "MINE",
+        meaning: "OPEN",
+        placeId: "p-lift",
+      }),
+    );
+
+    await session.click(screen.getByRole("button", { name: "Rensa filter" }));
+
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+    expect(placesAsked().at(-1)).toBeUndefined();
+  });
+
+  it("never draws a place's answer that a later choice superseded", async () => {
+    const session = userEvent.setup();
+    const LAUNDRY = {
+      id: "p-laundry",
+      name: "Tvättstuga",
+      active: true,
+      issues: 1,
+      open: 1,
+    };
+    fetchIssuePlaceCounts.mockResolvedValue({
+      ok: true,
+      value: [LIFT, LAUNDRY],
+    });
+    // The lift's read is held open; every other read answers at once.
+    let answerLift: (value: unknown) => void = () => undefined;
+    fetchIssueQueueSnapshot.mockImplementation((input: { placeId?: string }) =>
+      input.placeId === "p-lift"
+        ? new Promise((resolve) => {
+            answerLift = resolve;
+          })
+        : Promise.resolve(
+            input.placeId === "p-laundry"
+              ? answer([
+                  issue({
+                    id: "issue-laundry",
+                    description: "Torktumlaren är trasig.",
+                  }),
+                ])
+              : answer([
+                  issue({
+                    id: "issue-water",
+                    description: "Det droppar i taket.",
+                  }),
+                ]),
+          ),
+    );
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+
+    await session.click(
+      await screen.findByRole("button", { name: "Visa bara Hiss" }),
+    );
+    await waitFor(() => {
+      expect(placesAsked()).toContain("p-lift");
+    });
+    await session.click(
+      await screen.findByRole("button", { name: "Visa bara Tvättstuga" }),
+    );
+    expect(await screen.findByText("Torktumlaren är trasig.")).toBeTruthy();
+
+    // The lift's answer arrives last, and is not the one drawn.
+    answerLift(
+      answer([issue({ id: "issue-lift", description: "Hissen står still." })]),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText("Torktumlaren är trasig.")).toBeTruthy();
+    expect(screen.queryByText("Hissen står still.")).toBeNull();
+  });
+
+  it("is dropped when the counts cannot be read, so the whole queue is back", async () => {
+    const session = userEvent.setup();
+    queueByPlace();
+    fetchIssuePlaceCounts.mockResolvedValue({ ok: true, value: [LIFT] });
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    const only = await screen.findByRole("button", { name: "Visa bara Hiss" });
+
+    // The read the choice causes cannot give the counts: with no panel to
+    // leave the place from, the queue is read again without it.
+    fetchIssuePlaceCounts.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await session.click(only);
+
+    await waitFor(() => {
+      expect(placesAsked()).toContain("p-lift");
+    });
+    await waitFor(() => {
+      expect(placesAsked().at(-1)).toBeUndefined();
+    });
+    // The unnarrowed answer is the one drawn, not the lift's.
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+    expect(screen.queryByText("Hissen står still.")).toBeNull();
+  });
+
+  it("is dropped when the counts no longer list the place", async () => {
+    const session = userEvent.setup();
+    queueByPlace();
+    fetchIssuePlaceCounts.mockResolvedValue({ ok: true, value: [LIFT] });
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    const only = await screen.findByRole("button", { name: "Visa bara Hiss" });
+
+    // Switched off with nothing left on it, the lift drops out of the counts,
+    // and with it the row that holds the way back to the whole queue.
+    fetchIssuePlaceCounts.mockResolvedValue({ ok: true, value: [] });
+    await session.click(only);
+
+    await waitFor(() => {
+      expect(placesAsked()).toContain("p-lift");
+    });
+    await waitFor(() => {
+      expect(placesAsked().at(-1)).toBeUndefined();
+    });
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+    expect(screen.queryByText("Hissen står still.")).toBeNull();
   });
 });
