@@ -280,11 +280,12 @@ describe("the logo in a message", () => {
 });
 
 describe("MailService without SMTP", () => {
-  it("does not throw outside production, so local flows still work", async () => {
+  it("does not throw outside production, so local flows still work, and says nothing was handed over", async () => {
     const service = await buildService();
 
     await expect(service.send(INVITATION)).resolves.toEqual({
       messageId: null,
+      suppressed: true,
     });
   });
 

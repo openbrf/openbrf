@@ -41,6 +41,28 @@ import { DomainError } from "../http/domain-error";
  * issue a handler opens that is not held today - ended, not yet begun, or
  * none at all - answered alike for the reason an apartment is.
  *
+ * The work order reasons. `contractor-not-found` is a contractor not on the
+ * list, or switched off, and `contractor-without-email` one the list holds no
+ * address for, so a work order to them has nowhere to go.
+ * `contractor-incomplete` is a name or a trade that is nothing once the
+ * invisible characters are taken out, and `work-order-empty` a work order
+ * that says nothing on the same reading.
+ * `work-order-ring-fenced` is an issue whose type nothing about may reach a
+ * contractor (ADR 0055): stated rather than answered as not found, because the
+ * handler asking already reads the issue. `work-order-identity-number` is a work order whose
+ * text carries a personal identity number, which has no business leaving the
+ * instance in a contractor's mail.
+ * `work-order-preview-stale` is a sending whose preview no longer matches
+ * what would be sent - the contractor's name or address changed, the text
+ * differs, or the preview is too old - so the handler previews again before
+ * anything leaves. `work-order-duplicate` is the same text to the same
+ * contractor on the same issue a moment after the first, and
+ * `work-order-budget-spent` a handler who has sent as many work orders as one
+ * person may in an hour.
+ *
+ * `issue-closed` is also a handler writing a work order on an issue that is
+ * done, which is reopened first.
+ *
  * The conversation's reasons. `issue-closed` is a reporter writing on an issue
  * that is done; what a reply to a closed issue does is the reopening rule's to
  * decide (ADR 0054). `no-reporter` is a handler writing to the reporter of an
@@ -74,6 +96,15 @@ export type IssueReason =
   | "assignee-not-a-handler"
   | "target-date-invalid"
   | "resident-not-found"
+  | "contractor-not-found"
+  | "contractor-without-email"
+  | "contractor-incomplete"
+  | "work-order-empty"
+  | "work-order-ring-fenced"
+  | "work-order-identity-number"
+  | "work-order-preview-stale"
+  | "work-order-duplicate"
+  | "work-order-budget-spent"
   | "issue-closed"
   | "no-reporter"
   | "personal-identity-number"
@@ -113,19 +144,28 @@ export class IssueError extends DomainError {
       reason === "post-already-reported" ||
       reason === "default-status-required" ||
       reason === "too-many-statuses" ||
+      reason === "work-order-preview-stale" ||
+      reason === "work-order-duplicate" ||
       reason === "legal-hold"
         ? HttpStatus.CONFLICT
-        : reason === "public-reporting-disabled"
-          ? HttpStatus.FORBIDDEN
-          : reason === "post-not-reportable" ||
-              reason === "waiting-reason-required" ||
-              reason === "outcome-required" ||
-              reason === "status-detail-not-applicable" ||
-              reason === "assignee-not-a-handler" ||
-              reason === "target-date-invalid" ||
-              reason === "personal-identity-number"
-            ? HttpStatus.UNPROCESSABLE_ENTITY
-            : HttpStatus.NOT_FOUND;
+        : reason === "work-order-budget-spent"
+          ? HttpStatus.TOO_MANY_REQUESTS
+          : reason === "public-reporting-disabled"
+            ? HttpStatus.FORBIDDEN
+            : reason === "post-not-reportable" ||
+                reason === "waiting-reason-required" ||
+                reason === "outcome-required" ||
+                reason === "status-detail-not-applicable" ||
+                reason === "assignee-not-a-handler" ||
+                reason === "target-date-invalid" ||
+                reason === "personal-identity-number" ||
+                reason === "contractor-without-email" ||
+                reason === "contractor-incomplete" ||
+                reason === "work-order-empty" ||
+                reason === "work-order-ring-fenced" ||
+                reason === "work-order-identity-number"
+              ? HttpStatus.UNPROCESSABLE_ENTITY
+              : HttpStatus.NOT_FOUND;
   }
 
   /**
