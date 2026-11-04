@@ -106,6 +106,11 @@
       "heading": "A reply from the board of {{association}}",
       "footer": "This reply comes from {{association}}. Reply to this message, or write to {{address}}, and it reaches the whole board."
     },
+    "workOrder": {
+      "subject": "Work order from {{association}}",
+      "heading": "A work order",
+      "footerNotice": "You are receiving this because {{association}} keeps you on its list of contractors. Contact the association if anything in the work order is unclear."
+    },
     "news": {
       "subject": "{{title}} - {{association}}",
       "body": "{{association}} has published a news item.",
@@ -149,7 +154,7 @@
       "body": "The association has received your report ({{type}}). Through the link below you can follow the issue, read the association's answers and write to the association.",
       "action": "Open your issue",
       "footerNotice": "You are receiving this because you reported an issue to {{association}}.",
-      "keepPrivate": "The link is personal: whoever has it can read and write in the issue, so do not share it. It stops working 30 days after the issue is closed or 365 days after the latest message in it, whichever comes first; until a message is written, the 365 days count from this mail."
+      "keepPrivate": "The link is personal: whoever has it can read and write in the issue, so do not share it. It stops working 30 days after the issue is closed or 365 days after the latest message in it, whichever comes first; until a message is written, the 365 days count from the day this link was issued."
     },
     "issueHandlerNotice": {
       "footerNotice": "You are receiving this because you handle issues for {{association}}.",
@@ -559,6 +564,7 @@
           "location": "Location",
           "description": "Description",
           "photographs": "Photographs",
+          "workOrders": "Work orders written to contractors",
           "documentTitle": "Title",
           "binder": "Binder",
           "entryKind": "Kind",
@@ -681,6 +687,15 @@
           "ENTRY": "Membership granted",
           "EXIT": "Membership ended",
           "CORRECTION": "Correction"
+        },
+        "workOrder": {
+          "removedContractor": "A contractor since removed from the list",
+          "delivery": {
+            "PENDING": "Being sent",
+            "SENT": "Sent",
+            "FAILED": "Not confirmed as sent",
+            "NOT_SENT": "Not sent"
+          }
         },
         "direction": {
           "acquired": "Acquired",
@@ -865,6 +880,9 @@
           "ISSUE_ACCESS_CHANGED": "Who handles an issue was changed",
           "ISSUE_COST_RESPONSIBILITY_CHANGED": "Who pays for an issue was recorded",
           "ISSUE_RESIDENTS_LISTED": "A handler was shown who lives in an apartment, to open an issue",
+          "ISSUE_WORK_ORDER_SENT": "A work order on an issue was written and queued for mailing to a contractor",
+          "CONTRACTOR_LIST_CHANGED": "A contractor was added to, changed on or removed from the contractor list",
+          "ISSUE_TYPE_RING_FENCE_CHANGED": "An issue type was ring-fenced from contractors, or its ring-fence was lifted",
           "ISSUE_MESSAGE_SENT": "A message was written on an issue",
           "ISSUE_NOTE_ADDED": "An internal note was written on an issue",
           "ISSUE_REDACTED": "Text, a photograph or a file was removed from an issue",
@@ -945,7 +963,8 @@
             "message": "A message",
             "note": "An internal note",
             "photo": "A photograph",
-            "attachment": "A file"
+            "attachment": "A file",
+            "workOrder": "The text of a work order"
           },
           "legalHoldSince": "The hold stood since {{date}}",
           "retentionChanged": "From {{from}} to {{to}} years after closing"
@@ -1769,7 +1788,39 @@
       "defaultAssigneeNamed": "{{name}}: assignee on filing",
       "noDefaultAssignee": "Nobody: tell every handler",
       "handledByBoardHint": "The board and an administrator handle these issues, an administrator without a seat on the board included. The property manager does not see them. Making a type the board's unassigns the property manager from its issues.",
-      "handledByEveryHandlerHint": "Every handler sees these issues, the property manager included. An issue with no assignee is told to all of them."
+      "handledByEveryHandlerHint": "Every handler sees these issues, the property manager included. An issue with no assignee is told to all of them.",
+      "ringFenced": "Ring-fenced: nothing reaches a contractor",
+      "ringFencedNamed": "{{name}}: ring-fenced, nothing reaches a contractor"
+    },
+    "contractors": {
+      "title": "Contractors",
+      "description": "The firms the association hires to work on the building. A handler sends one a work order from an issue, mailed to the address here. The telephone number is for the handler, and is sent nowhere.",
+      "loading": "Loading the contractors...",
+      "loadFailed": "The contractors could not be read just now. Reload the page.",
+      "empty": "No contractors are on the list yet.",
+      "name": "Name",
+      "trade": "Trade",
+      "tradePlaceholder": "Plumber, electrician, locksmith...",
+      "phone": "Telephone",
+      "email": "Email address",
+      "active": "Offered for new work orders",
+      "fieldNamed": "{{name}}: {{field}}",
+      "noEmailHint": "Without an address, no work order can be mailed to them.",
+      "workOrderCount": "Work orders written: {{count}}",
+      "save": "Save",
+      "addTitle": "Add a contractor",
+      "add": "Add contractor",
+      "remove": "Remove",
+      "removeNamed": "Remove {{name}}",
+      "errors": {
+        "notFound": "That contractor is no longer on the list. The list has been read again.",
+        "incomplete": "A contractor needs a name and a trade.",
+        "invalidBody": "Check the fields: the address has to be a valid email address.",
+        "unknown": "The list could not be changed just now. Please try again."
+      },
+      "removeConfirm": "Remove for good",
+      "keep": "Keep",
+      "removeHint": "Removing also erases the contractor's name and address from the work orders sent to them; the work orders stay on the issues. To stop offering a contractor and keep the record of whom work orders went to, switch them off instead."
     },
     "issueSavedReplies": {
       "title": "Saved replies",
@@ -3657,7 +3708,7 @@
       "messageHint": "Do not write personal identity numbers. Files cannot be attached here.",
       "send": "Send",
       "closedNotice": "This issue is closed and takes no more messages. If you have something new to report, make a new report on the association's website.",
-      "private": "The link is personal, so do not share it. It stops working 30 days after the issue is closed or one year after the latest message in it, whichever comes first; until a message is written, the year counts from when the link was mailed.",
+      "private": "The link is personal, so do not share it. It stops working 30 days after the issue is closed or one year after the latest message in it, whichever comes first; until a message is written, the year counts from the day the link was issued.",
       "notFoundTitle": "This link opens no issue",
       "notFoundBody": "The link may have expired or been withdrawn. Contact the association through its website if you need help with your issue.",
       "notice": {
@@ -3928,12 +3979,82 @@
         "note": "Removed an internal note",
         "photo": "Removed a photograph",
         "attachment": "Removed a file",
+        "workOrder": "Removed the text of a work order",
         "unknown": "Removed text or a file"
       },
       "legalHoldPlaced": "Placed a legal hold",
       "legalHoldReleased": "Released the legal hold",
       "costResponsibility": "Who pays set to {{who}}",
-      "costResponsibilityRemoved": "Who pays was removed"
+      "costResponsibilityRemoved": "Who pays was removed",
+      "workOrder": {
+        "written": "A work order was written for a contractor",
+        "pending": "A work order is on its way to a contractor",
+        "sent": "A work order was sent to a contractor",
+        "failed": "A work order to a contractor was not sent",
+        "unconfirmed": "A work order to a contractor may not have gone out; nobody knows"
+      }
+    },
+    "workOrders": {
+      "open": "Work orders for {{type}}",
+      "loading": "Loading the work orders...",
+      "readFailed": "The work orders or the contractors could not be read just now. Close this and open it again.",
+      "none": "No work order has been written about this issue.",
+      "logTitle": "Work orders",
+      "sentBy": "sent by",
+      "contents": "What it said",
+      "pending": "On its way to the mail server.",
+      "delivered": "Accepted by the mail server.",
+      "failed": "Not sent.",
+      "failure": {
+        "mailNotConfigured": "Not sent: this instance has no mail server set up.",
+        "sendFailed": "Unconfirmed: the mail server returned an error, and nobody knows whether it went out. Ask the contractor before sending it again.",
+        "sendingInterrupted": "Not sent: the sending stopped before it began. Write it again to send it.",
+        "deliveryUnconfirmed": "Unconfirmed: the sending stopped, and nobody knows whether it went out. Ask the contractor before sending it again.",
+        "recipientRemoved": "Not sent: the contractor was removed from the list before it went out.",
+        "recipientUnreadable": "Not sent: the contractor's address could not be read, so nothing was mailed. Write the work order again once the board has checked the contractor's entry.",
+        "textErased": "Not sent: the text of the work order was erased before it went out.",
+        "ringFenced": "Not sent: the board ring-fenced the issue type from contractors before it went out."
+      },
+      "ringFenced": "Nothing about an issue of this type may reach a contractor, so no work order is offered.",
+      "closed": "The issue is closed, so no work order is offered. Reopen it to write one.",
+      "noContractors": "There are no contractors on the list. The board adds them in the settings, under Issues and bookings.",
+      "write": "New work order",
+      "writeHint": "Write what the contractor is to do, and where. The work order is mailed as you write it, and nothing else from the issue goes with it: not the report, not who made it, not the photographs.",
+      "protectedReporter": "The reporter has protected personal data. Do not write their name or apartment in the work order; arrange access through the board.",
+      "contractor": "Contractor",
+      "contractorNamed": "{{type}}: contractor",
+      "chooseContractor": "Choose a contractor",
+      "contractorOption": "{{name}} ({{trade}})",
+      "contractorWithoutEmail": "{{name}} ({{trade}}), no address on the list",
+      "phone": "Telephone:",
+      "body": "Work order",
+      "bodyNamed": "{{type}}: work order",
+      "preview": "Preview",
+      "previewing": "Preparing the preview...",
+      "previewTitle": "The mail as the contractor will receive it",
+      "to": "To",
+      "subject": "Subject",
+      "previewHint": "Read it through. Sending records on the issue whom it went to, when and what it said, for every handler of the issue to read.",
+      "mailNotConfigured": "This instance has no mail server set up, so the work order would be recorded but not sent.",
+      "send": "Send to {{name}}",
+      "sending": "Sending...",
+      "edit": "Change it",
+      "sent": "The work order to {{name}} is recorded. The log below says whether the mail went out.",
+      "errors": {
+        "issueNotFound": "That issue is gone, or no longer yours to handle.",
+        "contractorNotFound": "That contractor is no longer on the list. The list has been read again.",
+        "contractorWithoutEmail": "The list holds no address for that contractor. The board adds one in the settings.",
+        "ringFenced": "Nothing about an issue of this type may reach a contractor.",
+        "identityNumber": "The work order contains a personal identity number. Write it without one.",
+        "empty": "The work order is empty.",
+        "unknown": "The work order could not be prepared or sent just now. Please try again.",
+        "previewStale": "The contractor's details or the text changed since the preview. Preview it again before sending.",
+        "issueClosed": "This issue is closed. Reopen it before writing a work order.",
+        "duplicate": "This work order was sent to this contractor a short while ago. Check the record above before sending it again.",
+        "budgetSpent": "You have sent as many work orders as one person may in an hour. Try again later."
+      },
+      "recipientRemoved": "A contractor since removed from the list",
+      "bodyErased": "The text was erased when the issue's retention period ran out."
     },
     "open": {
       "__after__": "timeline",
@@ -4096,7 +4217,7 @@
       "purgedOn": "Free text removed on <data>{{date}}</data>",
       "freeTextRemoved": "The free text, the conversation and the photographs were removed on <data>{{date}}</data>. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, remain.",
       "title": "Free text and legal hold",
-      "intro": "Unless a legal hold stands on the issue itself, a handler can remove the description, the location, a message, an internal note, a photograph or a file at any time, for instance when a person named in it has been granted erasure. What is removed is gone: nothing keeps the text, and nothing is written in its place.",
+      "intro": "Unless a legal hold stands on the issue itself, a handler can remove the description, the location, a message, an internal note, a photograph, a file or the text of a work order at any time, for instance when a person named in it has been granted erasure. What is removed is gone: nothing keeps the text, and nothing is written in its place.",
       "remove": "Remove",
       "removeDescription": "{{type}}: remove the description",
       "removeLocation": "{{type}}: remove the location",
@@ -4104,6 +4225,8 @@
       "removeNote": "Remove the internal note of {{at}}",
       "removePhoto": "Remove the photograph {{name}}",
       "removeAttachment": "Remove the file {{name}}",
+      "removeWorkOrder": "Remove the text of the work order of {{at}}",
+      "removeWorkOrderTo": "Remove the text of the work order to {{name}} of {{at}}",
       "description": "Description",
       "location": "Location",
       "photos": "The reporter's photographs",
@@ -6513,9 +6636,9 @@
         },
         "issues": {
           "name": "Issue reports",
-          "purpose": "Receiving and dealing with problems in the building, and telling whoever handles an issue, and whoever reported it, by email. The emails carry the issue number, the issue type and a link, and the emails to whoever handles an issue the priority too; never what anybody wrote.",
+          "purpose": "Receiving and dealing with problems in the building, including the work orders handlers send to contractors, and telling whoever handles an issue, and whoever reported it, by email. The emails about an issue carry the issue number, the issue type and a link, and those to whoever handles it the priority too, never what anybody wrote. A work order's email carries the text a handler wrote for the contractor and nothing else from the issue.",
           "legalBasisNote": "Legitimate interest: managing the property. A reporter may volunteer data about health (art. 9).",
-          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands, or earlier on the reporter's granted erasure request, and the link to the reporter is detached, once that text is gone, when the reporter's own personal data is purged. A public-form report's contact details are purged 365 days after it is closed."
+          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, when a claim about the work becomes time-barred (preskriptionslagen 2 §); when it was sent is kept, and whom it went to is kept while the contractor stays on the list. Removing a contractor from the list erases the name and email address on their work orders."
         },
         "documents": {
           "name": "Document archive",
@@ -6640,6 +6763,7 @@
           "replies": "Replies go out through {{host}}.",
           "noMailbox": "No mailbox is configured.",
           "economicManager": "The association's economic manager, or whoever else keeps its books, who is handed the basis for them.",
+          "contractors": "The contractors the association hires to work on the building, each sent a work order about an issue: what the handler wrote, never the report or who made it. Each work order records whom it went to and when, until the contractor is removed from the list, which erases their name and email address from it.",
           "lantmateriet": "Lantmäteriet (the cooperative housing register, bostadsrättsregistret), to which the board hands the initial supply of the register's data under Lag (2026:485) 3 § and to which the association reports register events under Lag (2026:484) 3 kap.",
           "lantmaterietReports": "Lantmäteriet (the cooperative housing register, bostadsrättsregistret), to which the association reports register events under Lag (2026:484) 3 kap."
         },

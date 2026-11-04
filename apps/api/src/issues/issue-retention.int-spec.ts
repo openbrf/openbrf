@@ -2,6 +2,7 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
+import { Logger } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
@@ -10,6 +11,7 @@ import { AuthService } from "../auth/auth.service";
 import { ENV } from "../config/config.module";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { MediaService } from "../media/media.service";
 import { pngBytes } from "../media/testing/image-fixtures";
 import { erasureRemainder } from "../retention/erasure-domains";
@@ -23,9 +25,14 @@ import {
 } from "../testing/issue-fixtures";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
 import { IssueErasureService } from "./issue-erasure.service";
+import {
+  IssueFreeTextService,
+  type FreeTextRemoval,
+} from "./issue-free-text.service";
 import { IssueRedactionService } from "./issue-redaction.service";
 import { IssueTextPurgeService } from "./issue-text-purge.service";
 import { IssueService } from "./issue.service";
+import { WorkOrderMailerService } from "./work-order-mailer.service";
 
 /**
  * An issue's two layers (ADR 0057, decision 33), against a real database.
@@ -39,7 +46,8 @@ import { IssueService } from "./issue.service";
  * request removes the free text of the issues the person reported on the date
  * the board granted, keeps an open or held one and says so, and the person
  * purge detaches the reporter only from an issue whose text is gone, so a
- * request granted after the person's own window still finds the issue.
+ * request granted after the person's own window still finds the issue. A
+ * handler redacts a work order's text the same way, and the work order stays.
  */
 
 const baseEnv = loadEnvForIntegrationTests();
@@ -50,6 +58,7 @@ let encryption: FieldEncryptionService;
 let media: MediaService;
 let storage: StorageService;
 let clock: IssueTextPurgeService;
+let freeText: IssueFreeTextService;
 let erasure: IssueErasureService;
 let personPurge: PurgeService;
 let redaction: IssueRedactionService;
@@ -72,11 +81,16 @@ const heldReporterId = `ir-held-${suffix}`;
 const formerIds = [1, 2, 3, 4, 5].map(
   (n) => `ir-former-${String(n)}-${suffix}`,
 );
+/** Reporters whose erasure was carried out, one of them held since. */
+const erasedReporterId = `ir-erased-${suffix}`;
+const erasedHeldReporterId = `ir-erased-held-${suffix}`;
 const personIds = [
   board.personId,
   resident.personId,
   heldReporterId,
   ...formerIds,
+  erasedReporterId,
+  erasedHeldReporterId,
 ];
 
 const addressId = `ir-address-${suffix}`;
@@ -141,6 +155,69 @@ const DESCRIPTION = `Fuktflack i badrummet hos grannen ${suffix}`;
 const LOCATION = `Badrummet i 0101 ${suffix}`;
 const MESSAGE = `Vi kommer på tisdag ${suffix}`;
 const NOTE = `Grannen har hund ${suffix}`;
+const WORK_ORDER_TEXT = `Byt packningen hos grannen i 0101 ${suffix}`;
+
+/** A work order on an issue, as the sending leaves one. */
+async function createWorkOrder(
+  issueId: string,
+  input: {
+    body?: string | null;
+    deliveryStatus?: "PENDING" | "SENT";
+  } = {},
+): Promise<string> {
+  const order = await prisma.workOrder.create({
+    data: {
+      issueId,
+      recipientName: `Rormokare ${suffix}`,
+      recipientEmailCipher: "kept-as-it-was",
+      body: input.body === undefined ? WORK_ORDER_TEXT : input.body,
+      sentByPersonId: board.personId,
+      deliveryStatus: input.deliveryStatus ?? "SENT",
+    },
+    select: { id: true },
+  });
+  return order.id;
+}
+
+async function readWorkOrder(id: string) {
+  return prisma.workOrder.findUniqueOrThrow({
+    where: { id },
+    select: {
+      body: true,
+      redactedAt: true,
+      recipientName: true,
+      recipientEmailCipher: true,
+      deliveryStatus: true,
+      deliveryFailure: true,
+      createdAt: true,
+    },
+  });
+}
+
+/**
+ * A closed issue whose free-text layer is already gone and on which only a
+ * work order's text stands, reported by `reporterPersonId`.
+ */
+async function seedWithOnlyWorkOrderText(
+  reporterPersonId: string,
+): Promise<{ id: string; workOrderId: string }> {
+  const issue = await prisma.issue.create({
+    data: {
+      typeId,
+      statusId: type.statusIds.DONE,
+      outcome: "FIXED",
+      priority: "NORMAL",
+      reporterPersonId,
+      apartmentId,
+      location: null,
+      description: "",
+      closedAt: new Date(Date.now() - 400 * DAY),
+      freeTextRemovedAt: new Date(Date.now() - 30 * DAY),
+    },
+    select: { id: true },
+  });
+  return { id: issue.id, workOrderId: await createWorkOrder(issue.id) };
+}
 
 interface SeededIssue {
   id: string;
@@ -316,6 +393,7 @@ beforeAll(async () => {
   media = app.get(MediaService);
   storage = app.get(StorageService);
   clock = app.get(IssueTextPurgeService);
+  freeText = app.get(IssueFreeTextService);
   erasure = app.get(IssueErasureService);
   personPurge = app.get(PurgeService);
   redaction = app.get(IssueRedactionService);
@@ -392,6 +470,16 @@ beforeAll(async () => {
   await prisma.person.create({
     data: { id: heldReporterId, firstName: "Hedda", lastName: "Hallen" },
   });
+  for (const id of [erasedReporterId, erasedHeldReporterId]) {
+    await prisma.person.create({
+      data: { id, firstName: "Erik", lastName: "Raderad" },
+    });
+    const request = await grantErasure(prisma, id, board.personId);
+    await prisma.dataSubjectRequest.update({
+      where: { id: request.id },
+      data: { executedAt: new Date() },
+    });
+  }
   await prisma.legalHold.create({
     data: {
       personId: heldReporterId,
@@ -681,6 +769,155 @@ describe("the clock", () => {
     expect(await clock.eligible(new Date(), 1)).not.toContain(issue.id);
     expect(await clock.purgeIssue(issue.id, new Date(), 1)).toBe("kept");
     expect((await read(issue.id)).description).toBe(DESCRIPTION);
+  });
+});
+
+describe("a free-text removal that is refused after files went", () => {
+  /**
+   * A removal whose `stillDue` answers from a script, one answer for each ask:
+   * once for each file and once more in the closing transaction. An ask past
+   * the script's end answers yes.
+   */
+  function scripted(
+    answers: boolean[],
+    inTransaction?: (tx: Prisma.TransactionClient) => Promise<void>,
+  ): FreeTextRemoval {
+    let asked = 0;
+    return {
+      targetPersonId: null,
+      context: { test: true },
+      stillDue: async (tx) => {
+        const answer = answers[asked] ?? true;
+        asked += 1;
+        if (asked === answers.length && inTransaction !== undefined) {
+          await inTransaction(tx);
+        }
+        return answer;
+      },
+    };
+  }
+
+  /** The lines this run logged about one issue's partial removal. */
+  async function partialLines(
+    issueId: string,
+    removal: FreeTextRemoval,
+  ): Promise<{ outcome: string; lines: string[] }> {
+    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => {});
+    try {
+      const outcome = await freeText.remove(issueId, new Date(), removal);
+      const lines = log.mock.calls
+        .map(([message]) => String(message))
+        .filter((message) => message.includes(`Issue ${issueId} kept`));
+      return { outcome, lines };
+    } finally {
+      log.mockRestore();
+    }
+  }
+
+  /** An issue with a description and no files at all. */
+  async function seedWithoutFiles(): Promise<string> {
+    const issue = await prisma.issue.create({
+      data: {
+        typeId,
+        statusId: type.statusIds.DONE,
+        outcome: "FIXED",
+        priority: "NORMAL",
+        reporterPersonId: resident.personId,
+        apartmentId,
+        description: DESCRIPTION,
+        closedAt: new Date(Date.now() - 3 * 365 * DAY),
+        createdAt: new Date("2021-03-01T08:00:00Z"),
+      },
+      select: { id: true },
+    });
+    return issue.id;
+  }
+
+  it("logs once, with the count, when the second file is refused", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 3 * 365,
+    });
+
+    const { outcome, lines } = await partialLines(
+      issue.id,
+      scripted([true, false]),
+    );
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([
+      `Issue ${issue.id} kept its free text after 1 files were removed`,
+    ]);
+    // The first file stays taken, the second and the text stand.
+    const after = await read(issue.id);
+    expect(after._count.photos + after._count.attachments).toBe(1);
+    expect(after.description).toBe(DESCRIPTION);
+  });
+
+  it("logs nothing when the first file is refused", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 3 * 365,
+    });
+
+    const { outcome, lines } = await partialLines(issue.id, scripted([false]));
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([]);
+    const after = await read(issue.id);
+    expect(after._count.photos + after._count.attachments).toBe(2);
+  });
+
+  it("logs nothing when an issue with no files is refused", async () => {
+    const issueId = await seedWithoutFiles();
+
+    const { outcome, lines } = await partialLines(issueId, scripted([false]));
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([]);
+    expect((await read(issueId)).description).toBe(DESCRIPTION);
+  });
+
+  it("logs once when the closing transaction refuses after the files went", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 3 * 365,
+    });
+
+    const { outcome, lines } = await partialLines(
+      issue.id,
+      scripted([true, true, false]),
+    );
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([
+      `Issue ${issue.id} kept its free text after 2 files were removed`,
+    ]);
+    const after = await read(issue.id);
+    expect(after._count.photos + after._count.attachments).toBe(0);
+    // The messages and notes go only after the closing check passes.
+    expect(after._count).toMatchObject({ messages: 1, notes: 1 });
+    expect(after.description).toBe(DESCRIPTION);
+    expect(after.freeTextRemovedAt).toBeNull();
+  });
+
+  it("logs once when the issue is gone by the closing transaction", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 3 * 365,
+    });
+
+    const { outcome, lines } = await partialLines(
+      issue.id,
+      scripted([true, true, true], async (tx) => {
+        await tx.issue.delete({ where: { id: issue.id } });
+      }),
+    );
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([
+      `Issue ${issue.id} kept its free text after 2 files were removed`,
+    ]);
   });
 });
 
@@ -1032,6 +1269,208 @@ describe("redaction", () => {
     expect(kept._count.photos).toBe(1);
     expect(await stored(issue.photo.storageKey)).toBe(true);
     expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
+  });
+});
+
+describe("redaction of a work order's text", () => {
+  const redact = (issueId: string, workOrderId: string) =>
+    inject({
+      method: "POST",
+      url: `/api/issue-queue/${issueId}/redactions`,
+      headers: { cookie: boardCookie },
+      payload: { target: "workOrder", id: workOrderId },
+    });
+
+  it("erases the text with a mark, keeps the record of whom it went to, and records no word of it", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: null,
+    });
+    const workOrderId = await createWorkOrder(issue.id);
+    const before = await readWorkOrder(workOrderId);
+
+    expect((await redact(issue.id, workOrderId)).statusCode).toBe(204);
+
+    const after = await readWorkOrder(workOrderId);
+    expect(after.body).toBeNull();
+    expect(after.redactedAt).not.toBeNull();
+    // The record of the disclosure stays as it was.
+    expect(after).toMatchObject({
+      recipientName: before.recipientName,
+      recipientEmailCipher: before.recipientEmailCipher,
+      deliveryStatus: "SENT",
+      createdAt: before.createdAt,
+    });
+
+    // The handlers' record reads it as redacted.
+    const record = await inject({
+      method: "GET",
+      url: `/api/issue-queue/${issue.id}/work-orders`,
+      headers: { cookie: boardCookie },
+    });
+    expect(record.json()).toMatchObject({
+      workOrders: [
+        {
+          id: workOrderId,
+          body: null,
+          redactedAt: after.redactedAt?.toISOString(),
+        },
+      ],
+    });
+
+    const entries = await entriesFor(issue.id, "ISSUE_REDACTED");
+    expect(entries.map((entry) => entry.context)).toEqual([
+      { target: "workOrder", id: workOrderId },
+    ]);
+    expect(entries[0]?.actorPersonId).toBe(board.personId);
+    expect(JSON.stringify(entries)).not.toContain(WORK_ORDER_TEXT);
+
+    // Redacting again writes nothing more.
+    expect((await redact(issue.id, workOrderId)).statusCode).toBe(204);
+    expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(1);
+  });
+
+  it("is held by the database to a mark over an erased text only", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: null,
+    });
+    const standing = await createWorkOrder(issue.id);
+    const erased = await createWorkOrder(issue.id, { body: null });
+    const at = new Date();
+
+    // A mark over words still standing is refused, and so are words written
+    // back under a mark.
+    await expect(
+      prisma.$executeRaw`UPDATE "work_order" SET "redactedAt" = ${at} WHERE "id" = ${standing}`,
+    ).rejects.toThrow(/work_order_redacted_empty/);
+    await prisma.workOrder.update({
+      where: { id: erased },
+      data: { redactedAt: at },
+    });
+    await expect(
+      prisma.$executeRaw`UPDATE "work_order" SET "body" = ${WORK_ORDER_TEXT} WHERE "id" = ${erased}`,
+    ).rejects.toThrow(/work_order_redacted_empty/);
+
+    expect(await readWorkOrder(standing)).toMatchObject({
+      body: WORK_ORDER_TEXT,
+      redactedAt: null,
+    });
+    expect(await readWorkOrder(erased)).toMatchObject({
+      body: null,
+      redactedAt: at,
+    });
+  });
+
+  it("leaves a text the clock erased unmarked, and writes no entry", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: null,
+    });
+    const workOrderId = await createWorkOrder(issue.id, { body: null });
+
+    expect((await redact(issue.id, workOrderId)).statusCode).toBe(204);
+
+    expect((await readWorkOrder(workOrderId)).redactedAt).toBeNull();
+    expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
+  });
+
+  it("refuses a work order of another issue, and one under a legal hold on its issue", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: null,
+    });
+    const other = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: null,
+    });
+    const workOrderId = await createWorkOrder(other.id);
+
+    const elsewhere = await redact(issue.id, workOrderId);
+    expect(elsewhere.statusCode).toBe(404);
+    expect(elsewhere.json()).toMatchObject({
+      reason: "redaction-target-not-found",
+    });
+    expect((await readWorkOrder(workOrderId)).body).toBe(WORK_ORDER_TEXT);
+
+    await prisma.issue.update({
+      where: { id: other.id },
+      data: { legalHoldAt: new Date() },
+    });
+    const held = await redact(other.id, workOrderId);
+    expect(held.statusCode).toBe(409);
+    expect(held.json()).toMatchObject({ reason: "legal-hold" });
+
+    const kept = await readWorkOrder(workOrderId);
+    expect(kept.body).toBe(WORK_ORDER_TEXT);
+    expect(kept.redactedAt).toBeNull();
+    expect(await entriesFor(other.id, "ISSUE_REDACTED")).toHaveLength(0);
+  });
+
+  it("keeps a work order whose mail has not gone out from being sent, and records it as not sent", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: null,
+    });
+    const workOrderId = await createWorkOrder(issue.id, {
+      deliveryStatus: "PENDING",
+    });
+
+    expect((await redact(issue.id, workOrderId)).statusCode).toBe(204);
+    expect(await app.get(WorkOrderMailerService).send(workOrderId)).toBe(
+      "failed",
+    );
+
+    expect(await readWorkOrder(workOrderId)).toMatchObject({
+      body: null,
+      deliveryStatus: "FAILED",
+      deliveryFailure: "text-erased",
+    });
+  });
+
+  it("detaches a reporter whose erasure was carried out once the last text is gone, unless a hold keeps them", async () => {
+    const finished = await seedWithOnlyWorkOrderText(erasedReporterId);
+    const second = await createWorkOrder(finished.id);
+
+    // One text still stands after the first redaction: the reporter stays.
+    expect((await redact(finished.id, finished.workOrderId)).statusCode).toBe(
+      204,
+    );
+    expect((await read(finished.id)).reporterPersonId).toBe(erasedReporterId);
+
+    expect((await redact(finished.id, second)).statusCode).toBe(204);
+    expect((await read(finished.id)).reporterPersonId).toBeNull();
+    const entries = await entriesFor(finished.id, "ISSUE_REDACTED");
+    expect(entries.map((entry) => entry.context)).toEqual([
+      { target: "workOrder", id: finished.workOrderId },
+      { target: "workOrder", id: second, reporterDetached: true },
+    ]);
+
+    // A hold placed on the person since keeps the column, and the text still
+    // goes: a redaction answers only to a hold on the issue itself.
+    const held = await seedWithOnlyWorkOrderText(erasedHeldReporterId);
+    await prisma.legalHold.create({
+      data: {
+        personId: erasedHeldReporterId,
+        reason: "Tvist om arbetet",
+        placedByPersonId: board.personId,
+      },
+    });
+    expect((await redact(held.id, held.workOrderId)).statusCode).toBe(204);
+    expect((await readWorkOrder(held.workOrderId)).body).toBeNull();
+    expect((await read(held.id)).reporterPersonId).toBe(erasedHeldReporterId);
+  });
+
+  it("keeps the reporter of an issue whose free text still stands", async () => {
+    const issue = await seed({
+      reporterPersonId: erasedReporterId,
+      closedDaysAgo: 30,
+    });
+    const workOrderId = await createWorkOrder(issue.id);
+
+    expect((await redact(issue.id, workOrderId)).statusCode).toBe(204);
+
+    expect((await read(issue.id)).reporterPersonId).toBe(erasedReporterId);
   });
 });
 

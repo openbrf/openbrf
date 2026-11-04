@@ -57,9 +57,10 @@ import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
  *
  * ## No free text
  *
- * A mail carries the issue number, the type's name, the priority and a link,
- * and nothing anybody wrote (decision 21): see the templates. Nothing written
- * goes on the queue either. A job holds identifiers, the event and a date.
+ * A mail carries the issue number, the type's name and a link, and a mail to a
+ * handler the priority as well. It carries nothing anybody wrote
+ * (decision 21): see the templates. Nothing written goes on the queue either.
+ * A job holds identifiers, the event and a date.
  *
  * ## Stored, then told
  *
@@ -77,14 +78,14 @@ import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
  *
  * An issue handed to a person, away and back, or reopened twice, before the
  * first notice is delivered would pass that check twice. The notices of an
- * assignment and of a reopening are therefore throttled by person and issue by
- * {@link REPEATED_NOTICE_SECONDS}: the queue creates no second job for the same
- * event in the same slot. A slot is a clock hour, as the queue cuts time, and
- * not a window that opens with the first notice: a repeat just after the hour
- * turns is a notice of its own. The slot belongs to a notice that was sent or is
- * still to be: one the delivery skipped, because what it told of had stopped
- * being so, or that was given up on, gives it back, so a later assignment or
- * reopening of the same person is told of.
+ * assignment and of a reopening are therefore throttled to one per person and
+ * issue in each slot of {@link REPEATED_NOTICE_SECONDS}: the queue creates no
+ * second job for the same event in the same slot. A slot is a clock hour, as
+ * the queue cuts time, and not a window that opens with the first notice: a
+ * repeat just after the hour turns is a notice of its own. The slot belongs to
+ * a notice that was sent or is still to be: one the delivery skipped, because
+ * what it told of had stopped being so, or that was given up on, gives it
+ * back, so a later assignment or reopening of the same person is told of.
  *
  * One job holds a slot, and only that job may send while it does. A delivery
  * that finds nothing to send decides under the issue's lock, which every act
@@ -262,10 +263,14 @@ export interface IssueOverdueJob {
   [key: string]: unknown;
 }
 
-/** Who wrote an issue message, for the mail that says there is a new one. */
+/**
+ * Who wrote an issue message, and which stored message it is, for the mail
+ * that says there is a new one. The message is required: its notice names it,
+ * so a delivery that finds it erased by the free-text purge sends nothing.
+ */
 export type IssueMessageAuthor =
-  | { kind: "reporter"; messageId?: string }
-  | { kind: "handler"; personId: string; messageId?: string };
+  | { kind: "reporter"; messageId: string }
+  | { kind: "handler"; personId: string; messageId: string };
 
 /** What every decision here reads of an issue. */
 const ISSUE_SELECT = {
@@ -575,7 +580,7 @@ export class IssueMailer implements OnModuleInit {
         tx,
         issueId,
         await this.assigneeOrHandlers(tx, issue, "message", now),
-        issue.reporterPersonId,
+        reporter,
         author.messageId,
       );
     }
@@ -702,7 +707,7 @@ export class IssueMailer implements OnModuleInit {
    * Gives back the slot an assignment or reopening notice holds, because it
    * was not sent and will not be: the queue completes a job that sent nothing,
    * and its slot would keep the same person from being told for the rest of
-   * the hour. For a delivery without mail settings, and for one given up on
+   * the clock hour. For a delivery without mail settings, and for one given up on
    * after its retries.
    *
    * The slot of this job alone, by the id it carries: another job of the same
@@ -829,19 +834,34 @@ export class IssueMailer implements OnModuleInit {
     return found !== null;
   }
 
-  /** One look at a delivery: sends the mail when it is owed. */
-  private async send(job: IssueNoticeJob, now: Date): Promise<Delivery> {
+  /**
+   * One look at whether a notice is still owed, by the time it is asked:
+   * reads the issue, asks whether the notice still holds and its message
+   * stands, and finds the person it goes to. `null` when the notice is not
+   * owed, with the person `null` when it is but nobody is left to receive it.
+   */
+  private async lookUp(
+    job: IssueNoticeJob,
+    at: Date,
+  ): Promise<{
+    issue: NoticeIssue;
+    recipient: {
+      firstName: string;
+      lastName: string;
+      emailCipher: string | null;
+      preferredLocale: string | null;
+    } | null;
+  } | null> {
     const issue = await this.readIssue(this.prisma, job.issueId);
     if (
       issue === null ||
-      !stillSo(issue, job, now) ||
+      !stillSo(issue, job, at) ||
       !(await this.messageStands(job))
     ) {
-      return "notOwed";
+      return null;
     }
-
     const recipient = await this.prisma.person.findFirst({
-      where: recipientWhereOf(issue, job, now),
+      where: recipientWhereOf(issue, job, at),
       select: {
         firstName: true,
         lastName: true,
@@ -849,6 +869,16 @@ export class IssueMailer implements OnModuleInit {
         preferredLocale: true,
       },
     });
+    return { issue, recipient };
+  }
+
+  /** One look at a delivery: sends the mail when it is owed. */
+  private async send(job: IssueNoticeJob, now: Date): Promise<Delivery> {
+    const found = await this.lookUp(job, now);
+    if (found === null) {
+      return "notOwed";
+    }
+    const recipient = found.recipient;
     const cipher = recipient?.emailCipher;
     if (recipient === null || cipher == null) {
       this.logger.log(
@@ -866,31 +896,20 @@ export class IssueMailer implements OnModuleInit {
     // here, because it would stay held across the mail service's rendering,
     // sender lookup and the driver's network call. A restriction, board-only
     // change or ended seat committed in that last stretch is not seen, and a
-    // mail with the number, type and priority and no free text can still go
-    // out. That is the accepted residual window; closing it would need the
-    // mail to be handed over inside a transaction that holds the lock.
+    // mail with the number and type (and the priority, to a handler) and no
+    // free text can still go out. That is the accepted residual window;
+    // closing it would need the mail to be handed over inside a transaction
+    // that holds the lock.
     const handoffAt = new Date(Math.max(now.getTime(), Date.now()));
-    const current = await this.readIssue(this.prisma, job.issueId);
-    const stillRecipient =
-      current !== null &&
-      stillSo(current, job, handoffAt) &&
-      (await this.messageStands(job))
-        ? await this.prisma.person.findFirst({
-            where: recipientWhereOf(current, job, handoffAt),
-            select: { emailCipher: true },
-          })
-        : null;
+    const again = await this.lookUp(job, handoffAt);
     // An address changed while it was decrypted is not the one decrypted.
-    if (
-      current === null ||
-      stillRecipient === null ||
-      stillRecipient.emailCipher !== cipher
-    ) {
+    if (again?.recipient?.emailCipher !== cipher) {
       this.logger.log(
         `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
       );
       return "notOwed";
     }
+    const current = again.issue;
     const recipientName = `${recipient.firstName} ${recipient.lastName}`.trim();
     try {
       if (job.event === "reporterMessage") {
