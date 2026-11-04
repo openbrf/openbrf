@@ -43,8 +43,8 @@ number.
   to the mail service. An address changed in the meantime is not mailed either.
   This narrows the window and does not close it: no lock is held while the mail
   service renders and sends, so a restriction or a board-only change committed
-  in that last moment can still be followed by one mail with the number, type
-  and priority and no free text.
+  in that last moment can still be followed by one mail with the number and type
+  (and the priority, to a handler) and no free text.
 - **No free text.** A mail gives the issue number, the type and a link to the
   issue queue. A mail to a handler also gives the priority. A mail to a reporter
   greets them by their own name. Apart from that, a mail never includes what
