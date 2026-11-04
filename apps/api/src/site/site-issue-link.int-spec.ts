@@ -945,6 +945,8 @@ describe("D. rate limits and abuse", () => {
 
   it("D4: a link that has written all it may is told so, and not to try later", async () => {
     const { issueId, token } = await reported();
+    // An hour's worth of them in the last hour too, so the link is past both
+    // limits and the answer shows which one is asked first.
     await prisma.issueMessage.createMany({
       data: Array.from(
         { length: REPORTER_LINK_MESSAGES_PER_ISSUE },
@@ -953,7 +955,12 @@ describe("D. rate limits and abuse", () => {
           side: "REPORTER" as const,
           authorPersonId: null,
           body: `Meddelande ${String(n)}`,
-          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+          createdAt: new Date(
+            Date.now() -
+              (n < REPORTER_LINK_MESSAGES_PER_HOUR
+                ? 10 * 60 * 1000
+                : 2 * 60 * 60 * 1000),
+          ),
         }),
       ),
     });
@@ -1220,6 +1227,97 @@ describe("D. rate limits and abuse", () => {
     const before = sent.length;
     expect(await links.deliver(blocked)).toBe(true);
     expect(sent.length).toBe(before + 1);
+  });
+
+  it("D6: a retry that will not mail gives back the slot the earlier attempt took", async () => {
+    // A report whose first mail failed, so its link is issued and unmailed.
+    const failedOnce = async (email: string) => {
+      const { id } = await issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Första försöket misslyckades",
+        reporterName: null,
+        reporterEmail: email,
+      });
+      vi.spyOn(mail, "send").mockRejectedValueOnce(
+        new Error("connection reset"),
+      );
+      await expect(links.deliver(id)).rejects.toThrow("connection reset");
+      expect(
+        await prisma.issueReporterLink.count({
+          where: { issueId: id, mailedAt: null },
+        }),
+      ).toBe(1);
+      return id;
+    };
+    const before = sent.length;
+
+    // Closed before the retry.
+    const closed = await failedOnce(`rl-retry-closed-${suffix}@exempel.se`);
+    await prisma.issue.update({
+      where: { id: closed },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(),
+      },
+    });
+    expect(await links.deliver(closed)).toBe(false);
+    expect(
+      await prisma.issueReporterLink.count({ where: { issueId: closed } }),
+    ).toBe(0);
+
+    // Restricted before the retry.
+    const restrictedEmail = `rl-retry-restricted-${suffix}@exempel.se`;
+    const sealed = await encryption.encrypt("person.email", restrictedEmail);
+    const personId = `rl-retry-restricted-${suffix}`;
+    await prisma.person.create({
+      data: {
+        id: personId,
+        firstName: "Rut",
+        lastName: `Omförsök${suffix}`,
+        emailCipher: sealed.cipher,
+        emailIndex: sealed.index,
+      },
+    });
+    try {
+      const restricted = await failedOnce(restrictedEmail);
+      await prisma.person.update({
+        where: { id: personId },
+        data: { processingRestrictedAt: new Date() },
+      });
+      expect(await links.deliver(restricted)).toBe(false);
+      expect(
+        await prisma.issueReporterLink.count({
+          where: { issueId: restricted },
+        }),
+      ).toBe(0);
+    } finally {
+      await prisma.person.update({
+        where: { id: personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+
+    // The address's three a day spent before the retry: the failed link was
+    // issued more than a day ago, so the three after it went.
+    const fullEmail = `rl-retry-full-${suffix}@exempel.se`;
+    const full = await failedOnce(fullEmail);
+    await prisma.$executeRaw`
+      UPDATE "issue_reporter_link" SET "issuedAt" = now() - interval '25 hours'
+      WHERE "issueId" = ${full}`;
+    for (let n = 0; n < REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY; n += 1) {
+      await reported({ email: fullEmail });
+    }
+    const beforeRetry = sent.length;
+    expect(await links.deliver(full)).toBe(false);
+    expect(sent.length).toBe(beforeRetry);
+    expect(
+      await prisma.issueReporterLink.count({ where: { issueId: full } }),
+    ).toBe(0);
+
+    // Nothing went to the closed or the restricted report.
+    expect(sent.length).toBe(before + REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY);
   });
 
   it("B1: a retried mail runs the link's year from the mail that went", async () => {
