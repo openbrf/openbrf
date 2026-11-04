@@ -22,11 +22,14 @@ number.
   when the issue is not done. A new target date that passes gives a new
   reminder. A date set again, or moved away from and back to, does not. An issue
   given to somebody after its date has passed gives them the reminder then. A
-  reminder that could not be sent, because the issue was given to somebody else
-  or the mail could not go out, does not count as sent; the date is owed again.
-  A reminder skipped because the assignee was restricted or had no email
-  address at that moment is not sent later, unless the issue is assigned again,
-  opened again or given a new target date.
+  reminder that was not sent does not count as sent. One not sent because the
+  issue had been given to somebody else goes to them instead, and one not sent
+  because the assignee's email address changed as it went out goes to the new
+  address. One not sent because the instance has no mail settings, or because
+  the mail server refused it on every retry, is sent only after the issue is
+  assigned again, opened again or given a new target date. So is a reminder
+  skipped because the assignee was restricted or had no email address at that
+  moment: it is not sent later otherwise.
 - **Reopened.** A done issue that is opened again is mailed to its assignee, or
   to everybody who handles it when it has no assignee. Reopened twice within the
   same clock hour mails once, unless the first mail was not sent because the issue was

@@ -606,44 +606,82 @@ describe("a report is filed", () => {
   });
 
   it("mails nobody about an ordinary report from the website's form once the hour's bound is reached, and still mails an Akut one", async () => {
-    const since = new Date(Date.now() - HOUR_MS);
-    const already = await prisma.issue.count({
+    // The bound is one count for every report from the form, so the test owns
+    // the hour rather than counting what is in it: the form's reports already
+    // there, ordinary and Akut, are moved out for the length of the test and
+    // put back after it, and its own are moved out once it is done, so no
+    // later test finds the bound spent. Each worker has a database of its own
+    // and runs one file at a time, so no other suite files a report meanwhile.
+    const others = await prisma.issue.findMany({
       where: {
         reporterPersonId: null,
         enteredByHandler: false,
-        priority: { not: "URGENT" },
-        createdAt: { gte: since },
+        createdAt: { gte: new Date(Date.now() - HOUR_MS) },
       },
+      select: { id: true, createdAt: true },
     });
-    const flood = Math.max(0, NOTIFIED_PUBLIC_REPORTS_PER_HOUR - already);
-    for (let index = 0; index < flood; index += 1) {
-      await prisma.issue.create({
-        data: {
-          id: `im-flood-${String(index)}-${suffix}`,
-          typeId: unassignedType.id,
-          statusId: unassignedType.statusIds.NEW,
-          description: "Skräp",
-        },
-      });
-    }
-    // Through the service the website's form calls, which takes the report
-    // whether or not it may mail.
-    await mailer.ensureQueues();
+    const filed: string[] = [];
     const previous = await prisma.association.findUnique({
       where: { id: 1 },
       select: { issueReportingPublic: true },
     });
-    await prisma.association.upsert({
-      where: { id: 1 },
-      create: { id: 1, name: "Brf Eksemplet", issueReportingPublic: true },
-      update: { issueReportingPublic: true },
-    });
-    let publicIssueId: string;
     try {
-      ({ id: publicIssueId } = await issues.reportPublicly({
+      await outOfTheHour(others.map((other) => other.id));
+      for (
+        let index = 0;
+        index < NOTIFIED_PUBLIC_REPORTS_PER_HOUR;
+        index += 1
+      ) {
+        const flood = await prisma.issue.create({
+          data: {
+            id: `im-flood-${String(index)}-${suffix}`,
+            typeId: unassignedType.id,
+            statusId: unassignedType.statusIds.NEW,
+            description: "Skräp",
+          },
+          select: { id: true },
+        });
+        filed.push(flood.id);
+      }
+      // Through the service the website's form calls, which takes the report
+      // whether or not it may mail.
+      await mailer.ensureQueues();
+      await prisma.association.upsert({
+        where: { id: 1 },
+        create: { id: 1, name: "Brf Eksemplet", issueReportingPublic: true },
+        update: { issueReportingPublic: true },
+      });
+      const { id: publicIssueId } = await issues.reportPublicly({
         typeId: publicType.id,
         description: REPORTER_DESCRIPTION,
-      }));
+      });
+      filed.push(publicIssueId);
+
+      expect(
+        await prisma.issue.findUnique({
+          where: { id: publicIssueId },
+          select: { id: true },
+        }),
+      ).toEqual({ id: publicIssueId });
+      expect(await notices(publicIssueId)).toEqual([]);
+
+      // Ordinary reports do not spend Akut's budget (decision 12).
+      const urgentIssue = await prisma.issue.create({
+        data: {
+          typeId: urgentType.id,
+          statusId: urgentType.statusIds.NEW,
+          priority: "URGENT",
+          description: REPORTER_DESCRIPTION,
+        },
+        select: { id: true },
+      });
+      filed.push(urgentIssue.id);
+      await prisma.$transaction((tx) =>
+        mailer.filedInTransaction(tx, urgentIssue.id),
+      );
+      const told = recipientsOf(await notices(urgentIssue.id));
+      expect(told.get(admin.personId)).toBe("urgent");
+      expect(told.get(manager.personId)).toBe("urgent");
     } finally {
       if (previous === null) {
         await prisma.association.deleteMany({ where: { id: 1 } });
@@ -653,32 +691,14 @@ describe("a report is filed", () => {
           data: { issueReportingPublic: previous.issueReportingPublic },
         });
       }
+      await outOfTheHour(filed);
+      for (const other of others) {
+        await prisma.issue.updateMany({
+          where: { id: other.id },
+          data: { createdAt: other.createdAt },
+        });
+      }
     }
-
-    expect(
-      await prisma.issue.findUnique({
-        where: { id: publicIssueId },
-        select: { id: true },
-      }),
-    ).toEqual({ id: publicIssueId });
-    expect(await notices(publicIssueId)).toEqual([]);
-
-    // Ordinary reports do not spend Akut's budget (decision 12).
-    const urgentIssue = await prisma.issue.create({
-      data: {
-        typeId: urgentType.id,
-        statusId: urgentType.statusIds.NEW,
-        priority: "URGENT",
-        description: REPORTER_DESCRIPTION,
-      },
-      select: { id: true },
-    });
-    await prisma.$transaction((tx) =>
-      mailer.filedInTransaction(tx, urgentIssue.id),
-    );
-    const told = recipientsOf(await notices(urgentIssue.id));
-    expect(told.get(admin.personId)).toBe("urgent");
-    expect(told.get(manager.personId)).toBe("urgent");
   });
 
   it("tells an assignee who became a recipient after the first look that the issue is urgent", async () => {
@@ -1633,12 +1653,106 @@ describe("an overdue reminder that is never sent", () => {
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore);
   });
 
-  it("gives the date back when the delivery is given up on after its retries", async () => {
+  it("gives the date back, and reminds the same assignee at their new address, when it changed while it was decrypted", async () => {
+    const { issueId, targetDate, notice } = await remindedIssue();
+    const sent = captureSends();
+    const encryption = app.get(FieldEncryptionService);
+    const decrypt = encryption.decrypt.bind(encryption);
+    const before = await prisma.person.findUniqueOrThrow({
+      where: { id: manager.personId },
+      select: { emailCipher: true },
+    });
+    const moved = `moved-${randomUUID()}@example.test`;
+    const spy = vi
+      .spyOn(encryption, "decrypt")
+      .mockImplementationOnce(async (...args) => {
+        const plain = await decrypt(...args);
+        // The address is changed after the first read found it.
+        await prisma.person.update({
+          where: { id: manager.personId },
+          data: {
+            emailCipher: (await encryption.encrypt("person.email", moved))
+              .cipher,
+          },
+        });
+        return plain;
+      });
+    try {
+      const queuedBefore = (await overdueJobs(issueId)).length;
+
+      expect(await mailer.deliver(notice)).toBe(false);
+
+      expect(sent).toEqual([]);
+      expect(await claimed(issueId)).toEqual([]);
+      expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
+      expect(await mailer.remindOverdue({ issueId, targetDate })).toBe(true);
+      const again = await lastNotice(issueId);
+      expect(again).toEqual({
+        issueId,
+        personId: manager.personId,
+        event: "overdue",
+        targetDate,
+      });
+      expect(await mailer.deliver(again)).toBe(true);
+      expect(sent.map((input) => input.to)).toEqual([moved]);
+      expect(await claimed(issueId)).toEqual([targetDate]);
+    } finally {
+      spy.mockRestore();
+      await prisma.person.update({
+        where: { id: manager.personId },
+        data: { emailCipher: before.emailCipher },
+      });
+    }
+  });
+
+  it("gives the date back, and claims nothing again while the same assignee is still restricted, when they were restricted while it was decrypted", async () => {
+    const { issueId, targetDate, notice } = await remindedIssue();
+    const sent = captureSends();
+    const encryption = app.get(FieldEncryptionService);
+    const decrypt = encryption.decrypt.bind(encryption);
+    const spy = vi
+      .spyOn(encryption, "decrypt")
+      .mockImplementationOnce(async (...args) => {
+        const plain = await decrypt(...args);
+        // The restriction is granted after the first read found them in reach.
+        await prisma.person.update({
+          where: { id: manager.personId },
+          data: { processingRestrictedAt: new Date() },
+        });
+        return plain;
+      });
+    try {
+      const queuedBefore = (await overdueJobs(issueId)).length;
+
+      expect(await mailer.deliver(notice)).toBe(false);
+
+      expect(sent).toEqual([]);
+      expect(await claimed(issueId)).toEqual([]);
+      expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
+      // Still restricted when the job queued again runs: nothing is claimed,
+      // and nothing more is queued.
+      const noticesBefore = (await notices(issueId)).length;
+      expect(await mailer.remindOverdue({ issueId, targetDate })).toBe(false);
+      expect(await claimed(issueId)).toEqual([]);
+      expect(await notices(issueId)).toHaveLength(noticesBefore);
+      expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
+    } finally {
+      spy.mockRestore();
+      await prisma.person.update({
+        where: { id: manager.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
+  it("gives the date back, without queueing it again for the same assignee, when the delivery is given up on after its retries", async () => {
     const { issueId, notice } = await remindedIssue();
+    const queuedBefore = (await overdueJobs(issueId)).length;
 
     await mailer.releaseOverdueClaim(notice);
 
     expect(await claimed(issueId)).toEqual([]);
+    expect(await overdueJobs(issueId)).toHaveLength(queuedBefore);
   });
 
   it("gives back no date that a reminder of another notice or another date claimed", async () => {
