@@ -1135,6 +1135,84 @@ describe("the search", () => {
     expect(JSON.stringify(row)).not.toContain(shieldedApartment.number);
   });
 
+  it("masks a row by the protection its name match used, when the reporter becomes protected as the read goes on", async () => {
+    const transaction = prisma.$transaction.bind(prisma);
+    let protectedNow = false;
+    // Protects the reporter once the name lookup has answered and before the
+    // rows' reporters are read, the way another request committing between
+    // the two reads would.
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementation((async (
+      first: unknown,
+      options?: unknown,
+    ) => {
+      if (typeof first !== "function") {
+        return transaction(first as never, options as never);
+      }
+      const run = first as (tx: Prisma.TransactionClient) => Promise<unknown>;
+      return transaction(
+        ((tx: Prisma.TransactionClient) =>
+          run(
+            new Proxy(tx, {
+              get(target, name, receiver) {
+                if (name !== "person") {
+                  return Reflect.get(target, name, receiver) as unknown;
+                }
+                return new Proxy(target.person, {
+                  get(model, method) {
+                    if (method !== "findMany") {
+                      return Reflect.get(model, method, model) as unknown;
+                    }
+                    return async (args: Prisma.PersonFindManyArgs) => {
+                      const found = await model.findMany(args);
+                      if (
+                        args.where?.protectedPersonalData === false &&
+                        !protectedNow
+                      ) {
+                        protectedNow = true;
+                        await prisma.person.update({
+                          where: { id: resident.personId },
+                          data: { protectedPersonalData: true },
+                        });
+                      }
+                      return found;
+                    };
+                  },
+                });
+              },
+            }),
+          )) as never,
+        options as never,
+      );
+    }) as never);
+    try {
+      const read = await app
+        .get(IssueService)
+        .readQueueSnapshot(board.personId, "ALL", {
+          typeId: searched.id,
+          search: `Rune ${resident.lastName}`,
+        });
+      expect(protectedNow).toBe(true);
+      // The row was found by the name, so it is shown with the name: one
+      // reading says both, and the snapshot holds the person as unprotected.
+      const [row] = read.issues;
+      expect(row?.id).toBe(filed.leak);
+      expect(row?.reporter).toMatchObject({
+        kind: "resident",
+        personId: resident.personId,
+      });
+    } finally {
+      spy.mockRestore();
+      await prisma.person.update({
+        where: { id: resident.personId },
+        data: { protectedPersonalData: false },
+      });
+    }
+    // Restored: the search finds the issue by the name again.
+    expect(await search(board, `Rune ${resident.lastName}`)).toEqual([
+      filed.leak,
+    ]);
+  });
+
   it("counts what it finds as it lists it", async () => {
     const q = `Sökbar ${suffix}`;
     expect(await counts(board, { typeId: searched.id, q })).toEqual({

@@ -209,8 +209,9 @@ itself and nothing else. It searches only
 the issues the reader handles. It never matches what the reader is not shown: a
 protected reporter's name and apartment match nothing, so a search cannot reveal
 one by trial and error. Who is protected is read in the same transaction as the
-issues. The name and email address of a reporter who used the website's form are
-stored encrypted, so the search does not match them. Messages and internal
+issues, and the rows' reporters are read there too, so a row a name matched is
+masked by the protection the match used. The name and email address of a reporter
+who used the website's form are stored encrypted, so the search does not match them. Messages and internal
 notes are text added to an issue later, and are searched under the same rule:
 only where the reader may read them. Every handler an issue lets in reads its
 whole conversation and every note on it, so the issues the reader handles are

@@ -828,26 +828,29 @@ export class IssueService {
 
     // The clock is read inside the transaction, so the seat the reader holds
     // and the day the view and the overdue flag count from are one instant.
-    const { issues, today } = await this.prisma.$transaction(
+    const { issues, reporters, today } = await this.prisma.$transaction(
       async (tx) => {
         const now = new Date();
         const day = localDayOf(now);
         const where = await narrowed(tx, now);
+        const read = await readQueueIn(
+          tx,
+          { AND: [where, viewWhere(view, readerPersonId, day)] },
+          meanings,
+          null,
+          undefined,
+        );
         return {
-          issues: await readQueueIn(
-            tx,
-            { AND: [where, viewWhere(view, readerPersonId, day)] },
-            meanings,
-            null,
-            undefined,
-          ),
+          issues: read,
+          // Read with the issues: see `readReporters`.
+          reporters: await this.readReporters(tx, read),
           today: day,
         };
       },
       { isolationLevel: "RepeatableRead" },
     );
 
-    return this.queuedViews(issues, "show", today);
+    return this.queuedViews(issues, "show", today, reporters);
   }
 
   /**
@@ -900,7 +903,7 @@ export class IssueService {
     const narrowed = this.boardWhere(readerPersonId, filter);
     const meanings = meaningsInView(view, filter.meaning);
 
-    const { rows, counts, today } = await this.prisma.$transaction(
+    const { rows, reporters, counts, today } = await this.prisma.$transaction(
       async (tx) => {
         // The clock is read inside the transaction, as in `listQueue`.
         const now = new Date();
@@ -919,6 +922,8 @@ export class IssueService {
               );
         return {
           rows: read,
+          // Read with the rows: see `readReporters`.
+          reporters: await this.readReporters(tx, read),
           counts: await countQueueIn(
             tx,
             where,
@@ -932,7 +937,10 @@ export class IssueService {
       { isolationLevel: "RepeatableRead" },
     );
 
-    return { issues: await this.queuedViews(rows, "show", today), counts };
+    return {
+      issues: await this.queuedViews(rows, "show", today, reporters),
+      counts,
+    };
   }
 
   /**
@@ -1992,6 +2000,40 @@ export class IssueService {
   }
 
   /**
+   * The reporters of these issues, with whether their personal data is
+   * protected, in one query.
+   *
+   * A search matches reporters by name only while their data is not protected
+   * (`searchWhere`), so the rows a search returned and the protection that
+   * masks their reporters have to be one reading: the queue's reads call this
+   * inside the transaction that read the rows. Read after it, a protection
+   * that began in between would return a row that matched a name with that
+   * name masked, and so say whose it is.
+   */
+  private async readReporters(
+    db: Prisma.TransactionClient | PrismaService,
+    issues: readonly { reporterPersonId: string | null }[],
+  ): Promise<ReadonlyMap<string, ReporterRow>> {
+    const personIds = [
+      ...new Set(
+        issues
+          .map((issue) => issue.reporterPersonId)
+          .filter((id): id is string => id !== null),
+      ),
+    ];
+    const persons = await db.person.findMany({
+      where: { id: { in: personIds } },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        protectedPersonalData: true,
+      },
+    });
+    return new Map(persons.map((person) => [person.id, person]));
+  }
+
+  /**
    * Queue rows for these issues, with their reporters read in one query.
    *
    * The one place a list of rows becomes the queue's view, so a page and the
@@ -2006,24 +2048,9 @@ export class IssueService {
     })[],
     protectedReporters: ProtectedReporters,
     today: LocalDay = localDayOf(new Date()),
+    reporters?: ReadonlyMap<string, ReporterRow>,
   ): Promise<QueuedIssueView[]> {
-    const personIds = [
-      ...new Set(
-        issues
-          .map((issue) => issue.reporterPersonId)
-          .filter((id): id is string => id !== null),
-      ),
-    ];
-    const persons = await this.prisma.person.findMany({
-      where: { id: { in: personIds } },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        protectedPersonalData: true,
-      },
-    });
-    const byId = new Map(persons.map((person) => [person.id, person]));
+    const byId = reporters ?? (await this.readReporters(this.prisma, issues));
     const handler = await readAuthors(
       this.prisma,
       issues.flatMap((issue) => [
@@ -2088,15 +2115,7 @@ export class IssueService {
       reporterNameCipher: string | null;
       reporterEmailCipher: string | null;
     },
-    persons: ReadonlyMap<
-      string,
-      {
-        id: string;
-        firstName: string;
-        lastName: string;
-        protectedPersonalData: boolean;
-      }
-    >,
+    persons: ReadonlyMap<string, ReporterRow>,
   ): Promise<IssueReporterView> {
     const personId = issue.reporterPersonId;
 
@@ -2456,6 +2475,14 @@ function nextState(
     outcome,
     closedAt: closing ? (existing.closedAt ?? new Date()) : null,
   };
+}
+
+/** What a queue row's reporter is read as: the person, protection included. */
+interface ReporterRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  protectedPersonalData: boolean;
 }
 
 type QueueRecord = Prisma.IssueGetPayload<{ include: typeof ISSUE_INCLUDE }>;
