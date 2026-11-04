@@ -389,13 +389,17 @@ export class IssueMailer implements OnModuleInit {
     }
     // An urgent issue tells its assignee that it is urgent: the assignee is
     // one of the handlers it goes to, and one mail says both what the priority
-    // is and, in its facts, which issue.
+    // is and, in its facts, which issue. An assignee the first query left out
+    // and who is a recipient by now gets the same notice as the others.
     if (
       assignee !== null &&
       !deliveries.has(assignee) &&
       (await this.isRecipient(tx, assignee, issue, now))
     ) {
-      deliveries.set(assignee, "assigned");
+      deliveries.set(
+        assignee,
+        issue.priority === "URGENT" ? "urgent" : "assigned",
+      );
     }
     return this.queue(tx, issueId, deliveries, except);
   }

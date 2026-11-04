@@ -680,6 +680,33 @@ describe("a report is filed", () => {
     expect(told.get(admin.personId)).toBe("urgent");
     expect(told.get(manager.personId)).toBe("urgent");
   });
+
+  it("tells an assignee who became a recipient after the first look that the issue is urgent", async () => {
+    const issueId = (
+      await prisma.issue.create({
+        data: {
+          typeId: urgentType.id,
+          statusId: urgentType.statusIds.NEW,
+          priority: "URGENT",
+          assigneePersonId: manager.personId,
+          description: REPORTER_DESCRIPTION,
+        },
+        select: { id: true },
+      })
+    ).id;
+    // The first look finds nobody, as if the assignee gained an address or was
+    // no longer restricted between that look and the second one.
+    vi.spyOn(
+      mailer as unknown as { recipients: () => Promise<string[]> },
+      "recipients",
+    ).mockResolvedValueOnce([]);
+
+    await prisma.$transaction((tx) => mailer.filedInTransaction(tx, issueId));
+
+    expect(recipientsOf(await notices(issueId))).toEqual(
+      new Map([[manager.personId, "urgent"]]),
+    );
+  });
 });
 
 describe("a handler acts on an issue", () => {

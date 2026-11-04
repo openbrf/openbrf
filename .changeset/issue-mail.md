@@ -44,9 +44,10 @@ number.
   in that last moment can still be followed by one mail with the number, type
   and priority and no free text.
 - **No free text.** A mail gives the issue number, the type and a link to the
-  issue queue. A mail to a handler also gives the priority. It never includes
-  what the reporter or a handler wrote, where in the building the issue is, or
-  who reported it. That text does not pass through the mail provider.
+  issue queue. A mail to a handler also gives the priority. A mail to a reporter
+  greets them by their own name. Apart from that, a mail never includes what
+  the reporter or a handler wrote, where in the building the issue is, or who
+  reported it. That text does not pass through the mail provider.
 - **Issue number.** Every issue has a number, shown in the issue queue, on the
   reporter's own list and in every mail, and returned by the `issue_list` and
   `issue_get` actions. Existing issues are numbered in the order they were
