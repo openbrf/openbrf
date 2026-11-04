@@ -18,6 +18,7 @@ import {
 import {
   ISSUE_RETENTION_DAYS,
   issuePurgeCutoff,
+  detachErasedReporter,
   WORK_ORDER_BODY_RETENTION_DAYS,
   WORK_ORDER_TEXT_STANDING,
 } from "./issue-retention";
@@ -433,32 +434,10 @@ export class IssuePurgeService implements OnModuleInit {
         data: { reporterEmailIndex: null },
       });
 
-      /*
-       * The reporter column the person purge kept for these texts' sake goes
-       * with them once that person's erasure request has been carried out: no
-       * job selects the person after that, so nothing else would clear it. A
-       * reporter whose own window ran out is detached by the person purge on
-       * its next run, which selects them again now that no text stands. The
-       * issue's lock, which that purge takes on every issue it detaches,
-       * orders the two.
-       */
-      let reporterDetached = false;
-      if (
+      // The reporter column the person purge kept for these texts' sake.
+      const reporterDetached =
         issue.reporterPersonId !== null &&
-        (await tx.dataSubjectRequest.count({
-          where: {
-            personId: issue.reporterPersonId,
-            kind: "ERASURE",
-            executedAt: { not: null },
-          },
-        })) > 0
-      ) {
-        const { count: detached } = await tx.issue.updateMany({
-          where: { id: issueId, reporterPersonId: issue.reporterPersonId },
-          data: { reporterPersonId: null },
-        });
-        reporterDetached = detached > 0;
-      }
+        (await detachErasedReporter(tx, issueId, issue.reporterPersonId));
 
       await this.audit.record(
         {

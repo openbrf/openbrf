@@ -911,7 +911,8 @@
             "message": "A message",
             "note": "An internal note",
             "photo": "A photograph",
-            "attachment": "A file"
+            "attachment": "A file",
+            "workOrder": "The text of a work order"
           },
           "legalHoldSince": "The hold stood since {{date}}",
           "retentionChanged": "From {{from}} to {{to}} years after closing"
@@ -3890,6 +3891,7 @@
         "note": "Removed an internal note",
         "photo": "Removed a photograph",
         "attachment": "Removed a file",
+        "workOrder": "Removed the text of a work order",
         "unknown": "Removed text or a file"
       },
       "legalHoldPlaced": "Placed a legal hold",
@@ -4088,7 +4090,7 @@
       "purgedOn": "Free text removed on <data>{{date}}</data>",
       "freeTextRemoved": "The free text, the conversation and the photographs were removed on <data>{{date}}</data>. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, remain.",
       "title": "Free text and legal hold",
-      "intro": "Unless a legal hold stands on the issue itself, a handler can remove the description, the location, a message, an internal note, a photograph or a file at any time, for instance when a person named in it has been granted erasure. What is removed is gone: nothing keeps the text, and nothing is written in its place.",
+      "intro": "Unless a legal hold stands on the issue itself, a handler can remove the description, the location, a message, an internal note, a photograph, a file or the text of a work order at any time, for instance when a person named in it has been granted erasure. What is removed is gone: nothing keeps the text, and nothing is written in its place.",
       "remove": "Remove",
       "removeDescription": "{{type}}: remove the description",
       "removeLocation": "{{type}}: remove the location",
@@ -4096,6 +4098,7 @@
       "removeNote": "Remove the internal note of {{at}}",
       "removePhoto": "Remove the photograph {{name}}",
       "removeAttachment": "Remove the file {{name}}",
+      "removeWorkOrder": "Remove the text of the work order of {{at}}",
       "description": "Description",
       "location": "Location",
       "photos": "The reporter's photographs",

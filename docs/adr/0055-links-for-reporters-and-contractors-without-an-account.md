@@ -298,7 +298,9 @@ contractor removed from the register is erased from them as well: the copy of
 the name and address on each is cleared, and the work order stays, saying that
 it went out, when and what it said. That is how a sole trader's erasure is
 honoured; the owner confirmed both on 2026-11-03. The text of a work order is
-erased ten years after its case was closed, by the nightly purge. The owner
+erased ten years after its case was closed, by the nightly purge, unless a
+handler redacts it before then ([ADR 0057](0057-purging-issues-in-two-layers.md#redaction)),
+which leaves the work order with whom it went to and when. The owner
 asked for it to be kept as long as the law allows, to keep the history of what
 was asked of whom, and ten years is that bound: the text is the association's
 evidence of what it ordered, a claim about the work becomes time-barred ten
@@ -317,7 +319,7 @@ the text, which may be about other people.
 The worker claims a work order and reads what it mails in one statement, a
 conditional update that returns the recipient and the text, and it claims only
 a row that still holds both. An erasure that commits before the claim - a
-contractor removed, or the text purged - therefore leaves nothing to mail, and
+contractor removed, or the text purged or redacted - therefore leaves nothing to mail, and
 the work order is recorded as not sent, with the code for the contractor
 removed or for the text erased. An erasure that commits after the claim cannot
 recall a mail already being sent, which is the one case the claim leaves open.

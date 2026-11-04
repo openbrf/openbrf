@@ -292,6 +292,7 @@ export function IssueQueuePanel({
 
                 <WorkOrdersDisclosure
                   issue={issue}
+                  onChanged={onChanged}
                   onSent={() => {
                     setWorkOrdersSent((counts) => ({
                       ...counts,
@@ -364,17 +365,22 @@ function HandlingDisclosure({
 /**
  * The work orders on one issue, under a disclosure of their own: read only
  * while it is open, as the handling is, and apart from it because a work order
- * is the one act on an issue that leaves the instance.
+ * is the one act on an issue that leaves the instance. A work order's text is
+ * removed here, where it is shown, and the queue is read again after it as
+ * after any other removal.
  */
 function WorkOrdersDisclosure({
   issue,
+  onChanged,
   onSent,
 }: {
   issue: QueuedIssue;
+  onChanged: () => void;
   onSent: () => void;
 }): ReactElement {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const redaction = useIssueRedaction(issue, onChanged);
   return (
     <details
       className="flex flex-col gap-3"
@@ -387,7 +393,11 @@ function WorkOrdersDisclosure({
       </summary>
       {open ? (
         <div className="pt-2">
-          <IssueWorkOrders issue={issue} onSent={onSent} />
+          <IssueWorkOrders
+            issue={issue}
+            onSent={onSent}
+            redaction={redaction}
+          />
         </div>
       ) : null}
     </details>

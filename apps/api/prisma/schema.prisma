@@ -4776,9 +4776,15 @@ model WorkOrder {
 
   /// The work order, as the handler wrote and previewed it. Null once the
   /// retention window after its issue was closed has run out
-  /// (`IssuePurgeService`, `WORK_ORDER_BODY_RETENTION_DAYS`): the text is the
-  /// handler's free text and may name people, and nothing else ever erases it.
+  /// (`IssuePurgeService`, `WORK_ORDER_BODY_RETENTION_DAYS`), or once a
+  /// handler redacted it (`IssueRedactionService`): the text is the handler's
+  /// free text and may name people.
   body String?
+
+  /// When a handler redacted the text (ADR 0057), so the record reads as
+  /// redacted rather than as erased by the clock. Set only over a null body,
+  /// which a check in the migration holds.
+  redactedAt DateTime?
 
   /// The handler who sent it. A plain column, for the reason the issue's
   /// `reporterPersonId` gives. Detached when the person is erased

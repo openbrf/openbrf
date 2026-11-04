@@ -28,7 +28,9 @@ import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import { usePoll } from "../ui/use-poll";
+import { RedactedMark } from "./IssueFreeText";
 import { IssueHandlerName } from "./IssueHandlerName";
+import { type IssueRedactionControl, RedactAct } from "./IssueRedaction";
 
 const WORK_ORDER_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.workOrders.errors.issueNotFound",
@@ -105,14 +107,22 @@ function sameDraft(a: Draft, b: Draft): boolean {
  * gives: it reads the contractors and the record of its own. While a work
  * order's mail is on its way the record is read again every few seconds, so
  * the handler sees it go out or fail without closing anything.
+ *
+ * A handler may remove the text of a work order in the record (ADR 0057), as
+ * they remove the rest of an issue's free text; the work order stays, with
+ * whom it went to and when. The record is read again after every answer, so a
+ * text removed is not left standing on the screen.
  */
 export function IssueWorkOrders({
   issue,
   onSent,
+  redaction,
 }: {
   issue: QueuedIssue;
   /** Told after a work order is accepted, so the issue's timeline reads it. */
   onSent?: () => void;
+  /** Offers the removal of a work order's text; none is offered without it. */
+  redaction?: IssueRedactionControl;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const [data, setData] = useState<IssueWorkOrdersData | null>(null);
@@ -135,6 +145,19 @@ export function IssueWorkOrders({
     mail: WorkOrderPreview;
   } | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
+
+  /*
+   * A removal answered, or refused because the screen was stale: the record is
+   * read again, and an answer to a read asked before it is dropped (`reads`).
+   */
+  const redactionRevision = redaction?.revision;
+  const shownAtRedaction = useRef(redactionRevision);
+  useEffect(() => {
+    if (shownAtRedaction.current !== redactionRevision) {
+      shownAtRedaction.current = redactionRevision;
+      setReads((count) => count + 1);
+    }
+  }, [redactionRevision]);
 
   useEffect(() => {
     let active = true;
@@ -258,6 +281,10 @@ export function IssueWorkOrders({
             ),
           )}
         </Notice>
+      ) : redaction?.failureKey != null ? (
+        <Notice tone="danger" live>
+          {t(redaction.failureKey)}
+        </Notice>
       ) : readFailed ? (
         <Notice tone="danger" live>
           {t("issues.workOrders.readFailed")}
@@ -275,7 +302,11 @@ export function IssueWorkOrders({
           </p>
         )
       ) : (
-        <WorkOrderLog orders={data.workOrders} locale={i18n.language} />
+        <WorkOrderLog
+          orders={data.workOrders}
+          locale={i18n.language}
+          redaction={redaction}
+        />
       )}
 
       {data === null ? null : data.ringFenced ? (
@@ -460,9 +491,11 @@ function PreviewPanel({
 function WorkOrderLog({
   orders,
   locale,
+  redaction,
 }: {
   orders: readonly WorkOrder[];
   locale: string;
+  redaction: IssueRedactionControl | undefined;
 }): ReactElement {
   const { t } = useTranslation();
   if (orders.length === 0) {
@@ -500,17 +533,32 @@ function WorkOrderLog({
               )}
             </p>
             <DeliveryLine order={order} />
-            {order.body === null ? (
+            {order.redactedAt !== null ? (
+              <p>
+                <RedactedMark at={order.redactedAt} />
+              </p>
+            ) : order.body === null ? (
               <p className="text-ink-muted">
                 {t("issues.workOrders.bodyErased")}
               </p>
             ) : (
-              <details>
-                <summary className="flex min-h-11 cursor-pointer items-center">
-                  {t("issues.workOrders.contents")}
-                </summary>
-                <p className="whitespace-pre-wrap">{order.body}</p>
-              </details>
+              <>
+                <details>
+                  <summary className="flex min-h-11 cursor-pointer items-center">
+                    {t("issues.workOrders.contents")}
+                  </summary>
+                  <p className="whitespace-pre-wrap">{order.body}</p>
+                </details>
+                {redaction === undefined ? null : (
+                  <RedactAct
+                    control={redaction}
+                    redaction={{ target: "workOrder", id: order.id }}
+                    label={t("issues.redaction.removeWorkOrder", {
+                      at: formatMoment(order.sentAt, locale),
+                    })}
+                  />
+                )}
+              </>
             )}
           </li>
         ))}
