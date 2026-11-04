@@ -1915,8 +1915,8 @@ export class IssueService {
   /**
    * What a search of the queue matches: each of its words (`searchTermsOf`:
    * the first `ISSUE_SEARCH_LIMITS.terms` different ones; any after those are
-   * not read) somewhere in the issue's description, its place, its type's
-   * name, its apartment's designation, its reporter's name, a message in its
+   * not read) somewhere in the issue's description, its place, the name of its
+   * common area, its type's name, its apartment's designation, its reporter's name, a message in its
    * conversation with the reporter or an internal note on it, case aside and
    * whichever Unicode form the text was stored in. The words need not all be
    * in one place: one in a note and another in the description is a match.
@@ -1971,6 +1971,8 @@ export class IssueService {
           ...forms.flatMap((matches) => [
             { description: matches },
             { location: matches },
+            // The board's own list (decision 30), shown on every row.
+            { place: { name: matches } },
             { type: { name: matches } },
             // Every handler the issue lets in reads its whole conversation
             // and every note on it (`IssueConversationService`), so the

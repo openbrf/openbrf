@@ -30,7 +30,9 @@ common area it is about, and the mark of an inspection finding.
   when it upgrades, in its own language. A handler can set or change the area on
   an issue, and the queue shows how many issues each area has, closed ones
   included, so a fault that keeps coming back in the same place is seen as one.
-  The count is of the issues the reader may open. An area an issue names is
+  The count is of the issues the reader may open. Choosing an area narrows
+  every view of the queue to it, together with the filter, and the queue's
+  search finds an issue by the name of its area. An area an issue names is
   switched off and not removed. The area an issue names is on its reporter's
   data subject access report.
 - **Inspection findings.** A handler can mark an issue as a finding of an OVK,

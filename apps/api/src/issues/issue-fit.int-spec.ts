@@ -1056,6 +1056,15 @@ describe("common-area places", () => {
     }>();
     expect(read.issues).toHaveLength(3);
     expect(read.counts.all).toBe(3);
+
+    // The place's name is searched as well: its words are on no other text.
+    const searched = await call(
+      board,
+      "GET",
+      `/api/issue-queue?q=${encodeURIComponent(`räkning ${suffix}`)}`,
+    );
+    expect(searched.statusCode).toBe(200);
+    expect(searched.json<unknown[]>()).toHaveLength(3);
   });
 
   it("are set by a handler, and recorded on the timeline", async () => {
