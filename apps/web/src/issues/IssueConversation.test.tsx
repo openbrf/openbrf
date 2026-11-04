@@ -327,6 +327,29 @@ describe("the conversation with the reporter", () => {
     expect(screen.queryByRole("button", { name: /Dra tillbaka/ })).toBeNull();
   });
 
+  it("says the mail is on its way, and not that none can be sent, while the link is pending", async () => {
+    render(
+      <IssueConversation
+        issue={issue({
+          reporter: {
+            kind: "external",
+            name: null,
+            email: "a@exempel.se",
+            link: "pending",
+          },
+        })}
+        onStale={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText(/har inte skickats än/)).toBeTruthy();
+    expect(screen.queryByText(/Ingen privat länk skickades/)).toBeNull();
+    expect(
+      screen.queryByLabelText("Vatten: meddelande till anmälaren"),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Dra tillbaka/ })).toBeNull();
+  });
+
   it("offers no field and nothing to withdraw once the link has ended", async () => {
     render(
       <IssueConversation

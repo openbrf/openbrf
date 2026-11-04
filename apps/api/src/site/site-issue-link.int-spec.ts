@@ -459,6 +459,14 @@ describe("a reporter without an account", () => {
       const before = sent.length;
       expect(await links.deliver(issue.id, "en")).toBe(true);
       expect(sent[before]?.locale).toBe("en");
+      const rendered = await mail.renderMail({
+        locale: "en",
+        template: issueReporterLinkMail,
+        props: sent[before]?.props as IssueReporterLinkMailProps,
+      });
+      expect(rendered.subject).toMatch(/^Your report to /);
+      expect(rendered.html).toContain("Thank you for your report");
+      expect(rendered.html).toContain("you reported an issue to");
     } finally {
       await prisma.page.deleteMany({ where: { slug } });
     }
@@ -474,7 +482,14 @@ describe("A. the token", () => {
 
   it("A2: is stored as its SHA-256 digest and nowhere as itself", async () => {
     const logged: string[] = [];
-    for (const level of ["log", "warn", "error"] as const) {
+    for (const level of [
+      "log",
+      "debug",
+      "verbose",
+      "warn",
+      "error",
+      "fatal",
+    ] as const) {
       vi.spyOn(Logger.prototype, level).mockImplementation(
         (...parts: unknown[]) => {
           logged.push(parts.map(String).join(" "));
@@ -573,6 +588,10 @@ describe("A. the token", () => {
       props,
     });
     expect(rendered.subject).not.toContain(token);
+    // The footer says why this mail came, not that the reader is in the
+    // address book: the reporter may be nobody the association knows.
+    expect(rendered.html).toContain("Du får detta eftersom du har anmält");
+    expect(rendered.html).not.toContain("adressboken");
     const hrefs = [...rendered.html.matchAll(/href="([^"]*)"/g)].map(
       (match) => match[1],
     );
@@ -1574,7 +1593,14 @@ describe("J. logging and audit", () => {
   it("J1: a failure on a token route logs no token and no path", async () => {
     const { token } = await reported();
     const logged: string[] = [];
-    for (const level of ["log", "warn", "error"] as const) {
+    for (const level of [
+      "log",
+      "debug",
+      "verbose",
+      "warn",
+      "error",
+      "fatal",
+    ] as const) {
       vi.spyOn(Logger.prototype, level).mockImplementation(
         (...parts: unknown[]) => {
           logged.push(parts.map(String).join(" "));
@@ -1609,6 +1635,11 @@ describe("J. logging and audit", () => {
     // log, which other suites write to at the same time. The start of the
     // window is the database's clock, which stamps an entry: the process's
     // clock can run behind it and let the entry above fall inside the window.
+    //
+    // A request with a token that opens nothing names no issue, so an entry
+    // it wrote would have no target; an entry another suite writes through a
+    // link always names its issue. Two selectors then cover both ways the
+    // guard could fail: an entry with no target, and one on this issue.
     const [window] = await prisma.$queryRaw<{ now: Date }[]>`
       SELECT clock_timestamp() AS now
     `;
@@ -1616,22 +1647,27 @@ describe("J. logging and audit", () => {
     await page(`obrf_rl_${"J".repeat(43)}`);
     await post(`obrf_rl_${"J".repeat(43)}`, "Gissning");
     await page("nonsense");
+    const linkEntry = {
+      OR: [
+        { channel: "LINK" as const },
+        {
+          action: {
+            in: [
+              "ISSUE_REPORTER_LINK_ISSUED" as const,
+              "ISSUE_REPORTER_LINK_REVOKED" as const,
+            ],
+          },
+        },
+      ],
+    };
     expect(
       await prisma.auditLogEntry.count({
-        where: {
-          createdAt: { gte: since },
-          OR: [
-            { channel: "LINK" },
-            {
-              action: {
-                in: [
-                  "ISSUE_REPORTER_LINK_ISSUED",
-                  "ISSUE_REPORTER_LINK_REVOKED",
-                ],
-              },
-            },
-          ],
-        },
+        where: { createdAt: { gte: since }, targetId: null, ...linkEntry },
+      }),
+    ).toBe(0);
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { createdAt: { gte: since }, targetId: issueId },
       }),
     ).toBe(0);
   });
@@ -1645,6 +1681,29 @@ describe("the board's side of the link", () => {
     expect(await stateOf()).toMatchObject({ kind: "external", link: "live" });
     await links.revoke(board.personId, issueId);
     expect(await stateOf()).toMatchObject({ kind: "external", link: "ended" });
+  });
+
+  it("tells a link whose mail is still on its way from one that was never made", async () => {
+    const { issueId } = await reported();
+    const stateOf = async () =>
+      (await issues.queuedIssue(board.personId, issueId, "show")).reporter;
+    // The row exists from the moment the job starts, and `mailedAt` is stamped
+    // when the mail server takes the mail: until then the link is pending, and
+    // not "none", which tells a handler no mail can be sent.
+    await prisma.issueReporterLink.update({
+      where: { issueId },
+      data: { mailedAt: null },
+    });
+    expect(await stateOf()).toMatchObject({
+      kind: "external",
+      link: "pending",
+    });
+    await expect(links.revoke(board.personId, issueId)).rejects.toMatchObject({
+      reason: "no-reporter-link",
+    });
+
+    await prisma.issueReporterLink.delete({ where: { issueId } });
+    expect(await stateOf()).toMatchObject({ kind: "external", link: "none" });
   });
 
   it("refuses to withdraw a link that was never mailed, and withdraws a link once", async () => {

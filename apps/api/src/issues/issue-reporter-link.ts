@@ -124,10 +124,13 @@ export async function extendReporterLink(
  * reaches the reporter, and whether there is a link to withdraw.
  *
  * `live` opens the issue now; `ended` was mailed and no longer does (revoked,
- * expired, or its issue closed long enough ago); `none` was never mailed.
+ * expired, or its issue closed long enough ago); `pending` has its row but the
+ * mail server has not yet taken the mail (the send is queued or being retried),
+ * so it is not a permanent failure; `none` has no row, because the reporter
+ * left no address or the mail was refused and the row removed.
  * Read for the queue's screen only. Every write asks the database again.
  */
-export type ReporterLinkState = "live" | "ended" | "none";
+export type ReporterLinkState = "live" | "ended" | "pending" | "none";
 
 /** The columns `reporterLinkState` reads. */
 export const REPORTER_LINK_STATE_SELECT = {
@@ -145,8 +148,11 @@ export function reporterLinkState(
   issue: { closedAt: Date | null; hasContact: boolean },
   now: Date,
 ): ReporterLinkState {
-  if (link === null || link.mailedAt === null) {
+  if (link === null) {
     return "none";
+  }
+  if (link.mailedAt === null) {
+    return "pending";
   }
   const closedLongAgo =
     issue.closedAt !== null &&

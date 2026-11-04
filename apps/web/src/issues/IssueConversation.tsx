@@ -343,7 +343,9 @@ function ReporterLink({
             ? "issues.reporterLink.live"
             : link === "ended"
               ? "issues.reporterLink.ended"
-              : "issues.reporterLink.none",
+              : link === "pending"
+                ? "issues.reporterLink.pending"
+                : "issues.reporterLink.none",
         )}
       </p>
       {revoke.state.kind === "failed" ? (

@@ -53,6 +53,9 @@ export const issueReporterLinkMail: MailTemplate<IssueReporterLinkMailProps> = {
           association: brand.associationName,
         })}
         heading={t("email.issueReporterLink.heading")}
+        footerNotice={t("email.issueReporterLink.footerNotice", {
+          association: brand.associationName,
+        })}
       >
         <Text style={paragraph}>
           {t("email.issueReporterLink.body", { type: props.typeName })}

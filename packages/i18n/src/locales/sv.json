@@ -148,6 +148,7 @@
       "heading": "Tack för din anmälan",
       "body": "Föreningen har tagit emot din anmälan ({{type}}). Via länken nedan kan du följa ärendet, läsa föreningens svar och skriva till föreningen.",
       "action": "Öppna ditt ärende",
+      "footerNotice": "Du får detta eftersom du har anmält ett ärende till {{association}}.",
       "keepPrivate": "Länken är personlig: den som har den kan läsa och skriva i ärendet, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats eller 365 dagar efter det senaste meddelandet i det, det som inträffar först. Innan något meddelande har skrivits räknas de 365 dagarna från det här mejlet."
     },
     "issueHandlerNotice": {
@@ -4054,6 +4055,7 @@
     "reporterLink": {
       "live": "Anmälaren har inget konto och läser svaren via en privat länk som skickades med e-post.",
       "ended": "Länken som skickades till anmälaren öppnar inte längre ärendet: den har dragits tillbaka eller gått ut, eller så avslutades ärendet för mer än 30 dagar sedan.",
+      "pending": "Den privata länken till anmälaren har inte skickats än. Mejlet ligger i kö eller skickas om, så titta igen strax.",
       "none": "Ingen privat länk skickades till anmälaren: ingen e-postadress lämnades, eller så kunde inget mejl skickas.",
       "revoke": "Dra tillbaka länken",
       "revoking": "Drar tillbaka …",

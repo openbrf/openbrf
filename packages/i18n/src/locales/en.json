@@ -148,6 +148,7 @@
       "heading": "Thank you for your report",
       "body": "The association has received your report ({{type}}). Through the link below you can follow the issue, read the association's answers and write to the association.",
       "action": "Open your issue",
+      "footerNotice": "You are receiving this because you reported an issue to {{association}}.",
       "keepPrivate": "The link is personal: whoever has it can read and write in the issue, so do not share it. It stops working 30 days after the issue is closed or 365 days after the latest message in it, whichever comes first; until a message is written, the 365 days count from this mail."
     },
     "issueHandlerNotice": {
@@ -4054,6 +4055,7 @@
     "reporterLink": {
       "live": "The reporter has no account and reads your answers through a private link that was mailed to them.",
       "ended": "The link mailed to the reporter no longer opens the issue: it was withdrawn or has expired, or the issue closed more than 30 days ago.",
+      "pending": "The private link for the reporter has not been mailed yet. The mail is queued or is being retried, so check again shortly.",
       "none": "No private link was mailed to the reporter: they left no email address, or no mail could be sent.",
       "revoke": "Withdraw the link",
       "revoking": "Withdrawing…",

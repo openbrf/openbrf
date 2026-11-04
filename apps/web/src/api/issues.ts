@@ -167,7 +167,7 @@ export type IssueReporter =
   | { kind: "unknown" };
 
 /** Where an external reporter's private link stands. */
-export type ReporterLinkState = "live" | "ended" | "none";
+export type ReporterLinkState = "live" | "ended" | "pending" | "none";
 
 export type QueuedIssue = OwnIssue & {
   /** The status it stands in, as the board named it for its type. */
