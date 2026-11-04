@@ -36,7 +36,7 @@ Text a handler writes, in a message, a note or a saved reply, is refused while
 it carries a personal identity number. What a reporter writes is stored as
 written, as the report itself is.
 
-No mail carries what was written in a message or a note. Nothing of the
+No mail carries what was written in a message or a note; a mail only says that an issue has a new message. Nothing of the
 conversation is offered to a connected app or the AI package. Writing a message
 or a note is recorded in the audit log with who wrote it, and never what. The purge detaches a purged person from what they wrote and leaves
 the words with the issue.

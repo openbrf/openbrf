@@ -72,6 +72,49 @@ export async function lockWorkOrderSender(
 }
 
 /**
+ * The lock a filing takes before it counts how much of its sender's hourly
+ * mail budget is spent (`IssueMailer.filedInTransaction`): one for the
+ * website's form, whoever sends through it, and one for each signed-in
+ * reporter.
+ *
+ * The budget is a count followed by an insert of the mail it allows, and two
+ * reports filed together would otherwise each count without the other and
+ * both be mailed about. Taken after the type's lock, which filing takes first,
+ * and by nothing else, so the two never wait on each other the other way
+ * round. An advisory lock for the reason `lockIssue` gives.
+ */
+export async function lockFilingBudget(
+  tx: Prisma.TransactionClient,
+  reporterPersonId: string | null,
+): Promise<void> {
+  const key =
+    reporterPersonId === null
+      ? "issue-filing-budget:public-form"
+      : `issue-filing-budget:person:${reporterPersonId}`;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+}
+
+/**
+ * The lock a reporter's issue message takes before it counts how much of the
+ * reporter's hourly mail budget for messages is spent
+ * (`IssueMailer.messageInTransaction`): one for each reporter, across all of
+ * their issues.
+ *
+ * The budget is a count followed by an insert of the mail it allows, and two
+ * messages written together, on one issue or on two, would otherwise each
+ * count without the other and both be mailed about. Taken after the issue's
+ * lock, which a reporter's message takes first, and by nothing else, so the
+ * two never wait on each other the other way round. An advisory lock for the
+ * reason `lockIssue` gives.
+ */
+export async function lockMessageBudget(
+  tx: Prisma.TransactionClient,
+  reporterPersonId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`issue-message-budget:person:${reporterPersonId}`}))`;
+}
+
+/**
  * The lock a transaction takes before it replaces the responsibility guide.
  *
  * A save deletes every line and writes the board's, and at READ COMMITTED two

@@ -47,6 +47,7 @@ import {
 } from "./issue-handlers";
 import { type IssueTypeView, IssueTypeService } from "./issue-type.service";
 import { lockIssue, lockIssueForHandling, lockIssueType } from "./issue-lock";
+import { IssueMailer } from "./issue-mailer.service";
 import { IssueError } from "./issue.error";
 import { workOrderKnownNotSent } from "./work-order-delivery";
 
@@ -116,6 +117,8 @@ export type IssueReporterView =
  */
 export interface OwnIssueView {
   id: string;
+  /** The issue number (ärendenummer), which every mail about it names. */
+  number: number;
   meaning: IssueStatusMeaning;
   typeId: string;
   typeName: string;
@@ -521,6 +524,7 @@ export class IssueService {
     private readonly media: MediaService,
     private readonly encryption: FieldEncryptionService,
     private readonly audit: AuditLogService,
+    private readonly mailer: IssueMailer,
   ) {}
 
   /**
@@ -559,6 +563,7 @@ export class IssueService {
     };
     const postId = input.postId ?? null;
 
+    await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       const filed = await this.file(tx, data);
       if (postId !== null) {
@@ -608,6 +613,7 @@ export class IssueService {
             input.reporterEmail,
           );
 
+    await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction((tx) =>
       this.file(tx, {
         typeId: type.id,
@@ -657,6 +663,7 @@ export class IssueService {
   ): Promise<QueuedIssueView> {
     const residencyId = input.residencyId ?? null;
 
+    await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       /*
        * The type, whether this handler handles it and its NEW status, all read
@@ -939,6 +946,7 @@ export class IssueService {
      * value and the later write would commit a date neither decided on - which
      * the retention clock then runs on.
      */
+    await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
 
@@ -1006,11 +1014,16 @@ export class IssueService {
         );
       }
 
-      return tx.issue.update({
+      const moved = await tx.issue.update({
         where: { id: issueId },
         data: next,
         include: ISSUE_INCLUDE,
       });
+      // Out of done is a reopening, which the assignee is told of (decision 8).
+      if (existing.status.meaning === "DONE" && target.meaning !== "DONE") {
+        await this.mailer.reopenedInTransaction(tx, issueId, actorPersonId);
+      }
+      return moved;
     });
 
     this.logger.log(`Issue ${issue.id} moved to ${issue.status.meaning}`);
@@ -1037,6 +1050,7 @@ export class IssueService {
     assigneePersonId: string | null,
     actorPersonId: string,
   ): Promise<QueuedIssueView> {
+    await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       const now = new Date();
       await this.lockForAssignment(tx, issueId);
@@ -1066,11 +1080,24 @@ export class IssueService {
         });
       }
 
-      return tx.issue.update({
+      const assigned = await tx.issue.update({
         where: { id: issueId },
         data: { assigneePersonId },
         include: ISSUE_INCLUDE,
       });
+      if (
+        assigneePersonId !== null &&
+        existing.assigneePersonId !== assigneePersonId
+      ) {
+        await this.mailer.assignedInTransaction(
+          tx,
+          issueId,
+          assigneePersonId,
+          actorPersonId,
+          now,
+        );
+      }
+      return assigned;
     });
 
     this.logger.log(`Issue ${issue.id} assignment changed`);
@@ -1086,6 +1113,7 @@ export class IssueService {
     priority: IssuePriority,
     actorPersonId: string,
   ): Promise<QueuedIssueView> {
+    await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
       const existing = await this.requireHandled(tx, issueId, actorPersonId);
@@ -1102,11 +1130,20 @@ export class IssueService {
           tx,
         );
       }
-      return tx.issue.update({
+      const prioritised = await tx.issue.update({
         where: { id: issueId },
         data: { priority },
         include: ISSUE_INCLUDE,
       });
+      // Raised to Akut: every handler of the issue is told (decision 12).
+      if (priority === "URGENT" && existing.priority !== "URGENT") {
+        await this.mailer.raisedToUrgentInTransaction(
+          tx,
+          issueId,
+          actorPersonId,
+        );
+      }
+      return prioritised;
     });
 
     this.logger.log(`Issue ${issue.id} priority set to ${issue.priority}`);
@@ -1131,6 +1168,7 @@ export class IssueService {
     }
     const column = day === null ? null : dateColumnOf(day);
 
+    await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
       const existing = await this.requireHandled(tx, issueId, actorPersonId);
@@ -1149,11 +1187,17 @@ export class IssueService {
           tx,
         );
       }
-      return tx.issue.update({
+      const dated = await tx.issue.update({
         where: { id: issueId },
         data: { targetDate: column },
         include: ISSUE_INCLUDE,
       });
+      // The overdue reminder for the new date; one for an old date finds it
+      // is no longer the issue's and sends nothing.
+      if (from !== to) {
+        await this.mailer.targetDateSetInTransaction(tx, issueId, day);
+      }
+      return dated;
     });
 
     this.logger.log(`Issue ${issue.id} target date changed`);
@@ -1596,6 +1640,8 @@ export class IssueService {
         tx,
       );
     }
+    // Store, then tell: the mail is a job this transaction writes (decision 12).
+    await this.mailer.filedInTransaction(tx, filed.id);
     return filed;
   }
 
@@ -2162,6 +2208,7 @@ function typeRemoved(cause: unknown): never {
 
 interface IssueRecord {
   id: string;
+  number: number;
   priority: IssuePriority;
   targetDate: Date | null;
   boardOnly: boolean;
@@ -2247,6 +2294,7 @@ function toQueuedView(
 function toOwnView(issue: IssueRecord): OwnIssueView {
   return {
     id: issue.id,
+    number: issue.number,
     meaning: issue.status.meaning,
     typeId: issue.type.id,
     typeName: issue.type.name,
