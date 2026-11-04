@@ -1202,6 +1202,33 @@ describe("what the document prints", () => {
     ]);
   });
 
+  it("labels the redaction of a work order's text and prints no text", async () => {
+    // A work order's text is a target of its own, and an entry for it has to
+    // read as words like the others rather than as "Inget registrerat".
+    const [entry] = FULL_REPORT.auditEntries;
+    if (entry === undefined) {
+      throw new Error("The fixture has no audit entry.");
+    }
+    renderReport({
+      ...FULL_REPORT,
+      auditEntries: [
+        {
+          ...entry,
+          entryId: "w",
+          action: "ISSUE_REDACTED",
+          context: { target: "workOrder", id: "work-order-row-1" },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const details = [
+      ...sectionOf("Granskningsloggen").querySelectorAll("tbody tr"),
+    ].map((row) => row.querySelectorAll("td")[4]?.textContent);
+    expect(details).toEqual(["Texten i en arbetsorder"]);
+    expect(screen.queryByText("work-order-row-1")).toBeNull();
+  });
+
   it("says which way each act reached the records", async () => {
     // The same board member acting in the web interface and acting through a
     // connected app is one person reaching the records two ways, and the
