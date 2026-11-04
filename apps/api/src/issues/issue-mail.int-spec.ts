@@ -752,6 +752,37 @@ describe("a report is filed", () => {
   });
 });
 
+describe("the slot-turn guard", () => {
+  it("waits for the slot to turn when too little of it is left", async () => {
+    const slotMs = REPEATED_NOTICE_SECONDS * 1000;
+    const waitMs = 1_000;
+    // Only the clock read is stubbed, so the wait itself still runs.
+    const query = vi
+      .spyOn(prisma, "$queryRawUnsafe")
+      .mockResolvedValueOnce([{ nowMs: slotMs - waitMs }])
+      .mockResolvedValueOnce([{ nowMs: slotMs }]);
+    const startedAt = Date.now();
+
+    await clearOfTheSlotTurn();
+
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(waitMs);
+  });
+
+  it("starts at once when a test's worth of the slot is left", async () => {
+    const slotMs = REPEATED_NOTICE_SECONDS * 1000;
+    const query = vi
+      .spyOn(prisma, "$queryRawUnsafe")
+      .mockResolvedValueOnce([
+        { nowMs: slotMs - TEST_TIMEOUT_MS - SLOT_MARGIN_MS },
+      ]);
+
+    await clearOfTheSlotTurn();
+
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("a handler acts on an issue", () => {
   // Several tests here count on a notice and its repeat sharing a slot.
   beforeEach(async () => {
