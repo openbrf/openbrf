@@ -16,7 +16,10 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { IssueConversationService } from "./issue-conversation.service";
-import { ISSUE_NOTICE_QUEUE } from "./issue-mailer.service";
+import {
+  ISSUE_NOTICE_QUEUE,
+  ISSUE_OVERDUE_QUEUE,
+} from "./issue-mailer.service";
 import { IssueService } from "./issue.service";
 
 /**
@@ -319,6 +322,22 @@ beforeAll(async () => {
 afterAll(async () => {
   vi.useRealTimers();
   await prisma.post.deleteMany({ where: { body: { contains: suffix } } });
+  // The mail this suite queued: notices, and the overdue reminder a reopening
+  // may queue again. Only for this run's issues, before they go.
+  const issueIds = (
+    await prisma.issue.findMany({
+      where: { typeId: { in: Object.values(typeIds) } },
+      select: { id: true },
+    })
+  ).map((issue) => issue.id);
+  if (issueIds.length > 0) {
+    await prisma.$executeRawUnsafe(
+      "DELETE FROM pgboss.job WHERE name IN ($1, $2) AND data->>'issueId' = ANY($3::text[])",
+      ISSUE_NOTICE_QUEUE,
+      ISSUE_OVERDUE_QUEUE,
+      issueIds,
+    );
+  }
   // Duplicates first: the link to the issue merged into is set null anyway,
   // but deleting the rows that name another first keeps the order plain.
   await prisma.issue.deleteMany({
@@ -368,6 +387,11 @@ describe("a reply on a closed issue", () => {
     if (closedAt === null) {
       throw new Error("closing wrote no date");
     }
+    // Whoever handled it keeps it when it reopens.
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: { assigneePersonId: board.personId },
+    });
 
     const message = await atMoment(
       new Date(closedAt.getTime() + 29 * DAY_MS),
@@ -389,15 +413,17 @@ describe("a reply on a closed issue", () => {
       where: { id: issueId },
       select: {
         statusId: true,
+        assigneePersonId: true,
         outcome: true,
         closedAt: true,
         messages: { select: { body: true } },
       },
     });
-    // The in-progress default, with the outcome and the closing date gone, and
-    // the reply on it, where the queue shows it waiting.
+    // The in-progress default, with the assignee kept, the outcome and the
+    // closing date gone, and the reply on it, where the queue shows it waiting.
     expect(reopened).toEqual({
       statusId: plain.statusIds.IN_PROGRESS,
+      assigneePersonId: board.personId,
       outcome: null,
       closedAt: null,
       messages: [{ body: "Det läcker igen." }],
@@ -406,7 +432,10 @@ describe("a reply on a closed issue", () => {
     // Whoever handles it is mailed that it is open again, and never the
     // reporter whose reply reopened it.
     const mailed = await noticesOf(issueId);
-    expect(mailed.some((notice) => notice.event === "reopened")).toBe(true);
+    expect(mailed).toContainEqual({
+      personId: board.personId,
+      event: "reopened",
+    });
     expect(mailed.some((notice) => notice.personId === resident.personId)).toBe(
       false,
     );
@@ -444,6 +473,10 @@ describe("a reply on a closed issue", () => {
     if (closedAt === null) {
       throw new Error("closing wrote no date");
     }
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: { assigneePersonId: board.personId },
+    });
 
     // The window includes its last day: a reply a minute short of 30 days
     // after closing still reopens. Not at the very instant, which a clock that
@@ -466,10 +499,16 @@ describe("a reply on a closed issue", () => {
     expect(
       await prisma.issue.findUniqueOrThrow({
         where: { id: issueId },
-        select: { statusId: true, outcome: true, closedAt: true },
+        select: {
+          statusId: true,
+          assigneePersonId: true,
+          outcome: true,
+          closedAt: true,
+        },
       }),
     ).toEqual({
       statusId: plain.statusIds.IN_PROGRESS,
+      assigneePersonId: board.personId,
       outcome: null,
       closedAt: null,
     });
