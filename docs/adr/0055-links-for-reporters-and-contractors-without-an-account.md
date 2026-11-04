@@ -278,6 +278,85 @@ with the preview and the stored recipient, date and contents, and the link is
 switched on afterwards. Neither way is open on a ring-fenced case (above). The
 reporter's link is not behind that gate.
 
+The switch is one setting of the instance, `OPENBRF_CONTRACTOR_LINKS_ENABLED`,
+off by default. It is read in the lookup that resolves every contractor's
+token, as a parameter of the same statement, so with it off every address
+under `/arbetsorder`, a `GET` or a `POST`, answers the one `404` every dead
+link gets, a link issued while it was on included, and the upload reads none
+of its body. A handler cannot issue a link or choose photographs for one while
+it is off; withdrawing a link stays possible, because it only narrows. What
+came through a link before stays on the work order's record either way.
+
+### The contractor's link as built
+
+Built to the controls of this record's threat review (APT-9360, A to K), each
+with a test that fails when the control is removed
+(`site-work-order-link.int-spec.ts`). Where the review asked for something the
+sections above leave open, this is what was decided:
+
+- **Delivery (question 2).** The link is issued on a work order that was
+  already written and mailed, and the handler's answer to issuing it is the
+  one time its address is shown. The handler passes it on by the way they
+  choose, a text message or their own mail, with a generic sentence the screen
+  offers and nothing of the work order, the issue or the reporter (control
+  K1). The instance mails no link: the token would then have to wait in a
+  job's payload or be minted by the worker, and a mailed work order stays the
+  one mail that carries a handler's text (decision 21). Issuing again revokes
+  the link before in the same transaction, and a partial unique index holds a
+  work order to one live link.
+- **When it ends.** At the first of: 30 days after it was issued
+  (`WORK_ORDER_LINK_DAYS`, never extended), a decline, done, a handler
+  withdrawing it, the work order's text redacted or purged, its contractor
+  removed from the list, its issue closed or ring-fenced, and a person with
+  protected personal data having reported the issue or living in its
+  apartment. Every one of them is read in the lookup on every request. A
+  redaction, a purge, a ring-fence and a contractor removed also revoke the
+  link in their own transaction, so lifting a ring-fence later brings no link
+  back. A decline and done are final: no new link is issued for such a work
+  order, and the handler writes a new one.
+- **Question 4, for the link.** The mailed work order is not refused for a
+  protected household (above), because nothing of the issue goes into it but
+  what the handler writes. The link shows the board's photographs, which may
+  show the home, so until the owner answers question 4 the link fails closed:
+  it is not issued, and one issued before stops answering when protection is
+  recorded (control H4).
+- **The photographs it shows.** The handler chooses them among the issue's
+  images, the reporter's photographs and those a handler attached, and the
+  screen says that a photograph may show people. A file is served through the
+  link only while it is chosen for that work order and still on that issue, or
+  was added through that work order's link; any other identifier beside the
+  token is answered with the refusal (control C3).
+- **What the contractor sends.** Notes of at most 2,000 characters, scanned for
+  personal identity numbers as the report form is, and photographs, identified
+  from their bytes, stripped of their metadata, at most 40 megapixels, named
+  by the server (`work-order-photo.<ext>`) and declared as showing people. Both
+  are part of the issue's free-text layer
+  ([ADR 0057](0057-purging-issues-in-two-layers.md)): removed on the board's
+  clock with the rest, and redacted by a handler as a note or a file is. The
+  answer itself (accepted, declined, done, and when) is a fact about the work
+  and stays with the building record. Nothing a contractor sends reaches the
+  reporter's page or the reporter's own reads of their files.
+- **Numbers.** Per client address and minute: 30 page reads, 120 photograph
+  reads (a page shows up to thirty), 5 answers and notes, and 3 photographs.
+  Per work order, in the database: 10 notes an hour and 50 in all, and 5
+  photographs an hour, 10 in all and 30 MiB together, beside the per-file
+  `OPENBRF_MAX_UPLOAD_BYTES`. A text post is refused past 64 KiB before it is
+  read; the photograph is bounded by the multipart parser's per-file limit.
+- **Reads write nothing.** Opening the page or a photograph writes no row, no
+  audit entry and no timestamp, because mail scanners, chat unfurlers and link
+  previews open every link they see (control E1). The consequence below that
+  had the token's read audited against the work order is replaced by this.
+- **Answers that end the link** are answered with a page of their own in the
+  response, carrying no address of the link, because a redirect to the link
+  would meet the refusal (control E6).
+- **The handlers are told.** An answer, a note or a photograph queues the
+  handler notice of the issue mailer (decision 21: the issue's number and type,
+  never a word the contractor wrote), to the assignee or, with none, to the
+  type's handlers, at most once an hour per person and issue. The answer is a
+  step on the issue's timeline. A reporter's data subject access report says,
+  under each work order, whether a link was given and how many of the issue's
+  photographs it shows, by number and never by file.
+
 ### The mailed work order
 
 The fallback is built first, because it is what a release ships with whatever
@@ -416,15 +495,17 @@ wrote this record:
 
 - The issues module keeps no `@Public()` route in its application controllers,
   and the comment over `IssueReportController` names the two site-layer
-  controllers as the only ways in without a session.
+  controllers (`SiteIssueLinkController`, `SiteWorkOrderLinkController`) as the
+  only ways in without a session.
 - `@PublicRateLimit`'s comment gains the token reads as the exception to its rule
   on `GET`.
 - The work order's service refuses every act on a ring-fenced case, and the
   contractor's token lookup refuses a work order on one, each with a test that
   fails when the refusal is removed.
-- `MediaService` gains a read by a token's grant, which is audited against the
-  work order, and a join other than `IssuePhoto` for photographs the reporter
-  must not read.
+- `MediaService` gains a read by a token's grant
+  (`openForWorkOrderLink`), which writes nothing (control E1, above), and a
+  join other than `IssuePhoto` (`WorkOrderFile`) for photographs the reporter
+  must not read, which `issueFileAccess` opens to the issue's handlers alone.
 - The audit channels gain one for a link holder, with its row in the data subject
   access report's "Via" column.
 - The record of processing activities names a contractor as a recipient (art.

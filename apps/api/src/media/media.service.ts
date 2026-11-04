@@ -703,6 +703,62 @@ export class MediaService {
   }
 
   /**
+   * Opens an image on an issue for a contractor's link to a work order, or
+   * answers null (ADR 0055).
+   *
+   * There is no viewer: the link's service has already resolved the token and
+   * decided, in the same request, that this file is one the link's grant
+   * covers - chosen by the board for its work order, or added through it
+   * (`WorkOrderLinkService.photo`). The rule here is only the narrowest a
+   * grant may ever reach: an `INTERNAL` image under `issues:handle`, which is
+   * what every photograph on an issue is held as. Anything else answers null,
+   * as a file that does not exist does.
+   *
+   * Not written to the audit log. A GET through a link writes nothing (control
+   * E1 of the threat review): a mail scanner or a link preview opening it must
+   * not leave a row, and a contractor has no person to name.
+   */
+  async openForWorkOrderLink(id: string): Promise<ServedFile | null> {
+    const file = await this.prisma.mediaFile.findFirst({
+      where: {
+        id,
+        visibility: "INTERNAL",
+        requiredCapability: "issues:handle",
+        contentType: { in: [...IMAGE_CONTENT_TYPES] },
+      },
+      select: {
+        id: true,
+        storageKey: true,
+        encryption: true,
+        dataKeyCipher: true,
+        byteSize: true,
+        contentType: true,
+        fileName: true,
+        checksum: true,
+        visibility: true,
+      },
+    });
+    if (file === null) {
+      return null;
+    }
+    try {
+      return {
+        stream: await this.openSealed(file),
+        contentType: file.contentType,
+        byteSize: file.byteSize,
+        fileName: file.fileName,
+        checksum: file.checksum,
+        visibility: file.visibility,
+      };
+    } catch (error) {
+      if (error instanceof MediaError) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
    * The file's bytes as uploaded, verified chunk by chunk as they stream.
    *
    * Every refusal here is the same not-found as a missing file, logged by the

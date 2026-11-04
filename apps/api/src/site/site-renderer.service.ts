@@ -9,6 +9,7 @@ import {
 } from "../documents/documents.service";
 import { I18nService } from "../i18n/i18n.service";
 import type { ReporterLinkPageView } from "../issues/issue-reporter-link.service";
+import type { WorkOrderLinkPageView } from "../issues/work-order-link.service";
 import { IssueTypeService } from "../issues/issue-type.service";
 import { ResponsibilityGuideService } from "../issues/responsibility-guide.service";
 import { mediaUrl } from "../media/media.service";
@@ -49,6 +50,12 @@ import {
   renderIssueLinkPage,
 } from "./site-issue-link";
 import { renderNewsArticle, renderNewsIndex } from "./site-news";
+import {
+  renderWorkOrderLinkEnded,
+  renderWorkOrderLinkNotFound,
+  renderWorkOrderLinkPage,
+  type WorkOrderLinkNotice,
+} from "./site-work-order-link";
 import {
   type SiteNewsArticle,
   type SiteNewsIndexPage,
@@ -396,6 +403,44 @@ export class SiteRenderer {
    */
   async issueLinkNotFound(acceptLanguage: string | undefined): Promise<string> {
     return renderIssueLinkNotFound(await this.issueLinkChrome(acceptLanguage));
+  }
+
+  /**
+   * The page a contractor's link opens (ADR 0055), with the reporter's link's
+   * chrome: no menu, so nothing on the page leaves this origin.
+   */
+  async workOrderLink(
+    acceptLanguage: string | undefined,
+    view: WorkOrderLinkPageView,
+    notice: WorkOrderLinkNotice | null,
+    pagePath: string,
+  ): Promise<string> {
+    return renderWorkOrderLinkPage(
+      await this.issueLinkChrome(acceptLanguage),
+      view,
+      notice,
+      pagePath,
+    );
+  }
+
+  /** The page that answers a decline or a done, with no address of the link. */
+  async workOrderLinkEnded(
+    acceptLanguage: string | undefined,
+    ended: "declined" | "done",
+  ): Promise<string> {
+    return renderWorkOrderLinkEnded(
+      await this.issueLinkChrome(acceptLanguage),
+      ended,
+    );
+  }
+
+  /** What every contractor's link that opens nothing gets, whatever the reason. */
+  async workOrderLinkNotFound(
+    acceptLanguage: string | undefined,
+  ): Promise<string> {
+    return renderWorkOrderLinkNotFound(
+      await this.issueLinkChrome(acceptLanguage),
+    );
   }
 
   private async issueLinkChrome(

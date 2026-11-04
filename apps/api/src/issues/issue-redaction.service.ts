@@ -15,16 +15,25 @@ import {
   WORK_ORDER_TEXT_STANDING,
 } from "./issue-retention";
 import { IssueError } from "./issue.error";
+import { revokeWorkOrderLinks } from "./work-order-link";
 
 /**
  * What a handler redacts: the issue's description or location, or one of its
  * messages, notes, photographs, handler's files or work orders by its
- * identifier.
+ * identifier, or a note or photograph a contractor sent through a work
+ * order's link (ADR 0055).
  */
 export type IssueRedaction =
   | { target: "description" | "location" }
   | {
-      target: "message" | "note" | "photo" | "attachment" | "workOrder";
+      target:
+        | "message"
+        | "note"
+        | "photo"
+        | "attachment"
+        | "workOrder"
+        | "workOrderNote"
+        | "workOrderFile";
       id: string;
     };
 
@@ -50,6 +59,9 @@ export interface IssueLegalHoldView {
  *
  * A work order's text is erased as its clock erases it, and the work order
  * stays with whom it went to and when, which is the record of the disclosure.
+ * Its contractor's link ends in the same transaction (ADR 0055): a link with no
+ * text has nothing to show. A note or a photograph the contractor sent through
+ * the link is redacted as a handler's note or file is.
  * One whose mail has not gone out yet is then not sent, and is recorded as not
  * sent (`WorkOrderMailerService`); one already on its way cannot be called
  * back. The redaction that leaves the issue with no text at all detaches a
@@ -98,7 +110,9 @@ export class IssueRedactionService {
     redaction: IssueRedaction,
   ): Promise<void> {
     const changed =
-      redaction.target === "photo" || redaction.target === "attachment"
+      redaction.target === "photo" ||
+      redaction.target === "attachment" ||
+      redaction.target === "workOrderFile"
         ? await this.removeFile(handlerPersonId, issueId, redaction)
         : await this.redactText(handlerPersonId, issueId, redaction);
     // Only an act that changed something, as only that one is in the audit
@@ -251,6 +265,26 @@ export class IssueRedactionService {
             where: { id: redaction.id },
             data: { body: null, redactedAt: now },
           });
+          // Nothing is left for its link to show (control B5).
+          await revokeWorkOrderLinks(tx, { id: redaction.id });
+          break;
+        }
+        case "workOrderNote": {
+          rowId = redaction.id;
+          const row = await tx.workOrderNote.findFirst({
+            where: { id: redaction.id, workOrder: { issueId } },
+            select: { redactedAt: true },
+          });
+          if (row === null) {
+            throw targetNotFound();
+          }
+          if (row.redactedAt !== null) {
+            return false;
+          }
+          await tx.workOrderNote.update({
+            where: { id: redaction.id },
+            data: { body: "", redactedAt: now },
+          });
           break;
         }
         default:
@@ -387,7 +421,12 @@ export class IssueRedactionService {
               where,
               select: { fileId: true },
             })
-          : null;
+          : redaction.target === "workOrderFile"
+            ? await client.workOrderFile.findFirst({
+                where: { id: redaction.id, workOrder: { issueId } },
+                select: { fileId: true },
+              })
+            : null;
     return row?.fileId ?? null;
   }
 

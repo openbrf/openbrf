@@ -8,6 +8,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import { IssueError } from "./issue.error";
+import { revokeWorkOrderLinks } from "./work-order-link";
 
 /** A contractor as the board's register shows them. */
 export interface ContractorView {
@@ -172,6 +173,9 @@ export class ContractorService {
   async remove(id: string, actorPersonId: string): Promise<void> {
     const erased = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "contractor" WHERE "id" = ${id} FOR UPDATE`;
+      // A contractor erased from their work orders holds no link to them
+      // either (ADR 0055).
+      await revokeWorkOrderLinks(tx, { contractorId: id });
       const { count } = await tx.workOrder.updateMany({
         where: { contractorId: id },
         data: { recipientName: null, recipientEmailCipher: null },

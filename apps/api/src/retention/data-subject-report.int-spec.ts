@@ -1802,6 +1802,8 @@ describe("what the report contains", () => {
         writtenAt: "2026-02-20T09:00:00.000Z",
         deliveryStatus: "SENT",
         notSent: false,
+        linkGiven: false,
+        photosShared: 0,
       },
       {
         recipientName: null,
@@ -1809,6 +1811,8 @@ describe("what the report contains", () => {
         deliveryStatus: "FAILED",
         // A server's refusal may have come after it took the message.
         notSent: false,
+        linkGiven: false,
+        photosShared: 0,
       },
       {
         recipientName: `Elektriker ${suffix}`,
@@ -1816,6 +1820,8 @@ describe("what the report contains", () => {
         deliveryStatus: "FAILED",
         // No mail server: nothing left this instance.
         notSent: true,
+        linkGiven: false,
+        photosShared: 0,
       },
     ]);
     expect(JSON.stringify(report.issues)).not.toContain("Laga laeckan");

@@ -49,6 +49,9 @@ import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
  *   the handlers when there is none, while the reporter's hourly budget for
  *   messages lasts; a handler's to a reporter who has an account. Nobody's
  *   words go with it (GLOSSARY.md, _svar_).
+ * - **Contractor.** The contractor of a work order answered it, wrote a note
+ *   or added a photograph through its link: mailed to the assignee, or to the
+ *   handlers when there is none, once an hour at most (ADR 0055).
  *
  * The person whose act it was is never told of it. Every handler read is
  * `issueRecipientsWhere`, the handler rule of `issueHandlersWhere` with an
@@ -217,7 +220,9 @@ const REPEATED_LOOKS = 2;
  * that is not throttled.
  */
 function throttleKeyOf(job: IssueNoticeJob): string | null {
-  return job.event === "assigned" || job.event === "reopened"
+  return job.event === "assigned" ||
+    job.event === "reopened" ||
+    job.event === "contractor"
     ? `${job.event}:${job.issueId}:${job.personId}`
     : null;
 }
@@ -590,6 +595,36 @@ export class IssueMailer implements OnModuleInit {
       new Map([[reporter, "reporterMessage"]]),
       author.personId,
       author.messageId,
+    );
+  }
+
+  /**
+   * Tells the issue's assignee, or its handlers when it has none, that the
+   * contractor of one of its work orders did something through the work
+   * order's link: answered it, wrote a note or added a photograph (ADR 0055,
+   * control H7 of its threat review). In the transaction of the act. Answers
+   * how many deliveries were queued.
+   *
+   * The mail says only that, with the issue's number and type, as every
+   * handler's notice does (decision 21): never the answer's note or a word a
+   * contractor wrote. Throttled to one per person and issue in each clock hour,
+   * as an assignment is, so a link used for many notes in an hour mails each
+   * handler once. Nobody is left out as the actor: a contractor is nobody here.
+   */
+  async contractorInTransaction(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+    now: Date = new Date(),
+  ): Promise<number> {
+    const issue = await this.readIssue(tx, issueId);
+    if (issue === null) {
+      return 0;
+    }
+    return this.queue(
+      tx,
+      issueId,
+      await this.assigneeOrHandlers(tx, issue, "contractor", now),
+      null,
     );
   }
 
@@ -1266,5 +1301,7 @@ function stillSo(issue: NoticeIssue, job: IssueNoticeJob, now: Date): boolean {
       return issue.status.meaning !== "DONE" && issue.assigneePersonId === null;
     case "reopened":
       return issue.status.meaning !== "DONE" && routedTo(issue, job.personId);
+    case "contractor":
+      return routedTo(issue, job.personId);
   }
 }

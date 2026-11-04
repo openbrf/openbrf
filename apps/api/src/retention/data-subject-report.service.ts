@@ -709,6 +709,9 @@ export class DataSubjectReportService {
             createdAt: true,
             deliveryStatus: true,
             deliveryFailure: true,
+            // Whether the contractor was given a link, and how many of the
+            // issue's photographs it shows them (ADR 0055).
+            _count: { select: { links: true, chosenPhotos: true } },
           },
         },
       },
@@ -1765,6 +1768,8 @@ export class DataSubjectReportService {
           notSent:
             order.deliveryStatus === "FAILED" &&
             workOrderKnownNotSent(order.deliveryFailure),
+          linkGiven: order._count.links > 0,
+          photosShared: order._count.chosenPhotos,
         })),
       })),
       issueAssignments: [

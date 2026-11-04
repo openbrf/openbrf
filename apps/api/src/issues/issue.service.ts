@@ -389,6 +389,14 @@ export type IssueTimelineStep = {
    * `null` when the work order is no longer there to ask.
    */
   | { kind: "workOrder"; delivery: IssueTimelineWorkOrderDelivery | null }
+  /**
+   * The contractor answered a work order through its link (ADR 0055). No
+   * actor: whoever held the link answered.
+   */
+  | {
+      kind: "workOrderAnswer";
+      answer: "ACCEPTED" | "DECLINED" | "DONE" | null;
+    }
   /** A handler redacted a text or removed a file (ADR 0057). */
   | { kind: "redacted"; target: IssueRedactionTarget | null }
   | { kind: "legalHold"; held: boolean }
@@ -2813,6 +2821,9 @@ function toOwnView(issue: IssueRecord): OwnIssueView {
   };
 }
 
+/** What a contractor may answer a work order, as the entry records it. */
+const WORK_ORDER_ANSWERS = ["ACCEPTED", "DECLINED", "DONE"] as const;
+
 /** The audit actions an issue's timeline is read from. */
 const TIMELINE_ACTIONS = [
   "ISSUE_OPENED",
@@ -2822,6 +2833,7 @@ const TIMELINE_ACTIONS = [
   "ISSUE_TARGET_DATE_CHANGED",
   "ISSUE_ACCESS_CHANGED",
   "ISSUE_WORK_ORDER_SENT",
+  "ISSUE_WORK_ORDER_ANSWERED",
   "ISSUE_REDACTED",
   "ISSUE_LEGAL_HOLD_PLACED",
   "ISSUE_LEGAL_HOLD_RELEASED",
@@ -2899,6 +2911,13 @@ function timelineStep(
         at,
         actor,
         delivery: deliveryOf.get(text("workOrderId") ?? "") ?? null,
+      };
+    case "ISSUE_WORK_ORDER_ANSWERED":
+      return {
+        kind: "workOrderAnswer",
+        at,
+        actor: null,
+        answer: oneOf(text("answer"), WORK_ORDER_ANSWERS),
       };
     case "ISSUE_REDACTED":
       return {

@@ -356,6 +356,16 @@ locally the application runs from source beside the PostgreSQL that
       it went to and when stays, except that removing a contractor from the
       list clears their name and address from the work orders sent them. This is how a work order travels while the
       contractor's own link waits for its legal review (ADR 0055)
+- [x] The contractor's link, built and switched off: a handler can give the
+      contractor of a work order a link of their own, shown once, that opens
+      the work order and the photographs the board chose for it and nothing
+      else of the issue. The contractor accepts or declines it, writes notes,
+      adds photographs and marks it done there without an account. The link
+      ends after 30 days, at a decline or done, when a handler withdraws it,
+      and when anything it opens stops being one a contractor may see. It is
+      behind `OPENBRF_CONTRACTOR_LINKS_ENABLED`, off by default, until the legal
+      review of a contractor as a recipient clears it (ADR 0055, decision 25)
+- [ ] Switch the contractor's link on once its legal review clears it
 - [x] Mail about issues: a new issue to its assignee, or to the type's handlers
       when it lands unassigned; an urgent one to every handler of its type; an
       assignment to the new assignee; a reopened one to its assignee; and one

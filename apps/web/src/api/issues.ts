@@ -279,6 +279,11 @@ export type IssueTimelineStep = {
       kind: "workOrder";
       delivery: "pending" | "sent" | "failed" | "unconfirmed" | null;
     }
+  /**
+   * The contractor answered a work order through its link (ADR 0055). No
+   * actor: whoever held the link answered.
+   */
+  | { kind: "workOrderAnswer"; answer: "ACCEPTED" | "DECLINED" | "DONE" | null }
   | {
       kind: "costResponsibility";
       from: IssueCostResponsibility | null;

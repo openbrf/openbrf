@@ -15,7 +15,8 @@ import type { Prisma } from "../generated/prisma/client";
  *
  * The free-text layer is everything a person wrote or photographed: the
  * description, the free-text location, every issue message and internal note,
- * and every photograph and file a handler attached. It is removed on the
+ * every photograph and file a handler attached, and every note and photograph
+ * a contractor sent through a work order's link (ADR 0055). It is removed on the
  * board's clock after the issue closes, unless a legal hold stands on the issue
  * or on its reporter; on the reporter's granted erasure request; and, a piece
  * at a time, whenever a handler redacts it.
@@ -46,6 +47,13 @@ export const ISSUE_FREE_TEXT_STANDING = {
     { notes: { some: {} } },
     { photos: { some: {} } },
     { attachments: { some: {} } },
+    // What a contractor wrote or photographed through a work order's link
+    // (ADR 0055). The work order's own text has a clock of its own.
+    {
+      workOrders: {
+        some: { OR: [{ notes: { some: {} } }, { files: { some: {} } }] },
+      },
+    },
   ],
 } as const satisfies Prisma.IssueWhereInput;
 
