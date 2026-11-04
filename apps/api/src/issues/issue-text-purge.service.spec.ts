@@ -28,7 +28,9 @@ const NOW = new Date("2026-11-04T03:21:00Z");
  * A scan that never runs dry, in pages of 500 issues whose ids say which page
  * they came from, and a removal that does what `outcome` says.
  */
-function build(outcome: (id: string) => "removed" | "fail" | "unfinished") {
+function build(
+  outcome: (id: string) => "removed" | "kept" | "fail" | "unfinished",
+) {
   const service = new IssueTextPurgeService(
     { NODE_ENV: "test" } as Env,
     {} as PrismaService,
@@ -55,7 +57,8 @@ function build(outcome: (id: string) => "removed" | "fail" | "unfinished") {
       if (outcome(id) === "fail") {
         throw new Error("storage refused");
       }
-      return outcome(id) === "unfinished" ? "unfinished" : "removed";
+      const result = outcome(id);
+      return result === "kept" || result === "unfinished" ? result : "removed";
     });
   return { service, eligiblePage, purgeIssue };
 }
@@ -135,6 +138,19 @@ describe("one run of the issue text purge", () => {
     expect(summary).toEqual({ considered: 1000, purged: 0, failed: 0 });
     expect(logged).toHaveBeenCalledWith(
       expect.stringContaining("0 failed removals and 1000 unfinished issues"),
+    );
+  });
+
+  it("leaves kept issues out of the unfinished count", async () => {
+    const { service } = build(() => "kept");
+
+    const summary = await service.run(NOW, 2);
+
+    // A kept issue (a hold or a restriction stands) is neither removed nor
+    // unfinished, so a run of them ends on the attempt bound and counts none.
+    expect(summary).toEqual({ considered: 1000, purged: 0, failed: 0 });
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining("0 failed removals and 0 unfinished issues"),
     );
   });
 });
