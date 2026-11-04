@@ -347,6 +347,64 @@ describe("a read that fails", () => {
       ).not.toBeNull();
     });
   });
+
+  it("gives the focus to the new retry when a retry of the types pressed from the keyboard fails again", async () => {
+    fetchHandlerIssueTypes.mockReset().mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    const unavailable =
+      "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.";
+
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText(unavailable);
+    screen.getByRole("button", { name: "Försök igen" }).focus();
+
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByText(unavailable).closest("[role='alert']"),
+      ).not.toBeNull();
+    });
+    // The notice, and the button pressed with it, went while the retry was
+    // out; the reader is on the new one's retry, not at the top of the page.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Försök igen" }),
+    );
+  });
+
+  it("does not announce a standing failure of the types that a later read finds again", async () => {
+    fetchIssueQueueSnapshot.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    fetchHandlerIssueTypes.mockReset().mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    const unavailable =
+      "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.";
+
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Ärendena kunde inte läsas just nu.");
+    await waitFor(() => {
+      expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(1);
+    });
+
+    // The queue's own retry reads the types again, and they fail as before.
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(2);
+    });
+    expect(await screen.findByText(unavailable)).toBeTruthy();
+    expect(screen.getByText(unavailable).closest("[role='alert']")).toBeNull();
+  });
 });
 
 /** The views' navigation. */

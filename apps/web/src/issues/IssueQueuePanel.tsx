@@ -80,6 +80,13 @@ export interface IssueQueuePanelProps {
    */
   announceTypesFailure?: boolean;
   /**
+   * Whether the retry beside that notice takes the focus as it is put on
+   * screen. Set when the read that failed was the retry pressed on an earlier
+   * notice, which the caller takes away while the retry is out, so the button
+   * the reader pressed went with it (`LoadFailure`'s `focusRetry`).
+   */
+  focusTypesRetry?: boolean;
+  /**
    * What an empty list says: which view is empty, or that nothing matches
    * the filter. The queue as a whole, by default.
    */
@@ -132,6 +139,7 @@ export function IssueQueuePanel({
   onChanged,
   onRetryTypes,
   announceTypesFailure = false,
+  focusTypesRetry = false,
   emptyMessage,
   canManageCharges = false,
   rereading = false,
@@ -184,6 +192,7 @@ export function IssueQueuePanel({
               messageKey="issues.queue.statusesUnavailable"
               onRetry={onRetryTypes}
               live={announceTypesFailure}
+              focusRetry={focusTypesRetry}
             />
           )}
         </>
