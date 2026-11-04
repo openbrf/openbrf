@@ -702,7 +702,7 @@ export class IssueMailer implements OnModuleInit {
    * Gives back the slot an assignment or reopening notice holds, because it
    * was not sent and will not be: the queue completes a job that sent nothing,
    * and its slot would keep the same person from being told for the rest of
-   * the hour. For a delivery without mail settings, and for one given up on
+   * the clock hour. For a delivery without mail settings, and for one given up on
    * after its retries.
    *
    * The slot of this job alone, by the id it carries: another job of the same

@@ -1062,7 +1062,8 @@ describe("a handler acts on an issue", () => {
     await setNoticeState(newer, "completed");
     expect(sent.map((input) => input.to)).toEqual([manager.email]);
 
-    // The newer notice was sent within its hour and still keeps a repeat out.
+    // The newer notice was sent in the same clock hour as the repeat, and still
+    // keeps it out.
     await issues.assign(issueId, admin.personId, board.personId);
     await issues.assign(issueId, manager.personId, board.personId);
     expect(
