@@ -11,7 +11,13 @@ import {
   type ResolvedAddress,
   resolvePublicAddresses,
 } from "../network/outbound-address";
-import type { MailDriver, OutgoingMail, SentMail } from "./mail-driver";
+import type {
+  MailDriver,
+  MailHandover,
+  MailHandoverFailure,
+  OutgoingMail,
+  SentMail,
+} from "./mail-driver";
 
 /**
  * The port to use when the settings name none.
@@ -66,9 +72,13 @@ const SOCKET_TIMEOUT_MS = 20_000;
  *
  * A 502: the fault is at the mail server, not in the request.
  */
-export class MailTlsUnavailableError extends DomainError {
+export class MailTlsUnavailableError
+  extends DomainError
+  implements MailHandoverFailure
+{
   readonly status = HttpStatus.BAD_GATEWAY;
   readonly reason = "mail-tls-unavailable";
+  readonly handover = "not-handed-over";
 
   constructor(options?: { cause: unknown }) {
     super(
@@ -94,9 +104,13 @@ export class MailTlsUnavailableError extends DomainError {
  * at all, because which of the two it was is a fact about the network behind
  * this instance. A 502, like the TLS refusal above.
  */
-export class MailServerNotPublicError extends DomainError {
+export class MailServerNotPublicError
+  extends DomainError
+  implements MailHandoverFailure
+{
   readonly status = HttpStatus.BAD_GATEWAY;
   readonly reason = "host-not-public";
+  readonly handover = "not-handed-over";
 
   constructor(options: { cause: unknown }) {
     super(
@@ -104,6 +118,88 @@ export class MailServerNotPublicError extends DomainError {
     );
     this.cause = options.cause;
   }
+}
+
+/**
+ * Nodemailer's codes for a failure before the message was sent, or for the
+ * server refusing it: no address for the name, no encrypted connection, a
+ * sign-in, an envelope or a DATA command refused, and a message refused, by the
+ * server's answer to it or by nodemailer before it was sent.
+ */
+const BEFORE_HANDOVER_CODES: ReadonlySet<string> = new Set([
+  "EDNS",
+  "ETLS",
+  "EREQUIRETLS",
+  "EAUTH",
+  "ENOAUTH",
+  "EENVELOPE",
+  "EMESSAGE",
+]);
+
+/**
+ * Nodemailer's timeouts that can only run out before the message is sent: the
+ * TCP connect, the greeting and the TLS upgrade. Not `SOCKET_TIMEOUT`, which
+ * runs on every exchange, the end of the message's included.
+ */
+const BEFORE_HANDOVER_TIMEOUTS: ReadonlySet<string> = new Set([
+  "CONNECT_TIMEOUT",
+  "GREETING_TIMEOUT",
+  "UPGRADE_TIMEOUT",
+]);
+
+/**
+ * The system codes nodemailer keeps under its own (`originalCode`) that only a
+ * connection never made can raise: refused, or a name that did not resolve. Not
+ * a reset, which an open connection raises at any point.
+ */
+const BEFORE_HANDOVER_SYSTEM_CODES: ReadonlySet<string> = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+]);
+
+/**
+ * How far a send nodemailer failed had got, from the fields it gives its
+ * errors.
+ *
+ * Nodemailer reports a socket that broke or went quiet with one code and one
+ * command (`CONN`) whatever the conversation had reached, and the end of the
+ * message is one of those points: the server may have taken it and its answer
+ * been lost. So such a failure may have been handed over, unless the field it
+ * carries places it before the connection was made.
+ */
+function smtpHandover(error: unknown): MailHandover {
+  if (typeof error !== "object" || error === null) {
+    return "may-have-been-handed-over";
+  }
+  const { code, timeoutType, originalCode } = error as {
+    code?: unknown;
+    timeoutType?: unknown;
+    originalCode?: unknown;
+  };
+  const before =
+    (typeof code === "string" && BEFORE_HANDOVER_CODES.has(code)) ||
+    (code === "ETIMEDOUT" &&
+      typeof timeoutType === "string" &&
+      BEFORE_HANDOVER_TIMEOUTS.has(timeoutType)) ||
+    (typeof originalCode === "string" &&
+      BEFORE_HANDOVER_SYSTEM_CODES.has(originalCode));
+  return before ? "not-handed-over" : "may-have-been-handed-over";
+}
+
+/**
+ * The failure as nodemailer threw it, with how far the send had got stated on
+ * it (`MailHandoverFailure`).
+ *
+ * The same error rather than a new one, so its class and code stay what the
+ * callers and the log already read. One of this driver's own errors states it
+ * already, and is left as it is.
+ */
+function withHandover(error: unknown): unknown {
+  if (typeof error !== "object" || error === null || "handover" in error) {
+    return error;
+  }
+  return Object.assign(error, { handover: smtpHandover(error) });
 }
 
 /** Whether nodemailer failed to set up TLS, which it reports as `ETLS`. */
@@ -170,7 +266,7 @@ export class SmtpMailDriver implements MailDriver {
       if (isTlsFailure(error)) {
         throw new MailTlsUnavailableError({ cause: error });
       }
-      throw error;
+      throw withHandover(error);
     }
 
     // Reported as the one delivered, which holds for a relay that keeps the

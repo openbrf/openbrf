@@ -277,7 +277,7 @@ describe("IssueWorkOrders", () => {
     expect(screen.queryByLabelText("Vatten: arbetsorder")).toBeNull();
     // The record says it did not go out, and why, in words.
     expect(
-      screen.getByText(/^Obekräftad: e-postservern svarade med ett fel/),
+      screen.getByText(/^Inte skickad: e-postservern gick inte att nå/),
     ).toBeTruthy();
   });
 
@@ -384,7 +384,7 @@ describe("IssueWorkOrders", () => {
     // Unconfirmed, not "not sent": the mail may have gone out.
     expect(
       await screen.findByText(
-        /^Obekräftad: sändningen avbröts, och det går inte att veta om den kom fram/,
+        /^Obekräftad: sändningen avbröts innan e-postservern bekräftade den/,
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/^Inte skickad/)).toBeNull();

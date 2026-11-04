@@ -730,7 +730,7 @@ beforeAll(async () => {
         body: "Titta pa taket igen",
         sentByPersonId: board.personId,
         deliveryStatus: "FAILED",
-        deliveryFailure: "send-failed",
+        deliveryFailure: "delivery-unconfirmed",
         createdAt: new Date("2026-02-22T09:00:00.000Z"),
       },
       {
@@ -1807,7 +1807,8 @@ describe("what the report contains", () => {
         recipientName: null,
         writtenAt: "2026-02-22T09:00:00.000Z",
         deliveryStatus: "FAILED",
-        // A server's refusal may have come after it took the message.
+        // The connection broke after the message was on its way, so the
+        // server may have taken it.
         notSent: false,
       },
       {

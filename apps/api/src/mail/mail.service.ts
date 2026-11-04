@@ -11,7 +11,7 @@ import { I18nService } from "../i18n/i18n.service";
 import { mediaUrl } from "../media/media.service";
 import { MAX_DISPLAY_NAME, oneLine } from "./header-text";
 import { HttpApiMailDriver } from "./http-api-mail.driver";
-import type { MailDriver, SentMail } from "./mail-driver";
+import type { MailDriver, MailHandoverFailure, SentMail } from "./mail-driver";
 import {
   type EffectiveMail,
   MailSettingsResolver,
@@ -28,7 +28,13 @@ import { SmtpMailDriver } from "./smtp-mail.driver";
 /** Accent used when the association has not chosen a primary colour. */
 const DEFAULT_PRIMARY_COLOR = "#8A6D28";
 
-export class MailNotConfiguredError extends Error {
+export class MailNotConfiguredError
+  extends Error
+  implements MailHandoverFailure
+{
+  /** Thrown before any driver is chosen, so nothing was handed over. */
+  readonly handover = "not-handed-over";
+
   constructor() {
     super(
       "SMTP is not configured for this instance. Invitations and sign-in links " +

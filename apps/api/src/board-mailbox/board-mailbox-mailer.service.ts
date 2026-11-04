@@ -10,7 +10,7 @@ import {
   type TransactionalSql,
 } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
-import type { SentMail } from "../mail/mail-driver";
+import { mayHaveBeenHandedOver, type SentMail } from "../mail/mail-driver";
 import type { RenderedMail } from "../mail/mail-template";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import {
@@ -82,8 +82,9 @@ export const BOARD_MAILBOX_REPLY_ABANDONED_QUEUE =
 
 const REPLY_JOB_OPTIONS = {
   // These retries are for the failures a second attempt can change - a database
-  // that went away, a worker that was killed. A mail server refusing the address
-  // is not one of them: that is recorded on the row and the board is shown it.
+  // that went away, a worker that was killed, an address that could not be read
+  // back. A mail server refusing the address is not one of them: that is
+  // recorded on the row and the board is shown it.
   retryLimit: 5,
   retryDelay: 10,
   retryBackoff: true,
@@ -196,6 +197,15 @@ export class BoardMailboxMailerService implements OnModuleInit {
       return "skipped";
     }
 
+    // Read back before the claim: an address that cannot be read fails the
+    // job, which is retried with the reply untouched and, once the retries are
+    // spent, recorded as interrupted - which is true, as nothing was handed to
+    // a mail server. After the claim it would read as a send that may have gone.
+    const to = await this.encryption.decrypt(
+      "boardMailboxThread.correspondentEmail",
+      message.thread.correspondentEmailCipher,
+    );
+
     /*
      * The claim, and everything this file promises rests on it running before
      * anything is handed to a mail server. A row this call does not claim was
@@ -231,13 +241,8 @@ export class BoardMailboxMailerService implements OnModuleInit {
       return "failed";
     }
 
-    let sent: SentMail;
+    let sent: SentMail & { suppressed?: true };
     try {
-      const to = await this.encryption.decrypt(
-        "boardMailboxThread.correspondentEmail",
-        message.thread.correspondentEmailCipher,
-      );
-
       sent = await this.mail.send({
         to,
         ...this.replyMail(message, settings.address),
@@ -246,17 +251,36 @@ export class BoardMailboxMailerService implements OnModuleInit {
         inReplyTo: message.inReplyTo,
       });
     } catch (error) {
+      // Refused only where the driver says the answer never reached the mail
+      // server. A connection that broke after the answer was on its way may
+      // have left it with the server, and a board told it did not go out sends
+      // it again.
       await this.fail(
         messageId,
         error instanceof MailNotConfiguredError
           ? REPLY_DELIVERY_FAILURES.mailNotConfigured
-          : REPLY_DELIVERY_FAILURES.refused,
+          : mayHaveBeenHandedOver(error)
+            ? REPLY_DELIVERY_FAILURES.unconfirmed
+            : REPLY_DELIVERY_FAILURES.refused,
       );
       // Named by the reply and by the class of the failure, never by address and
       // never in the mail server's own words: this decrypts an address and hands
       // it to a mail server, and a rejection quotes it back.
       this.logger.error(
         `Board mailbox reply ${messageId} failed: ${failureName(error)}`,
+      );
+      return "failed";
+    }
+
+    if (sent.suppressed === true) {
+      // No mail server is configured, outside production, where the mail
+      // service drops the message rather than refusing it. Nothing left the
+      // instance, and the thread must not say the correspondent was answered.
+      // Not a null message identifier, which a transport that accepted the
+      // message and reported none answers too.
+      await this.fail(messageId, REPLY_DELIVERY_FAILURES.mailNotConfigured);
+      this.logger.warn(
+        `Board mailbox reply ${messageId} was not sent: no mail server is configured.`,
       );
       return "failed";
     }

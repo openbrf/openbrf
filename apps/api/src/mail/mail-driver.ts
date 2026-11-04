@@ -57,6 +57,48 @@ export interface SentMail {
   messageId: string | null;
 }
 
+/**
+ * How far a send that failed had got.
+ *
+ * `not-handed-over`: the transport cannot have taken the message. The failure
+ * came before the message was sent to it (no mail configured, a server that
+ * could not be reached, a sign-in or an envelope it refused), or the transport
+ * answered the message itself with a refusal. Nobody received it.
+ *
+ * `may-have-been-handed-over`: the transport may hold the message all the same.
+ * The connection broke or went quiet while the message was on its way or its
+ * answer was, and a mail server that took the message before then delivers it.
+ * Sending it again may send it twice.
+ *
+ * Only the driver knows which, from what its transport reports as a code or a
+ * status and never from the wording of an error, so it is stated on the error
+ * the driver throws (`MailHandoverFailure`). A driver that cannot tell says the
+ * second.
+ */
+export type MailHandover = "not-handed-over" | "may-have-been-handed-over";
+
+/** A failed send that says how far it had got. */
+export interface MailHandoverFailure {
+  readonly handover: MailHandover;
+}
+
+/**
+ * Whether a failed send may have handed its message to the transport.
+ *
+ * False only for a failure that says it did not. Anything else counts as may
+ * have: a driver that could not tell, and a failure that is not the transport's
+ * at all, because a sender that records a message as not sent when it went out
+ * leads somebody to send it twice.
+ */
+export function mayHaveBeenHandedOver(error: unknown): boolean {
+  return !(
+    typeof error === "object" &&
+    error !== null &&
+    "handover" in error &&
+    error.handover === "not-handed-over"
+  );
+}
+
 export interface MailDriver {
   readonly kind: MailDriverKind;
 
@@ -66,6 +108,7 @@ export interface MailDriver {
    * Resolves when the transport has accepted it, which is not a claim that it
    * was delivered. Throws for everything else, and never with the far end's own
    * words: a refusal quotes the envelope back, and the envelope is an address.
+   * What it throws says how far the send had got (`MailHandover`).
    */
   send(mail: OutgoingMail): Promise<SentMail>;
 
