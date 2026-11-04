@@ -95,6 +95,28 @@ describe("a sign-in link", () => {
     expect(startSupportSession).toHaveBeenCalledTimes(2);
   });
 
+  it("says to wait, and offers a retry, when the address has tried too often", async () => {
+    arriveAt("#the-sign-in-token");
+    startSupportSession.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 429, reason: "too-many-requests" },
+    });
+    const onSignedIn = vi.fn();
+
+    render(<SupportSignInScreen onSignedIn={onSignedIn} />);
+
+    expect(
+      await screen.findByText(/Vänta en stund och försök igen\./),
+    ).toBeTruthy();
+    // Not told the link is spent: it was turned away before it was read.
+    expect(screen.queryByText(/Länken fungerar inte/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    await waitFor(() => {
+      expect(onSignedIn).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("sends nothing without a link, and says where one comes from", () => {
     arriveAt("");
 

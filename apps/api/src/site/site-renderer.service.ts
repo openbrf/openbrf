@@ -30,6 +30,7 @@ import {
   type NewsTeaser,
   renderNotFound,
   renderPage,
+  renderTooManyRequests,
   type SiteChrome,
   type SiteControllerContact,
   type SiteDocument,
@@ -310,6 +311,18 @@ export class SiteRenderer {
    */
   async notFound(acceptLanguage: string | undefined): Promise<string> {
     return renderNotFound(await this.chrome(acceptLanguage, false));
+  }
+
+  /**
+   * The refusal a website address answers when its public budget is spent.
+   *
+   * With the anonymous menu, in the visitor's language, for the reasons the
+   * not-found document above gives: the limit is checked before anything about
+   * the request is read, so the refusal must not vary with the address, the
+   * session or what the association has published.
+   */
+  async tooManyRequests(acceptLanguage: string | undefined): Promise<string> {
+    return renderTooManyRequests(await this.chrome(acceptLanguage, false));
   }
 
   /**

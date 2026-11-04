@@ -457,6 +457,26 @@ describe("the administrator step", () => {
     expect(signInWithPassword).not.toHaveBeenCalled();
   });
 
+  it("says to wait when the address has tried too often, and keeps the link", async () => {
+    createFirstAdministrator.mockResolvedValue({
+      ok: false,
+      failure: { status: 429, reason: "too-many-requests" },
+    });
+    window.history.replaceState(null, "", `/app/setup#claim=${TOKEN}`);
+    const session = userEvent.setup();
+    renderStep();
+
+    await fillIn(session);
+    await session.click(screen.getByRole("button", { name: "Skapa kontot" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Vänta en stund och försök igen\./)).toBeTruthy();
+    });
+    // The claim was never read, so it is not dropped as a refused one is.
+    expect(readHeldClaim()).not.toBeNull();
+    expect(signInWithPassword).not.toHaveBeenCalled();
+  });
+
   it("drops a refused link and asks for the code instead", async () => {
     // A link from before a restart: held in the tab, and dead on the server.
     holdClaim(TOKEN);

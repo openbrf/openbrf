@@ -257,6 +257,29 @@ describe("a refused submission", () => {
     expect(screen.getByLabelText("Förnamn")).toHaveProperty("value", "Elsa");
   });
 
+  it("says to wait when the address has sent too many, and keeps the form", async () => {
+    submitSignupRequest.mockResolvedValue({
+      ok: false,
+      failure: { status: 429, reason: "too-many-requests" },
+    });
+
+    const session = userEvent.setup();
+    render(<RequestAccountScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Förnamn")).toBeTruthy();
+    });
+    await fillTheForm(session);
+    await session.click(screen.getByRole("button", { name: "Skicka ansökan" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Vänta en stund och försök igen.",
+      );
+    });
+    expect(screen.getByLabelText("Förnamn")).toHaveProperty("value", "Elsa");
+  });
+
   it("falls back to one sentence for anything else", async () => {
     submitSignupRequest.mockResolvedValue({
       ok: false,

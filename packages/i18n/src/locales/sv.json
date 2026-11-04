@@ -1184,7 +1184,8 @@
   "app": {
     "loading": "Laddar",
     "retry": "Försök igen",
-    "housingCooperative": "Bostadsrättsförening"
+    "housingCooperative": "Bostadsrättsförening",
+    "tooManyRequests": "Det har kommit för många försök från den här anslutningen den senaste minuten. Vänta en stund och försök igen."
   },
   "setup": {
     "title": "Kom i gång med Open BRF",
@@ -3256,6 +3257,10 @@
     "notFound": {
       "title": "Sidan finns inte",
       "body": "Adressen kan vara stavad på ett annat sätt, eller så har sidan tagits bort."
+    },
+    "tooManyRequests": {
+      "title": "För många försök",
+      "body": "Det har kommit för många förfrågningar från den här anslutningen den senaste minuten. Vänta en stund och försök igen. Om du skickade ett formulär kom det inte fram, så skicka det igen."
     },
     "seed": {
       "home": {

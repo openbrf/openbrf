@@ -184,6 +184,25 @@ describe("a link that cannot be used", () => {
     },
   );
 
+  it("says to wait, and keeps the form, when the address has tried too often", async () => {
+    acceptInvitation.mockResolvedValue({
+      ok: false,
+      failure: { status: 429, reason: "too-many-requests" },
+    });
+    renderScreen();
+
+    await chooseAPassword();
+
+    expect(
+      await screen.findByText(/Vänta en stund och försök igen\./),
+    ).not.toBeNull();
+    // Turned away before the invitation was read, so it still works.
+    expect(screen.getByLabelText(/lösenord/i)).not.toBeNull();
+    expect(
+      screen.queryByRole("link", { name: "Till inloggningen" }),
+    ).toBeNull();
+  });
+
   it("keeps the form for a failure another attempt could survive", async () => {
     acceptInvitation.mockResolvedValue({
       ok: false,

@@ -6,6 +6,7 @@ import {
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import { TOO_MANY_REQUESTS } from "../api/client";
 import { createFirstAdministrator } from "../api/instance";
 import { signInWithPassword } from "../auth/sign-in-methods";
 import type { TranslationKey } from "../i18n/translation-key";
@@ -24,6 +25,7 @@ const FAILURES: Readonly<Record<string, TranslationKey>> = {
   "already-claimed": "setup.administrator.errors.alreadyClaimed",
   "claim-token-invalid": "setup.administrator.errors.claimTokenInvalid",
   "invalid-email": "setup.administrator.errors.invalidEmail",
+  [TOO_MANY_REQUESTS]: "app.tooManyRequests",
 };
 
 /**
