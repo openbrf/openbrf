@@ -12,6 +12,8 @@ the common area it is about, and the mark of an inspection finding.
   reported it answers whether the association or a contractor may enter: yes or
   no, and for a yes whether there are pets, whether the master key may be used,
   a short note on how to get in and the last day the permission stands. A
+  yes is accepted only from a reporter who still lives in the apartment; a no,
+  and withdrawing an answer, are not held to that. A
   handler can record the same answer from what the resident said on the
   telephone. The handler sees and records it also on an issue whose reporter
   has protected personal data, where the queue withholds the apartment: each

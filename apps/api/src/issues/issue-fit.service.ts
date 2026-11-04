@@ -14,6 +14,7 @@ import {
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { residencyHeldOn } from "../registers/held-on";
 import { refusePersonalIdentityNumbers } from "./issue-conversation.service";
 import { requireFindingTargetDate } from "./issue-finding-rule";
 import {
@@ -129,6 +130,30 @@ export class IssueFitService {
     return this.prisma.$transaction(async (tx) => {
       await lockIssue(tx, issueId);
       const issue = await this.requireReported(tx, issueId, reporterPersonId);
+      /*
+       * A yes lets somebody into a home, so it comes from someone who lives
+       * there today. A reporter who has moved out keeps their issue and may
+       * still read and withdraw what they said, but cannot grant entry to an
+       * apartment that is no longer theirs: another household may hold it now.
+       * A no, and a handler's record of what the resident said, are not held
+       * to this: neither opens a door.
+       */
+      if (data?.entryAnswer === "YES" && issue.apartmentId !== null) {
+        const resident = await tx.residency.findFirst({
+          where: {
+            personId: reporterPersonId,
+            apartmentId: issue.apartmentId,
+            ...residencyHeldOn(localDayOf(new Date())),
+          },
+          select: { id: true },
+        });
+        if (resident === null) {
+          throw new IssueError(
+            "Permission to enter comes from someone who lives in the apartment.",
+            "entry-not-resident",
+          );
+        }
+      }
       return this.writeEntry(tx, issue, data, reporterPersonId, true);
     });
   }

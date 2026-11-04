@@ -614,6 +614,68 @@ describe("permission to enter", () => {
     expect(refused.json()).toMatchObject({ reason: "entry-needs-apartment" });
   });
 
+  it("is not granted by a reporter who has moved to another apartment", async () => {
+    // Somebody with no residency at all is refused at the door; the case here
+    // is the one that still gets through it, a resident of another apartment.
+    const issueId = await filed(plain);
+    const otherApartmentId = `if-moved-${suffix}`;
+    const home = await prisma.apartment.findUniqueOrThrow({
+      where: { id: apartmentId },
+      select: { addressId: true },
+    });
+    await prisma.apartment.create({
+      data: {
+        id: otherApartmentId,
+        addressId: home.addressId,
+        number: "1702",
+        floor: 7,
+      },
+    });
+    const newResidency = await prisma.residency.create({
+      data: {
+        personId: resident.personId,
+        apartmentId: otherApartmentId,
+        role: "MEMBER",
+        movedInOn: new Date(dayFromToday(-1)),
+      },
+      select: { id: true },
+    });
+    const residency = await prisma.residency.findFirstOrThrow({
+      where: { personId: resident.personId, apartmentId },
+      select: { id: true },
+    });
+    await prisma.residency.update({
+      where: { id: residency.id },
+      data: { movedOutOn: new Date(dayFromToday(-1)) },
+    });
+    try {
+      const yes = await call(
+        resident,
+        "PUT",
+        `/api/issues/${issueId}/entry-permission`,
+        { answer: "YES" },
+      );
+      expect(yes.statusCode).toBe(409);
+      expect(yes.json()).toMatchObject({ reason: "entry-not-resident" });
+      expect(await stored(issueId)).toMatchObject({ entryAnswer: null });
+
+      const no = await call(
+        resident,
+        "PUT",
+        `/api/issues/${issueId}/entry-permission`,
+        { answer: "NO" },
+      );
+      expect(no.statusCode).toBe(200);
+    } finally {
+      await prisma.residency.update({
+        where: { id: residency.id },
+        data: { movedOutOn: null },
+      });
+      await prisma.residency.delete({ where: { id: newResidency.id } });
+      await prisma.apartment.delete({ where: { id: otherApartmentId } });
+    }
+  });
+
   it("is not answered by a neighbour, or with a day that has passed", async () => {
     const issueId = await filed(plain);
 

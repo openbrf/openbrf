@@ -63,7 +63,9 @@ import { DomainError } from "../http/domain-error";
  * `ISSUE_FIT_LIMITS`. `place-with-apartment` is a place on an issue about an
  * apartment: the list is of what is not in a home, and an issue counted under
  * both would be counted as a fault in a common area. `entry-needs-apartment` is an entry permission on an
- * issue that is not about an apartment, `entry-until-past` an expiry before
+ * issue that is not about an apartment, `entry-not-resident` a reporter's yes
+ * from someone who no longer holds a residency in that apartment,
+ * `entry-until-past` an expiry before
  * today, and `door-code` an entry note that reads like a door code, refused
  * with where it starts and never the value. `finding-needs-target-date` and
  * `finding-target-date-too-late` hold a finding to a real target date and a lift to
@@ -103,6 +105,7 @@ export type IssueReason =
   | "too-many-places"
   | "place-with-apartment"
   | "entry-needs-apartment"
+  | "entry-not-resident"
   | "entry-until-past"
   | "door-code"
   | "finding-needs-target-date"
@@ -147,6 +150,7 @@ export class IssueError extends DomainError {
       reason === "too-many-places" ||
       reason === "place-with-apartment" ||
       reason === "entry-needs-apartment" ||
+      reason === "entry-not-resident" ||
       reason === "legal-hold"
         ? HttpStatus.CONFLICT
         : reason === "public-reporting-disabled"

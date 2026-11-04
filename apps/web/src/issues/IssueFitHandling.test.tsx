@@ -128,6 +128,42 @@ describe("the common area", () => {
     expect((select as HTMLSelectElement).value).toBe("p-sauna");
   });
 
+  it("offers the places while the attachments are still being read", async () => {
+    fetchIssueAttachments.mockReturnValue(new Promise(() => undefined));
+    renderFit(issue());
+
+    const select = await screen.findByLabelText("Gemensamt utrymme");
+    await within(select).findByRole("option", { name: "Hiss" });
+    expect((select as HTMLSelectElement).disabled).toBe(false);
+  });
+
+  it("lets a handler take a place off when the list of places did not load", async () => {
+    const session = userEvent.setup();
+    fetchIssuePlaceCounts.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    renderFit(issue({ place: { id: "p-lift", name: "Hiss" } }));
+
+    const select = (await screen.findByLabelText(
+      "Gemensamt utrymme",
+    )) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(fetchIssuePlaceCounts).toHaveBeenCalled();
+    });
+    expect(select.disabled).toBe(false);
+    expect(within(select).queryByRole("option", { name: "Gård" })).toBeNull();
+
+    await session.selectOptions(select, "");
+    await session.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(setIssuePlace).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        placeId: null,
+      });
+    });
+  });
+
   it("is not offered on an issue about an apartment", async () => {
     renderFit(
       issue({

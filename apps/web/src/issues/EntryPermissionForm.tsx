@@ -26,6 +26,7 @@ const FAILURES: Readonly<Record<string, TranslationKey>> = {
   "door-code": "issues.entry.errors.doorCode",
   "entry-until-past": "issues.entry.errors.untilPast",
   "entry-needs-apartment": "issues.entry.errors.needsApartment",
+  "entry-not-resident": "issues.entry.errors.notResident",
   "issue-closed": "issues.entry.errors.closed",
   "issue-not-found": "issues.entry.errors.notFound",
   "personal-identity-number": "issues.entry.errors.personalIdentityNumber",

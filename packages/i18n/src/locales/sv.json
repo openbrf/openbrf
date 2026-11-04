@@ -4171,6 +4171,7 @@
         "doorCode": "Anteckningen ser ut som en portkod och sparades inte. Skriv i stället vem man ringer eller när någon är hemma.",
         "untilPast": "Den dagen har redan varit. Välj i dag eller en senare dag.",
         "needsApartment": "Tillträde hör till ett ärende om en lägenhet.",
+        "notResident": "Bara den som bor i lägenheten kan ge tillträde. Du kan fortfarande svara nej eller ta tillbaka ett svar.",
         "closed": "Ärendet är avslutat, så svaret kan inte ändras. Listan har lästs in igen.",
         "notFound": "Ärendet finns inte längre, eller är inte längre ditt. Listan har lästs in igen.",
         "personalIdentityNumber": "Anteckningen innehåller ett personnummer. Ta bort det och spara igen.",

@@ -106,17 +106,26 @@ export function IssueFitHandling({
   >(null);
   const [reads, setReads] = useState(0);
 
+  // Two reads, each in its own effect: the place list is what the selector
+  // waits for, and a stalled attachment read must not keep it disabled.
   useEffect(() => {
     let active = true;
-    void Promise.all([
-      fetchIssuePlaceCounts(),
-      fetchIssueAttachments(issue.id),
-    ]).then(([placeRead, attachmentRead]) => {
-      if (!active) {
-        return;
+    void fetchIssuePlaceCounts().then((placeRead) => {
+      if (active) {
+        setPlaces(placeRead.ok ? placeRead.value : null);
       }
-      setPlaces(placeRead.ok ? placeRead.value : null);
-      setAttachments(attachmentRead.ok ? attachmentRead.value : null);
+    });
+    return () => {
+      active = false;
+    };
+  }, [issue.id, issue.updatedAt, reads]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchIssueAttachments(issue.id).then((attachmentRead) => {
+      if (active) {
+        setAttachments(attachmentRead.ok ? attachmentRead.value : null);
+      }
     });
     return () => {
       active = false;
@@ -174,7 +183,10 @@ export function IssueFitHandling({
           key={`place:${current?.id ?? ""}`}
           initial={current?.id ?? ""}
           options={options}
-          disabled={busy || places === null}
+          // A failed or unfinished place read leaves a place that is set
+          // clearable (the API clears without reading the list), and nothing
+          // else to choose.
+          disabled={busy || (places === null && current === null)}
           onDraftChanged={onDraftChanged}
           onSave={(placeId) => {
             void save.submit({

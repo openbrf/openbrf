@@ -4171,6 +4171,7 @@
         "doorCode": "The note reads like a door code and was not saved. Say who to ring or when someone is at home instead.",
         "untilPast": "That day has already passed. Choose today or a later day.",
         "needsApartment": "Permission to enter belongs to an issue about an apartment.",
+        "notResident": "Only someone who lives in the apartment can give permission to enter. You can still say no or withdraw an answer.",
         "closed": "The issue is closed, so the answer cannot be changed. The list has been read again.",
         "notFound": "That issue is gone, or no longer yours. The list has been read again.",
         "personalIdentityNumber": "The note carries a personal identity number. Remove it and save again.",
