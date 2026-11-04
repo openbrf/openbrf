@@ -665,16 +665,19 @@ export function setIssueLegalHold(input: {
 
 /**
  * Marks an issue as a damage case, or changes the mark. The first mark places
- * a legal hold on the issue.
+ * a legal hold on the issue. `replaces` is the mark the change was made from,
+ * `null` for none: the API refuses the change when the mark is another by
+ * then, rather than write over it.
  */
 export function markIssueDamageCase(input: {
   issueId: string;
   damageCase: IssueDamageCase;
+  replaces: IssueDamageCase | null;
 }): Promise<ApiResult<QueuedIssue>> {
   return apiRequest(
     "PUT",
     `/api/issue-queue/${encodeURIComponent(input.issueId)}/damage-case`,
-    input.damageCase,
+    { ...input.damageCase, replaces: input.replaces },
   );
 }
 

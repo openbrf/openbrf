@@ -824,6 +824,52 @@ describe("mail", () => {
     }
   });
 
+  it("makes the board's ring-fence wait for a mail that is being handed over", async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let handedOver: () => void = () => undefined;
+    const atHandoff = new Promise<void>((resolve) => {
+      handedOver = resolve;
+    });
+    const send = vi.spyOn(mail, "send").mockImplementation(async () => {
+      handedOver();
+      await held;
+      return {} as never;
+    });
+    try {
+      const type = await addType("under-sandning", {
+        reporters: ["RESIDENTS"],
+      });
+      const issueId = await opened(type);
+      const [job] = await notices(issueId);
+      if (job === undefined) {
+        throw new Error("The issue queued no notice.");
+      }
+
+      const delivery = mailer.deliver(job);
+      await atHandoff;
+      let fenced = false;
+      const fencing = setRingFence(type.id, true).then((response) => {
+        fenced = true;
+        return response;
+      });
+      // The mail server has the message and has not answered: the change
+      // waits, and the mail was decided before it.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(fenced).toBe(false);
+
+      release();
+      expect(await delivery).toBe(true);
+      expect((await fencing).statusCode).toBe(200);
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      release();
+      send.mockRestore();
+    }
+  });
+
   it("does not mail a private link to a website reporter once the type is ring-fenced", async () => {
     const send = vi.spyOn(mail, "send");
     try {

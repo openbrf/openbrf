@@ -55,6 +55,48 @@ export async function lockIssueType(
 }
 
 /**
+ * How long a transaction that holds a lock across a mail's handoff may run:
+ * the mail driver's connection, greeting and socket timeouts (10 s, 10 s,
+ * 20 s) with room over.
+ */
+export const MAIL_TRANSACTION_MS = 60_000;
+
+/**
+ * The lock a change of an issue type's ring-fence takes, which every mail
+ * about the type's issues holds shared across its handoff
+ * (`holdIssueTypeRingFence`).
+ *
+ * A mail decides whether it may go by reading the ring-fence, and then hands
+ * the message to the mail server. A change that commits between the two
+ * leaves a mail about a ring-fenced issue on its way, which the ring-fence
+ * forbids. With this lock the change either waits until the mail has been
+ * handed over, and was decided before it, or commits first and the mail's read
+ * sees it. A key of its own rather than the type's lock (`lockIssueType`),
+ * which a filing and every handler's write take: they must not wait for a mail
+ * server. Taken after the type's lock, and by nothing that takes the type's
+ * lock after it.
+ */
+export async function lockIssueTypeRingFence(
+  tx: Prisma.TransactionClient,
+  typeId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`issue-type-ring-fence:${typeId}`}))`;
+}
+
+/**
+ * Holds an issue type's ring-fence as it is until the transaction ends: a
+ * mail about the type's issues takes it before it reads the fence and keeps it
+ * through the handoff. Shared, so mails do not wait for each other, only for
+ * a change of the fence (`lockIssueTypeRingFence`).
+ */
+export async function holdIssueTypeRingFence(
+  tx: Prisma.TransactionClient,
+  typeId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtext(${`issue-type-ring-fence:${typeId}`}))`;
+}
+
+/**
  * The lock a transaction takes before it counts what one handler has sent
  * contractors in the last hour and adds a work order to it.
  *

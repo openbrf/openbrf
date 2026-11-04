@@ -359,10 +359,12 @@ locally the application runs from source beside the PostgreSQL that
 - [x] Damage cases and ring-fenced issue types: a handler marks an issue as an
       insurance damage with the insurer, the claim number, the day and the
       cause, and the mark places a legal hold so the issue's text outlasts its
-      purge clock. The board ring-fences an issue type, as the set a new
+      purge clock; a change made from a mark that another handler has changed
+      meanwhile is refused rather than written over it. The board ring-fences an issue type, as the set a new
       instance starts with does for disturbances between neighbours: the board
       alone reads its issues, the property manager never, and nothing about
-      them leaves the board - no work order, no mail to anybody, no post, no
+      them leaves the board - no work order, no mail to anybody, no new post
+      report (a link from a post that was reported before the fence stays), no
       connected app or AI package, and not the website's form. Its free text is
       purged one year after closing, a clock the board does not set, pending
       the legal review, and the ring-fence is never lifted from a type issues

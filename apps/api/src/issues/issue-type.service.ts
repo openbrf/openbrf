@@ -25,7 +25,7 @@ import {
   typesHandledWhere,
 } from "./issue-handlers";
 import { reporterGroupsOf } from "./issue-reporter-groups";
-import { lockIssueType } from "./issue-lock";
+import { lockIssueType, lockIssueTypeRingFence } from "./issue-lock";
 import { IssueError } from "./issue.error";
 
 /** A status as the board configures it. */
@@ -669,6 +669,8 @@ export class IssueTypeService {
     await this.prisma.$transaction(
       async (tx) => {
         await lockIssueType(tx, id);
+        // Waits for a mail about the type's issues that is being handed over.
+        await lockIssueTypeRingFence(tx, id);
         const type = await tx.issueType.findUnique({
           where: { id },
           select: {

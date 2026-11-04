@@ -77,8 +77,83 @@ describe("the damage case form", () => {
     expect(markIssueDamageCase).toHaveBeenCalledWith({
       issueId: "issue-1",
       damageCase: CLAIM,
+      replaces: null,
     });
     expect(screen.getByText("Skadeärendet är sparat.")).toBeTruthy();
+  });
+
+  it("holds an edited draft over a mark that changed, and saves from the mark it began from", async () => {
+    const session = userEvent.setup();
+    const { rerender } = render(
+      <IssueDamageCaseSection
+        issue={issue(CLAIM)}
+        onChanged={() => undefined}
+      />,
+    );
+    await session.clear(screen.getByLabelText("Skadenummer"));
+    await session.type(screen.getByLabelText("Skadenummer"), "S-2026-200");
+
+    // Somebody else changes the mark; the queue is read again.
+    const theirs = { ...CLAIM, insurer: "If Skadeförsäkring" };
+    rerender(
+      <IssueDamageCaseSection
+        issue={issue(theirs)}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.getByText(/markeringen ändrades medan du redigerade/i),
+    ).toBeTruthy();
+    // The edit stays, and cannot be saved over the newer mark.
+    expect(
+      (screen.getByLabelText("Skadenummer") as HTMLInputElement).value,
+    ).toBe("S-2026-200");
+    expect(
+      screen.getByRole("button", { name: "Spara skadeärendet för ärende 12" }),
+    ).toHaveProperty("disabled", true);
+
+    await session.click(
+      screen.getByRole("button", { name: "Hämta den nuvarande markeringen" }),
+    );
+    expect(
+      (screen.getByLabelText("Försäkringsbolag") as HTMLInputElement).value,
+    ).toBe("If Skadeförsäkring");
+    expect(
+      screen.queryByText(/markeringen ändrades medan du redigerade/i),
+    ).toBeNull();
+
+    await session.type(screen.getByLabelText("Skadenummer"), "9");
+    await session.click(
+      screen.getByRole("button", { name: "Spara skadeärendet för ärende 12" }),
+    );
+    await waitFor(() => {
+      expect(markIssueDamageCase).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        damageCase: { ...theirs, claimNumber: "S-2026-1149" },
+        replaces: theirs,
+      });
+    });
+  });
+
+  it("says when the API refused a save made from a mark that has changed", async () => {
+    markIssueDamageCase.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "damage-case-changed" },
+    });
+    const session = userEvent.setup();
+    render(
+      <IssueDamageCaseSection
+        issue={issue(CLAIM)}
+        onChanged={() => undefined}
+      />,
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Spara skadeärendet för ärende 12" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/ändrades av någon annan/i)).toBeTruthy();
+    });
   });
 
   it("says the hold stays when the mark comes off", async () => {

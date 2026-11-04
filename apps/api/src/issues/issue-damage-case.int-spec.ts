@@ -123,11 +123,17 @@ async function opened(type: IssueTypeFixture, key: string): Promise<string> {
   return response.json<{ id: string }>().id;
 }
 
-function mark(issueId: string, payload: object, cookie: string = as(board)) {
+/** `replaces` is the mark the change is made from; none unless a test says. */
+function mark(
+  issueId: string,
+  payload: object,
+  cookie: string = as(board),
+  replaces: object | null = null,
+) {
   return inject({
     method: "PUT",
     url: `/api/issue-queue/${issueId}/damage-case`,
-    payload,
+    payload: { ...payload, replaces },
     cookie,
   });
 }
@@ -278,11 +284,16 @@ describe("a damage case", () => {
     expect(JSON.stringify(afterMark)).not.toContain(CLAIM.insurer);
 
     // The same mark again writes nothing.
-    expect((await mark(issueId, CLAIM)).statusCode).toBe(200);
+    expect((await mark(issueId, CLAIM, as(board), CLAIM)).statusCode).toBe(200);
     expect(await entriesOf(issueId)).toHaveLength(afterMark.length);
 
     // A changed mark is recorded as one, and the hold keeps its date.
-    const changed = await mark(issueId, { ...CLAIM, cause: "FIRE" });
+    const changed = await mark(
+      issueId,
+      { ...CLAIM, cause: "FIRE" },
+      as(board),
+      CLAIM,
+    );
     expect(changed.json<{ legalHoldAt: string | null }>().legalHoldAt).toBe(
       placedAt,
     );
@@ -320,6 +331,38 @@ describe("a damage case", () => {
       expect.objectContaining({ marked: true, cause: "FIRE" }),
       expect.objectContaining({ marked: false, cause: null }),
     ]);
+  });
+
+  it("refuses a change made from a mark that is another by then, and writes nothing", async () => {
+    const issueId = await opened(leak, "stale");
+    expect((await mark(issueId, CLAIM)).statusCode).toBe(200);
+    // Another handler changes the claim number.
+    const theirs = { ...CLAIM, claimNumber: "S-2026-200" };
+    expect((await mark(issueId, theirs, as(manager), CLAIM)).statusCode).toBe(
+      200,
+    );
+    const entries = (await entriesOf(issueId)).length;
+
+    // The first handler saves from the mark they read, which is gone.
+    const stale = await mark(
+      issueId,
+      { ...CLAIM, insurer: "If Skadeförsäkring" },
+      as(board),
+      CLAIM,
+    );
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json<{ reason: string }>().reason).toBe("damage-case-changed");
+    // Nor does a change that thinks there is no mark write over one.
+    expect((await mark(issueId, CLAIM)).statusCode).toBe(409);
+    const stored = await prisma.issueDamageCase.findUniqueOrThrow({
+      where: { issueId },
+      select: { insurer: true, claimNumber: true },
+    });
+    expect(stored).toEqual({
+      insurer: CLAIM.insurer,
+      claimNumber: "S-2026-200",
+    });
+    expect(await entriesOf(issueId)).toHaveLength(entries);
   });
 
   it("does not place a second hold over one a handler placed", async () => {

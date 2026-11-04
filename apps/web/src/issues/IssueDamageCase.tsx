@@ -29,6 +29,7 @@ const DAMAGE_CASE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "damage-case-incomplete": "issues.damageCase.errors.incomplete",
   "personal-identity-number": "issues.damageCase.errors.identityNumber",
   "damage-date-invalid": "issues.damageCase.errors.dateInvalid",
+  "damage-case-changed": "issues.damageCase.errors.changed",
   "issue-not-found": "issues.damageCase.errors.notFound",
   "invalid-body": "issues.damageCase.errors.incomplete",
 };
@@ -46,10 +47,12 @@ const EMPTY: IssueDamageCase = {
  *
  * Marking it places a legal hold on the issue, which the section below this
  * one shows and releases: the hint says so, and taking the mark off leaves the
- * hold. The draft starts from the issue's mark as it was read. A re-read that
- * brings another mark - somebody else changed it - replaces a draft nobody has
- * touched, and leaves one the handler is editing alone, so neither is saved
- * over the other unseen.
+ * hold. The draft starts from the issue's mark as it was read, and a save
+ * says which mark that was: the API refuses a save made from a mark that
+ * another handler has changed or taken off since, so neither is written over
+ * the other unseen. A re-read that brings another mark replaces a draft nobody
+ * has touched; one the handler is editing stays, with a notice that the mark
+ * changed and a way to take the current one, and cannot be saved until then.
  *
  * One write at a time: both buttons wait on a write in flight, and an edit
  * clears the outcome of the last one, which no longer describes the draft.
@@ -65,14 +68,21 @@ export function IssueDamageCaseSection({
   const [draft, setDraft] = useState<IssueDamageCase>(
     issue.damageCase ?? EMPTY,
   );
-  /** The mark the draft started from, as the queue last read it. */
-  const [basis, setBasis] = useState<IssueDamageCase | null>(issue.damageCase);
-  if (!sameCase(basis, issue.damageCase)) {
-    setBasis(issue.damageCase);
-    if (sameCase(draft, basis ?? EMPTY)) {
-      setDraft(issue.damageCase ?? EMPTY);
+  /** The mark the draft started from, which an edit does not move. */
+  const [base, setBase] = useState<IssueDamageCase | null>(issue.damageCase);
+  const current = issue.damageCase;
+  if (!sameCase(base, current)) {
+    if (sameCase(draft, base ?? EMPTY)) {
+      // Nobody has touched the draft: it follows the mark.
+      setBase(current);
+      setDraft(current ?? EMPTY);
+    } else if (sameCase(written(draft), current ?? EMPTY)) {
+      // The draft is what was saved, which is now the mark.
+      setBase(current);
     }
   }
+  /** Whether the mark is another than the one the edited draft began from. */
+  const behind = !sameCase(base, current);
   /** What the last write did, while the draft is still the one it wrote. */
   const [outcome, setOutcome] = useState<"saved" | "removed" | null>(null);
   const mark = useSaveAction(markIssueDamageCase, () => {
@@ -84,6 +94,13 @@ export function IssueDamageCaseSection({
     onChanged();
   });
   const busy = mark.pending || remove.pending;
+  const takeCurrent = (): void => {
+    setBase(current);
+    setDraft(current ?? EMPTY);
+    setOutcome(null);
+    mark.reset();
+    remove.reset();
+  };
   const failed =
     mark.state.kind === "failed"
       ? mark.state.failure
@@ -98,6 +115,7 @@ export function IssueDamageCaseSection({
     remove.reset();
   };
   const ready =
+    !behind &&
     draft.insurer.trim() !== "" &&
     draft.claimNumber.trim() !== "" &&
     draft.occurredOn !== "";
@@ -121,6 +139,19 @@ export function IssueDamageCaseSection({
           )}
         </Notice>
       )}
+      {behind ? (
+        <Notice tone="warn" live>
+          <p>{t("issues.damageCase.changedMeanwhile")}</p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={takeCurrent}
+            className={QUIET_BUTTON}
+          >
+            {t("issues.damageCase.takeCurrent")}
+          </button>
+        </Notice>
+      ) : null}
       {outcome === null ? null : (
         <Notice tone="ok" live>
           {t(
@@ -139,12 +170,8 @@ export function IssueDamageCaseSection({
           }
           void mark.submit({
             issueId: issue.id,
-            damageCase: {
-              insurer: draft.insurer.trim(),
-              claimNumber: draft.claimNumber.trim(),
-              occurredOn: draft.occurredOn,
-              cause: draft.cause,
-            },
+            damageCase: written(draft),
+            replaces: base,
           });
         }}
       >
@@ -239,6 +266,16 @@ export function IssueDamageCaseSection({
       </form>
     </section>
   );
+}
+
+/** The draft as a save writes it: the insurer and the number trimmed. */
+function written(draft: IssueDamageCase): IssueDamageCase {
+  return {
+    insurer: draft.insurer.trim(),
+    claimNumber: draft.claimNumber.trim(),
+    occurredOn: draft.occurredOn,
+    cause: draft.cause,
+  };
 }
 
 function sameCase(

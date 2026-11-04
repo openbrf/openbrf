@@ -30,7 +30,13 @@ import {
   issueReporterNoticeMail,
 } from "../mail/templates";
 import { issueHandledBy, issueRecipientsWhere } from "./issue-handlers";
-import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
+import {
+  holdIssueTypeRingFence,
+  lockFilingBudget,
+  lockIssue,
+  lockMessageBudget,
+  MAIL_TRANSACTION_MS,
+} from "./issue-lock";
 
 /**
  * The mail about issues (decisions 10, 12 and 21 of the issue module plan):
@@ -288,6 +294,7 @@ const ISSUE_SELECT = {
   enteredByPersonId: true,
   enteredByHandler: true,
   boardOnly: true,
+  typeId: true,
   status: { select: { meaning: true } },
   type: { select: { name: true, handledBy: true } },
 } as const;
@@ -827,11 +834,14 @@ export class IssueMailer implements OnModuleInit {
    * Whether the message a notice tells of still exists. A notice that names no
    * message stands. A message is erased with the free text of a closed issue.
    */
-  private async messageStands(job: IssueNoticeJob): Promise<boolean> {
+  private async messageStands(
+    job: IssueNoticeJob,
+    db: Db = this.prisma,
+  ): Promise<boolean> {
     if (job.messageId === undefined) {
       return true;
     }
-    const found = await this.prisma.issueMessage.findFirst({
+    const found = await db.issueMessage.findFirst({
       where: { id: job.messageId, issueId: job.issueId },
       select: { id: true },
     });
@@ -847,6 +857,7 @@ export class IssueMailer implements OnModuleInit {
   private async lookUp(
     job: IssueNoticeJob,
     at: Date,
+    db: Db = this.prisma,
   ): Promise<{
     issue: NoticeIssue;
     recipient: {
@@ -856,15 +867,15 @@ export class IssueMailer implements OnModuleInit {
       preferredLocale: string | null;
     } | null;
   } | null> {
-    const issue = await this.readIssue(this.prisma, job.issueId);
+    const issue = await this.readIssue(db, job.issueId);
     if (
       issue === null ||
       !stillSo(issue, job, at) ||
-      !(await this.messageStands(job))
+      !(await this.messageStands(job, db))
     ) {
       return null;
     }
-    const recipient = await this.prisma.person.findFirst({
+    const recipient = await db.person.findFirst({
       where: recipientWhereOf(issue, job, at),
       select: {
         firstName: true,
@@ -895,67 +906,77 @@ export class IssueMailer implements OnModuleInit {
     // Decrypting took time, and a restriction, a board-only change or the end
     // of a board seat can have come since the read above: read the issue again
     // and ask again, by the time it is now, as close to the handoff as the code
-    // can. A clock handed in that is ahead of the real one is kept. This
-    // narrows the window and does not close it: the issue lock is not held
-    // here, because it would stay held across the mail service's rendering,
-    // sender lookup and the driver's network call. A restriction, board-only
-    // change or ended seat committed in that last stretch is not seen, and a
-    // mail with the number and type (and the priority, to a handler) and no
-    // free text can still go out. That is the accepted residual window;
-    // closing it would need the mail to be handed over inside a transaction
-    // that holds the lock.
+    // can. A clock handed in that is ahead of the real one is kept.
+    //
+    // The ring-fence is held as it is from that read until the mail server has
+    // taken the message: the board's change of it waits for the handoff, so a
+    // type ring-fenced meanwhile is decided either before the mail, which is
+    // then not sent, or after it. Shared, and under a key of its own, so that
+    // mails do not wait for each other and a filing or a handler's write does
+    // not wait for the mail server. A restriction, board-only change or ended
+    // seat committed in the last stretch is not seen, and a mail with the
+    // number and type (and the priority, to a handler) and no free text can
+    // still go out; the issue's lock is not held, because it would stay held
+    // across the mail service's rendering, sender lookup and network call.
     const handoffAt = new Date(Math.max(now.getTime(), Date.now()));
-    const again = await this.lookUp(job, handoffAt);
-    // An address changed while it was decrypted is not the one decrypted.
-    if (again?.recipient?.emailCipher !== cipher) {
-      this.logger.log(
-        `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
-      );
-      return "notOwed";
-    }
-    const current = again.issue;
-    const recipientName = `${recipient.firstName} ${recipient.lastName}`.trim();
-    try {
-      if (job.event === "reporterMessage") {
-        await this.mail.send({
-          to,
-          locale: recipient.preferredLocale,
-          template: issueReporterNoticeMail,
-          props: {
-            recipientName,
-            number: current.number,
-            typeName: current.type.name,
-          },
-        });
-      } else {
-        await this.mail.send({
-          to,
-          locale: recipient.preferredLocale,
-          template: issueHandlerNoticeMail,
-          props: {
-            recipientName,
-            event: job.event,
-            number: current.number,
-            typeName: current.type.name,
-            priority: current.priority,
-            targetDate: job.event === "overdue" ? current.targetDate : null,
-          },
-        });
-      }
-    } catch (error) {
-      if (error instanceof MailNotConfiguredError) {
-        this.logger.warn(
-          `Issue ${job.issueId} is in the queue but was not mailed: this instance has no mail settings.`,
-        );
-        return "noMailSettings";
-      }
-      // By the class of the failure: a rejection quotes the address back.
-      this.logger.error(
-        `Mail about issue ${job.issueId} (${job.event}) failed for ${job.personId}: ${failureName(error)}`,
-      );
-      throw error;
-    }
-    return "sent";
+    return this.prisma.$transaction(
+      async (tx): Promise<Delivery> => {
+        await holdIssueTypeRingFence(tx, found.issue.typeId);
+        const again = await this.lookUp(job, handoffAt, tx);
+        // An address changed while it was decrypted is not the one decrypted.
+        if (again?.recipient?.emailCipher !== cipher) {
+          this.logger.log(
+            `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
+          );
+          return "notOwed";
+        }
+        const current = again.issue;
+        const recipientName =
+          `${recipient.firstName} ${recipient.lastName}`.trim();
+        try {
+          if (job.event === "reporterMessage") {
+            await this.mail.send({
+              to,
+              locale: recipient.preferredLocale,
+              template: issueReporterNoticeMail,
+              props: {
+                recipientName,
+                number: current.number,
+                typeName: current.type.name,
+              },
+            });
+          } else {
+            await this.mail.send({
+              to,
+              locale: recipient.preferredLocale,
+              template: issueHandlerNoticeMail,
+              props: {
+                recipientName,
+                event: job.event,
+                number: current.number,
+                typeName: current.type.name,
+                priority: current.priority,
+                targetDate: job.event === "overdue" ? current.targetDate : null,
+              },
+            });
+          }
+        } catch (error) {
+          if (error instanceof MailNotConfiguredError) {
+            this.logger.warn(
+              `Issue ${job.issueId} is in the queue but was not mailed: this instance has no mail settings.`,
+            );
+            return "noMailSettings";
+          }
+          // By the class of the failure: a rejection quotes the address back.
+          this.logger.error(
+            `Mail about issue ${job.issueId} (${job.event}) failed for ${job.personId}: ${failureName(error)}`,
+          );
+          throw error;
+        }
+        return "sent";
+      },
+      { timeout: MAIL_TRANSACTION_MS, maxWait: 20_000 },
+    );
   }
 
   /**

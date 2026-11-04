@@ -16,14 +16,19 @@ leaves it.
   handled; taking the mark off leaves the hold, which a handler releases on its
   own. The insurer and the claim number are refused while they hold a personal
   identity number, and the audit log and the timeline record the cause and the
-  day, never the insurer or the number.
+  day, never the insurer or the number. A change made from a mark that another
+  handler has changed or taken off in the meantime is refused, and the screen
+  keeps the draft and offers the current mark, so one handler's claim number is
+  not written over by another's unseen.
 - **Ring-fenced issue types.** The board ring-fences a type in the settings,
   and the set a new instance starts with has a type for disturbances between
   neighbours ring-fenced, offered to residents. A ring-fenced type is handled
   by the board only, so the property manager never reads, counts or is given
   one of its issues and is unassigned when a type is ring-fenced. No work order
   is written on one, and nothing about one is mailed, to a handler or to the
-  person who reported it. A connected app and the AI package are offered
+  person who reported it; a mail that is being handed to the mail server when
+  the board ring-fences the type is decided first, and the change waits for it.
+  A connected app and the AI package are offered
   neither its issues nor the type. No report under it is made from a post, and
   the website's form offers none: a type on the form is taken off it before it
   can be ring-fenced. The report form and the board's screen each say who reads

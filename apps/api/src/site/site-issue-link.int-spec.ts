@@ -1315,10 +1315,16 @@ describe("D. rate limits and abuse", () => {
       // Neither of the two awaits the other here: the delivery holds the
       // issue's lock until the send is released, so awaiting the close first
       // would never return. The close is seen queued on that lock, which a
-      // delay could not tell from a close that is merely slow.
+      // delay could not tell from a close that is merely slow. A close takes
+      // the issue's type's lock before the issue's own, and the delivery holds
+      // both, so the close waits at the type's.
       await waitFor(
         async () =>
-          (await advisoryLockCount(prisma, `issue:${id}`, false)) > 0n,
+          (await advisoryLockCount(
+            prisma,
+            `issue-type:${publicType.id}`,
+            false,
+          )) > 0n,
         10_000,
       );
       expect(closeSettled).toBe(false);

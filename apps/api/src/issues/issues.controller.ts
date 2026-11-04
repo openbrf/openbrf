@@ -188,7 +188,7 @@ const ringFenceSchema = z.strictObject({ ringFenced: z.boolean() });
  * personal identity number and held to a day that has come in the service, so
  * a refusal it makes has a reason the screen can put a sentence to.
  */
-const damageCaseSchema = z.strictObject({
+const damageCaseFields = {
   insurer: z.string().trim().min(1).max(ISSUE_DAMAGE_CASE_LIMITS.insurer),
   claimNumber: z
     .string()
@@ -197,6 +197,16 @@ const damageCaseSchema = z.strictObject({
     .max(ISSUE_DAMAGE_CASE_LIMITS.claimNumber),
   occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   cause: z.enum(ISSUE_DAMAGE_CAUSES),
+};
+
+const damageCaseSchema = z.strictObject({
+  ...damageCaseFields,
+  /**
+   * The mark the change was made from, as the screen read it, or null for
+   * none. Required: a change that does not say what it began from cannot be
+   * told from one that writes over another handler's.
+   */
+  replaces: z.strictObject(damageCaseFields).nullable(),
 });
 
 /** Who pays, or null to say nothing again (decision 26). Never an amount. */
@@ -748,9 +758,11 @@ export class IssueQueueController {
     @Body() body: unknown,
     @Req() request: RequestWithPrincipal,
   ): Promise<QueuedIssueView> {
+    const { replaces, ...mark } = damageCaseSchema.parse(body);
     return this.issues.markDamageCase(
       id,
-      damageCaseSchema.parse(body),
+      mark,
+      replaces,
       actingPersonId(request),
     );
   }

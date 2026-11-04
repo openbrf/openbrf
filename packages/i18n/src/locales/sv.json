@@ -4296,10 +4296,13 @@
       "removing": "Tar bort...",
       "saved": "Skadeärendet är sparat.",
       "removed": "Markeringen är borttagen. Det rättsliga bevarandekravet står kvar tills någon häver det.",
+      "changedMeanwhile": "Markeringen ändrades medan du redigerade. Ditt utkast är inte sparat, och det går inte att spara förrän du har hämtat den nuvarande markeringen.",
+      "takeCurrent": "Hämta den nuvarande markeringen",
       "errors": {
         "incomplete": "Fyll i försäkringsbolaget och skadenumret.",
         "identityNumber": "Ett personnummer hör inte hemma i ett skadeärende. Ta bort det och försök igen; en referens som är formad som ett personnummer måste skrivas på ett annat sätt.",
         "dateInvalid": "Skadedagen måste vara ett datum som har varit.",
+        "changed": "Skadeärendet ändrades av någon annan efter att du öppnade det. Hämta den nuvarande markeringen och gör din ändring igen.",
         "notFound": "Ärendet finns inte längre, eller hanteras inte av dig. Läs in sidan igen.",
         "unknown": "Skadeärendet kunde inte sparas just nu. Försök igen."
       },

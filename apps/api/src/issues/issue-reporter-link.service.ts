@@ -20,7 +20,11 @@ import {
   toReporterView,
 } from "./issue-conversation.service";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
-import { lockIssue, lockIssueForHandling } from "./issue-lock";
+import {
+  lockIssue,
+  lockIssueForHandling,
+  MAIL_TRANSACTION_MS,
+} from "./issue-lock";
 import {
   extendReporterLink,
   type LiveReporterLink,
@@ -32,12 +36,6 @@ import {
   reporterLinkDigest,
 } from "./issue-reporter-link-token";
 import { IssueError } from "./issue.error";
-
-/**
- * How long the transaction that sends a link mail may run: the mail driver's
- * connection, greeting and socket timeouts (10 s, 10 s, 20 s) with room over.
- */
-const MAIL_TRANSACTION_MS = 60_000;
 
 /** The queue a public report's link mail waits on. */
 export const REPORTER_LINK_QUEUE = "issue-reporter-link";
@@ -379,16 +377,17 @@ export class IssueReporterLinkService implements OnModuleInit {
      * an address that was restricted meanwhile. The lock is held as long as
      * the send can take, which the transaction's time limit allows for.
      *
-     * The issue's lock too, after the registry's and for the same reason: a
-     * close, a withdrawal or the purge of the address between the two
-     * transactions is seen below, and one that comes later waits for the
-     * stamp. Nothing takes the issue's lock and then the registry's, so the
-     * two cannot wait on each other the other way round.
+     * The issue's type's lock and the issue's own too, after the registry's
+     * and for the same reason: a close, a withdrawal, the purge of the address
+     * or the board's ring-fence of the type between the two transactions is
+     * seen below, and one that comes later waits for the stamp. Nothing takes
+     * the type's or the issue's lock and then the registry's, so the locks
+     * cannot wait on each other the other way round.
      */
     const mailed = await this.prisma.$transaction(
       async (tx) => {
         await lockLegalHoldRegistry(tx);
-        await lockIssue(tx, issueId);
+        await lockIssueForHandling(tx, issueId);
         if (await this.isRestricted(tx, issued.emailIndex)) {
           await this.releaseUnsent(tx, issued);
           return false;

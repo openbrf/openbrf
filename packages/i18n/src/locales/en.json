@@ -4296,10 +4296,13 @@
       "removing": "Taking it off...",
       "saved": "The damage case is saved.",
       "removed": "The mark is off. The legal hold stays until somebody releases it.",
+      "changedMeanwhile": "The mark changed while you were editing. Your draft is not saved, and saving is off until you take the current mark.",
+      "takeCurrent": "Take the current mark",
       "errors": {
         "incomplete": "Fill in the insurer and the claim number.",
         "identityNumber": "A personal identity number has no place in a damage case. Take it out and try again; a reference that is shaped like one has to be written another way.",
         "dateInvalid": "The day of the damage has to be a day that has come.",
+        "changed": "The damage case was changed by somebody else after you opened it. Take the current mark and make your change again.",
         "notFound": "The issue is no longer there, or you do not handle it. Reload the page.",
         "unknown": "The damage case could not be saved just now. Please try again."
       },

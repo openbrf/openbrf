@@ -90,6 +90,9 @@ import { DomainError } from "../http/domain-error";
  * insurer or a claim number that is nothing once the invisible characters are
  * taken out, and `damage-date-invalid` a day of the damage that is not a day,
  * or one that has not come yet in the association's calendar.
+ * `damage-case-changed` is a change made from a mark another handler has
+ * changed or taken off since, which would write over theirs unseen: the claim
+ * number and the insurer are what a claim is made on.
  */
 export type IssueReason =
   | "type-not-found"
@@ -133,7 +136,8 @@ export type IssueReason =
   | "ring-fenced-public"
   | "ring-fenced-post"
   | "damage-case-incomplete"
-  | "damage-date-invalid";
+  | "damage-date-invalid"
+  | "damage-case-changed";
 
 /**
  * Where in a message, a note or a saved reply a refused value sits: a part and
@@ -167,7 +171,8 @@ export class IssueError extends DomainError {
       reason === "work-order-preview-stale" ||
       reason === "work-order-duplicate" ||
       reason === "legal-hold" ||
-      reason === "ring-fence-in-use"
+      reason === "ring-fence-in-use" ||
+      reason === "damage-case-changed"
         ? HttpStatus.CONFLICT
         : reason === "work-order-budget-spent"
           ? HttpStatus.TOO_MANY_REQUESTS

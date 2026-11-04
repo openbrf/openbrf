@@ -269,6 +269,30 @@ export interface IssueDamageCaseInput {
   cause: IssueDamageCause;
 }
 
+/**
+ * Whether the damage case a row holds is the one a change says it began from.
+ * Both `null` is the same: nothing was marked and nothing is.
+ */
+function sameDamageCase(
+  stored: {
+    insurer: string;
+    claimNumber: string;
+    occurredOn: Date;
+    cause: IssueDamageCause;
+  } | null,
+  from: IssueDamageCaseView | null,
+): boolean {
+  if (stored === null || from === null) {
+    return stored === null && from === null;
+  }
+  return (
+    stored.insurer === from.insurer &&
+    stored.claimNumber === from.claimNumber &&
+    formatDateColumn(stored.occurredOn) === from.occurredOn &&
+    stored.cause === from.cause
+  );
+}
+
 /** An issue's damage case (skadeärende, decision 28) as a handler reads it. */
 export interface IssueDamageCaseView {
   insurer: string;
@@ -1562,10 +1586,18 @@ export class IssueService {
    * calendar that has come. The entry carries the cause and the day, never
    * the insurer or the claim number, which are text a handler typed. A request
    * that changes nothing writes nothing.
+   *
+   * `replaces` is the mark the change was made from, `null` for none. A mark
+   * that is another by the time the change is decided - another handler
+   * changed it, or took it off - is refused as `damage-case-changed` rather
+   * than written over unseen: what a claim is made on is the insurer and the
+   * number, and a change that overwrote them would go to the insurer under the
+   * wrong ones. Decided under the issue's lock, with the write.
    */
   async markDamageCase(
     issueId: string,
     input: IssueDamageCaseInput,
+    replaces: IssueDamageCaseView | null,
     actorPersonId: string,
   ): Promise<QueuedIssueView> {
     const insurer = normalizeSingleLineText(input.insurer);
@@ -1619,6 +1651,12 @@ export class IssueService {
         formatDateColumn(existing.occurredOn) === input.occurredOn &&
         existing.cause === input.cause;
       if (!unchanged) {
+        if (!sameDamageCase(existing, replaces)) {
+          throw new IssueError(
+            "The damage case has been changed since you read it.",
+            "damage-case-changed",
+          );
+        }
         const data = { insurer, claimNumber, occurredOn, cause: input.cause };
         await tx.issueDamageCase.upsert({
           where: { issueId },
