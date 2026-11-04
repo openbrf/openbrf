@@ -62,8 +62,11 @@ function build(outcome: (id: string) => "removed" | "fail") {
 
 describe("one run of the issue text purge", () => {
   // A thousand failures logged one by one would bury the test's own output.
+  let logged: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
-    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    logged = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
     vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
   });
   afterEach(() => {
@@ -90,7 +93,7 @@ describe("one run of the issue text purge", () => {
     // came back empty.
     expect(eligiblePage).toHaveBeenCalledTimes(2);
     // The run says that the issues behind the failures wait, as an error.
-    expect(Logger.prototype.error).toHaveBeenCalledWith(
+    expect(logged).toHaveBeenCalledWith(
       expect.stringContaining("issues behind the ones that did not succeed"),
     );
   });
