@@ -377,6 +377,13 @@ locally the application runs from source beside the PostgreSQL that
       name, a mail says only that there is a new message and never what it says,
       and no action offers it to a connected app
       or the AI package (ADR 0056)
+- [x] Working the issue queue: four views, Mine, Unassigned, Overdue and All,
+      each with its count, and a filter by status, type and priority with a
+      search, all applied to every view. The views open on open issues. The
+      board's front page shows how many issues are open, how many are overdue
+      and how many have no assignee, and each number opens its view. The search
+      never matches a protected reporter's name or apartment. No dashboards
+      (ADR 0054)
 - [x] What is particular to a Swedish house on an issue: on an issue about an
       apartment the resident answers whether the association or a contractor
       may enter - yes or no, pets, whether the master key may be used, a note on

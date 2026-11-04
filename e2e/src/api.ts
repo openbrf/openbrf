@@ -756,6 +756,72 @@ export async function listIssueQueue(
   return (await response.json()) as readonly QueuedIssueRow[];
 }
 
+/** How many issues each view of the queue holds, as the server counts them. */
+export type IssueQueueCountsRow = Readonly<
+  Record<"mine" | "unassigned" | "overdue" | "all", number>
+>;
+
+/** The counts of the queue's views under a filter, as the screens read them. */
+export async function issueQueueCounts(
+  request: APIRequestContext,
+  baseUrl: string,
+  filter: Readonly<Record<string, string>> = {},
+): Promise<IssueQueueCountsRow> {
+  const query = new URLSearchParams(filter).toString();
+  const response = await request.get(
+    `${baseUrl}/api/issue-queue/counts${query === "" ? "" : `?${query}`}`,
+  );
+  await expectOk(response, "GET /api/issue-queue/counts");
+  return (await response.json()) as IssueQueueCountsRow;
+}
+
+/**
+ * Opens an internal issue, with no reporter, as a handler does (decision 14).
+ *
+ * Here rather than through the screen for the specs that need issues in a
+ * given state before the screen under test is opened; opening one has its own
+ * coverage.
+ */
+export async function openInternalIssue(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: { typeId: string; description: string },
+): Promise<QueuedIssueRow> {
+  const response = await request.post(`${baseUrl}/api/issue-queue`, {
+    data: input,
+  });
+  await expectOk(response, "POST /api/issue-queue");
+  return (await response.json()) as QueuedIssueRow;
+}
+
+/** Gives an issue to a handler, or to nobody. */
+export async function assignIssue(
+  request: APIRequestContext,
+  baseUrl: string,
+  issueId: string,
+  assigneePersonId: string | null,
+): Promise<void> {
+  const response = await request.post(
+    `${baseUrl}/api/issue-queue/${encodeURIComponent(issueId)}/assignee`,
+    { data: { assigneePersonId } },
+  );
+  await expectOk(response, "POST /api/issue-queue/:id/assignee");
+}
+
+/** Sets the day an issue is meant to be done by, `YYYY-MM-DD`. */
+export async function setIssueTargetDate(
+  request: APIRequestContext,
+  baseUrl: string,
+  issueId: string,
+  targetDate: string | null,
+): Promise<void> {
+  const response = await request.post(
+    `${baseUrl}/api/issue-queue/${encodeURIComponent(issueId)}/target-date`,
+    { data: { targetDate } },
+  );
+  await expectOk(response, "POST /api/issue-queue/:id/target-date");
+}
+
 /**
  * One row of the board's address book.
  *

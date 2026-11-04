@@ -1042,6 +1042,20 @@ describe("common-area places", () => {
       `/api/issue-queue?placeId=${lift}`,
     );
     expect(narrowed.json<unknown[]>()).toHaveLength(3);
+
+    // The place narrows a view and its count alike, as the screen reads them.
+    const snapshot = await call(
+      board,
+      "GET",
+      `/api/issue-queue/snapshot?view=ALL&placeId=${lift}`,
+    );
+    expect(snapshot.statusCode).toBe(200);
+    const read = snapshot.json<{
+      issues: unknown[];
+      counts: { all: number };
+    }>();
+    expect(read.issues).toHaveLength(3);
+    expect(read.counts.all).toBe(3);
   });
 
   it("are set by a handler, and recorded on the timeline", async () => {

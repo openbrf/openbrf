@@ -330,7 +330,7 @@ test("the board's front page leads to each queue's own page", async ({
   await signInThroughTheScreen(page, BOARD_MEMBER);
 
   for (const [row, path, heading] of [
-    ["Nya ärenden", "/board/issues", "Styrelse och förvaltare Hantera ärenden"],
+    ["Ärenden", "/board/issues", "Styrelse och förvaltare Hantera ärenden"],
     [
       "Motioner som inte är mottagna",
       "/board/motions",
@@ -355,7 +355,10 @@ test("the board's front page leads to each queue's own page", async ({
   ] as const) {
     await page.goto(appPath("/board"));
     await expect(pageHeading(page, "Styrelsen Att hantera")).toBeVisible();
-    await queueRow(page, row).getByRole("link").click();
+    // By its name: the issue queue's row also leads to its views.
+    await queueRow(page, row)
+      .getByRole("link", { name: row, exact: true })
+      .click();
     await expect(page).toHaveURL(`${stack.baseUrl}${appPath(path)}`);
     await expect(pageHeading(page, heading)).toBeVisible();
   }
@@ -606,7 +609,7 @@ test("the property manager has no front page, and its address says so", async ({
   const counted: string[] = [];
   page.on("request", (sent) => {
     const { pathname } = new URL(sent.url());
-    if (pathname.endsWith("/api/issue-queue")) {
+    if (pathname.includes("/api/issue-queue")) {
       counted.push(pathname);
     }
   });

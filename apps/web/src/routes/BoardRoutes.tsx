@@ -1,4 +1,4 @@
-import { useParams } from "@tanstack/react-router";
+import { useParams, useSearch } from "@tanstack/react-router";
 import type { ReactElement } from "react";
 
 import { BinderBoardScreen } from "../apartment-binder/BinderBoardScreen";
@@ -7,6 +7,7 @@ import { BookingBoardScreen } from "../bookings/BookingBoardScreen";
 import { DocumentBoardScreen } from "../documents/DocumentBoardScreen";
 import { EventBoardScreen } from "../events/EventBoardScreen";
 import { ReportQueueScreen } from "../feed/ReportQueueScreen";
+import { viewOfParam } from "../issues/issue-queue-views";
 import { IssueQueueScreen } from "../issues/IssueQueueScreen";
 import { KeyOrderQueueScreen } from "../key-orders/KeyOrderQueueScreen";
 import { MotionQueueScreen } from "../motions/MotionQueueScreen";
@@ -29,11 +30,14 @@ export function BoardFrontRoute(): ReactElement {
   );
 }
 
-/** "Handle issues". */
+/** "Handle issues", on the view the address names. */
 export function IssueQueueRoute(): ReactElement {
+  const { view } = useSearch({ from: "/board/issues" });
   return (
     <SignedInFrame>
-      {(viewer) => <IssueQueueScreen viewer={viewer} />}
+      {(viewer) => (
+        <IssueQueueScreen viewer={viewer} view={viewOfParam(view)} />
+      )}
     </SignedInFrame>
   );
 }

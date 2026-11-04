@@ -25,13 +25,15 @@ beforeEach(() => {
 });
 
 describe("the queue counts", () => {
-  it("counts the new issues, asking for those alone", async () => {
-    apiRequest.mockResolvedValue(ok([{ id: "a" }, { id: "b" }]));
+  it("counts the open issues nobody is assigned, as the server counts them", async () => {
+    apiRequest.mockResolvedValue(
+      ok({ mine: 1, unassigned: 2, overdue: 1, all: 5 }),
+    );
 
     expect(await QUEUE_COUNTS.issues()).toEqual(ok({ count: 2, more: false }));
     expect(apiRequest).toHaveBeenCalledWith(
       "GET",
-      "/api/issue-queue?meaning=NEW",
+      "/api/issue-queue/counts?meaning=OPEN",
     );
   });
 

@@ -585,6 +585,22 @@ describe("moving a report to another status", () => {
     expect(screen.getByText(/statusarna kunde inte läsas/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Spara status" })).toBeNull();
   });
+
+  it("offers a retry of the types when the caller can read them again", async () => {
+    const onRetryTypes = vi.fn();
+    render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={null}
+        onChanged={() => undefined}
+        onRetryTypes={onRetryTypes}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(onRetryTypes).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("the status of a report", () => {
@@ -647,6 +663,18 @@ describe("handling an issue", () => {
     expect(screen.getByText("Försenat")).toBeTruthy();
     expect(screen.getByText("Bara styrelsen")).toBeTruthy();
     expect(screen.getByText("Bea Styrelse")).toBeTruthy();
+  });
+
+  it("sets an overdue issue's row apart by its edge as well as its words", () => {
+    show(issue({ targetDate: "2026-08-25", overdue: true }));
+    expect(screen.getByRole("listitem").className).toContain("border-l-danger");
+  });
+
+  it("gives an issue on time no such edge", () => {
+    show(issue({ targetDate: "2026-08-25", overdue: false }));
+    expect(screen.getByRole("listitem").className).not.toContain(
+      "border-l-danger",
+    );
   });
 
   it("reads the handlers and the timeline only once the issue is opened", async () => {
