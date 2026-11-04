@@ -18,6 +18,11 @@ import { authClient } from "../auth/auth-client";
 import { ConnectedAppsRoute } from "../connected-apps/ConnectedAppsRoute";
 import { DisplayPage } from "../display/DisplayPage";
 import { DISPLAY_PAGE_PATH } from "../display/display-link";
+import {
+  type IssueViewParam,
+  VIEW_PARAM,
+  viewOfParam,
+} from "../issues/issue-queue-views";
 import { PendingChangesRoute } from "../pending-changes/PendingChangesRoute";
 import { useResidentPreview } from "../shell/use-resident-preview";
 import {
@@ -484,10 +489,20 @@ const boardFrontRoute = createRoute({
 /**
  * The issue queue, which the board shares with the external property manager.
  * Reporting an issue stays on /issues, the house's page.
+ *
+ * `view` names one of its four views (Mina, Ej tilldelade, Försenade, Alla),
+ * so the board's front page can lead to one. Anything else is no view rather
+ * than a router error, and the queue opens on its default.
  */
 const boardIssuesRoute = createRoute({
   getParentRoute: () => boardRoute,
   path: "issues",
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { view?: IssueViewParam } => {
+    const view = viewOfParam(search.view);
+    return view === null ? {} : { view: VIEW_PARAM[view] };
+  },
   component: IssueQueueRoute,
 });
 
