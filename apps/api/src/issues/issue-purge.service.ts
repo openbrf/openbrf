@@ -304,10 +304,10 @@ export class IssuePurgeService implements OnModuleInit {
    * The closed issues with a work order whose text is still kept past its
    * window, by the oldest closing first.
    *
-   * An issue whose reporter is withheld - a person under a legal hold or a
-   * restriction, or a public-form address that is theirs - is excluded by the
-   * query rather than dropped from its answer, for the reason `eligible`
-   * gives about its bound.
+   * An issue under a legal hold of its own (`legalHoldAt`, ADR 0057), or whose
+   * reporter is withheld - a person under a legal hold or a restriction, or a
+   * public-form address that is theirs - is excluded by the query rather than
+   * dropped from its answer, for the reason `eligible` gives about its bound.
    */
   async eligibleWorkOrderTexts(
     now: Date,
@@ -321,6 +321,7 @@ export class IssuePurgeService implements OnModuleInit {
       where: {
         status: { meaning: "DONE" },
         closedAt: { not: null, lte: cutoff },
+        legalHoldAt: null,
         ...WORK_ORDER_TEXT_STANDING,
         AND: [
           // Conditional, with the null branch beside it, for the reason
@@ -359,12 +360,14 @@ export class IssuePurgeService implements OnModuleInit {
    * Erases the text of one closed issue's work orders, and answers whether any
    * went. The recipient, the date and the delivery record stay.
    *
-   * The closing is stated again in the update's own `where`, so an issue
-   * reopened since the scan keeps its texts; and the reporter's hold or
-   * restriction is read again under the legal hold registry key, which a hold
-   * placement and a restriction grant take too, so one committed while the
-   * run is in flight wins. The entry records how many texts went and the
-   * window, never a word of them.
+   * The closing and the issue's own legal hold are read again under the issue
+   * lock, which a reopen and a hold placed on the issue take too
+   * (`lockIssueForHandling`), so an issue reopened or held since the scan
+   * keeps its texts; and the reporter's hold or restriction is read again
+   * under the legal hold registry key, which a hold placement and a
+   * restriction grant take too, so one committed while the run is in flight
+   * wins. The entry records how many texts went and the window, never a word
+   * of them.
    */
   async purgeWorkOrderTexts(
     issueId: string,
@@ -376,14 +379,16 @@ export class IssuePurgeService implements OnModuleInit {
     return this.prisma.$transaction(async (tx) => {
       await lockLegalHoldRegistry(tx);
       // The issue's own lock, which a reopen takes before it clears
-      // `closedAt` (`issue-lock.ts`): the closing read below then holds until
-      // the texts are erased.
+      // `closedAt` and a handler takes before placing a legal hold on the
+      // issue (`issue-lock.ts`): the closing and the hold read below then hold
+      // until the texts are erased.
       await lockIssue(tx, issueId);
       const issue = await tx.issue.findFirst({
         where: {
           id: issueId,
           status: { meaning: "DONE" },
           closedAt: { not: null, lte: cutoff },
+          legalHoldAt: null,
         },
         select: { reporterPersonId: true, reporterEmailIndex: true },
       });

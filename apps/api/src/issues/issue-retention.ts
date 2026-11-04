@@ -72,8 +72,9 @@ export const ISSUE_RETENTION_DAYS = 365;
  * (bokföringslagen (1999:1078) 7 kap. 2 §). Past ten years nothing in law
  * needs the text, and storage limitation (GDPR art. 5(1)(e)) ends it. A demand
  * that interrupts the limitation (5 §) starts ten years again, and this clock
- * does not see it: only a legal hold or a restriction against the issue's
- * reporter stops the purge (`IssuePurgeService`).
+ * does not see it: only a legal hold on the issue itself, or a legal hold or a
+ * restriction against the issue's reporter, stops the purge
+ * (`IssuePurgeService`).
  *
  * Counted in days as every clock here is, 3,653 of them: ten years of 365 and
  * the three leap days ten years can hold, so the text never goes before the

@@ -96,7 +96,8 @@ A case reopened before its date stops the clock, because reopening clears
 `closedAt`. The 30 days in which a reply reopens a case (ADR 0054) are inside the
 shortest clock.
 
-The clock does not run while a legal hold applies:
+Neither clock, the free-text layer's or a work order's text's, runs while a
+legal hold applies:
 
 - **on the case**, which marking a case as a damage case sets (decision 28) and
   which is placed and released with a date, as a person's legal hold is;

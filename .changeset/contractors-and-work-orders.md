@@ -57,7 +57,8 @@ a preview, and the issue keeps the record of it (ADR 0055).
   whom, when, and whether the mail went out, saying "not sent" only for a
   failure known not to have left the instance. The text of a work order is erased
   ten years after its issue was closed, when a claim about the work it ordered
-  becomes time-barred; when it was sent stays, and whom it went to stays while
+  becomes time-barred, unless a legal hold stands on the issue; when it was
+  sent stays, and whom it went to stays while
   the contractor is on the list. A report from the public form still loses
   its reporter's name and email address a year after it is closed, but while
   the text of a work order about it stands, the address is kept in a coded

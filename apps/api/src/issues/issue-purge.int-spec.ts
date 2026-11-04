@@ -905,6 +905,48 @@ describe("the text of a work order", () => {
     expect((await readOrder(orderId)).body).toBe("Justera stangaren.");
   });
 
+  it("is kept while a legal hold stands on the issue, and erased once it is released", async () => {
+    const issueId = await residentIssueClosed(
+      "Vattenskada i taket efter stammen.",
+      WORK_ORDER_BODY_RETENTION_DAYS + 1,
+    );
+    const orderId = await workOrderOn(issueId, "Riv ut den vata skivan.");
+    expect(
+      await purge.eligibleWorkOrderTexts(
+        new Date(),
+        WORK_ORDER_BODY_RETENTION_DAYS,
+      ),
+    ).toContain(issueId);
+
+    async function setHold(held: boolean): Promise<void> {
+      const response = await inject({
+        method: "POST",
+        url: `/api/issue-queue/${issueId}/legal-hold`,
+        headers: { cookie: boardCookie },
+        payload: { held },
+      });
+      expect(response.statusCode).toBe(201);
+    }
+
+    // Placed after the scan above, as a handler's hold may land while a run
+    // is in flight: the transaction that erases reads it again.
+    await setHold(true);
+    await expect(purge.purgeWorkOrderTexts(issueId)).resolves.toBe(false);
+    expect(
+      await purge.eligibleWorkOrderTexts(
+        new Date(),
+        WORK_ORDER_BODY_RETENTION_DAYS,
+      ),
+    ).not.toContain(issueId);
+    await purge.run();
+    expect((await readOrder(orderId)).body).toBe("Riv ut den vata skivan.");
+
+    await setHold(false);
+    const summary = await purge.run();
+    expect(summary.workOrderTexts.failed).toBe(0);
+    expect((await readOrder(orderId)).body).toBeNull();
+  });
+
   it("is kept while a legal hold stands against the reporter", async () => {
     const issueId = await reportPublicly(
       "Skadat racke pa balkongen.",
