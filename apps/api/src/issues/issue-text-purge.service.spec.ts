@@ -36,11 +36,14 @@ function build(outcome: (id: string) => "removed" | "fail") {
     {} as IssueFreeTextService,
     {} as JobQueueService,
   );
-  let page = 0;
   const eligiblePage = vi
     .spyOn(service, "eligiblePage")
-    .mockImplementation(async () => {
-      page += 1;
+    .mockImplementation(async (_now, _years, after) => {
+      // The first page has no cursor; each later one follows the last row of
+      // the page before it, so a run that drops its cursor is read as page 1
+      // again.
+      const page =
+        after === undefined ? 1 : Number(/^p(\d+)-/.exec(after.id)?.[1]) + 1;
       return Array.from({ length: 500 }, (_, index) => ({
         id: `p${String(page)}-${String(index)}`,
         closedAt: new Date(NOW.getTime() - (10_000 - page) * 86_400_000),
@@ -78,9 +81,6 @@ describe("one run of the issue text purge", () => {
 
   it("stops at 1000 attempts when every removal fails", async () => {
     const { service, eligiblePage, purgeIssue } = build(() => "fail");
-    const error = vi
-      .spyOn(Logger.prototype, "error")
-      .mockImplementation(() => undefined);
 
     const summary = await service.run(NOW, 2);
 
@@ -90,19 +90,35 @@ describe("one run of the issue text purge", () => {
     // came back empty.
     expect(eligiblePage).toHaveBeenCalledTimes(2);
     // The run says that the issues behind the failures wait, as an error.
-    expect(error).toHaveBeenCalledWith(
+    expect(Logger.prototype.error).toHaveBeenCalledWith(
       expect.stringContaining("issues behind the ones that did not succeed"),
     );
-    error.mockRestore();
   });
 
   it("reads past failing old issues to newer ones", async () => {
-    const { service } = build((id) =>
+    const { service, eligiblePage } = build((id) =>
       id.startsWith("p1-") ? "fail" : "removed",
     );
 
     const summary = await service.run(NOW, 2);
 
     expect(summary).toEqual({ considered: 1000, purged: 500, failed: 500 });
+    expect(eligiblePage.mock.calls[1]?.[2]).toEqual({
+      closedAt: expect.any(Date),
+      id: "p1-499",
+    });
+  });
+
+  it("stops inside a page once 500 removals are reached", async () => {
+    const { service, purgeIssue } = build((id) =>
+      id === "p1-0" ? "fail" : "removed",
+    );
+
+    const summary = await service.run(NOW, 2);
+
+    // Page 1 gives 499 removals and one failure; the 500th removal is the
+    // first issue of page 2, and the other 499 on that page are not taken.
+    expect(summary).toEqual({ considered: 501, purged: 500, failed: 1 });
+    expect(purgeIssue).toHaveBeenCalledTimes(501);
   });
 });
