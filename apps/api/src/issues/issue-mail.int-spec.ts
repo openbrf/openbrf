@@ -2045,6 +2045,10 @@ describe("delivering a mail", () => {
       HANDLER_STATUS_LABEL,
       REPORTER_MESSAGE,
       HANDLER_MESSAGE,
+      // The opening words of each message, which a shortened preview would
+      // still print although it is not the whole text.
+      REPORTER_MESSAGE.split(" ")[0],
+      HANDLER_MESSAGE.split(" ")[0],
       // The reporter's name, which only the reporter's own mail greets.
       resident.lastName,
     ];
