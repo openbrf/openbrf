@@ -121,6 +121,34 @@ describe("the sensitive-data warning", () => {
     expect(screen.queryByText(/extern förvaltare/i)).toBeNull();
   });
 
+  it("keeps the intro line for an ordinary type, and drops it for a ring-fenced one", async () => {
+    const session = userEvent.setup();
+    renderPanel({
+      types: [
+        ...TYPES,
+        {
+          id: "type-noise",
+          name: "Störningar",
+          reporters: ["RESIDENTS"],
+          ringFenced: true,
+        },
+      ],
+    });
+    const intro = /styrelsen och förvaltaren läser det här/i;
+    const select = screen.getByLabelText(/vad gäller det/i);
+
+    await session.selectOptions(select, "type-water");
+    expect(screen.getByText(intro)).toBeTruthy();
+
+    // The intro says the property manager reads the report; the ring-fence
+    // warning on the same card says never.
+    await session.selectOptions(select, "type-noise");
+    expect(screen.queryByText(intro)).toBeNull();
+
+    await session.selectOptions(select, "type-water");
+    expect(screen.getByText(intro)).toBeTruthy();
+  });
+
   it("does not stop a report that reads like personal data", async () => {
     const session = userEvent.setup();
     renderPanel();

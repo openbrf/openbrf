@@ -265,7 +265,12 @@ export function ReportIssuePanel({
   return (
     <Panel
       title={t("issues.report.title")}
-      description={t("issues.report.description")}
+      /* Dropped for a ring-fenced type: the line says the property manager
+         reads the report, and the warning below says never the property
+         manager. */
+      description={
+        chosen?.ringFenced === true ? undefined : t("issues.report.description")
+      }
       notice={
         submit.state.kind === "failed" ? (
           <Notice tone="danger" live>
