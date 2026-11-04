@@ -82,15 +82,28 @@ function build(
     issue: {
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
+    $queryRaw: vi.fn().mockResolvedValue([]),
+    // The interactive form: the work runs against its own client, so a write
+    // made on the root client instead is a write outside the transaction, and
+    // the root's mocks say so.
+    $transaction: vi.fn(
+      async (
+        work: (tx: unknown) => Promise<unknown>,
+        _options?: unknown,
+      ): Promise<unknown> => work(tx),
+    ),
+  };
+  const tx = {
+    apartment: {
+      delete: vi.fn().mockResolvedValue({ id: "apartment-1" }),
+    },
+    issue: {
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
     // The issues of the apartment, read under their row locks.
     $queryRaw: vi
       .fn()
       .mockResolvedValue([] as { id: string; entryAnswer: string | null }[]),
-    // The interactive form: the work runs against the same fake, in order.
-    $transaction: vi.fn(
-      async (work: (tx: unknown) => Promise<unknown>): Promise<unknown> =>
-        work(prisma),
-    ),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
 
@@ -100,6 +113,7 @@ function build(
       audit as unknown as AuditLogService,
     ),
     prisma,
+    tx,
     audit,
   };
 }
@@ -353,25 +367,46 @@ describe("adding apartments", () => {
 
 describe("removing an apartment", () => {
   it("removes one nothing in the register refers to", async () => {
+    const { service, prisma, tx } = build({
+      apartment: { id: "apartment-1", number: "1101" },
+    });
+
+    await service.removeApartment("apartment-1", BOARD);
+
+    expect(tx.apartment.delete).toHaveBeenCalledWith({
+      where: { id: "apartment-1" },
+    });
+    // Every write in the transaction, none on the root client.
+    expect(prisma.apartment.delete).not.toHaveBeenCalled();
+    expect(prisma.issue.updateMany).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("gives the transaction a budget of its own", async () => {
     const { service, prisma } = build({
       apartment: { id: "apartment-1", number: "1101" },
     });
 
     await service.removeApartment("apartment-1", BOARD);
 
-    expect(prisma.apartment.delete).toHaveBeenCalledWith({
-      where: { id: "apartment-1" },
+    // Not Prisma's five seconds: the removal waits on each issue's lock and
+    // writes an entry per answer, and nothing caps how many there are.
+    const [, options] = prisma.$transaction.mock.calls[0] ?? [];
+    expect(options).toMatchObject({
+      timeout: expect.any(Number) as number,
+      maxWait: expect.any(Number) as number,
     });
+    expect((options as { timeout: number }).timeout).toBeGreaterThan(5_000);
   });
 
   it("takes the permission to enter off its issues in the same transaction", async () => {
-    const { service, prisma } = build({
+    const { service, prisma, tx } = build({
       apartment: { id: "apartment-1", number: "1101" },
     });
 
     await service.removeApartment("apartment-1", BOARD);
 
-    expect(prisma.issue.updateMany).toHaveBeenCalledWith({
+    expect(tx.issue.updateMany).toHaveBeenCalledWith({
       where: { apartmentId: "apartment-1" },
       data: {
         entryAnswer: null,
@@ -384,20 +419,20 @@ describe("removing an apartment", () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     // Inside that one transaction: the rows are locked first, then cleared,
     // then the apartment goes.
-    const [read] = prisma.$queryRaw.mock.invocationCallOrder;
-    const [clear] = prisma.issue.updateMany.mock.invocationCallOrder;
-    const [remove] = prisma.apartment.delete.mock.invocationCallOrder;
+    const [read] = tx.$queryRaw.mock.invocationCallOrder;
+    const [clear] = tx.issue.updateMany.mock.invocationCallOrder;
+    const [remove] = tx.apartment.delete.mock.invocationCallOrder;
     expect(read).toBeLessThan(clear ?? 0);
     expect(clear).toBeLessThan(remove ?? 0);
-    const [query] = prisma.$queryRaw.mock.calls[0] ?? [];
+    const [query] = tx.$queryRaw.mock.calls[0] ?? [];
     expect((query as TemplateStringsArray).join("?")).toContain("FOR UPDATE");
   });
 
   it("records each answer it takes off as withdrawn by whoever removed the apartment", async () => {
-    const { service, prisma, audit } = build({
+    const { service, tx, audit } = build({
       apartment: { id: "apartment-1", number: "1101" },
     });
-    prisma.$queryRaw.mockResolvedValue([
+    tx.$queryRaw.mockResolvedValue([
       { id: "issue-answered", entryAnswer: "YES" },
       { id: "issue-unanswered", entryAnswer: null },
     ]);
@@ -415,15 +450,15 @@ describe("removing an apartment", () => {
         targetId: "issue-answered",
         context: { byReporter: false, apartmentRemoved: true },
       }),
-      prisma,
+      tx,
     );
   });
 
   it("records nothing when the delete is refused", async () => {
-    const { service, prisma, audit } = build({
+    const { service, tx, audit } = build({
       apartment: { id: "apartment-1", number: "1101", counts: { fees: 1 } },
     });
-    prisma.$queryRaw.mockResolvedValue([
+    tx.$queryRaw.mockResolvedValue([
       { id: "issue-answered", entryAnswer: "YES" },
     ]);
 
@@ -431,7 +466,7 @@ describe("removing an apartment", () => {
       service.removeApartment("apartment-1", BOARD),
     ).rejects.toMatchObject({ reason: "apartment-in-use" });
     expect(audit.record).not.toHaveBeenCalled();
-    expect(prisma.issue.updateMany).not.toHaveBeenCalled();
+    expect(tx.issue.updateMany).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -450,7 +485,7 @@ describe("removing an apartment", () => {
     ["a fee", { fees: 1 }],
     ["a fee notice", { feeNotices: 1 }],
   ])("refuses one with %s", async (_label, counts: Counts) => {
-    const { service, prisma } = build({
+    const { service, tx } = build({
       apartment: { id: "apartment-1", number: "1101", counts },
     });
 
@@ -459,7 +494,7 @@ describe("removing an apartment", () => {
     ).rejects.toMatchObject({
       reason: "apartment-in-use",
     });
-    expect(prisma.apartment.delete).not.toHaveBeenCalled();
+    expect(tx.apartment.delete).not.toHaveBeenCalled();
   });
 
   it("answers the refusal, not a server error, when a key decides", async () => {
@@ -469,10 +504,10 @@ describe("removing an apartment", () => {
      * the delete raise P2003, and uncaught that reaches the board as "something
      * went wrong" rather than as the sentence the branch above already has.
      */
-    const { service, prisma } = build({
+    const { service, tx } = build({
       apartment: { id: "apartment-1", number: "1101" },
     });
-    prisma.apartment.delete.mockRejectedValue(
+    tx.apartment.delete.mockRejectedValue(
       new Prisma.PrismaClientKnownRequestError("foreign key violation", {
         code: "P2003",
         clientVersion: "test",

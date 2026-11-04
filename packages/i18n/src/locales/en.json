@@ -3772,7 +3772,8 @@
         "postNotFound": "The post does not exist, or you cannot read it. The report was not sent.",
         "postNotReportable": "Only whoever wrote the post and the board can report an issue from it. The report was not sent.",
         "postAlreadyReported": "Somebody has already reported an issue from this post. The report was not sent.",
-        "placeNotFound": "That common area is no longer offered. Choose another or none."
+        "placeNotFound": "That common area is no longer offered. Choose another or none.",
+        "placeWithApartment": "A common area is chosen only when the report is not about an apartment. Choose one or the other."
       },
       "place": "Common area",
       "placeNone": "None in particular",
@@ -4165,6 +4166,7 @@
         "issueNotFound": "That issue is gone, or no longer yours to handle. The queue has been read again.",
         "closed": "The issue is closed. The queue has been read again.",
         "placeNotFound": "That common area is no longer offered. The list has been read again.",
+        "placeWithApartment": "The issue is about an apartment, so it takes no common area.",
         "findingNeedsTargetDate": "A finding needs a target date.",
         "findingTargetDateTooLate": "A lift's remaining faults are to be put right within a month of the inspection. Choose an earlier day.",
         "protocolNotFound": "That file is not attached to this issue any more. The list has been read again.",

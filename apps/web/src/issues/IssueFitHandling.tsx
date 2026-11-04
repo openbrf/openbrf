@@ -38,6 +38,7 @@ const FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.fit.errors.issueNotFound",
   "issue-closed": "issues.fit.errors.closed",
   "place-not-found": "issues.fit.errors.placeNotFound",
+  "place-with-apartment": "issues.fit.errors.placeWithApartment",
   "finding-needs-target-date": "issues.fit.errors.findingNeedsTargetDate",
   "finding-target-date-too-late": "issues.fit.errors.findingTargetDateTooLate",
   "finding-protocol-not-found": "issues.fit.errors.protocolNotFound",
@@ -82,9 +83,10 @@ function perform(issueId: string, act: Act): Promise<ApiResult<QueuedIssue>> {
  * enter, and the mark of an inspection finding.
  *
  * Mounted with the rest of the handling, only while a handler has the issue
- * open. The entry permission is offered on an issue about an apartment that is
- * not done, because it is cleared when the issue closes; the finding on an issue
- * that is not done. The server decides all of it again.
+ * open. A place is offered on an issue that is not about an apartment, as the
+ * report form offers it. The entry permission is offered on an issue about an
+ * apartment that is not done, because it is cleared when the issue closes; the
+ * finding on an issue that is not done. The server decides all of it again.
  */
 export function IssueFitHandling({
   issue,
@@ -163,19 +165,21 @@ export function IssueFitHandling({
         </Notice>
       ) : null}
 
-      <PlaceForm
-        key={`place:${current?.id ?? ""}`}
-        initial={current?.id ?? ""}
-        options={options}
-        disabled={busy || places === null}
-        onDraftChanged={onDraftChanged}
-        onSave={(placeId) => {
-          void save.submit({
-            kind: "place",
-            placeId: placeId === "" ? null : placeId,
-          });
-        }}
-      />
+      {issue.apartment === null ? (
+        <PlaceForm
+          key={`place:${current?.id ?? ""}`}
+          initial={current?.id ?? ""}
+          options={options}
+          disabled={busy || places === null}
+          onDraftChanged={onDraftChanged}
+          onSave={(placeId) => {
+            void save.submit({
+              kind: "place",
+              placeId: placeId === "" ? null : placeId,
+            });
+          }}
+        />
+      ) : null}
 
       {issue.apartment !== null && open ? (
         <section className="flex flex-col gap-2">

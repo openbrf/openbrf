@@ -5,10 +5,10 @@
 "@openbrf/shared": minor
 ---
 
-An issue can now carry the resident's permission to enter their apartment, the
-common area it is about, and the mark of an inspection finding.
+An issue can now carry the resident's entry permission for their apartment,
+the common area it is about, and the mark of an inspection finding.
 
-- **Permission to enter.** On an issue about an apartment, the resident who
+- **Entry permission.** On an issue about an apartment, the resident who
   reported it answers whether the association or a contractor may enter: yes or
   no, and for a yes whether there are pets, whether the master key may be used,
   a short note on how to get in and the last day the permission stands. A
@@ -25,7 +25,8 @@ common area it is about, and the mark of an inspection finding.
   the apartment is being removed is cleared with them or refused. Nothing of it is offered to a connected app or the AI package.
 - **Common areas.** The board keeps a short list of common areas, such as the
   laundry room, the lift and the yard, under Settings, and a report can name one
-  beside its free-text location. The list never holds an apartment. A new
+  beside its free-text location. The list never holds an apartment, and an
+  issue about an apartment names no area: the server refuses the pair. A new
   instance starts with nine, and an instance already set up gets the same nine
   when it upgrades, in its own language. A handler can set or change the area on
   an issue, and the queue shows how many issues each area has, closed ones
@@ -42,8 +43,10 @@ common area it is about, and the mark of an inspection finding.
   reads any other and its assignee is reminded once it has passed, and a
   finding cannot be left without one. A lift's must fall
   no later than a month after the inspection (BFS 2025:11, 1 kap. 17 §); the
-  other kinds have the date the handler sets. When the protocol is later
-  removed from the issue the mark stays.
+  other kinds have the date the handler sets. The first mark places a legal
+  hold on the issue, so the protocol and the issue's text are kept until a
+  handler releases the hold; taking the mark off leaves the hold standing. When
+  the protocol is removed from the issue after that, the mark stays.
 
 The audit log records each of these acts with who acted and the facts, never the
 note or a file's name.

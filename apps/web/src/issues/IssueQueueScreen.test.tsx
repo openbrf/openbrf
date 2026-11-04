@@ -777,6 +777,65 @@ describe("the place filter", () => {
     expect(placesAsked().at(-1)).toBeUndefined();
   });
 
+  it("never draws a place's answer that a later choice superseded", async () => {
+    const session = userEvent.setup();
+    const LAUNDRY = {
+      id: "p-laundry",
+      name: "Tvättstuga",
+      active: true,
+      issues: 1,
+      open: 1,
+    };
+    fetchIssuePlaceCounts.mockResolvedValue({
+      ok: true,
+      value: [LIFT, LAUNDRY],
+    });
+    // The lift's read is held open; every other read answers at once.
+    let answerLift: (value: unknown) => void = () => undefined;
+    fetchIssueQueueSnapshot.mockImplementation((input: { placeId?: string }) =>
+      input.placeId === "p-lift"
+        ? new Promise((resolve) => {
+            answerLift = resolve;
+          })
+        : Promise.resolve(
+            input.placeId === "p-laundry"
+              ? answer([
+                  issue({
+                    id: "issue-laundry",
+                    description: "Torktumlaren är trasig.",
+                  }),
+                ])
+              : answer([
+                  issue({
+                    id: "issue-water",
+                    description: "Det droppar i taket.",
+                  }),
+                ]),
+          ),
+    );
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+
+    await session.click(
+      await screen.findByRole("button", { name: "Visa bara Hiss" }),
+    );
+    await waitFor(() => {
+      expect(placesAsked()).toContain("p-lift");
+    });
+    await session.click(
+      await screen.findByRole("button", { name: "Visa bara Tvättstuga" }),
+    );
+    expect(await screen.findByText("Torktumlaren är trasig.")).toBeTruthy();
+
+    // The lift's answer arrives last, and is not the one drawn.
+    answerLift(
+      answer([issue({ id: "issue-lift", description: "Hissen står still." })]),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText("Torktumlaren är trasig.")).toBeTruthy();
+    expect(screen.queryByText("Hissen står still.")).toBeNull();
+  });
+
   it("is dropped when the counts cannot be read, so the whole queue is back", async () => {
     const session = userEvent.setup();
     queueByPlace();

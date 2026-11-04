@@ -3,7 +3,7 @@
 --
 -- Nothing existing is rewritten: every new column on "issue" is nullable and
 -- stays null for the issues already there, so adding them takes no table
--- rewrite. The index and the two CHECK constraints below scan "issue" once, in
+-- rewrite. The index and the three CHECK constraints below scan "issue" once, in
 -- this migration's transaction and not CONCURRENTLY: the entrypoint applies
 -- migrations before the app serves, so the lock blocks no writer, and an
 -- association's issues are counted in hundreds, not millions.
@@ -73,6 +73,14 @@ ALTER TABLE "issue" ADD CONSTRAINT "issue_entry_shape" CHECK (
 -- into their home.
 ALTER TABLE "issue" ADD CONSTRAINT "issue_entry_cleared_at_closing" CHECK (
     "closedAt" IS NULL OR "entryAnswer" IS NULL
+);
+
+-- A place or an apartment, never both (decision 30): the list is of what is not
+-- in a home, and the counts per place are of faults in common areas. The
+-- service refuses the pair as "place-with-apartment"; this refuses a path that
+-- forgets to.
+ALTER TABLE "issue" ADD CONSTRAINT "issue_place_not_apartment" CHECK (
+    "placeId" IS NULL OR "apartmentId" IS NULL
 );
 
 -- The mark of an inspection finding, at most one to an issue.

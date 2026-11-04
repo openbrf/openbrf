@@ -58,7 +58,9 @@ import { DomainError } from "../http/domain-error";
  * is a name the list has under any capitalisation, `place-name-apartment` a
  * name that is an apartment, which the list never holds, `place-in-use` a
  * removal of a place an issue names and `too-many-places` the bound in
- * `ISSUE_FIT_LIMITS`. `entry-needs-apartment` is an entry permission on an
+ * `ISSUE_FIT_LIMITS`. `place-with-apartment` is a place on an issue about an
+ * apartment: the list is of what is not in a home, and an issue counted under
+ * both would be counted as a fault in a common area. `entry-needs-apartment` is an entry permission on an
  * issue that is not about an apartment, `entry-until-past` an expiry before
  * today, and `door-code` an entry note that reads like a door code, refused
  * with where it starts and never the value. `finding-needs-target-date` and
@@ -97,6 +99,7 @@ export type IssueReason =
   | "place-name-apartment"
   | "place-in-use"
   | "too-many-places"
+  | "place-with-apartment"
   | "entry-needs-apartment"
   | "entry-until-past"
   | "door-code"
@@ -138,6 +141,7 @@ export class IssueError extends DomainError {
       reason === "place-name-taken" ||
       reason === "place-in-use" ||
       reason === "too-many-places" ||
+      reason === "place-with-apartment" ||
       reason === "entry-needs-apartment" ||
       reason === "legal-hold"
         ? HttpStatus.CONFLICT
@@ -168,4 +172,15 @@ export class IssueError extends DomainError {
   override details(): Record<string, readonly unknown[]> {
     return { locations: this.locations };
   }
+}
+
+/**
+ * A common-area place named on an issue about an apartment, by a request the
+ * screens never make (`place-with-apartment`).
+ */
+export function placeWithApartment(): IssueError {
+  return new IssueError(
+    "A common-area place is for an issue that is not about an apartment.",
+    "place-with-apartment",
+  );
 }

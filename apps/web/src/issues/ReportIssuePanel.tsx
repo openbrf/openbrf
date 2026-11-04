@@ -46,6 +46,7 @@ const REPORT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "post-not-reportable": "issues.report.errors.postNotReportable",
   "post-already-reported": "issues.report.errors.postAlreadyReported",
   "place-not-found": "issues.report.errors.placeNotFound",
+  "place-with-apartment": "issues.report.errors.placeWithApartment",
   "invalid-body": "issues.report.errors.unknown",
 };
 

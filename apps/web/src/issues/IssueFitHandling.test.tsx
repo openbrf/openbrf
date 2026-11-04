@@ -126,6 +126,38 @@ describe("the common area", () => {
     await within(select).findByRole("option", { name: "Bastu" });
     expect((select as HTMLSelectElement).value).toBe("p-sauna");
   });
+
+  it("is not offered on an issue about an apartment", async () => {
+    renderFit(
+      issue({
+        apartment: { id: "a-1", number: "1401", address: "Storgatan 12" },
+      }),
+    );
+
+    // The entry permission is drawn, the place beside it is not.
+    expect(await screen.findByText("Tillträde")).toBeTruthy();
+    expect(screen.queryByLabelText("Gemensamt utrymme")).toBeNull();
+  });
+
+  it("says why the server refused a place on an issue about an apartment", async () => {
+    const session = userEvent.setup();
+    setIssuePlace.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "place-with-apartment" },
+    });
+    renderFit(issue());
+
+    const select = await screen.findByLabelText("Gemensamt utrymme");
+    await within(select).findByRole("option", { name: "Hiss" });
+    await session.selectOptions(select, "p-lift");
+    await session.click(screen.getByRole("button", { name: "Spara" }));
+
+    expect(
+      await screen.findByText(
+        "Ärendet gäller en lägenhet, så det får inget gemensamt utrymme.",
+      ),
+    ).toBeTruthy();
+  });
 });
 
 describe("permission to enter", () => {

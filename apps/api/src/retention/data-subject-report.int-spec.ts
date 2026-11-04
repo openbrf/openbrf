@@ -673,15 +673,15 @@ beforeAll(async () => {
   await prisma.issuePlace.create({
     data: { id: issuePlaceId, name: `Tvattstuga ${suffix}` },
   });
-  // The open one carries an answer about entering the apartment and names a
-  // common area, so the copy is read from rows that hold both.
+  // The open one carries an answer about entering the apartment, and the
+  // waiting one names a common area, so the copy is read from rows that hold
+  // each. An issue about an apartment names no common area.
   await prisma.issue.create({
     data: {
       typeId: issueTypeId,
       statusId: issueType.statusIds.NEW,
       reporterPersonId: subject.personId,
       apartmentId,
-      placeId: issuePlaceId,
       location: "Badrummet",
       description: "Vatten pa golvet under handfatet",
       entryAnswer: "YES",
@@ -701,8 +701,8 @@ beforeAll(async () => {
         statusId: issueType.statusIds.WAITING,
         waitingReason: "CONTRACTOR",
         reporterPersonId: subject.personId,
-        apartmentId,
-        location: "Badrummet",
+        placeId: issuePlaceId,
+        location: "Vid torktumlaren",
         description: "Droppar fran taket i koket",
       },
       {
@@ -1762,8 +1762,8 @@ describe("what the report contains", () => {
     // Open and not waiting, so neither the outcome nor a reason is set.
     expect(open?.outcome).toBeNull();
     expect(open?.waitingReason).toBeNull();
-    // The answer about entering, each part as it was recorded, and the
-    // common area by its name.
+    // The answer about entering, each part as it was recorded. About the
+    // apartment, so no common area.
     expect(open?.entry).toEqual({
       answer: "YES",
       note: "Ring pa forst",
@@ -1771,15 +1771,15 @@ describe("what the report contains", () => {
       masterKey: false,
       until: "2099-02-28",
     });
-    expect(open?.place).toBe(`Tvattstuga ${suffix}`);
+    expect(open?.place).toBeNull();
 
     const waiting = byDescription("Droppar fran taket i koket");
     expect(waiting?.meaning).toBe("WAITING");
     expect(waiting?.waitingReason).toBe("CONTRACTOR");
     expect(waiting?.outcome).toBeNull();
-    // Never answered, and no common area named.
+    // Never answered, and the common area by its name.
     expect(waiting?.entry).toBeNull();
-    expect(waiting?.place).toBeNull();
+    expect(waiting?.place).toBe(`Tvattstuga ${suffix}`);
 
     const closed = byDescription("Lampan i hallen blinkar");
     expect(closed?.meaning).toBe("DONE");

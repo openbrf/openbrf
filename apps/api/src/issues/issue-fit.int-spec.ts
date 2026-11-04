@@ -446,7 +446,9 @@ afterAll(async () => {
     where: { personId: { in: personIds } },
   });
   await prisma.person.deleteMany({ where: { id: { in: personIds } } });
-  await prisma.apartment.deleteMany({ where: { id: apartmentId } });
+  await prisma.apartment.deleteMany({
+    where: { addressId: `if-address-${suffix}` },
+  });
   await prisma.address.deleteMany({ where: { id: `if-address-${suffix}` } });
   // Restored rather than left as this suite wanted it: the suites on this
   // worker share one database, and a later one that finds an association with
@@ -887,6 +889,78 @@ describe("permission to enter", () => {
     ).toBe(1);
   });
 
+  it("stays, with nothing recorded, when a key refuses the apartment's removal", async () => {
+    const keptId = `if-apartment-kept-${suffix}`;
+    const fileId = `if-apartment-kept-file-${suffix}`;
+    await prisma.apartment.create({
+      data: {
+        id: keptId,
+        addressId: `if-address-${suffix}`,
+        number: "1704",
+        floor: 7,
+      },
+    });
+    const issueId = await filed(plain, { withApartment: false });
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        apartmentId: keptId,
+        entryAnswer: "YES",
+        entryNote: "Ring på",
+        entryPets: true,
+        entryMasterKey: false,
+      },
+    });
+    // A file of the apartment's: its key is Restrict and the removal does not
+    // count it, so the delete raises P2003 after the answers were cleared and
+    // their withdrawals recorded, inside the same transaction.
+    await prisma.mediaFile.create({
+      data: {
+        id: fileId,
+        storageKey: `if-apartment-kept-${suffix}`,
+        encryption: "NONE",
+        contentType: "application/pdf",
+        byteSize: 1024,
+        checksum: `sha-if-kept-${suffix}`,
+        fileName: "ritning.pdf",
+        visibility: "HOUSEHOLD",
+        apartmentId: keptId,
+      },
+    });
+
+    try {
+      await expect(
+        app.get(AddressService).removeApartment(keptId, {
+          personId: board.personId,
+          channel: "WEB",
+        }),
+      ).rejects.toMatchObject({ reason: "apartment-in-use" });
+
+      expect(await stored(issueId)).toMatchObject({
+        entryAnswer: "YES",
+        entryNote: "Ring på",
+        entryPets: true,
+        entryMasterKey: false,
+      });
+      const after = await prisma.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: { apartmentId: true },
+      });
+      expect(after.apartmentId).toBe(keptId);
+      expect(
+        await prisma.auditLogEntry.count({
+          where: {
+            targetKind: "issue",
+            targetId: issueId,
+            action: "ISSUE_ENTRY_PERMISSION_REMOVED",
+          },
+        }),
+      ).toBe(0);
+    } finally {
+      await prisma.mediaFile.delete({ where: { id: fileId } });
+    }
+  });
+
   it("is refused when it lands after the board removed the apartment", async () => {
     const issueId = await filed(plain);
 
@@ -1102,6 +1176,57 @@ describe("common-area places", () => {
     );
     expect(unknown.statusCode).toBe(404);
     expect(unknown.json()).toMatchObject({ reason: "place-not-found" });
+  });
+
+  it("are never named on an issue about an apartment, by any path", async () => {
+    const laundry = await place("Tvättstuga lägenhet");
+
+    // A report naming both, which the form never sends.
+    const reported = await call(resident, "POST", "/api/issues", {
+      typeId: plain.id,
+      apartmentId,
+      placeId: laundry,
+      description: "Det droppar.",
+    });
+    expect(reported.statusCode).toBe(409);
+    expect(reported.json()).toMatchObject({ reason: "place-with-apartment" });
+
+    // A handler opening one for a resident, whose apartment it is about.
+    const residency = await prisma.residency.findFirstOrThrow({
+      where: { personId: resident.personId, apartmentId },
+      select: { id: true },
+    });
+    const opened = await call(board, "POST", "/api/issue-queue", {
+      typeId: plain.id,
+      residencyId: residency.id,
+      placeId: laundry,
+      description: "Det droppar.",
+    });
+    expect(opened.statusCode).toBe(409);
+    expect(opened.json()).toMatchObject({ reason: "place-with-apartment" });
+
+    // A handler setting one on an issue about an apartment.
+    const issueId = await filed(plain);
+    const set = await call(board, "PUT", `/api/issue-queue/${issueId}/place`, {
+      placeId: laundry,
+    });
+    expect(set.statusCode).toBe(409);
+    expect(set.json()).toMatchObject({ reason: "place-with-apartment" });
+    expect((await stored(issueId)).placeId).toBeNull();
+    // Taking none off is still answered.
+    const none = await call(board, "PUT", `/api/issue-queue/${issueId}/place`, {
+      placeId: null,
+    });
+    expect(none.statusCode).toBe(200);
+
+    // And the database refuses a path that forgets to.
+    await expect(
+      prisma.issue.update({
+        where: { id: issueId },
+        data: { placeId: laundry },
+      }),
+    ).rejects.toThrow();
+    expect(await prisma.issue.count({ where: { placeId: laundry } })).toBe(0);
   });
 
   it("are held while a write names them, so the board's removal waits and is refused", async () => {
@@ -1385,6 +1510,80 @@ describe("an inspection finding", () => {
     expect(removed.json()).toMatchObject({ targetDate: "2026-09-30" });
   });
 
+  it("places a legal hold on its first mark, which taking the mark off leaves", async () => {
+    const issueId = await filed(plain, { withApartment: false });
+    const protocol = await attachProtocol(board, issueId);
+    const finding = {
+      kind: "LIFT",
+      inspectedOn: "2026-03-10",
+      protocolAttachmentId: protocol,
+      targetDate: "2026-04-01",
+    };
+    const holdOf = async (id: string): Promise<Date | null> =>
+      (
+        await prisma.issue.findUniqueOrThrow({
+          where: { id },
+          select: { legalHoldAt: true },
+        })
+      ).legalHoldAt;
+    const placed = async (id: string): Promise<unknown[]> =>
+      prisma.auditLogEntry.findMany({
+        where: {
+          targetKind: "issue",
+          targetId: id,
+          action: "ISSUE_LEGAL_HOLD_PLACED",
+        },
+        select: { actorPersonId: true, context: true },
+      });
+
+    const marked = await call(
+      board,
+      "PUT",
+      `/api/issue-queue/${issueId}/finding`,
+      finding,
+    );
+    expect(marked.statusCode).toBe(200);
+    expect(marked.json<{ legalHoldAt: string | null }>().legalHoldAt).not.toBe(
+      null,
+    );
+    const hold = await holdOf(issueId);
+    expect(hold).not.toBeNull();
+    expect(await placed(issueId)).toEqual([
+      { actorPersonId: board.personId, context: { byFinding: true } },
+    ]);
+
+    // A change to the mark keeps the hold's date and places no second one.
+    await call(board, "PUT", `/api/issue-queue/${issueId}/finding`, {
+      ...finding,
+      targetDate: "2026-03-31",
+    });
+    expect(await holdOf(issueId)).toEqual(hold);
+    expect(await placed(issueId)).toHaveLength(1);
+
+    // Taking the mark off leaves it: it may be a hold for another reason.
+    const removed = await call(
+      board,
+      "DELETE",
+      `/api/issue-queue/${issueId}/finding`,
+    );
+    expect(removed.statusCode).toBe(200);
+    expect(await holdOf(issueId)).toEqual(hold);
+
+    // A hold that already stood keeps its date.
+    const held = await filed(plain, { withApartment: false });
+    const since = new Date("2026-01-15T10:00:00.000Z");
+    await prisma.issue.update({
+      where: { id: held },
+      data: { legalHoldAt: since },
+    });
+    await call(board, "PUT", `/api/issue-queue/${held}/finding`, {
+      ...finding,
+      protocolAttachmentId: await attachProtocol(board, held),
+    });
+    expect(await holdOf(held)).toEqual(since);
+    expect(await placed(held)).toEqual([]);
+  });
+
   it("is kept from the reporter, and from a handler the issue shuts out", async () => {
     const issueId = await filed(boardOnly, { withApartment: false });
     const protocol = await attachProtocol(board, issueId);
@@ -1439,8 +1638,14 @@ describe("an inspection finding", () => {
 
 describe("mcp and ai", () => {
   it("leave the entry permission, the place and the finding out of the issue actions", async () => {
+    // An issue about an apartment carries the entry permission and the
+    // finding; one about the lift, beside it, its place. Never both on one.
     const lift = await place("Hiss mcp");
-    const issueId = await filed(plain, { placeId: lift });
+    const issueId = await filed(plain);
+    const placedId = await filed(plain, {
+      placeId: lift,
+      withApartment: false,
+    });
     const note = `Anteckning som stannar ${suffix}`;
     await call(resident, "PUT", `/api/issues/${issueId}/entry-permission`, {
       answer: "YES",
@@ -1476,8 +1681,12 @@ describe("mcp and ai", () => {
       const page = await registry
         .get("issue_list")
         ?.definition.handler({ typeId: plain.id, limit: 50 }, context);
-      const answered = JSON.stringify([one, page]);
+      const placed = await registry
+        .get("issue_get")
+        ?.definition.handler({ id: placedId }, context);
+      const answered = JSON.stringify([one, placed, page]);
       expect(answered).toContain(issueId);
+      expect(answered).toContain(placedId);
       expect(answered).not.toContain(note);
       expect(answered).not.toContain("entry");
       expect(answered).not.toContain("finding");

@@ -9,6 +9,15 @@ import { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import { NO_ENTRY_PERMISSION } from "../issues/issue-fit-views";
 
+/**
+ * The budget of an apartment's removal. It locks every issue of the apartment,
+ * waiting on any write under way on one, and writes one audit entry per answer
+ * it takes off, each its own round trip; nothing caps how many issues an
+ * apartment has. Prisma's default of five seconds would roll the removal back
+ * with P2028, which tells the board nothing it can act on.
+ */
+const REMOVAL_TRANSACTION = { timeout: 30_000, maxWait: 20_000 } as const;
+
 export class AddressError extends DomainError {
   readonly status: number;
 
@@ -355,7 +364,7 @@ export class AddressService {
           data: NO_ENTRY_PERMISSION,
         });
         await tx.apartment.delete({ where: { id } });
-      });
+      }, REMOVAL_TRANSACTION);
     } catch (cause) {
       /*
        * The counts above narrow the window; the foreign keys close it. A charge

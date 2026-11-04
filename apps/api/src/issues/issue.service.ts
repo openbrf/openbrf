@@ -74,7 +74,7 @@ import {
   lockIssueType,
 } from "./issue-lock";
 import { IssueMailer } from "./issue-mailer.service";
-import { IssueError } from "./issue.error";
+import { IssueError, placeWithApartment } from "./issue.error";
 
 /**
  * How many photographs one report may carry.
@@ -205,7 +205,11 @@ export type IssueHandlerView = AuthorView;
  * apartment they live in, so on a protected reporter's report the apartment is
  * their home address, and withholding the name beside it would withhold
  * nothing. The location and the description stay: the reporter wrote those
- * themselves.
+ * themselves. So does the entry permission (decision 29): its note is the
+ * reporter's own words as the description is, a door code in it is refused
+ * (`findDoorCode`), and the answer, the pets and the master key say how to get
+ * in, not where. Without the apartment they lead to no door, and whoever the
+ * board sends there needs them.
  *
  * The same row for every handler, the board included. The queue is one view
  * under one capability, and the board already has the address book, which has
@@ -1824,6 +1828,9 @@ export class IssueService {
     });
     if (type === null) {
       throw new IssueError("No such issue type.", "type-not-found");
+    }
+    if (data.placeId != null && data.apartmentId != null) {
+      throw placeWithApartment();
     }
     if (data.placeId != null) {
       // A place the board switched off is not offered, so a report naming it

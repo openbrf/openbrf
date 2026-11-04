@@ -29,7 +29,7 @@ import {
   lockIssueForHandling,
 } from "./issue-lock";
 import { IssueMailer } from "./issue-mailer.service";
-import { IssueError } from "./issue.error";
+import { IssueError, placeWithApartment } from "./issue.error";
 import { IssueService, type QueuedIssueView } from "./issue.service";
 
 /**
@@ -94,7 +94,19 @@ export interface IssueFindingInput {
  * protocol (one of its handler-only files), the inspection's day and a real due
  * date, which is the issue's target date so the Overdue view reads it as it
  * reads any other. A lift's target date is held to a month from the inspection
- * (BFS 2025:11 1 kap. 17 §); the other kinds have the handler's date.
+ * (BFS 2025:11 1 kap. 17 §); the other kinds have the handler's date. The
+ * first mark places a legal hold, which keeps the protocol until a handler
+ * releases it.
+ *
+ * ## Who may answer for a resident
+ *
+ * A handler records an answer whether or not the issue still names its
+ * reporter. An issue whose reporter was purged lost the earlier answer with
+ * the reference (`PurgeService`), and stays about its apartment while it is
+ * open; what a handler writes on it afterwards is what whoever lives there told
+ * the handler then, the handler's own record under the handler's name, not the
+ * purged answer put back. Only the reporter's own write is held to the
+ * reporter column, because it is the reporter's.
  */
 @Injectable()
 export class IssueFitService {
@@ -175,6 +187,9 @@ export class IssueFitService {
       if (placeId === issue.placeId) {
         return this.issues.writtenIssue(tx, issueId);
       }
+      if (placeId !== null && issue.apartmentId !== null) {
+        throw placeWithApartment();
+      }
       if (placeId !== null && !(await holdOfferedPlace(tx, placeId))) {
         throw new IssueError("No such place.", "place-not-found");
       }
@@ -201,7 +216,8 @@ export class IssueFitService {
    * Marks an issue as a finding of an inspection, or changes the mark (decision
    * 31). The protocol must be one of the issue's own handler files, and the due
    * date is written as the issue's target date in the same transaction, with
-   * the overdue reminder any target date has.
+   * the overdue reminder any target date has. The first mark places a legal
+   * hold on the issue where none stands.
    */
   async markFinding(
     handlerPersonId: string,
@@ -254,6 +270,32 @@ export class IssueFitService {
         create: { issueId, ...data },
         update: data,
       });
+      /*
+       * A finding places a legal hold (ADR 0057), so neither the clock nor a
+       * granted erasure request removes the protocol and the free text the
+       * association may have to show for a statutory inspection. Only on the
+       * first mark and only where none stands: a hold already placed keeps its
+       * date, and one a handler released after the mark was their decision,
+       * which changing the mark does not undo. Taking the mark off leaves the
+       * hold (`removeFinding`).
+       */
+      if (existing === null && issue.legalHoldAt === null) {
+        await tx.issue.update({
+          where: { id: issueId },
+          data: { legalHoldAt: new Date() },
+        });
+        await this.audit.record(
+          {
+            action: "ISSUE_LEGAL_HOLD_PLACED",
+            channel: "WEB",
+            actorPersonId: handlerPersonId,
+            targetKind: "issue",
+            targetId: issueId,
+            context: { byFinding: true },
+          },
+          tx,
+        );
+      }
       const dateChanged =
         formatDateColumn(issue.targetDate) !== input.targetDate;
       if (dateChanged) {
@@ -305,7 +347,12 @@ export class IssueFitService {
     return this.issues.viewOfWritten(written);
   }
 
-  /** Takes the mark off. The target date stays; a handler may clear it. */
+  /**
+   * Takes the mark off. The target date stays; a handler may clear it. So does
+   * the legal hold the mark placed: `legalHoldAt` is one date with no reason
+   * beside it, so taking it off here could release a hold a handler or a damage
+   * case placed. A handler releases it as any other, as its own act.
+   */
   async removeFinding(
     handlerPersonId: string,
     issueId: string,
@@ -470,6 +517,7 @@ const ENTRY_TARGET_SELECT = {
   placeId: true,
   closedAt: true,
   targetDate: true,
+  legalHoldAt: true,
   status: { select: { meaning: true } },
   ...ENTRY_SELECT,
 } as const;

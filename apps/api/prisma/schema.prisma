@@ -4971,8 +4971,11 @@ model IssuePlace {
 /// schedule is the 2027 reminders' and is not here.
 ///
 /// The protocol is one of the handler-only files on the issue
-/// (`IssueAttachment`), never a photograph the reporter reads. SetNull: when
-/// the file is removed from the issue - by a redaction, by the purge of the
+/// (`IssueAttachment`), never a photograph the reporter reads. The first mark
+/// places a legal hold on the issue (`legalHoldAt`), so while it stands no
+/// redaction, clock or erasure request removes the protocol. Taking the mark
+/// off leaves the hold. SetNull: once a handler has released the hold and the
+/// file is removed from the issue - by a redaction, by the purge of the
 /// free-text layer - the mark stays as the building's record that there was a
 /// finding, without the protocol.
 model IssueFinding {
