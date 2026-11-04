@@ -194,13 +194,25 @@ export class IssueTextPurgeService implements OnModuleInit {
       );
     }
     if (bounded()) {
-      this.logger.log(
-        `Issue text purge stopped at its per-run bound of ${String(
-          MAX_ISSUES_PER_RUN,
-        )} removals or ${String(
-          MAX_ATTEMPTS_PER_RUN,
-        )} attempts; the rest are reached by the next run.`,
-      );
+      // A failed removal leaves the issue first in line, so a run that failed
+      // its way to the bound has not reached the issues behind it, and the
+      // next run will not either until the failures stop. Said as an error so
+      // that whoever runs the instance sees free text standing past its clock.
+      if (purged < MAX_ISSUES_PER_RUN) {
+        this.logger.error(
+          `Issue text purge stopped at its bound of ${String(
+            MAX_ATTEMPTS_PER_RUN,
+          )} attempts with ${String(
+            failed,
+          )} failed removals; issues behind the ones that did not succeed wait until those do.`,
+        );
+      } else {
+        this.logger.log(
+          `Issue text purge stopped at its per-run bound of ${String(
+            MAX_ISSUES_PER_RUN,
+          )} removals; the rest are reached by the next run.`,
+        );
+      }
     }
 
     return { considered, purged, failed };

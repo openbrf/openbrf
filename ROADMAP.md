@@ -895,8 +895,10 @@ Free, open source, and never moved behind a paywall.
       after the board grants it, once each such issue is closed and under no
       legal hold of its own; an open or held issue keeps the request open
       until it closes or the hold is released. A handler may redact a text or
-      remove a photograph at any time, which is how an art. 17 request naming
-      an issue is carried out. A report filed through the public form is keyed to nobody, so no
+      remove a photograph at any time unless a legal hold stands on the issue
+      itself (a hold on its reporter does not stop a handler), which is how an
+      art. 17 request naming an issue is carried out. A report filed through
+      the public form is keyed to nobody, so no
       person's clock reaches its contact details and they are detached on one
       of their own, a year after the board closed it
 - [x] News on the association's website and by email: an item is for the

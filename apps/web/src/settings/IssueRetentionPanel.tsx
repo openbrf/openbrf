@@ -32,7 +32,7 @@ interface Loaded {
  * unless a legal hold stands on the issue. And it says that the purge reads
  * the number when it runs, so a board shortening it learns before saving that
  * the nights that follow remove what is already past the new clock, at most
- * 500 issues a night.
+ * 500 issues in each run.
  */
 export function IssueRetentionPanel(): ReactElement {
   const { t } = useTranslation();

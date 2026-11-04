@@ -78,6 +78,9 @@ describe("one run of the issue text purge", () => {
 
   it("stops at 1000 attempts when every removal fails", async () => {
     const { service, eligiblePage, purgeIssue } = build(() => "fail");
+    const error = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
 
     const summary = await service.run(NOW, 2);
 
@@ -86,6 +89,11 @@ describe("one run of the issue text purge", () => {
     // Two pages read, and no third: the bound ends the scan, not a page that
     // came back empty.
     expect(eligiblePage).toHaveBeenCalledTimes(2);
+    // The run says that the issues behind the failures wait, as an error.
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining("issues behind the ones that did not succeed"),
+    );
+    error.mockRestore();
   });
 
   it("reads past failing old issues to newer ones", async () => {

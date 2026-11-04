@@ -64,7 +64,9 @@ describe("the number of years", () => {
         /Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten/,
       ),
     ).toBeTruthy();
-    expect(screen.getByText(/högst 500 ärenden per natt/)).toBeTruthy();
+    expect(
+      screen.getByText(/högst 500 ärenden vid varje körning/),
+    ).toBeTruthy();
   });
 });
 

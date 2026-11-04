@@ -1950,7 +1950,7 @@
       "description": "Hur många år efter att ett ärende stängts dess fritext sparas. Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, finns kvar i ärendet; beskrivningen, platsen, svaren, de interna anteckningarna och bilderna och filerna gallras så många år efter att det stängts, om inte ett rättsligt bevarandekrav gäller.",
       "years": "År efter att ett ärende stängts",
       "yearsHint": "Ett heltal mellan 1 och 10. En ny instans börjar på 2.",
-      "purgeJob": "Gallringen körs varje natt och läser talet när den körs, så en ändring flyttar alla kommande datum på en gång. Efter en kortare inställning gallras fritexten i de ärenden som redan passerat den under nätterna som följer, högst 500 ärenden per natt.",
+      "purgeJob": "Gallringen körs varje natt och läser talet när den körs, så en ändring flyttar alla kommande datum på en gång. Efter en kortare inställning gallras fritexten i de ärenden som redan passerat den under nätterna som följer, högst 500 ärenden vid varje körning.",
       "loading": "Läser inställningen...",
       "loadFailed": "Inställningen gick inte att läsa just nu.",
       "errors": {
