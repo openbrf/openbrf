@@ -397,11 +397,18 @@ export class IssueFitService {
      * re-checks the filter once the purge's row lock lets go, finds no row,
      * and the answer is refused instead of leaving entry details on an issue
      * the erasure was recorded as having cleared.
+     *
+     * A permission also names the apartment, for the same reason: the board's
+     * removal of the apartment clears its issues and sets their apartment to
+     * null (`AddressService.removeApartment`), and a write that waited on that
+     * finds no row instead of storing a permission for a home that is gone.
      */
     const { count } = await tx.issue.updateMany({
-      where: byReporter
-        ? { id: issue.id, reporterPersonId: actorPersonId }
-        : { id: issue.id },
+      where: {
+        id: issue.id,
+        ...(byReporter ? { reporterPersonId: actorPersonId } : {}),
+        ...(data !== null ? { apartmentId: { not: null } } : {}),
+      },
       data: next,
     });
     if (count === 0) {

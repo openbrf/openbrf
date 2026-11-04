@@ -314,10 +314,18 @@ export class AddressService {
        * (BRL 7 kap. 13 §): with the home gone from the register it lets nobody
        * in anywhere, so it goes in the same transaction as the apartment, and
        * a delete the keys refuse leaves it standing.
+       *
+       * Every issue of the apartment, not only those with an answer: the
+       * update takes each row's lock, so an entry write already under way is
+       * waited for and then cleared, and one that comes after it finds the
+       * apartment gone and is refused (`IssueFitService.writeEntry`). Filtered
+       * on the answer, the update would skip a row whose answer is not yet
+       * committed, and the key's SetNull would then leave that answer standing
+       * on an issue about no apartment.
        */
       await this.prisma.$transaction([
         this.prisma.issue.updateMany({
-          where: { apartmentId: id, entryAnswer: { not: null } },
+          where: { apartmentId: id },
           data: NO_ENTRY_PERMISSION,
         }),
         this.prisma.apartment.delete({ where: { id } }),

@@ -12,6 +12,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { registerMultipart } from "../http/multipart";
 import { pngBytes } from "../media/testing/image-fixtures";
 import { StorageService } from "../storage/storage.service";
@@ -208,6 +209,55 @@ async function stored(issueId: string) {
       closedAt: true,
     },
   });
+}
+
+/**
+ * Whether some backend comes to wait on a lock the given backend holds, within
+ * ten seconds. A race test must see the second party queued behind the first:
+ * a delay alone would also pass when the second reached the database late,
+ * after the first had committed. Only that one backend is looked at, so other
+ * workers' lock waiters do not count.
+ */
+async function blockedBehind(holderPid: number): Promise<boolean> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+      SELECT count(*) AS waiting
+      FROM pg_stat_activity
+      WHERE ${holderPid}::int = ANY(pg_blocking_pids(pid))`;
+    if ((row?.waiting ?? 0n) > 0n) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return false;
+}
+
+/**
+ * Holds a transaction open after `work`, with the row locks it took, until the
+ * returned `release` is called. `pid` is its backend, for {@link blockedBehind}.
+ */
+async function heldOpen(
+  work: (tx: Prisma.TransactionClient) => Promise<unknown>,
+): Promise<{ pid: number; release: () => void; done: Promise<unknown> }> {
+  let holding!: (pid: number) => void;
+  const holds = new Promise<number>((resolve) => {
+    holding = resolve;
+  });
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const done = prisma.$transaction(async (tx) => {
+    await work(tx);
+    const [backend] = await tx.$queryRaw<
+      { pid: number }[]
+    >`SELECT pg_backend_pid() AS pid`;
+    holding(backend?.pid ?? 0);
+    await released;
+  });
+  const pid = await Promise.race([holds, done.then(() => 0)]);
+  return { pid, release, done };
 }
 
 /** A day offset from today, as `YYYY-MM-DD`. */
@@ -732,6 +782,85 @@ describe("permission to enter", () => {
     expect(after.apartmentId).toBeNull();
   });
 
+  it("goes with the apartment when an answer is still being written as the board removes it", async () => {
+    const goneId = `if-apartment-racing-${suffix}`;
+    await prisma.apartment.create({
+      data: {
+        id: goneId,
+        addressId: `if-address-${suffix}`,
+        number: "1703",
+        floor: 7,
+      },
+    });
+    const issueId = await filed(plain, { withApartment: false });
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: { apartmentId: goneId },
+    });
+
+    // An answer written but not yet committed: the removal's own snapshot
+    // still shows the issue with no answer.
+    const write = await heldOpen((tx) =>
+      tx.issue.update({
+        where: { id: issueId },
+        data: { entryAnswer: "YES", entryPets: false, entryMasterKey: true },
+      }),
+    );
+    const removal = app.get(AddressService).removeApartment(goneId);
+    expect(await blockedBehind(write.pid)).toBe(true);
+    write.release();
+    await write.done;
+    await removal;
+
+    expect(await stored(issueId)).toMatchObject({
+      entryAnswer: null,
+      entryPets: null,
+      entryMasterKey: null,
+    });
+    const after = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: { apartmentId: true },
+    });
+    expect(after.apartmentId).toBeNull();
+  });
+
+  it("is refused when it lands after the board removed the apartment", async () => {
+    const issueId = await filed(plain);
+
+    // The removal under way: it has the issue's row and takes the apartment
+    // off it. The handler's write reads the issue as it stood before and then
+    // waits for that row.
+    const removal = await heldOpen((tx) =>
+      tx.issue.update({
+        where: { id: issueId },
+        data: { apartmentId: null },
+      }),
+    );
+    // Awaited inside, so the request is sent now and not when it is awaited.
+    const answer = (async () =>
+      call(board, "PUT", `/api/issue-queue/${issueId}/entry-permission`, {
+        answer: "YES",
+        pets: false,
+        masterKey: false,
+      }))();
+    expect(await blockedBehind(removal.pid)).toBe(true);
+    removal.release();
+    await removal.done;
+
+    const refused = await answer;
+    expect(refused.statusCode).toBe(404);
+    expect(refused.json()).toMatchObject({ reason: "issue-not-found" });
+    expect((await stored(issueId)).entryAnswer).toBeNull();
+    expect(
+      await prisma.auditLogEntry.count({
+        where: {
+          targetId: issueId,
+          action: "ISSUE_ENTRY_PERMISSION_SET",
+        },
+      }),
+    ).toBe(0);
+  });
+
   it("keeps a half-filled yes out of the table", async () => {
     const issueId = await filed(plain);
 
@@ -921,23 +1050,7 @@ describe("common-area places", () => {
 
     const removal = (async () =>
       call(admin, "DELETE", `/api/issue-places/${held}`))();
-    // The removal must be seen queued behind the write's own backend. A delay
-    // alone would also pass when the removal reached the database late, after
-    // the write had committed. Only this write's backend is looked at, so
-    // other workers' lock waiters do not count.
-    const deadline = Date.now() + 10_000;
-    let blocked = false;
-    while (!blocked && Date.now() < deadline) {
-      const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
-        SELECT count(*) AS waiting
-        FROM pg_stat_activity
-        WHERE ${holderPid}::int = ANY(pg_blocking_pids(pid))`;
-      blocked = (row?.waiting ?? 0n) > 0n;
-      if (!blocked) {
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-    }
-    expect(blocked).toBe(true);
+    expect(await blockedBehind(holderPid)).toBe(true);
 
     release();
     await write;

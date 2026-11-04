@@ -1168,6 +1168,21 @@ describe("handling an issue", () => {
     await waitFor(() => {
       expect(fetchIssueTimeline).toHaveBeenCalledTimes(1);
     });
+    // Set after the first read, so only the read the removal starts gets it.
+    fetchIssueTimeline.mockResolvedValueOnce({
+      ok: true,
+      value: [
+        {
+          kind: "finding",
+          at: "2026-08-22T09:00:00.000Z",
+          actor: null,
+          findingKind: null,
+        },
+      ],
+    });
+    expect(
+      screen.queryByText("Markeringen som besiktningsanmärkning togs bort"),
+    ).toBeNull();
 
     await session.click(
       await screen.findByRole("button", { name: "Ta bort markeringen" }),
@@ -1176,9 +1191,12 @@ describe("handling an issue", () => {
     await waitFor(() => {
       expect(removeIssueFinding).toHaveBeenCalledWith("issue-1");
     });
-    await waitFor(() => {
-      expect(fetchIssueTimeline).toHaveBeenCalledTimes(2);
-    });
+    expect(
+      await screen.findByText(
+        "Markeringen som besiktningsanmärkning togs bort",
+      ),
+    ).toBeTruthy();
+    expect(fetchIssueTimeline).toHaveBeenCalledTimes(2);
   });
 
   it("drops a timeline read that a newer revision superseded", async () => {

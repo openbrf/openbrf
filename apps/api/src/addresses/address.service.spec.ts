@@ -356,7 +356,7 @@ describe("removing an apartment", () => {
     await service.removeApartment("apartment-1");
 
     expect(prisma.issue.updateMany).toHaveBeenCalledWith({
-      where: { apartmentId: "apartment-1", entryAnswer: { not: null } },
+      where: { apartmentId: "apartment-1" },
       data: {
         entryAnswer: null,
         entryNote: null,
@@ -366,6 +366,12 @@ describe("removing an apartment", () => {
       },
     });
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    // Both writes are in that one transaction, the clearing first.
+    const [writes] = prisma.$transaction.mock.calls[0] ?? [];
+    // Compared by identity: two pending promises are deep-equal to anything.
+    expect(writes).toHaveLength(2);
+    expect(writes?.[0]).toBe(prisma.issue.updateMany.mock.results[0]?.value);
+    expect(writes?.[1]).toBe(prisma.apartment.delete.mock.results[0]?.value);
   });
 
   it.each([
