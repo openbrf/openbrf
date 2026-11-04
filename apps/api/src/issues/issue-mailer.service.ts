@@ -57,9 +57,10 @@ import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
  *
  * ## No free text
  *
- * A mail carries the issue number, the type's name, the priority and a link,
- * and nothing anybody wrote (decision 21): see the templates. Nothing written
- * goes on the queue either. A job holds identifiers, the event and a date.
+ * A mail carries the issue number, the type's name and a link, and a mail to a
+ * handler the priority as well. It carries nothing anybody wrote
+ * (decision 21): see the templates. Nothing written goes on the queue either.
+ * A job holds identifiers, the event and a date.
  *
  * ## Stored, then told
  *
@@ -866,9 +867,10 @@ export class IssueMailer implements OnModuleInit {
     // here, because it would stay held across the mail service's rendering,
     // sender lookup and the driver's network call. A restriction, board-only
     // change or ended seat committed in that last stretch is not seen, and a
-    // mail with the number, type and priority and no free text can still go
-    // out. That is the accepted residual window; closing it would need the
-    // mail to be handed over inside a transaction that holds the lock.
+    // mail with the number and type (and the priority, to a handler) and no
+    // free text can still go out. That is the accepted residual window;
+    // closing it would need the mail to be handed over inside a transaction
+    // that holds the lock.
     const handoffAt = new Date(Math.max(now.getTime(), Date.now()));
     const current = await this.readIssue(this.prisma, job.issueId);
     const stillRecipient =
