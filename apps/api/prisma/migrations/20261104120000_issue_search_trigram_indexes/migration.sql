@@ -26,6 +26,26 @@
 -- and the build holds their locks for no time.
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
 
-CREATE INDEX "issue_message_body_trgm_idx" ON "issue_message" USING GIN ("body" gin_trgm_ops);
+-- An instance may already have pg_trgm in another schema (a managed server's
+-- "extensions" schema, say), where CREATE EXTENSION above does nothing and the
+-- bare operator class name would not resolve from this migration's search_path.
+-- So the indexes name the schema the extension is installed in.
+DO $$
+DECLARE
+  trgm_schema text;
+BEGIN
+  SELECT n.nspname INTO trgm_schema
+  FROM pg_extension e
+  JOIN pg_namespace n ON n.oid = e.extnamespace
+  WHERE e.extname = 'pg_trgm';
 
-CREATE INDEX "issue_note_body_trgm_idx" ON "issue_note" USING GIN ("body" gin_trgm_ops);
+  EXECUTE format(
+    'CREATE INDEX "issue_message_body_trgm_idx" ON "issue_message" USING GIN ("body" %I.gin_trgm_ops)',
+    trgm_schema
+  );
+  EXECUTE format(
+    'CREATE INDEX "issue_note_body_trgm_idx" ON "issue_note" USING GIN ("body" %I.gin_trgm_ops)',
+    trgm_schema
+  );
+END
+$$;
