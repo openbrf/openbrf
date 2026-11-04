@@ -917,13 +917,19 @@ export function markIssueDamageCase(input: {
   );
 }
 
-/** Takes the damage-case mark off. The legal hold it placed stays. */
+/**
+ * Takes the damage-case mark off. The legal hold it placed stays. `replaces`
+ * is the mark taken off: the API refuses the removal when the mark is another
+ * by then, rather than delete one nobody saw.
+ */
 export function removeIssueDamageCase(input: {
   issueId: string;
+  replaces: IssueDamageCase;
 }): Promise<ApiResult<QueuedIssue>> {
   return apiRequest(
     "DELETE",
     `/api/issue-queue/${encodeURIComponent(input.issueId)}/damage-case`,
+    { replaces: input.replaces },
   );
 }
 

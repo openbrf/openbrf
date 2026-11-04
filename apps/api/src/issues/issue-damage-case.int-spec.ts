@@ -140,6 +140,15 @@ function mark(
   });
 }
 
+function unmark(issueId: string, replaces: object, cookie: string = as(board)) {
+  return inject({
+    method: "DELETE",
+    url: `/api/issue-queue/${issueId}/damage-case`,
+    payload: { replaces },
+    cookie,
+  });
+}
+
 function entriesOf(issueId: string) {
   return prisma.auditLogEntry.findMany({
     where: { targetKind: "issue", targetId: issueId },
@@ -306,11 +315,7 @@ describe("a damage case", () => {
     });
 
     // Off again: the hold stays until a handler releases it.
-    const removed = await inject({
-      method: "DELETE",
-      url: `/api/issue-queue/${issueId}/damage-case`,
-      cookie: as(board),
-    });
+    const removed = await unmark(issueId, { ...CLAIM, cause: "FIRE" });
     expect(removed.statusCode).toBe(200);
     expect(
       removed.json<{ damageCase: unknown; legalHoldAt: string | null }>(),
@@ -365,6 +370,22 @@ describe("a damage case", () => {
       claimNumber: "S-2026-200",
     });
     expect(await entriesOf(issueId)).toHaveLength(entries);
+
+    // Taking the mark off is decided the same way: from the mark the handler
+    // saw, which is another by now.
+    const staleRemoval = await unmark(issueId, CLAIM);
+    expect(staleRemoval.statusCode).toBe(409);
+    expect(staleRemoval.json<{ reason: string }>().reason).toBe(
+      "damage-case-changed",
+    );
+    expect(await prisma.issueDamageCase.count({ where: { issueId } })).toBe(1);
+    expect(await entriesOf(issueId)).toHaveLength(entries);
+
+    // A mark somebody else already took off is not taken off again.
+    expect((await unmark(issueId, theirs, as(manager))).statusCode).toBe(200);
+    const again = await unmark(issueId, theirs);
+    expect(again.statusCode).toBe(409);
+    expect(again.json<{ reason: string }>().reason).toBe("damage-case-changed");
   });
 
   it("does not place a second hold over one a handler placed", async () => {
@@ -524,11 +545,7 @@ describe("a damage case", () => {
     const refused = await mark(boardOnly, CLAIM, as(manager));
     expect(refused.statusCode).toBe(404);
     expect(refused.json<{ reason: string }>().reason).toBe("issue-not-found");
-    const unmarked = await inject({
-      method: "DELETE",
-      url: `/api/issue-queue/${boardOnly}/damage-case`,
-      cookie: as(manager),
-    });
+    const unmarked = await unmark(boardOnly, CLAIM, as(manager));
     expect(unmarked.statusCode).toBe(404);
   });
 });

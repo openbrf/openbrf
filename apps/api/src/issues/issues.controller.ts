@@ -252,6 +252,11 @@ const damageCaseFields = {
   cause: z.enum(ISSUE_DAMAGE_CAUSES),
 };
 
+/** The mark a removal means to take off, as the screen read it. */
+const removeDamageCaseSchema = z.strictObject({
+  replaces: z.strictObject(damageCaseFields),
+});
+
 const damageCaseSchema = z.strictObject({
   ...damageCaseFields,
   /**
@@ -946,13 +951,18 @@ export class IssueQueueController {
     );
   }
 
-  /** Takes the damage-case mark off; the legal hold it placed stays. */
+  /**
+   * Takes the damage-case mark off; the legal hold it placed stays. The body
+   * names the mark taken off, which is refused when it is another by then.
+   */
   @Delete(":id/damage-case")
   async removeDamageCase(
     @Param("id") id: string,
+    @Body() body: unknown,
     @Req() request: RequestWithPrincipal,
   ): Promise<QueuedIssueView> {
-    return this.issues.removeDamageCase(id, actingPersonId(request));
+    const { replaces } = removeDamageCaseSchema.parse(body);
+    return this.issues.removeDamageCase(id, replaces, actingPersonId(request));
   }
 
   @Post(":id/status")

@@ -113,6 +113,13 @@ describe("the damage case form", () => {
       screen.getByRole("button", { name: "Spara skadeärendet för ärende 12" }),
     ).toHaveProperty("disabled", true);
 
+    // Nor taken off, which would delete a mark this handler has not seen.
+    expect(
+      screen.getByRole("button", {
+        name: "Ta bort skadeärendemarkeringen från ärende 12",
+      }),
+    ).toHaveProperty("disabled", true);
+
     await session.click(
       screen.getByRole("button", { name: "Hämta den nuvarande markeringen" }),
     );
@@ -174,6 +181,7 @@ describe("the damage case form", () => {
     await waitFor(() => {
       expect(removeIssueDamageCase).toHaveBeenCalledWith({
         issueId: "issue-1",
+        replaces: CLAIM,
       });
     });
     expect(

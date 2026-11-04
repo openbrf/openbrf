@@ -17,9 +17,10 @@ leaves it.
   own. The insurer and the claim number are refused while they hold a personal
   identity number, and the audit log and the timeline record the cause and the
   day, never the insurer or the number. A change made from a mark that another
-  handler has changed or taken off in the meantime is refused, and the screen
-  keeps the draft and offers the current mark, so one handler's claim number is
-  not written over by another's unseen.
+  handler has changed or taken off in the meantime is refused, whether it saves
+  the mark or takes it off, and the screen keeps the draft and offers the
+  current mark, so one handler's claim number is not written over or deleted by
+  another's unseen.
 - **Ring-fenced issue types.** The board ring-fences a type in the settings,
   and the set a new instance starts with has a type for disturbances between
   neighbours ring-fenced, offered to residents. A ring-fenced type is handled

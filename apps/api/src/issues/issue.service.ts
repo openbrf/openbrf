@@ -1810,32 +1810,49 @@ export class IssueService {
    * The legal hold the mark placed stays: `legalHoldAt` is one date with no
    * reason beside it, so taking it off here could release a hold a handler or
    * an inspection finding placed, and a claim that is withdrawn is not always
-   * a claim that is over. A handler releases the hold as its own act. Taking
-   * off a mark that is not there writes nothing.
+   * a claim that is over. A handler releases the hold as its own act.
+   *
+   * `replaces` is the mark the handler saw and means to take off. A mark that
+   * is another by the time this is decided - changed, or already taken off by
+   * another handler - is refused as `damage-case-changed`: the insurer and the
+   * claim number are in no audit entry, so a deletion of a mark nobody saw
+   * could not be put back. Decided under the issue's lock, with the delete.
    */
   async removeDamageCase(
     issueId: string,
+    replaces: IssueDamageCaseView,
     actorPersonId: string,
   ): Promise<QueuedIssueView> {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
       await this.requireHandled(tx, issueId, actorPersonId);
-      const { count } = await tx.issueDamageCase.deleteMany({
+      const stored = await tx.issueDamageCase.findUnique({
         where: { issueId },
+        select: {
+          insurer: true,
+          claimNumber: true,
+          occurredOn: true,
+          cause: true,
+        },
       });
-      if (count > 0) {
-        await this.audit.record(
-          {
-            action: "ISSUE_DAMAGE_CASE_REMOVED",
-            channel: "WEB",
-            actorPersonId,
-            targetKind: "issue",
-            targetId: issueId,
-            context: {},
-          },
-          tx,
+      if (!sameDamageCase(stored, replaces)) {
+        throw new IssueError(
+          "The damage case has been changed since you read it.",
+          "damage-case-changed",
         );
       }
+      await tx.issueDamageCase.delete({ where: { issueId } });
+      await this.audit.record(
+        {
+          action: "ISSUE_DAMAGE_CASE_REMOVED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "issue",
+          targetId: issueId,
+          context: {},
+        },
+        tx,
+      );
       return tx.issue.findUniqueOrThrow({
         where: { id: issueId },
         include: ISSUE_INCLUDE,

@@ -52,7 +52,7 @@ const EMPTY: IssueDamageCase = {
  * another handler has changed or taken off since, so neither is written over
  * the other unseen. A re-read that brings another mark replaces a draft nobody
  * has touched; one the handler is editing stays, with a notice that the mark
- * changed and a way to take the current one, and cannot be saved until then.
+ * changed and a way to take the current one, and cannot be saved or taken off until then.
  *
  * One write at a time: both buttons wait on a write in flight, and an edit
  * clears the outcome of the last one, which no longer describes the draft.
@@ -251,10 +251,13 @@ export function IssueDamageCaseSection({
         {marked ? (
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || behind || base === null}
             aria-label={t("issues.damageCase.removeNamed", named)}
             onClick={() => {
-              void remove.submit({ issueId: issue.id });
+              if (base === null) {
+                return;
+              }
+              void remove.submit({ issueId: issue.id, replaces: base });
             }}
             className={QUIET_BUTTON}
           >
