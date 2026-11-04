@@ -34,9 +34,11 @@ An issue now has two layers, and only one of them is kept for good.
   legal hold, is kept until it closes or the hold is released, and the request
   stays open meanwhile and says why.
 
-A person's access report says when the text of an issue they reported was
-removed, whether a handler redacted it, the nightly job removed it or a granted
-erasure request did, instead of printing it blank.
+A person's access report gives the date on which the text of an issue they
+reported was removed, instead of printing it blank. It does not say whether the
+nightly job or a granted erasure request removed it. It says a handler acted
+only for a description or location a handler redacted and that nothing has
+removed since.
 
 Every redaction, legal hold and change of the setting is recorded in the audit
 log with who did it, and never the text or a file's name.
