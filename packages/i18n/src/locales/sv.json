@@ -818,6 +818,10 @@
           "ISSUE_RESIDENTS_LISTED": "Någon som hanterar ärenden visades vilka som bor i en lägenhet, för att lägga upp ett ärende",
           "ISSUE_MESSAGE_SENT": "Ett meddelande skrevs i ett ärende",
           "ISSUE_NOTE_ADDED": "En intern anteckning skrevs i ett ärende",
+          "ISSUE_REDACTED": "Text, en bild eller en fil togs bort från ett ärende",
+          "ISSUE_LEGAL_HOLD_PLACED": "Ett rättsligt bevarandekrav lades på ett ärende",
+          "ISSUE_LEGAL_HOLD_RELEASED": "Det rättsliga bevarandekravet på ett ärende hävdes",
+          "ISSUE_RETENTION_RECORDED": "Hur länge fritexten i stängda ärenden sparas ändrades",
           "MOVE_IN_RECORDED": "En inflyttning registrerades",
           "MOVE_OUT_RECORDED": "En utflyttning registrerades",
           "PLUGIN_ENABLED": "Ett tillägg slogs på",
@@ -881,6 +885,18 @@
           "TRANSFER": "Överlåtelse",
           "TERMINATION": "Upphörande",
           "TRANSFER_REVERSAL": "Hävd eller återgången överlåtelse"
+        },
+        "auditDetail": {
+          "redacted": {
+            "description": "Beskrivningen",
+            "location": "Platsen",
+            "message": "Ett svar",
+            "note": "En intern anteckning",
+            "photo": "En bild",
+            "attachment": "En fil"
+          },
+          "legalHoldSince": "Kravet gällde sedan {{date}}",
+          "retentionChanged": "Från {{from}} till {{to}} år efter stängning"
         },
         "auditRole": {
           "subject": "Om den här personen",
@@ -1011,6 +1027,7 @@
             "eventSignups": "Anmälningar till evenemang",
             "pluginRecords": "Uppgifter som tillägg sparar om personen",
             "feed": "Flödet",
+            "issues": "Fritext i ärenden personen har anmält",
             "keyOrders": "Nyckelbeställningar",
             "motions": "Motioner",
             "subletApplications": "Ansökningar om andrahandsupplåtelse"
@@ -1021,6 +1038,7 @@
           "kept_other": "{{count}} sparas",
           "keptBecause": {
             "boardMailboxThreads": "Trådens adress tillhör någon som har ett rättsligt bevarandekrav eller en begränsning.",
+            "issues": "Ett ärende personen har anmält är fortfarande öppet, eller har ett rättsligt bevarandekrav, eller båda. Raderingen kan fortsätta när varje sådant ärende är stängt och saknar rättsligt bevarandekrav.",
             "keyOrders": "En öppen nyckelbeställning ligger kvar hos styrelsen. Besvara den så kan raderingen fortsätta.",
             "motions": "En öppen motion, eller en som står på dagordningen till en stämma som inte har hållits, behandlas fortfarande.",
             "subletApplications": "En ansökan om andrahandsupplåtelse ligger kvar hos styrelsen, eller så löper en andrahandsupplåtelse som styrelsen har samtyckt till."
@@ -1937,6 +1955,19 @@
         "alreadyClosed": "Den supportåtkomsten är redan stängd.",
         "reason": "Ange en anledning på högst 500 tecken.",
         "loadFailed": "Supportåtkomsten kunde inte läsas."
+      }
+    },
+    "issueRetention": {
+      "title": "Gallring av ärenden",
+      "description": "Hur många år efter att ett ärende stängts dess fritext sparas. Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, finns kvar i ärendet; beskrivningen, platsen, svaren, de interna anteckningarna och bilderna och filerna gallras så många år efter att det stängts, om inte ett rättsligt bevarandekrav gäller.",
+      "years": "År efter att ett ärende stängts",
+      "yearsHint": "Ett heltal mellan 1 och 10. En ny instans börjar på 2.",
+      "purgeJob": "Gallringen körs varje natt och läser talet när den körs, så en ändring flyttar alla kommande datum på en gång. Efter en kortare inställning gallras fritexten i de ärenden som redan passerat den under nätterna som följer, högst 500 ärenden vid varje körning.",
+      "loading": "Läser inställningen...",
+      "loadFailed": "Inställningen gick inte att läsa just nu.",
+      "errors": {
+        "range": "Välj ett helt antal år mellan 1 och 10.",
+        "unknown": "Inställningen gick inte att spara just nu. Försök igen."
       }
     },
     "responsibilityGuide": {
@@ -3720,6 +3751,7 @@
         "statusDetailNotApplicable": "Den uppgiften hör inte till den valda statusen. Välj igen."
       },
       "boardOnly": "Bara styrelsen",
+      "legalHold": "Rättsligt bevarandekrav",
       "assignee": "Ansvarig",
       "targetDate": "Senast klart",
       "overdue": "Försenat",
@@ -3801,6 +3833,17 @@
       "targetDateRemoved": "Senast klart borttaget",
       "boardOnly": "Stängt för alla utom styrelsen",
       "everyHandler": "Öppnat igen för alla som hanterar typen",
+      "redacted": {
+        "description": "Tog bort beskrivningen",
+        "location": "Tog bort platsen",
+        "message": "Tog bort ett svar",
+        "note": "Tog bort en intern anteckning",
+        "photo": "Tog bort en bild",
+        "attachment": "Tog bort en fil",
+        "unknown": "Tog bort text eller en fil"
+      },
+      "legalHoldPlaced": "Lade ett rättsligt bevarandekrav",
+      "legalHoldReleased": "Hävde det rättsliga bevarandekravet",
       "costResponsibility": "Vem betalar satt till {{who}}",
       "costResponsibilityRemoved": "Vem betalar togs bort"
     },
@@ -3919,6 +3962,47 @@
         "tooLarge": "Filen är större än vad som tillåts.",
         "unsupported": "Bara en bild (PNG, JPEG, WebP, GIF) eller en pdf kan bifogas.",
         "unknown": "Filen gick inte att bifoga just nu. Försök igen."
+      }
+    },
+    "redaction": {
+      "removedOn": "Borttaget av en handläggare <data>{{date}}</data>",
+      "purgedOn": "Fritexten togs bort <data>{{date}}</data>",
+      "freeTextRemoved": "Fritexten, svaren och bilderna togs bort <data>{{date}}</data>. Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, finns kvar.",
+      "title": "Fritext och rättsligt bevarandekrav",
+      "intro": "Så länge inget rättsligt bevarandekrav gäller för själva ärendet kan en handläggare när som helst ta bort beskrivningen, platsen, ett svar, en intern anteckning, en bild eller en fil, till exempel när en person som nämns där har fått radering beviljad. Det som tas bort är borta: ingenting sparar texten, och ingenting skrivs i dess ställe.",
+      "remove": "Ta bort",
+      "removeDescription": "{{type}}: ta bort beskrivningen",
+      "removeLocation": "{{type}}: ta bort platsen",
+      "removeMessage": "Ta bort svaret från {{at}}",
+      "removeNote": "Ta bort den interna anteckningen från {{at}}",
+      "removePhoto": "Ta bort bilden {{name}}",
+      "removeAttachment": "Ta bort filen {{name}}",
+      "description": "Beskrivning",
+      "location": "Plats",
+      "photos": "Anmälarens bilder",
+      "nothingLeft": "Beskrivningen, platsen och bilderna är redan borttagna.",
+      "confirm": "Ta bort för gott",
+      "keep": "Behåll",
+      "confirmHint": "Det går inte att ångra. Ingenting sparar texten eller filen, och ingenting skrivs i dess ställe.",
+      "removing": "Tar bort...",
+      "heldNotice": "Ärendet har ett rättsligt bevarandekrav, så ingenting kan tas bort förrän kravet hävs.",
+      "legalHold": {
+        "since": "Rättsligt bevarandekrav sedan <data>{{date}}</data>",
+        "none": "Ärendet har inget rättsligt bevarandekrav.",
+        "hint": "Så länge ett rättsligt bevarandekrav gäller gallras inte fritexten, svaren och bilderna, och de kan inte tas bort. Lägg ett när föreningen behöver dem för ett anspråk, till exempel ett försäkringsärende.",
+        "place": "Lägg ett rättsligt bevarandekrav",
+        "placeNamed": "{{type}}: lägg ett rättsligt bevarandekrav",
+        "release": "Häv det rättsliga bevarandekravet",
+        "releaseNamed": "{{type}}: häv det rättsliga bevarandekravet",
+        "releaseConfirm": "Häv",
+        "releaseKeep": "Behåll kravet",
+        "releaseHint": "När kravet hävs räknas gallringstiden igen, och fritexten i ett ärende som stängdes för tillräckligt länge sedan gallras redan nästa natt.",
+        "saving": "Sparar..."
+      },
+      "errors": {
+        "legalHold": "Ärendet har ett rättsligt bevarandekrav, så ingenting kan tas bort. Ärendet har lästs om.",
+        "targetNotFound": "Det är redan borta. Ärendet har lästs om.",
+        "unknown": "Ingenting kunde ändras just nu. Försök igen."
       }
     }
   },
@@ -6304,7 +6388,7 @@
           "name": "Felanmälningar",
           "purpose": "Ta emot och åtgärda fel i huset.",
           "legalBasisNote": "Berättigat intresse: att förvalta fastigheten. Den som anmäler kan självmant skriva uppgifter om hälsa (art. 9).",
-          "retention": "Kopplingen till personen tas bort vid gallringen; ärendet och bilderna behålls. Anmälningar från det öppna formuläret gallras 365 dagar efter avslut."
+          "retention": "Vad ärendet gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, behålls. Beskrivningen, platsen, svaren, de interna anteckningarna och bilderna gallras det antal år efter avslut som styrelsen bestämmer (1 till 10, 2 som standard) om inte ett rättsligt bevarandekrav gäller, eller tidigare när anmälarens begäran om radering beviljas, och kopplingen till anmälaren tas bort, när den texten är borta, när anmälarens egna personuppgifter gallras. Kontaktuppgifterna i en anmälan från det öppna formuläret gallras 365 dagar efter avslut."
         },
         "documents": {
           "name": "Dokumentarkiv",

@@ -22,7 +22,9 @@ import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import { ConversationComposer } from "./ConversationComposer";
 import { ISSUE_SIGNATURE_LABEL } from "./issue-labels";
+import { ConversationText } from "./IssueFreeText";
 import { IssueHandlerName } from "./IssueHandlerName";
+import { type IssueRedactionControl, RedactAct } from "./IssueRedaction";
 
 const WRITE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.conversation.errors.issueNotFoundHandler",
@@ -76,10 +78,18 @@ interface Read {
 export function IssueConversation({
   issue,
   onStale,
+  redaction,
 }: {
   issue: QueuedIssue;
   /** Told when the server says the issue is no longer the reader's to see. */
   onStale: () => void;
+  /**
+   * The removals on this issue (ADR 0057), shared with the panel that removes
+   * its description and photographs. Each answer bumps its revision, which
+   * reads the conversation again: a removed message changes nothing on the
+   * issue's own row.
+   */
+  redaction?: IssueRedactionControl;
 }): ReactElement {
   const { t } = useTranslation();
   const [read, setRead] = useState<Read>({
@@ -112,7 +122,37 @@ export function IssueConversation({
     staleRef.current = onStale;
   });
 
+  /*
+   * The redaction revision the lists on screen were read at. A removal changes
+   * what the server holds, so the copy on screen is dropped when the revision
+   * moves: were the read that follows to fail, a failed read keeps what the
+   * screen shows, and the bodies just removed would stand beside the failure
+   * notice. An ordinary read after a sent note or message keeps the thread.
+   */
+  const redactionRevision = redaction?.revision;
+  const shownAtRedaction = useRef(redactionRevision);
+  /*
+   * The same for the nightly purge, which removes the thread without any
+   * answer here: the issue's own `freeTextRemovedAt` moves when it has, and
+   * the lists are dropped with it for the same reason.
+   */
+  const purgedAt = issue.freeTextRemovedAt;
+  const shownAtPurge = useRef(purgedAt);
+
   useEffect(() => {
+    if (
+      shownAtRedaction.current !== redactionRevision ||
+      shownAtPurge.current !== purgedAt
+    ) {
+      shownAtRedaction.current = redactionRevision;
+      shownAtPurge.current = purgedAt;
+      setRead((current) => ({
+        ...current,
+        messages: null,
+        notes: null,
+        attachments: null,
+      }));
+    }
     let active = true;
     void Promise.all([
       fetchIssueMessages(issue.id),
@@ -147,7 +187,7 @@ export function IssueConversation({
     return () => {
       active = false;
     };
-  }, [issue.id, revision, reads]);
+  }, [issue.id, revision, reads, redactionRevision, purgedAt]);
 
   const reread = (): void => {
     setReads((count) => count + 1);
@@ -181,7 +221,11 @@ export function IssueConversation({
         <h3 className="text-label text-ink-muted uppercase">
           {t("issues.conversation.title")}
         </h3>
-        <MessageList messages={read.messages} failed={read.failed} />
+        <MessageList
+          messages={read.messages}
+          failed={read.failed}
+          redaction={redaction}
+        />
         {reachable ? (
           <ConversationComposer
             label={t("issues.conversation.message")}
@@ -206,7 +250,11 @@ export function IssueConversation({
           {t("issues.notes.title")}
         </h3>
         <p className={HINT}>{t("issues.notes.hint")}</p>
-        <NoteList notes={read.notes} failed={read.failed} />
+        <NoteList
+          notes={read.notes}
+          failed={read.failed}
+          redaction={redaction}
+        />
         <ConversationComposer
           label={t("issues.notes.label")}
           ariaLabel={t("issues.notes.labelNamed", named)}
@@ -226,6 +274,7 @@ export function IssueConversation({
         failed={read.failed}
         onAttached={reread}
         onRefused={refused}
+        redaction={redaction}
       />
     </div>
   );
@@ -234,9 +283,11 @@ export function IssueConversation({
 function MessageList({
   messages,
   failed,
+  redaction,
 }: {
   messages: IssueMessage[] | null;
   failed: boolean;
+  redaction: IssueRedactionControl | undefined;
 }): ReactElement | null {
   const { t, i18n } = useTranslation();
   if (messages === null) {
@@ -277,7 +328,19 @@ function MessageList({
               {formatMoment(message.createdAt, i18n.language)}
             </span>
           </span>
-          <p className="text-small whitespace-pre-line">{message.body}</p>
+          <ConversationText
+            body={message.body}
+            redactedAt={message.redactedAt}
+          />
+          {redaction === undefined || message.redactedAt !== null ? null : (
+            <RedactAct
+              control={redaction}
+              redaction={{ target: "message", id: message.id }}
+              label={t("issues.redaction.removeMessage", {
+                at: formatMoment(message.createdAt, i18n.language),
+              })}
+            />
+          )}
         </li>
       ))}
     </ol>
@@ -287,9 +350,11 @@ function MessageList({
 function NoteList({
   notes,
   failed,
+  redaction,
 }: {
   notes: IssueNote[] | null;
   failed: boolean;
+  redaction: IssueRedactionControl | undefined;
 }): ReactElement | null {
   const { t, i18n } = useTranslation();
   if (notes === null) {
@@ -317,7 +382,16 @@ function NoteList({
               {formatMoment(note.createdAt, i18n.language)}
             </span>
           </span>
-          <p className="text-small whitespace-pre-line">{note.body}</p>
+          <ConversationText body={note.body} redactedAt={note.redactedAt} />
+          {redaction === undefined || note.redactedAt !== null ? null : (
+            <RedactAct
+              control={redaction}
+              redaction={{ target: "note", id: note.id }}
+              label={t("issues.redaction.removeNote", {
+                at: formatMoment(note.createdAt, i18n.language),
+              })}
+            />
+          )}
         </li>
       ))}
     </ol>
@@ -334,12 +408,14 @@ function Attachments({
   failed,
   onAttached,
   onRefused,
+  redaction,
 }: {
   issue: QueuedIssue;
   attachments: IssueAttachment[] | null;
   failed: boolean;
   onAttached: () => void;
   onRefused: (reason: string) => void;
+  redaction: IssueRedactionControl | undefined;
 }): ReactElement {
   const { t } = useTranslation();
   const upload = useSaveAction(
@@ -381,7 +457,10 @@ function Attachments({
       ) : (
         <ul className="flex flex-col gap-1">
           {attachments.map((attachment) => (
-            <li key={attachment.id} className="text-small">
+            <li
+              key={attachment.id}
+              className="flex flex-wrap items-center gap-3 text-small"
+            >
               <a
                 href={attachment.url}
                 target="_blank"
@@ -390,6 +469,15 @@ function Attachments({
               >
                 {attachment.fileName}
               </a>
+              {redaction === undefined ? null : (
+                <RedactAct
+                  control={redaction}
+                  redaction={{ target: "attachment", id: attachment.id }}
+                  label={t("issues.redaction.removeAttachment", {
+                    name: attachment.fileName,
+                  })}
+                />
+              )}
             </li>
           ))}
         </ul>

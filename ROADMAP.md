@@ -885,13 +885,22 @@ Free, open source, and never moved behind a paywall.
       statutory registers and the audit log stay exempt as before. An issue or
       a document is detached from the person rather than deleted: the link to
       the person and the personal data on the row go, the record stays. An
-      issue's own description is free text the reporter wrote and is not
-      rewritten: it is the record of the problem and of its handling, which
-      the issue exists for, and a person it names who asks for erasure makes
-      a request under art. 17, handled as the box on erasure, objection and
-      restriction above says. A report filed through the public form is keyed
-      to nobody, so no person's clock reaches it and it is detached on one of
-      its own, a year after the board closed it
+      issue has two layers (ADR 0057): the building record - what it
+      concerned, when, the outcome and the apartment, where one was named -
+      stays, and its free text, conversation, notes and
+      photographs are removed a number of years after it closes, which the
+      board sets from one to ten and two by default, unless a legal hold
+      stands on the issue or on its reporter. A granted erasure request
+      removes the free text of the issues the person reported on the night
+      after the board grants it, once each such issue is closed and under no
+      legal hold of its own; an open or held issue keeps the request open
+      until it closes or the hold is released. A handler may redact a text or
+      remove a photograph at any time unless a legal hold stands on the issue
+      itself (a hold on its reporter does not stop a handler), which is how an
+      art. 17 request naming an issue is carried out. A report filed through
+      the public form is keyed to nobody, so no
+      person's clock reaches its contact details and they are detached on one
+      of their own, a year after the board closed it
 - [x] News on the association's website and by email: an item is for the
       members unless the board publishes it to the street, and publishing mails
       every member once - a toggle, on by default - through the job queue and

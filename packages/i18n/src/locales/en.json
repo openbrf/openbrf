@@ -818,6 +818,10 @@
           "ISSUE_RESIDENTS_LISTED": "A handler was shown who lives in an apartment, to open an issue",
           "ISSUE_MESSAGE_SENT": "A message was written on an issue",
           "ISSUE_NOTE_ADDED": "An internal note was written on an issue",
+          "ISSUE_REDACTED": "Text, a photograph or a file was removed from an issue",
+          "ISSUE_LEGAL_HOLD_PLACED": "A legal hold was placed on an issue",
+          "ISSUE_LEGAL_HOLD_RELEASED": "The legal hold on an issue was released",
+          "ISSUE_RETENTION_RECORDED": "How long the free text of closed issues is kept was changed",
           "MOVE_IN_RECORDED": "A move-in was recorded",
           "MOVE_OUT_RECORDED": "A move-out was recorded",
           "PLUGIN_ENABLED": "A plugin was switched on",
@@ -881,6 +885,18 @@
           "TRANSFER": "Transfer",
           "TERMINATION": "Termination",
           "TRANSFER_REVERSAL": "Transfer reversal"
+        },
+        "auditDetail": {
+          "redacted": {
+            "description": "The description",
+            "location": "The location",
+            "message": "A message",
+            "note": "An internal note",
+            "photo": "A photograph",
+            "attachment": "A file"
+          },
+          "legalHoldSince": "The hold stood since {{date}}",
+          "retentionChanged": "From {{from}} to {{to}} years after closing"
         },
         "auditRole": {
           "subject": "About this person",
@@ -1011,6 +1027,7 @@
             "eventSignups": "Event sign-ups",
             "pluginRecords": "Records plugins keep about the person",
             "feed": "The feed",
+            "issues": "The free text of issues they reported",
             "keyOrders": "Key orders",
             "motions": "Motions",
             "subletApplications": "Subletting applications"
@@ -1021,6 +1038,7 @@
           "kept_other": "{{count}} kept",
           "keptBecause": {
             "boardMailboxThreads": "The thread's address belongs to somebody under a legal hold or a restriction.",
+            "issues": "An issue they reported is still open, or a legal hold stands on it, or both. The erasure can go on once every such issue is closed and has no legal hold.",
             "keyOrders": "An open key order is still with the board. Answer it and the erasure can go on.",
             "motions": "An open motion, or one on the agenda of a meeting not yet held, is still being dealt with.",
             "subletApplications": "A subletting application is still with the board, or a consented subletting still runs."
@@ -1937,6 +1955,19 @@
         "alreadyClosed": "That support access is already closed.",
         "reason": "Give a reason of at most 500 characters.",
         "loadFailed": "Support access could not be read."
+      }
+    },
+    "issueRetention": {
+      "title": "Retention of issues",
+      "description": "How many years after an issue closes its free text is kept. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, stay with the issue; the description, the location, the conversation, the internal notes and the photographs and files are removed that many years after it closes, unless a legal hold stands on it.",
+      "years": "Years after an issue closes",
+      "yearsHint": "A whole number between 1 and 10. A new instance starts at 2.",
+      "purgeJob": "The purge runs every night and reads this number when it runs, so a change moves every pending date at once. After a shorter setting, the nights that follow remove the free text of the issues already past it, at most 500 issues in each run.",
+      "loading": "Reading the setting...",
+      "loadFailed": "The setting could not be read just now.",
+      "errors": {
+        "range": "Choose a whole number of years between 1 and 10.",
+        "unknown": "The setting could not be saved just now. Please try again."
       }
     },
     "responsibilityGuide": {
@@ -3720,6 +3751,7 @@
         "statusDetailNotApplicable": "That detail does not belong to the chosen status. Choose again."
       },
       "boardOnly": "Board only",
+      "legalHold": "Legal hold",
       "assignee": "Assignee",
       "targetDate": "Target date",
       "overdue": "Overdue",
@@ -3801,6 +3833,17 @@
       "targetDateRemoved": "Target date removed",
       "boardOnly": "Closed to all but the board",
       "everyHandler": "Opened again to every handler of its type",
+      "redacted": {
+        "description": "Removed the description",
+        "location": "Removed the location",
+        "message": "Removed a message",
+        "note": "Removed an internal note",
+        "photo": "Removed a photograph",
+        "attachment": "Removed a file",
+        "unknown": "Removed text or a file"
+      },
+      "legalHoldPlaced": "Placed a legal hold",
+      "legalHoldReleased": "Released the legal hold",
       "costResponsibility": "Who pays set to {{who}}",
       "costResponsibilityRemoved": "Who pays was removed"
     },
@@ -3919,6 +3962,47 @@
         "tooLarge": "The file is larger than allowed.",
         "unsupported": "Only an image (PNG, JPEG, WebP, GIF) or a PDF can be attached.",
         "unknown": "The file could not be attached just now. Please try again."
+      }
+    },
+    "redaction": {
+      "removedOn": "Removed by a handler on <data>{{date}}</data>",
+      "purgedOn": "Free text removed on <data>{{date}}</data>",
+      "freeTextRemoved": "The free text, the conversation and the photographs were removed on <data>{{date}}</data>. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, remain.",
+      "title": "Free text and legal hold",
+      "intro": "Unless a legal hold stands on the issue itself, a handler can remove the description, the location, a message, an internal note, a photograph or a file at any time, for instance when a person named in it has been granted erasure. What is removed is gone: nothing keeps the text, and nothing is written in its place.",
+      "remove": "Remove",
+      "removeDescription": "{{type}}: remove the description",
+      "removeLocation": "{{type}}: remove the location",
+      "removeMessage": "Remove the message of {{at}}",
+      "removeNote": "Remove the internal note of {{at}}",
+      "removePhoto": "Remove the photograph {{name}}",
+      "removeAttachment": "Remove the file {{name}}",
+      "description": "Description",
+      "location": "Location",
+      "photos": "The reporter's photographs",
+      "nothingLeft": "The description, the location and the reporter's photographs are already removed.",
+      "confirm": "Remove for good",
+      "keep": "Keep",
+      "confirmHint": "This cannot be undone. Nothing keeps the text or the file, and nothing is written in its place.",
+      "removing": "Removing...",
+      "heldNotice": "A legal hold stands on this issue, so nothing can be removed from it until the hold is released.",
+      "legalHold": {
+        "since": "Legal hold since <data>{{date}}</data>",
+        "none": "No legal hold stands on this issue.",
+        "hint": "While a legal hold stands, the free text, the conversation and the photographs outlast the retention clock and cannot be removed. Place one when the association needs them for a claim, such as an insurance matter.",
+        "place": "Place a legal hold",
+        "placeNamed": "{{type}}: place a legal hold",
+        "release": "Release the legal hold",
+        "releaseNamed": "{{type}}: release the legal hold",
+        "releaseConfirm": "Release",
+        "releaseKeep": "Keep the hold",
+        "releaseHint": "Once released, the retention clock runs again, and the free text of an issue closed long enough ago is removed the next night.",
+        "saving": "Saving..."
+      },
+      "errors": {
+        "legalHold": "A legal hold stands on this issue, so nothing can be removed. The issue has been read again.",
+        "targetNotFound": "That is already gone. The issue has been read again.",
+        "unknown": "Nothing could be changed just now. Please try again."
       }
     }
   },
@@ -6304,7 +6388,7 @@
           "name": "Issue reports",
           "purpose": "Receiving and dealing with problems in the building.",
           "legalBasisNote": "Legitimate interest: managing the property. A reporter may volunteer data about health (art. 9).",
-          "retention": "The link to the person is detached by the purge; the issue and its photographs are kept. A public-form report is purged 365 days after it is closed."
+          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands, or earlier on the reporter's granted erasure request, and the link to the reporter is detached, once that text is gone, when the reporter's own personal data is purged. A public-form report's contact details are purged 365 days after it is closed."
         },
         "documents": {
           "name": "Document archive",

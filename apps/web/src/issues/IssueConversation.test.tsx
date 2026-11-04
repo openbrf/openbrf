@@ -55,6 +55,9 @@ function issue(overrides: Partial<QueuedIssue> = {}): QueuedIssue {
     createdAt: "2026-08-20T08:00:00.000Z",
     updatedAt: "2026-08-20T08:00:00.000Z",
     enteredByHandler: false,
+    descriptionRedactedAt: null,
+    locationRedactedAt: null,
+    freeTextRemovedAt: null,
     typeHandledBy: "EVERY_HANDLER",
     priority: "NORMAL",
     targetDate: null,
@@ -62,6 +65,7 @@ function issue(overrides: Partial<QueuedIssue> = {}): QueuedIssue {
     assignee: null,
     enteredBy: null,
     boardOnly: false,
+    legalHoldAt: null,
     ...overrides,
   } as QueuedIssue;
 }
@@ -71,6 +75,7 @@ const THREAD: IssueMessage[] = [
     id: "m-1",
     side: "REPORTER",
     body: "Kommer någon i dag?",
+    redactedAt: null,
     createdAt: "2026-08-20T09:00:00.000Z",
   },
   {
@@ -79,6 +84,7 @@ const THREAD: IssueMessage[] = [
     signature: "PROPERTY_MANAGER",
     author: { kind: "person", personId: "p-manager", name: "Frida Förvaltare" },
     body: "I eftermiddag.",
+    redactedAt: null,
     createdAt: "2026-08-20T10:00:00.000Z",
   },
   {
@@ -87,6 +93,7 @@ const THREAD: IssueMessage[] = [
     signature: "BOARD",
     author: { kind: "protected", personId: "p-shielded" },
     body: "Vi har bokat rörmokaren.",
+    redactedAt: null,
     createdAt: "2026-08-20T11:00:00.000Z",
   },
 ];
@@ -96,6 +103,7 @@ const NOTES: IssueNote[] = [
     id: "n-1",
     author: { kind: "person", personId: "p-board", name: "Bea Styrelse" },
     body: "Grannen har klagat förut.",
+    redactedAt: null,
     createdAt: "2026-08-20T12:00:00.000Z",
   },
 ];
@@ -381,6 +389,7 @@ describe("the conversation with the reporter", () => {
           signature: "BOARD",
           author: { kind: "protected", personId: "p-shielded" },
           body: "Rörmokaren kommer imorgon.",
+          redactedAt: null,
           createdAt: "2026-08-21T09:00:00.000Z",
         },
       ],
@@ -396,6 +405,43 @@ describe("the conversation with the reporter", () => {
     });
     expect(await screen.findByText("Rörmokaren kommer imorgon.")).toBeTruthy();
     expect(screen.queryByText("Kommer någon i dag?")).toBeNull();
+  });
+
+  it("drops the thread and the notes on screen when the purge removed them and the reads after fail", async () => {
+    const { rerender } = render(
+      <IssueConversation issue={issue()} onStale={vi.fn()} />,
+    );
+    await screen.findByText("Kommer någon i dag?");
+    await screen.findByText("Grannen har klagat förut.");
+
+    fetchIssueMessages.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    fetchIssueNotes.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    rerender(
+      <IssueConversation
+        issue={issue({
+          updatedAt: "2026-08-21T08:00:00.000Z",
+          freeTextRemovedAt: "2026-08-21T03:00:00.000Z",
+        })}
+        onStale={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(fetchIssueMessages).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(fetchIssueNotes).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Kommer någon i dag?")).toBeNull();
+    });
+    expect(screen.queryByText("Grannen har klagat förut.")).toBeNull();
   });
 
   it("tells the queue when the issue is no longer the reader's", async () => {
