@@ -16,6 +16,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
@@ -30,7 +31,7 @@ import {
 } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import { JobQueueService } from "../jobs/job-queue.service";
+import { JOB_SCHEMA, JobQueueService } from "../jobs/job-queue.service";
 import {
   MailNotConfiguredError,
   MailService,
@@ -51,6 +52,7 @@ import {
   NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR,
   NOTIFIED_PUBLIC_REPORTS_PER_HOUR,
   NOTIFIED_REPORTS_PER_REPORTER_PER_HOUR,
+  REPEATED_NOTICE_SECONDS,
 } from "./issue-mailer.service";
 import { IssueService } from "./issue.service";
 
@@ -229,6 +231,40 @@ async function holdsSlot(job: IssueNoticeJob): Promise<boolean> {
   );
   expect(row).toBeDefined();
   return row?.holds === true;
+}
+
+/**
+ * How long one test may run, the integration config's `testTimeout`. A test
+ * still running past it has failed.
+ */
+const TEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Waits for the queue's throttle slot to turn when fewer than
+ * {@link TEST_TIMEOUT_MS} of it are left.
+ *
+ * The queue cuts the database's clock into slots of
+ * {@link REPEATED_NOTICE_SECONDS}, each starting on the hour, and a repeated
+ * assignment or reopening notice is dropped only within the slot of the first.
+ * A test that queues a notice and then a repeat expects both in one slot, and
+ * one started a second before the hour turns would see the repeat queued. A
+ * test that starts with a timeout's worth of its slot left, and passes, cannot
+ * cross the turn.
+ */
+async function clearOfTheSlotTurn(): Promise<void> {
+  const slotMs = REPEATED_NOTICE_SECONDS * 1000;
+  for (;;) {
+    // The clock the queue reads when it cuts the slot.
+    const [row] = await prisma.$queryRawUnsafe<{ nowMs: number }[]>(
+      `SELECT (date_part('epoch', ${JOB_SCHEMA}.job_now()) * 1000)::float8 AS "nowMs"`,
+    );
+    expect(row).toBeDefined();
+    const leftMs = slotMs - ((row?.nowMs ?? 0) % slotMs);
+    if (leftMs >= TEST_TIMEOUT_MS) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, leftMs + 100));
+  }
 }
 
 /** The notice last queued for one issue, which a test expects there to be. */
@@ -710,6 +746,12 @@ describe("a report is filed", () => {
 });
 
 describe("a handler acts on an issue", () => {
+  // Several tests here count on a notice and its repeat sharing a slot.
+  beforeEach(async () => {
+    await mailer.ensureQueues();
+    await clearOfTheSlotTurn();
+  }, TEST_TIMEOUT_MS + 15_000);
+
   it("mails a new assignee, and nobody who assigns an issue to themselves", async () => {
     const issueId = await report(unassignedType);
     const before = (await notices(issueId)).length;
