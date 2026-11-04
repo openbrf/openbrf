@@ -1353,7 +1353,10 @@ describe("D. rate limits and abuse", () => {
         { timeout: 30_000 },
       );
       try {
-        await holderHasRow;
+        // A holder that fails before it has the row (an exhausted pool, a
+        // failed lock, a timeout) rejects here with its own error instead of
+        // leaving the test to run into its timeout.
+        await Promise.race([holderHasRow, holder]);
         release();
         // The stamp is queued behind the holder.
         await waitFor(async () => {
@@ -1372,8 +1375,11 @@ describe("D. rate limits and abuse", () => {
         ).toEqual({ mailedAt: null });
       } finally {
         letStampGo();
-        await holder;
+        // A failure of the holder is raised below; here it must not replace
+        // the error that brought the test to this point.
+        await holder.catch(() => undefined);
       }
+      await holder;
 
       expect(await delivering).toBe(true);
       await closing;
