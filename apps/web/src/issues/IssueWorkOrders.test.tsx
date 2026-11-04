@@ -1076,6 +1076,20 @@ describe("a contractor's link", () => {
 
     await user.click(first);
     await user.click(screen.getByRole("checkbox", { name: /IMG_2\.jpg/ }));
+    // The record read after the save carries the saved choice.
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        linksEnabled: true,
+        choosablePhotos: PHOTOS,
+        workOrders: [
+          {
+            ...DELIVERED,
+            contractorLink: { ...NO_LINK, chosenFileIds: ["f-2"] },
+          },
+        ],
+      }),
+    });
     await user.click(save);
 
     expect(chooseWorkOrderPhotos).toHaveBeenCalledWith({
@@ -1086,6 +1100,15 @@ describe("a contractor's link", () => {
     expect(
       await screen.findByText("Länken visar nu de valda fotona."),
     ).toBeTruthy();
+    // And that choice is what stands once the save has settled.
+    expect(
+      (screen.getByRole("checkbox", { name: /IMG_2\.jpg/ }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("checkbox", { name: /IMG_1\.jpg/ }) as HTMLInputElement)
+        .checked,
+    ).toBe(false);
     // Changing the choice again lets go of the notice: it is about the last one.
     await user.click(screen.getByRole("checkbox", { name: /IMG_1\.jpg/ }));
     expect(screen.queryByText("Länken visar nu de valda fotona.")).toBeNull();

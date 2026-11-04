@@ -70,6 +70,11 @@ describe("a contractor's link token", () => {
     expect(digest).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(hasWorkOrderLinkTokenForm(digest)).toBe(false);
     expect(workOrderLinkDigest(token)).toBe(digest);
+    // A known SHA-256 vector, and a different token gives a different digest.
+    expect(workOrderLinkDigest("openbrf")).toBe(
+      "Dw2IjKhXMqZmAQPb-7sHzcTMAl5w-M6-vjgoiaP5WP8",
+    );
+    expect(workOrderLinkDigest(mintWorkOrderLinkToken())).not.toBe(digest);
   });
 
   it("A4: has the form of no reporter's token, and a reporter's has not its form", () => {

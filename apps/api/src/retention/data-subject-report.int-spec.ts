@@ -758,6 +758,35 @@ beforeAll(async () => {
     ],
   });
 
+  // A work order the contractor was given a link to, which showed two
+  // photographs since removed from the issue: the count outlives the files.
+  const linked = await prisma.workOrder.create({
+    data: {
+      issueId: waitingIssue.id,
+      recipientName: `Platslagare ${suffix}`,
+      recipientEmailCipher: "not-a-cipher",
+      body: "Byt kakel",
+      sentByPersonId: board.personId,
+      deliveryStatus: "SENT",
+      createdAt: new Date("2026-02-26T09:00:00.000Z"),
+    },
+    select: { id: true },
+  });
+  await prisma.workOrderLink.create({
+    data: {
+      workOrderId: linked.id,
+      tokenDigest: `${suffix}${"A".repeat(43)}`.slice(-43),
+      expiresAt: new Date("2026-03-28T09:00:00.000Z"),
+      revokedAt: new Date("2026-02-27T09:00:00.000Z"),
+    },
+  });
+  await prisma.workOrderPhotoExposure.createMany({
+    data: [
+      { workOrderId: linked.id, fileId: null },
+      { workOrderId: linked.id, fileId: null },
+    ],
+  });
+
   await prisma.mediaFile.create({
     data: {
       id: mediaFileId,
@@ -1845,6 +1874,16 @@ describe("what the report contains", () => {
         notSent: true,
         linkGiven: false,
         photosShared: 0,
+      },
+      {
+        recipientName: `Platslagare ${suffix}`,
+        writtenAt: "2026-02-26T09:00:00.000Z",
+        deliveryStatus: "SENT",
+        notSent: false,
+        // A link that was withdrawn was still given, and what it showed was
+        // disclosed: both stay on the report.
+        linkGiven: true,
+        photosShared: 2,
       },
     ]);
     // Never answered, and the common area by its name.
