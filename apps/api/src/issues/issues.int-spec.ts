@@ -22,7 +22,7 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { IssueTypeService } from "./issue-type.service";
-import { MAX_PHOTOS_PER_ISSUE } from "./issue.service";
+import { IssueService, MAX_PHOTOS_PER_ISSUE } from "./issue.service";
 
 /**
  * Issues over HTTP, against a real database.
@@ -580,6 +580,66 @@ describe("reporting", () => {
       select: { description: true },
     });
     expect(stored.description).toBe(description);
+  });
+});
+
+/**
+ * A location that holds only blanks is stored as no location, by every way an
+ * issue is filed. Stored as written, it would be a location nobody wrote, and a
+ * handler's redaction or the purge would then record removing it.
+ */
+describe("a blank location", () => {
+  const BLANK = " \t ";
+
+  async function storedLocation(id: string | undefined): Promise<unknown> {
+    const stored = await prisma.issue.findUniqueOrThrow({
+      where: { id: id ?? "" },
+      select: { location: true },
+    });
+    return stored.location;
+  }
+
+  it("is stored as none on a member's report", async () => {
+    const filed = await report(residentCookie, {
+      typeId: typeIds.member,
+      location: BLANK,
+      description: "Elementet i hallen blir inte varmt.",
+    });
+    expect(filed.statusCode).toBe(201);
+
+    expect(await storedLocation(filed.id)).toBeNull();
+  });
+
+  it("is stored as none on a report from the website", async () => {
+    await setPublicReporting(true);
+
+    // Called on the service: the website's form trims its fields before they
+    // get here, and the service holds the rule for every caller.
+    const filed = await app.get(IssueService).reportPublicly({
+      typeId: typeIds.nonMember,
+      location: BLANK,
+      description: "Klotter pa soptunnorna vid grinden.",
+      reporterName: null,
+      reporterEmail: null,
+    });
+
+    expect(await storedLocation(filed.id)).toBeNull();
+  });
+
+  it("is stored as none on an issue a handler opens", async () => {
+    const opened = await inject({
+      method: "POST",
+      url: "/api/issue-queue",
+      payload: {
+        typeId: typeIds.member,
+        location: BLANK,
+        description: "Hissen stannar mellan plan tre och fyra.",
+      },
+      headers: { cookie: managerCookie },
+    });
+    expect(opened.statusCode).toBe(201);
+
+    expect(await storedLocation(opened.json<{ id: string }>().id)).toBeNull();
   });
 });
 

@@ -2228,16 +2228,6 @@ function refuseUnlinked(outcome: IssueLinkOutcome): void {
 }
 
 /**
- * A report whose type was removed after it was read.
- *
- * Both reporting paths read the type before they write, so a board removing it
- * at the same moment makes the insert raise P2003 against the restrictive key.
- * That is a type that does not exist, and is answered as one rather than with
- * a 500. The apartment's key cannot be the one: the reporter's residency holds
- * the apartment in the register. Nor can the place's: `holdOfferedPlace` holds
- * it until the insert commits.
- */
-/**
  * A location as it is filed: null where none was given, and where the field
  * holds only blanks. Every way an issue is filed reads it through this, so a
  * blank location is never stored, and a handler's redaction or the purge never
@@ -2247,6 +2237,16 @@ function locationOrNull(location: string | null | undefined): string | null {
   return location == null || location.trim() === "" ? null : location;
 }
 
+/**
+ * A report whose type was removed after it was read.
+ *
+ * Both reporting paths read the type before they write, so a board removing it
+ * at the same moment makes the insert raise P2003 against the restrictive key.
+ * That is a type that does not exist, and is answered as one rather than with
+ * a 500. The apartment's key cannot be the one: the reporter's residency holds
+ * the apartment in the register. Nor can the place's: `holdOfferedPlace` holds
+ * it until the insert commits.
+ */
 function typeRemoved(cause: unknown): never {
   if (
     cause instanceof Prisma.PrismaClientKnownRequestError &&
