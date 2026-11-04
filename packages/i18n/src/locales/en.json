@@ -4099,6 +4099,7 @@
       "removePhoto": "Remove the photograph {{name}}",
       "removeAttachment": "Remove the file {{name}}",
       "removeWorkOrder": "Remove the text of the work order of {{at}}",
+      "removeWorkOrderTo": "Remove the text of the work order to {{name}} of {{at}}",
       "description": "Description",
       "location": "Location",
       "photos": "The reporter's photographs",

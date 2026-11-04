@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from "react";
 import { Trans, useTranslation } from "react-i18next";
 
-import type { ApiResult } from "../api/client";
+import type { ApiFailure, ApiResult } from "../api/client";
 import {
   type IssueRedaction,
   type QueuedIssue,
@@ -73,7 +73,13 @@ export interface IssueRedactionControl {
   keep: () => void;
   redact: (redaction: IssueRedaction) => void;
   setHold: (held: boolean) => void;
+  /** The last act's refusal, until the next act or `dismissFailure`. */
   failureKey: TranslationKey | null;
+  /**
+   * Lets go of the refusal, for a screen beside the act whose own newer outcome
+   * replaces it. Safe from a callback of an earlier render.
+   */
+  dismissFailure: () => void;
 }
 
 export function useIssueRedaction(
@@ -82,6 +88,11 @@ export function useIssueRedaction(
 ): IssueRedactionControl {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  /*
+   * Held apart from the save's state, so a refusal is dismissed by a setter
+   * rather than by `reset`, which would also let go of an act still in flight.
+   */
+  const [failure, setFailure] = useState<ApiFailure | null>(null);
   const save = useSaveAction(
     (act: Act) => perform(issue.id, act),
     () => {
@@ -89,9 +100,10 @@ export function useIssueRedaction(
       setRevision((count) => count + 1);
       onChanged();
     },
-    (failure) => {
+    (refused) => {
       setConfirming(null);
-      if (STALE_REASONS.has(failure.reason)) {
+      setFailure(refused);
+      if (STALE_REASONS.has(refused.reason)) {
         setRevision((count) => count + 1);
         onChanged();
       }
@@ -99,9 +111,7 @@ export function useIssueRedaction(
   );
   /** A refusal is about the act that was asked; a new question clears it. */
   const clearFailure = (): void => {
-    if (save.state.kind === "failed") {
-      save.reset();
-    }
+    setFailure(null);
   };
 
   return {
@@ -118,6 +128,7 @@ export function useIssueRedaction(
     },
     redact: (redaction) => {
       if (!save.pending) {
+        clearFailure();
         void save.submit({ kind: "redact", redaction });
       }
     },
@@ -128,13 +139,14 @@ export function useIssueRedaction(
       }
     },
     failureKey:
-      save.state.kind === "failed"
-        ? failureMessageKey(
-            save.state.failure,
+      failure === null
+        ? null
+        : failureMessageKey(
+            failure,
             FAILURES,
             "issues.redaction.errors.unknown",
-          )
-        : null,
+          ),
+    dismissFailure: clearFailure,
   };
 }
 

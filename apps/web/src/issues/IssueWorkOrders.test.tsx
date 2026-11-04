@@ -420,7 +420,7 @@ describe("removing a work order's text", () => {
 
     await user.click(
       await screen.findByRole("button", {
-        name: /^Ta bort texten i arbetsordern från/,
+        name: /^Ta bort texten i arbetsordern till Rörfirman från/,
       }),
     );
     expect(redactIssue).not.toHaveBeenCalled();
@@ -452,7 +452,7 @@ describe("removing a work order's text", () => {
     expect(onChanged).toHaveBeenCalled();
     expect(
       screen.queryByRole("button", {
-        name: /^Ta bort texten i arbetsordern från/,
+        name: /^Ta bort texten i arbetsordern till Rörfirman från/,
       }),
     ).toBeNull();
   });
@@ -467,7 +467,7 @@ describe("removing a work order's text", () => {
 
     await user.click(
       await screen.findByRole("button", {
-        name: /^Ta bort texten i arbetsordern från/,
+        name: /^Ta bort texten i arbetsordern till Rörfirman från/,
       }),
     );
     fetchIssueWorkOrders.mockResolvedValue({
@@ -497,7 +497,7 @@ describe("removing a work order's text", () => {
     expect(await screen.findByText("Byt packningen.")).toBeTruthy();
     expect(
       screen.queryByRole("button", {
-        name: /^Ta bort texten i arbetsordern från/,
+        name: /^Ta bort texten i arbetsordern till Rörfirman från/,
       }),
     ).toBeNull();
     unmount();
@@ -514,7 +514,7 @@ describe("removing a work order's text", () => {
     ).toBeTruthy();
     expect(
       screen.queryByRole("button", {
-        name: /^Ta bort texten i arbetsordern från/,
+        name: /^Ta bort texten i arbetsordern till Rörfirman från/,
       }),
     ).toBeNull();
   });
@@ -534,7 +534,7 @@ describe("removing a work order's text", () => {
 
     await user.click(
       await screen.findByRole("button", {
-        name: /^Ta bort texten i arbetsordern från/,
+        name: /^Ta bort texten i arbetsordern till Rörfirman från/,
       }),
     );
     await user.click(screen.getByRole("button", { name: "Ta bort för gott" }));
@@ -544,5 +544,131 @@ describe("removing a work order's text", () => {
       expect(onChanged).toHaveBeenCalled();
       expect(fetchIssueWorkOrders).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it("says a send that succeeds after a refused removal, not the refusal", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ workOrders: [SENT] }),
+    });
+    redactIssue.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "legal-hold" },
+    });
+    previewWorkOrder.mockImplementation((input: { body: string }) =>
+      Promise.resolve({ ok: true, value: preview(input.body) }),
+    );
+    sendWorkOrder.mockResolvedValue({
+      ok: true,
+      value: { ...SENT, deliveryStatus: "PENDING", deliveryFailure: null },
+    });
+    const user = userEvent.setup();
+    render(<WithRedaction of={UNHELD} onChanged={vi.fn()} />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: /^Ta bort texten i arbetsordern till Rörfirman från/,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Ta bort för gott" }));
+    expect(await screen.findByText(/bevarandekrav/)).toBeTruthy();
+
+    await writeDraft("Byt packningen.");
+    await user.click(screen.getByRole("button", { name: "Förhandsgranska" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Skicka till Rörfirman" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Arbetsordern till Rörfirman är sparad och på väg.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/bevarandekrav/)).toBeNull();
+  });
+
+  it("says a read that failed after a refused removal, not the refusal", async () => {
+    fetchIssueWorkOrders.mockResolvedValueOnce({
+      ok: true,
+      value: orders({ workOrders: [SENT] }),
+    });
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    redactIssue.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "legal-hold" },
+    });
+    const user = userEvent.setup();
+    render(<WithRedaction of={UNHELD} onChanged={vi.fn()} />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: /^Ta bort texten i arbetsordern till Rörfirman från/,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Ta bort för gott" }));
+
+    expect(
+      await screen.findByText(
+        "Arbetsorder eller entreprenörer gick inte att läsa just nu. Stäng och öppna igen.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/bevarandekrav/)).toBeNull();
+  });
+
+  it("keeps a refused preview's notice gone once a later removal was refused", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ workOrders: [SENT] }),
+    });
+    previewWorkOrder.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "work-order-identity-number" },
+    });
+    redactIssue.mockResolvedValue({
+      ok: false,
+      failure: { status: 404, reason: "redaction-target-not-found" },
+    });
+    const user = userEvent.setup();
+    render(<WithRedaction of={UNHELD} onChanged={vi.fn()} />);
+
+    await writeDraft("19811228-9874 släpper in.");
+    await user.click(screen.getByRole("button", { name: "Förhandsgranska" }));
+    const refusedPreview =
+      "Arbetsordern innehåller ett personnummer. Skriv den utan.";
+    expect(await screen.findByText(refusedPreview)).toBeTruthy();
+
+    const remove = {
+      name: /^Ta bort texten i arbetsordern till Rörfirman från/,
+    };
+    await user.click(screen.getByRole("button", remove));
+    await user.click(screen.getByRole("button", { name: "Ta bort för gott" }));
+    await waitFor(() => {
+      expect(screen.queryByText(refusedPreview)).toBeNull();
+    });
+
+    // Asking the next removal lets go of the refusal; the preview's older
+    // refusal does not come back in its place.
+    await user.click(await screen.findByRole("button", remove));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(refusedPreview)).toBeNull();
+  });
+
+  it("names a work order whose contractor was removed by when it went alone", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        workOrders: [{ ...SENT, recipientName: null, recipientEmail: null }],
+      }),
+    });
+    render(<WithRedaction of={UNHELD} onChanged={vi.fn()} />);
+
+    expect(
+      await screen.findByRole("button", {
+        name: /^Ta bort texten i arbetsordern från/,
+      }),
+    ).toBeTruthy();
   });
 });

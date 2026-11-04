@@ -1079,6 +1079,38 @@ describe("redaction of a work order's text", () => {
     expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(1);
   });
 
+  it("is held by the database to a mark over an erased text only", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: null,
+    });
+    const standing = await createWorkOrder(issue.id);
+    const erased = await createWorkOrder(issue.id, { body: null });
+    const at = new Date();
+
+    // A mark over words still standing is refused, and so are words written
+    // back under a mark.
+    await expect(
+      prisma.$executeRaw`UPDATE "work_order" SET "redactedAt" = ${at} WHERE "id" = ${standing}`,
+    ).rejects.toThrow(/work_order_redacted_empty/);
+    await prisma.workOrder.update({
+      where: { id: erased },
+      data: { redactedAt: at },
+    });
+    await expect(
+      prisma.$executeRaw`UPDATE "work_order" SET "body" = ${WORK_ORDER_TEXT} WHERE "id" = ${erased}`,
+    ).rejects.toThrow(/work_order_redacted_empty/);
+
+    expect(await readWorkOrder(standing)).toMatchObject({
+      body: WORK_ORDER_TEXT,
+      redactedAt: null,
+    });
+    expect(await readWorkOrder(erased)).toMatchObject({
+      body: null,
+      redactedAt: at,
+    });
+  });
+
   it("leaves a text the clock erased unmarked, and writes no entry", async () => {
     const issue = await seed({
       reporterPersonId: resident.personId,

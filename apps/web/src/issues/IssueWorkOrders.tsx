@@ -147,6 +147,33 @@ export function IssueWorkOrders({
   const [sentTo, setSentTo] = useState<string | null>(null);
 
   /*
+   * The notice says the newest outcome. A removal refused after this screen's
+   * last preview or send replaces that outcome's notice, and stays replaced
+   * after the refusal is dismissed. Asking a preview or a send, the refusal of
+   * either, an accepted send or a changed draft lets go of the removal's
+   * refusal, here and beside the issue's own text.
+   * A read that failed is said above a refusal: the refusal says the record was
+   * read again, and it was not.
+   */
+  const redactionFailure = redaction?.failureKey ?? null;
+  const dismissRedactionFailure = redaction?.dismissFailure;
+  const [superseded, setSuperseded] = useState(false);
+  // Set while rendering, from the refusal the last render saw, so the newer
+  // refusal and the older notice are never shown in the same frame.
+  const [seenRedactionFailure, setSeenRedactionFailure] =
+    useState(redactionFailure);
+  if (seenRedactionFailure !== redactionFailure) {
+    setSeenRedactionFailure(redactionFailure);
+    if (redactionFailure !== null) {
+      setSuperseded(true);
+    }
+  }
+  const ownOutcome = (): void => {
+    setSuperseded(false);
+    dismissRedactionFailure?.();
+  };
+
+  /*
    * A removal answered, or refused because the screen was stale: the record is
    * read again, and an answer to a read asked before it is dropped (`reads`).
    */
@@ -202,6 +229,7 @@ export function IssueWorkOrders({
   );
 
   const onRefused = (failure: ApiFailure): void => {
+    ownOutcome();
     if (STALE_REASONS.has(failure.reason)) {
       setPreview(null);
       setReads((count) => count + 1);
@@ -233,6 +261,7 @@ export function IssueWorkOrders({
         previewToken: asked.previewToken,
       }),
     (sent) => {
+      ownOutcome();
       setPreview(null);
       draftRef.current = EMPTY_DRAFT;
       setDraft(EMPTY_DRAFT);
@@ -243,14 +272,16 @@ export function IssueWorkOrders({
     onRefused,
   );
   const busy = previewing.pending || sending.pending;
-  const failure =
-    sending.state.kind === "failed"
+  const failure = superseded
+    ? null
+    : sending.state.kind === "failed"
       ? sending.state.failure
       : previewing.state.kind === "failed"
         ? previewing.state.failure
         : null;
 
   const changeDraft = (next: Draft): void => {
+    ownOutcome();
     draftRef.current = next;
     setDraft(next);
     setPreview(null);
@@ -271,7 +302,11 @@ export function IssueWorkOrders({
 
   return (
     <div className="flex flex-col gap-4">
-      {failure !== null ? (
+      {redactionFailure !== null && !readFailed ? (
+        <Notice tone="danger" live>
+          {t(redactionFailure)}
+        </Notice>
+      ) : failure !== null ? (
         <Notice tone="danger" live>
           {t(
             failureMessageKey(
@@ -281,15 +316,11 @@ export function IssueWorkOrders({
             ),
           )}
         </Notice>
-      ) : redaction?.failureKey != null ? (
-        <Notice tone="danger" live>
-          {t(redaction.failureKey)}
-        </Notice>
       ) : readFailed ? (
         <Notice tone="danger" live>
           {t("issues.workOrders.readFailed")}
         </Notice>
-      ) : sentTo !== null ? (
+      ) : sentTo !== null && !superseded ? (
         <Notice tone="ok" live>
           {t("issues.workOrders.sent", { name: sentTo })}
         </Notice>
@@ -321,6 +352,7 @@ export function IssueWorkOrders({
           onSubmit={(event) => {
             event.preventDefault();
             if (canPreview) {
+              ownOutcome();
               void previewing.submit(draft);
             }
           }}
@@ -410,6 +442,7 @@ export function IssueWorkOrders({
               sending={sending.state.kind === "saving"}
               disabled={busy}
               onSend={() => {
+                ownOutcome();
                 void sending.submit({
                   draft: preview.draft,
                   previewToken: preview.mail.previewToken,
@@ -553,9 +586,16 @@ function WorkOrderLog({
                   <RedactAct
                     control={redaction}
                     redaction={{ target: "workOrder", id: order.id }}
-                    label={t("issues.redaction.removeWorkOrder", {
-                      at: formatMoment(order.sentAt, locale),
-                    })}
+                    label={
+                      order.recipientName === null
+                        ? t("issues.redaction.removeWorkOrder", {
+                            at: formatMoment(order.sentAt, locale),
+                          })
+                        : t("issues.redaction.removeWorkOrderTo", {
+                            name: order.recipientName,
+                            at: formatMoment(order.sentAt, locale),
+                          })
+                    }
                   />
                 )}
               </>

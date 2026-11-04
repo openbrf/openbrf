@@ -4099,6 +4099,7 @@
       "removePhoto": "Ta bort bilden {{name}}",
       "removeAttachment": "Ta bort filen {{name}}",
       "removeWorkOrder": "Ta bort texten i arbetsordern från {{at}}",
+      "removeWorkOrderTo": "Ta bort texten i arbetsordern till {{name}} från {{at}}",
       "description": "Beskrivning",
       "location": "Plats",
       "photos": "Anmälarens bilder",
