@@ -36,7 +36,7 @@ import {
 /**
  * How long a work order to a contractor on an issue is taken for a second
  * press of the same button, and refused: as long as a preview stays valid, so
- * one preview can never be sent twice. A sending whose answer was lost, pressed
+ * one preview cannot be sent twice once it may have left. A sending whose answer was lost, pressed
  * again later than a shorter window, would otherwise find its first order gone
  * from the check and mail the contractor a second time. The preview is the
  * sending's key; what a repeat within it meets is this refusal, and the screen

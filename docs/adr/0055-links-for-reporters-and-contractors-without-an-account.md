@@ -336,9 +336,13 @@ row is locked while the sending reads it, so a board member who changes the
 address at the same moment changes it either before the sending, which is then
 refused and previewed again, or after it. The same text to the same contractor
 on the same issue within half an hour, as long as a preview lasts, is refused
-as a second press, also after a handler has redacted the text of the first (its
-words are gone, and sending again would mail them), and one
-handler may send twenty work orders an hour.
+as a second press. So is any text while an earlier work order to that
+contractor on that issue, created inside that half hour, has had its text
+redacted: its words are gone, so a repeat cannot be told from a new order, and
+a handler who redacts a mistaken order and writes a corrected one sends it when
+the half hour has passed. An earlier work order known not to have left the
+instance does not count: its handler is told to write it again. One handler
+may send twenty work orders an hour.
 
 The audit entry names the issue, the work order, the contractor and the sender,
 with the length of the text and none of its words. Each change to the

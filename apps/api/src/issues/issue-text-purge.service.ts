@@ -213,10 +213,10 @@ export class IssueTextPurgeService implements OnModuleInit {
           `Issue text purge stopped at its bound of ${String(
             MAX_ATTEMPTS_PER_RUN,
           )} attempts, ${String(
-            considered - purged,
+            failed + unfinished,
           )} of which did not finish (${String(failed)} failed removals, ${String(
             unfinished,
-          )} issues with a file still standing, the rest kept); issues behind the ones that did not succeed wait until those do.`,
+          )} issues with a file still standing; the rest were removed or kept); issues behind the ones that did not succeed wait until those do.`,
         );
       } else {
         this.logger.log(
