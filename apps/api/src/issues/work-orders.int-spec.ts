@@ -1568,6 +1568,46 @@ describe("the sending", () => {
     });
   });
 
+  it("makes a sending wait for the lock on its sender, so an erasure of the handler cannot fall between the access check and the insert", async () => {
+    const issueId = await filed(plain, "sender-lock");
+    const payload = {
+      contractorId: plumber.id,
+      body: `Byt packning. ${suffix}`,
+    };
+    const preview = await workOrder(as(board), issueId, payload, "preview");
+    const { previewToken } = preview.json<{ previewToken: string }>();
+
+    // The purge of a handler's data takes this lock before it detaches the
+    // sender from their work orders (`purge.int-spec.ts` holds it from the
+    // other side). The key is spelled out, so a sending that changed it fails
+    // here instead of passing under a new name.
+    const key = `work-order-sender:${board.personId}`;
+    const holding = gate();
+    const held = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+        holding.reach();
+        await holding.opened;
+      },
+      { timeout: 30_000 },
+    );
+    let sending: ReturnType<typeof workOrder> | undefined;
+    try {
+      await holding.reached;
+      sending = workOrder(as(board), issueId, { ...payload, previewToken });
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, false)) > 0n,
+      );
+      // Queued behind the holder, nothing is written yet.
+      expect(await prisma.workOrder.count({ where: { issueId } })).toBe(0);
+    } finally {
+      holding.open();
+      await held;
+    }
+    expect((await sending)?.statusCode).toBe(201);
+    expect(await prisma.workOrder.count({ where: { issueId } })).toBe(1);
+  });
+
   it("claims a work order once, and mails it once, when two workers run it together", async () => {
     const issueId = await filed(plain, "claimed-once");
     const sent = (
