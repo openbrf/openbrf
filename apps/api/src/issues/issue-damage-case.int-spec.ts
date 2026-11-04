@@ -10,11 +10,13 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
+import { lockIssueForHandling } from "./issue-lock";
 import { IssueTextPurgeService } from "./issue-text-purge.service";
 
 /**
@@ -407,6 +409,76 @@ describe("a damage case", () => {
       ).description,
     ).not.toBe("");
   });
+
+  it("keeps a closed issue's free text when the mark places its hold while the purge waits for the issue", async () => {
+    /*
+     * The mark takes the issue's lock (`lockIssueForHandling`) before it
+     * writes `legalHoldAt`, and the purge reads the hold again under that
+     * lock. `markDamageCase` opens its own transaction and cannot be paused,
+     * so the holder here takes the same lock and writes the same hold. The
+     * purge queues behind it on the advisory key, which `pg_locks` shows, and
+     * finds the hold once it commits. A purge that read the hold before the
+     * lock would remove the text.
+     */
+    const issueId = await opened(leak, "held");
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        statusId: leak.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(Date.now() - 5 * 365 * 86_400_000),
+      },
+    });
+    const key = `issue:${issueId}`;
+
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    let holder: Promise<void> | undefined;
+    let running: Promise<string> | undefined;
+
+    try {
+      // Longer than the waits below, so the transaction held open on purpose
+      // is not aborted by the five-second default and its lock released early.
+      holder = prisma.$transaction(
+        async (tx) => {
+          await lockIssueForHandling(tx, issueId);
+          await tx.issue.update({
+            where: { id: issueId },
+            data: { legalHoldAt: new Date() },
+          });
+          await holderDone;
+        },
+        { timeout: 60_000, maxWait: 20_000 },
+      );
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, true)) > 0n,
+      );
+
+      running = textPurge.purgeIssue(issueId, new Date(), 2);
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, false)) > 0n,
+      );
+
+      releaseHolder?.();
+      await holder;
+
+      await expect(running).resolves.toBe("kept");
+      expect(
+        (
+          await prisma.issue.findUniqueOrThrow({
+            where: { id: issueId },
+            select: { description: true },
+          })
+        ).description,
+      ).not.toBe("");
+    } finally {
+      releaseHolder?.();
+      await holder?.catch(() => undefined);
+      await running?.catch(() => undefined);
+    }
+  }, 60_000);
 
   it("refuses a mark that says nothing, carries an identity number, or dates a day to come", async () => {
     const issueId = await opened(leak, "refused");
