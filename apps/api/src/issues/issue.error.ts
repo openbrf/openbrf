@@ -76,6 +76,20 @@ import { DomainError } from "../http/domain-error";
  * sits and never the value. `too-many-attachments` and `too-many-saved-replies`
  * are the bounds in `ISSUE_CONVERSATION_LIMITS`, and `saved-reply-not-found` a
  * saved reply that is not there.
+ *
+ * The ring-fence's reasons (decision 32). `ring-fence-in-use` is lifting the
+ * ring-fence of a type issues have been reported under, which would hand them
+ * to whoever the ring-fence keeps out. `ring-fenced-board-only` is opening a
+ * ring-fenced type to every handler, and `ring-fenced-public` offering one on
+ * the website's form, or ring-fencing a type the form offers: its reporter is
+ * reached by mail alone, and nothing about a ring-fenced issue is mailed.
+ * `ring-fenced-post` is reporting from a post under a ring-fenced type, which
+ * would tie the report to something the house reads.
+ *
+ * The damage case's reasons (decision 28). `damage-case-incomplete` is an
+ * insurer or a claim number that is nothing once the invisible characters are
+ * taken out, and `damage-date-invalid` a day of the damage that is not a day,
+ * or one that has not come yet in the association's calendar.
  */
 export type IssueReason =
   | "type-not-found"
@@ -113,7 +127,13 @@ export type IssueReason =
   | "too-many-saved-replies"
   | "no-reporter-link"
   | "redaction-target-not-found"
-  | "legal-hold";
+  | "legal-hold"
+  | "ring-fence-in-use"
+  | "ring-fenced-board-only"
+  | "ring-fenced-public"
+  | "ring-fenced-post"
+  | "damage-case-incomplete"
+  | "damage-date-invalid";
 
 /**
  * Where in a message, a note or a saved reply a refused value sits: a part and
@@ -146,7 +166,8 @@ export class IssueError extends DomainError {
       reason === "too-many-statuses" ||
       reason === "work-order-preview-stale" ||
       reason === "work-order-duplicate" ||
-      reason === "legal-hold"
+      reason === "legal-hold" ||
+      reason === "ring-fence-in-use"
         ? HttpStatus.CONFLICT
         : reason === "work-order-budget-spent"
           ? HttpStatus.TOO_MANY_REQUESTS
@@ -163,7 +184,12 @@ export class IssueError extends DomainError {
                 reason === "contractor-incomplete" ||
                 reason === "work-order-empty" ||
                 reason === "work-order-ring-fenced" ||
-                reason === "work-order-identity-number"
+                reason === "work-order-identity-number" ||
+                reason === "ring-fenced-board-only" ||
+                reason === "ring-fenced-public" ||
+                reason === "ring-fenced-post" ||
+                reason === "damage-case-incomplete" ||
+                reason === "damage-date-invalid"
               ? HttpStatus.UNPROCESSABLE_ENTITY
               : HttpStatus.NOT_FOUND;
   }

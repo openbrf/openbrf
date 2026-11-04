@@ -252,8 +252,9 @@ export class IssueReporterLinkService implements OnModuleInit {
    * Answers whether a mail went. Nothing is mailed, and no link issued, for a
    * report that no longer has an address, that already has its link, that a
    * handler withdrew the link of, that closed long enough ago that a link
-   * would open nothing, or whose address is a person's who restricted
-   * processing (GDPR art. 18). Nor to an address that has had its three link
+   * would open nothing, whose type the board has since ring-fenced (decision
+   * 32), or whose address is a person's who restricted processing (GDPR art.
+   * 18). Nor to an address that has had its three link
    * mails today: that report is in the queue like any other, and the board
    * answers its reporter by other means if it must.
    */
@@ -270,7 +271,7 @@ export class IssueReporterLinkService implements OnModuleInit {
           reporterEmailCipher: true,
           reporterEmailIndex: true,
           closedAt: true,
-          type: { select: { name: true } },
+          type: { select: { name: true, ringFenced: true } },
           reporterLink: {
             select: { id: true, mailedAt: true, revokedAt: true },
           },
@@ -278,6 +279,11 @@ export class IssueReporterLinkService implements OnModuleInit {
       });
       if (
         issue === null ||
+        // Nothing about a ring-fenced issue is mailed (decision 32). The
+        // website's form offers no ring-fenced type, so this is a report filed
+        // before the board ring-fenced its type: read under the issue's lock
+        // and not mailed.
+        issue.type.ringFenced ||
         issue.reporterPersonId !== null ||
         issue.reporterEmailCipher === null ||
         issue.reporterEmailIndex === null
@@ -393,10 +399,12 @@ export class IssueReporterLinkService implements OnModuleInit {
             closedAt: true,
             reporterEmailIndex: true,
             reporterLink: { select: { revokedAt: true } },
+            type: { select: { ringFenced: true } },
           },
         });
         if (
           still === null ||
+          still.type.ringFenced ||
           still.closedAt !== null ||
           still.reporterEmailIndex !== issued.emailIndex ||
           still.reporterLink === null ||

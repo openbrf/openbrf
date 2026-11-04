@@ -889,6 +889,8 @@
           "ISSUE_LEGAL_HOLD_PLACED": "A legal hold was placed on an issue",
           "ISSUE_LEGAL_HOLD_RELEASED": "The legal hold on an issue was released",
           "ISSUE_RETENTION_RECORDED": "How long the free text of closed issues is kept was changed",
+          "ISSUE_DAMAGE_CASE_MARKED": "A handler marked an issue as a damage case, or changed the mark",
+          "ISSUE_DAMAGE_CASE_REMOVED": "A handler took the damage-case mark off an issue",
           "MOVE_IN_RECORDED": "A move-in was recorded",
           "MOVE_OUT_RECORDED": "A move-out was recorded",
           "PLUGIN_ENABLED": "A plugin was switched on",
@@ -3801,7 +3803,8 @@
       "outdoorAreas": "Outdoor areas",
       "pests": "Pests",
       "other": "Other",
-      "insurance": "Insurance"
+      "insurance": "Insurance",
+      "disturbances": "Disturbances"
     },
     "seededSavedReplies": {
       "received": {

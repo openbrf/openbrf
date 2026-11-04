@@ -889,6 +889,8 @@
           "ISSUE_LEGAL_HOLD_PLACED": "Ett rättsligt bevarandekrav lades på ett ärende",
           "ISSUE_LEGAL_HOLD_RELEASED": "Det rättsliga bevarandekravet på ett ärende hävdes",
           "ISSUE_RETENTION_RECORDED": "Hur länge fritexten i stängda ärenden sparas ändrades",
+          "ISSUE_DAMAGE_CASE_MARKED": "En handläggare markerade ett ärende som skadeärende eller ändrade markeringen",
+          "ISSUE_DAMAGE_CASE_REMOVED": "En handläggare tog bort skadeärendemarkeringen från ett ärende",
           "MOVE_IN_RECORDED": "En inflyttning registrerades",
           "MOVE_OUT_RECORDED": "En utflyttning registrerades",
           "PLUGIN_ENABLED": "Ett tillägg slogs på",
@@ -3801,7 +3803,8 @@
       "outdoorAreas": "Utemiljö",
       "pests": "Skadedjur",
       "other": "Övrigt",
-      "insurance": "Försäkringsärende"
+      "insurance": "Försäkringsärende",
+      "disturbances": "Störningar"
     },
     "seededSavedReplies": {
       "received": {

@@ -57,6 +57,7 @@ const QUEUED: QueuedIssueView = {
   updatedAt: "2027-01-20T09:00:00.000Z",
   closedAt: null,
   typeHandledBy: "EVERY_HANDLER",
+  typeRingFenced: false,
   priority: "NORMAL",
   targetDate: null,
   overdue: false,
@@ -64,6 +65,7 @@ const QUEUED: QueuedIssueView = {
   enteredBy: null,
   boardOnly: false,
   legalHoldAt: null,
+  damageCase: null,
   costResponsibility: null,
 };
 
@@ -87,6 +89,7 @@ const TYPES: IssueTypeView[] = [
     reporters: ["PUBLIC", "RESIDENTS"],
     handledBy: "EVERY_HANDLER",
     defaultPriority: "URGENT",
+    ringFenced: false,
     active: true,
     sortOrder: 0,
     reportCount: 4,
@@ -120,6 +123,7 @@ const TYPES: IssueTypeView[] = [
     reportCount: 1,
     handledBy: "EVERY_HANDLER",
     defaultPriority: "NORMAL",
+    ringFenced: false,
     statuses: [],
   },
 ];
@@ -435,7 +439,9 @@ describe("issue_type_list", () => {
 
     const answer = await call(held("issue_type_list"), {});
 
-    expect(handledTypes).toHaveBeenCalledWith("person-manager");
+    // As a read leaving the instance: a ring-fenced type is left out inside
+    // the service (ADR 0056).
+    expect(handledTypes).toHaveBeenCalledWith("person-manager", "omit");
     expect(answer).toEqual({
       types: [
         {

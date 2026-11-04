@@ -55,6 +55,14 @@ import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
  * address and no restriction under GDPR art. 18, for the issue's own scope, so
  * a board-only issue never reaches the property manager by mail either.
  *
+ * ## Not a ring-fenced issue
+ *
+ * Nothing about an issue of a ring-fenced type is mailed, to a handler or to
+ * its reporter (decision 32): the board reads it on its own screen and the
+ * reporter on theirs, and the mail provider is never told that one was made.
+ * Every decision here reads the issue through `readIssue`, which does not find
+ * one, so none is queued and one queued before the ring-fence sends nothing.
+ *
  * ## No free text
  *
  * A mail carries the issue number, the type's name and a link, and a mail to a
@@ -950,10 +958,17 @@ export class IssueMailer implements OnModuleInit {
     return "sent";
   }
 
-  /** The issue as every decision here reads it, or null when it is gone. */
+  /**
+   * The issue as every decision here reads it, or null when it is gone or its
+   * type is ring-fenced.
+   *
+   * The one read every queueing and every delivery makes, so a ring-fenced
+   * issue is mailed about to nobody, and a notice queued before the board
+   * ring-fenced its type finds nothing owed when it comes due.
+   */
   private readIssue(db: Db, issueId: string): Promise<NoticeIssue | null> {
-    return db.issue.findUnique({
-      where: { id: issueId },
+    return db.issue.findFirst({
+      where: { id: issueId, type: { ringFenced: false } },
       select: ISSUE_SELECT,
     });
   }
