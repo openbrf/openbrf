@@ -555,6 +555,8 @@ export function fetchIssueLinks(
   return apiRequest(
     "GET",
     `/api/issue-queue/${encodeURIComponent(issueId)}/links`,
+    undefined,
+    { signal: AbortSignal.timeout(READ_TIMEOUT_MS) },
   );
 }
 

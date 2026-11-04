@@ -1534,6 +1534,12 @@ export class IssueService {
           include: ISSUE_INCLUDE,
         });
       }
+      if (existing.mergedIntoIssueId !== null) {
+        throw new IssueError(
+          "That issue is already a duplicate of another.",
+          "merge-already-duplicate",
+        );
+      }
 
       if (into.status.meaning === "DONE") {
         throw new IssueError(
@@ -1629,6 +1635,12 @@ export class IssueService {
       // the notice as BOARD.
       const now = new Date();
       const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      // `requireHandled` answers the narrower scope for a person who handles
+      // nothing, and `signatureOf` would sign for them as the board: a role
+      // withdrawn since the route's check must not publish a notice.
+      if (!(await handlesIssues(tx, actorPersonId, "EVERY_HANDLER", now))) {
+        throw new IssueError("No such issue.", "issue-not-found");
+      }
       if (existing.status.meaning === "DONE") {
         throw new IssueError(
           "This issue is closed; a fault that is fixed is not a known fault.",

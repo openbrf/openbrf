@@ -4067,6 +4067,7 @@
         "mergeLimit": "That issue already has as many duplicates as one may. Merge into another issue, or answer the reporters with a known fault. The queue has been read again.",
         "mergeIntoClosed": "That issue is done. Reopen it first, or merge into one that is still being handled. The queue has been read again.",
         "mergeHasDuplicates": "Other issues were merged into this one. Merge the other issue into this one instead. The queue has been read again.",
+        "mergeAlreadyDuplicate": "That issue is already a duplicate of another. Reopen it first to merge it elsewhere. The queue has been read again.",
         "personalIdentityNumber": "The text carries a personal identity number. Remove it and try again.",
         "noDuplicateReporter": "Nobody can read an answer on the merged reports: their reporters have no account to read it in.",
         "unknown": "That could not be saved just now. Please try again."

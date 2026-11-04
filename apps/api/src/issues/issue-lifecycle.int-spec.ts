@@ -816,6 +816,28 @@ describe("merging duplicates", () => {
     expect(chosen.statusCode).toBe(400);
   });
 
+  it("refuses to merge a duplicate into a different issue, and repeats the same merge", async () => {
+    const kept = await filed(plain, neighbour);
+    const elsewhere = await filed(plain);
+    const duplicate = await filed(plain, resident);
+    const merge = (into: string) =>
+      as(board, "POST", `/api/issue-queue/${duplicate}/merge`, {
+        intoIssueId: into,
+      });
+
+    expect((await merge(kept)).statusCode).toBe(201);
+    expect((await merge(kept)).statusCode).toBe(201);
+    const moved = await merge(elsewhere);
+    expect(moved.statusCode).toBe(409);
+    expect(moved.json()).toMatchObject({ reason: "merge-already-duplicate" });
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: duplicate },
+        select: { mergedIntoIssueId: true },
+      }),
+    ).toEqual({ mergedIntoIssueId: kept });
+  });
+
   it("refuses to merge into an issue that is done, and leaves both as they were", async () => {
     const closed = await filed(plain, neighbour);
     const duplicate = await filed(plain, resident);
@@ -1100,6 +1122,21 @@ describe("a known fault", () => {
     // is told of none.
     const outside = await as(outsider, "GET", "/api/issues/known-faults");
     expect(outside.statusCode).toBe(403);
+  });
+
+  it("is not published by a person who no longer holds issues:handle", async () => {
+    const issueId = await filed(plain);
+    // Past the route's guard, as a role withdrawn in between: the service
+    // answers from the database and signs for nobody.
+    await expect(
+      issues.publishKnownFault(issueId, notice(), resident.personId),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: { knownFault: true, knownFaultSignature: true },
+      }),
+    ).toEqual({ knownFault: null, knownFaultSignature: null });
   });
 
   it("withholds the name of a type only handlers report from the house", async () => {

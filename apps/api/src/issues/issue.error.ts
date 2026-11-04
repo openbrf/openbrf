@@ -59,6 +59,9 @@ import { DomainError } from "../http/domain-error";
  * that is itself a duplicate, which would make a chain its reporter follows
  * through somebody else's report; and `merge-has-duplicates` one that others
  * were already merged into, which is merged the other way instead.
+ * `merge-already-duplicate` is a duplicate merged into a different issue than
+ * the one it follows, which would move its reporter between reports unseen;
+ * it is reopened first.
  * `merge-into-closed` is an issue merged into one that is done, which would
  * leave its reporter following a report nobody is working on.
  * `merge-limit` is an issue merged into one that already has as many
@@ -96,6 +99,7 @@ export type IssueReason =
   | "merge-into-itself"
   | "merge-into-duplicate"
   | "merge-has-duplicates"
+  | "merge-already-duplicate"
   | "merge-into-closed"
   | "merge-limit"
   | "known-fault-board-only"
@@ -133,6 +137,7 @@ export class IssueError extends DomainError {
       reason === "too-many-statuses" ||
       reason === "merge-into-duplicate" ||
       reason === "merge-has-duplicates" ||
+      reason === "merge-already-duplicate" ||
       reason === "merge-into-closed" ||
       reason === "merge-limit" ||
       reason === "known-fault-board-only" ||
