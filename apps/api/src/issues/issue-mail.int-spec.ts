@@ -304,9 +304,11 @@ function captureSends(): SendMailInput<unknown>[] {
  * about it, and answers its id for the notice to name. The resident writes a
  * reporter's message, and a handler's carries the signature given.
  *
- * A reporter's message spends the resident's hourly mail budget, so a test
- * that stores one deletes it again once it is done.
+ * A reporter's message spends the resident's hourly mail budget, so every
+ * message stored here is deleted after the test, whether it passed or not.
  */
+const storedMessageIds: string[] = [];
+
 async function storeMessage(
   issueId: string,
   author:
@@ -336,6 +338,7 @@ async function storeMessage(
           },
     select: { id: true },
   });
+  storedMessageIds.push(id);
   return id;
 }
 
@@ -455,8 +458,12 @@ beforeAll(async () => {
   });
 }, 180_000);
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
+  const stored = storedMessageIds.splice(0);
+  if (stored.length > 0) {
+    await prisma.issueMessage.deleteMany({ where: { id: { in: stored } } });
+  }
 });
 
 afterAll(async () => {
@@ -1221,42 +1228,35 @@ describe("an issue message", () => {
       "A reply from a handler.",
     );
 
-    try {
-      await mailer.ensureQueues();
-      await prisma.$transaction((tx) =>
-        mailer.messageInTransaction(tx, issueId, {
-          kind: "reporter",
-          messageId: fromReporter,
-        }),
-      );
-      await prisma.$transaction((tx) =>
-        mailer.messageInTransaction(tx, issueId, {
-          kind: "handler",
-          personId: manager.personId,
-          messageId: fromHandler,
-        }),
-      );
+    await mailer.ensureQueues();
+    await prisma.$transaction((tx) =>
+      mailer.messageInTransaction(tx, issueId, {
+        kind: "reporter",
+        messageId: fromReporter,
+      }),
+    );
+    await prisma.$transaction((tx) =>
+      mailer.messageInTransaction(tx, issueId, {
+        kind: "handler",
+        personId: manager.personId,
+        messageId: fromHandler,
+      }),
+    );
 
-      expect((await notices(issueId)).slice(before)).toEqual([
-        {
-          issueId,
-          personId: manager.personId,
-          event: "message",
-          messageId: fromReporter,
-        },
-        {
-          issueId,
-          personId: resident.personId,
-          event: "reporterMessage",
-          messageId: fromHandler,
-        },
-      ]);
-    } finally {
-      // The reporter's hourly budget counts their messages across the suite.
-      await prisma.issueMessage.deleteMany({
-        where: { id: { in: [fromReporter, fromHandler] } },
-      });
-    }
+    expect((await notices(issueId)).slice(before)).toEqual([
+      {
+        issueId,
+        personId: manager.personId,
+        event: "message",
+        messageId: fromReporter,
+      },
+      {
+        issueId,
+        personId: resident.personId,
+        event: "reporterMessage",
+        messageId: fromHandler,
+      },
+    ]);
   });
 
   it("is not mailed about once the free-text purge has erased it, from either side", async () => {
@@ -1314,28 +1314,21 @@ describe("an issue message", () => {
     };
     expect(queued).toHaveLength(4);
 
-    try {
-      await prisma.issueMessage.delete({ where: { id: written } });
-      const sent = captureSends();
-      expect(await mailer.deliver(noticeOf(written, "message"))).toBe(false);
-      expect(await mailer.deliver(noticeOf(written, "reporterMessage"))).toBe(
-        false,
-      );
-      expect(sent).toHaveLength(0);
-      expect(await mailer.deliver(noticeOf(kept, "message"))).toBe(true);
-      expect(
-        await mailer.deliver(noticeOf(keptByHandler, "reporterMessage")),
-      ).toBe(true);
-      expect(sent.map((input) => input.to)).toEqual([
-        manager.email,
-        resident.email,
-      ]);
-    } finally {
-      // The reporter's hourly budget counts their messages across the suite.
-      await prisma.issueMessage.deleteMany({
-        where: { id: { in: [written, kept, keptByHandler] } },
-      });
-    }
+    await prisma.issueMessage.delete({ where: { id: written } });
+    const sent = captureSends();
+    expect(await mailer.deliver(noticeOf(written, "message"))).toBe(false);
+    expect(await mailer.deliver(noticeOf(written, "reporterMessage"))).toBe(
+      false,
+    );
+    expect(sent).toHaveLength(0);
+    expect(await mailer.deliver(noticeOf(kept, "message"))).toBe(true);
+    expect(
+      await mailer.deliver(noticeOf(keptByHandler, "reporterMessage")),
+    ).toBe(true);
+    expect(sent.map((input) => input.to)).toEqual([
+      manager.email,
+      resident.email,
+    ]);
   });
 
   it("from one reporter is mailed about up to their hour's budget across their issues, written at once or not, and stored past it", async () => {
@@ -2002,84 +1995,77 @@ describe("delivering a mail", () => {
       HANDLER_MESSAGE,
     );
 
-    try {
-      await mailer.ensureQueues();
-      await prisma.$transaction(async (tx) => {
-        await mailer.messageInTransaction(tx, issueId, {
-          kind: "reporter",
-          messageId: fromReporter,
-        });
-        await mailer.messageInTransaction(tx, issueId, {
-          kind: "handler",
-          personId: board.personId,
-          messageId: fromHandler,
-        });
+    await mailer.ensureQueues();
+    await prisma.$transaction(async (tx) => {
+      await mailer.messageInTransaction(tx, issueId, {
+        kind: "reporter",
+        messageId: fromReporter,
       });
+      await mailer.messageInTransaction(tx, issueId, {
+        kind: "handler",
+        personId: board.personId,
+        messageId: fromHandler,
+      });
+    });
 
-      const jobs = await notices(issueId);
-      expect(new Set(jobs.map((job) => job.event))).toEqual(
-        new Set([
-          "assigned",
-          "urgent",
-          "reopened",
-          "overdue",
-          "message",
-          "reporterMessage",
-        ]),
-      );
+    const jobs = await notices(issueId);
+    expect(new Set(jobs.map((job) => job.event))).toEqual(
+      new Set([
+        "assigned",
+        "urgent",
+        "reopened",
+        "overdue",
+        "message",
+        "reporterMessage",
+      ]),
+    );
 
-      const sent = captureSends();
-      for (const job of jobs) {
-        await mailer.deliver(job);
-      }
-      // Every event was delivered to somebody: none of them was found stale.
-      expect(
-        new Set(
-          sent.map((input) =>
-            input.template.id === "issue-reporter-notice"
-              ? "reporterMessage"
-              : (input.props as { event: string }).event,
-          ),
+    const sent = captureSends();
+    for (const job of jobs) {
+      await mailer.deliver(job);
+    }
+    // Every event was delivered to somebody: none of them was found stale.
+    expect(
+      new Set(
+        sent.map((input) =>
+          input.template.id === "issue-reporter-notice"
+            ? "reporterMessage"
+            : (input.props as { event: string }).event,
         ),
-      ).toEqual(new Set(jobs.map((job) => job.event)));
+      ),
+    ).toEqual(new Set(jobs.map((job) => job.event)));
 
-      const issue = await prisma.issue.findUniqueOrThrow({
-        where: { id: issueId },
-        select: { number: true },
-      });
-      const forbidden = [
-        REPORTER_DESCRIPTION,
-        REPORTER_LOCATION,
-        HANDLER_STATUS_LABEL,
-        REPORTER_MESSAGE,
-        HANDLER_MESSAGE,
-        // The reporter's name, which only the reporter's own mail greets.
-        resident.lastName,
+    const issue = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: { number: true },
+    });
+    const forbidden = [
+      REPORTER_DESCRIPTION,
+      REPORTER_LOCATION,
+      HANDLER_STATUS_LABEL,
+      REPORTER_MESSAGE,
+      HANDLER_MESSAGE,
+      // The reporter's name, which only the reporter's own mail greets.
+      resident.lastName,
+    ];
+    for (const input of sent) {
+      const rendered = await mail.renderMail(input);
+      const everything = [
+        rendered.subject,
+        rendered.html,
+        rendered.text,
+        JSON.stringify(input.props),
       ];
-      for (const input of sent) {
-        const rendered = await mail.renderMail(input);
-        const everything = [
-          rendered.subject,
-          rendered.html,
-          rendered.text,
-          JSON.stringify(input.props),
-        ];
-        for (const part of everything) {
-          for (const text of forbidden) {
-            if (text === resident.lastName && input.to === resident.email) {
-              continue;
-            }
-            expect(part).not.toContain(text);
+      for (const part of everything) {
+        for (const text of forbidden) {
+          if (text === resident.lastName && input.to === resident.email) {
+            continue;
           }
+          expect(part).not.toContain(text);
         }
-        expect(rendered.subject).toContain(String(issue.number));
-        expect(rendered.subject).toContain(`Hiss ${suffix}`);
       }
-    } finally {
-      // The reporter's hourly budget counts their messages across the suite.
-      await prisma.issueMessage.deleteMany({
-        where: { id: { in: [fromReporter, fromHandler] } },
-      });
+      expect(rendered.subject).toContain(String(issue.number));
+      expect(rendered.subject).toContain(`Hiss ${suffix}`);
     }
   });
 });
