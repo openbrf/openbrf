@@ -101,10 +101,12 @@ export async function liveReporterLinkOfIssue(
 }
 
 /**
- * Pushes a link's end out to a year after now, on a new issue message.
+ * Pushes a link's end out to a year after now. Called when a reporter or a
+ * handler writes a message on the issue, and when the link is issued or its
+ * mail is retried: each starts the year again.
  *
  * Never pulls it in, and never touches a revoked link. Called in the
- * transaction that writes the message.
+ * transaction that writes the message or issues the link.
  */
 export async function extendReporterLink(
   tx: Prisma.TransactionClient,
