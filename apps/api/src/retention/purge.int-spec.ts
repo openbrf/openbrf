@@ -16,7 +16,7 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import type { Prisma } from "../generated/prisma/client";
-import { lockIssue } from "../issues/issue-lock";
+import { lockIssue, lockWorkOrderSender } from "../issues/issue-lock";
 import { IssuePurgeService } from "../issues/issue-purge.service";
 import { WORK_ORDER_BODY_RETENTION_DAYS } from "../issues/issue-retention";
 import { waitFor } from "../testing/advisory-locks";
@@ -1244,21 +1244,61 @@ describe("issues, documents, binder entries and files the person left behind", (
       { timeout: 30_000 },
     );
     const holder = await holding;
+
+    /*
+     * And while a sending by the person holds the lock it takes before it
+     * checks the handler's access: once the issue's lock is released, the
+     * purge waits for this one before it detaches the work orders. One that
+     * did not could detach, finish, and leave a sending that read the role
+     * before it was removed still naming the sender after the commit.
+     */
+    let releaseSending: () => void = () => undefined;
+    const sendingGate = new Promise<void>((resolve) => {
+      releaseSending = resolve;
+    });
+    let reachedSending: (pid: number) => void = () => undefined;
+    const holdingSending = new Promise<number>((resolve) => {
+      reachedSending = resolve;
+    });
+    const sending = prisma.$transaction(
+      async (tx) => {
+        await lockWorkOrderSender(tx, people.referenced);
+        reachedSending(await backendPid(tx));
+        await sendingGate;
+      },
+      { timeout: 30_000 },
+    );
+    const sendingHolder = await holdingSending;
+
     let finished = false;
     const erasure = purge.purgePerson(people.referenced, dueAt).finally(() => {
       finished = true;
     });
     let waited = false;
+    let waitedForSender = false;
     try {
       await waitFor(
         async () => finished || (await waitersBehind(prisma, holder)) > 0,
       );
       waited = !finished;
-    } finally {
       release();
       await reply;
+      await waitFor(
+        async () =>
+          finished || (await waitersBehind(prisma, sendingHolder)) > 0,
+      );
+      waitedForSender = !finished;
+    } finally {
+      release();
+      releaseSending();
+      await reply;
+      await sending;
     }
     expect(waited, "the purge waits for the issue's lock").toBe(true);
+    expect(
+      waitedForSender,
+      "the purge waits for the sender's lock before it detaches their work orders",
+    ).toBe(true);
     const outcome = await erasure;
 
     expect(outcome?.issuesDetachedFromPerson).toBe(1);

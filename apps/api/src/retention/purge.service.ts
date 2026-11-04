@@ -7,7 +7,7 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
-import { lockIssue } from "../issues/issue-lock";
+import { lockIssue, lockWorkOrderSender } from "../issues/issue-lock";
 import { WORK_ORDER_TEXT_STANDING } from "../issues/issue-retention";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
@@ -1007,8 +1007,15 @@ export class PurgeService implements OnModuleInit {
         where: { enteredByPersonId: personId },
         data: { enteredByPersonId: null },
       });
-      // The handler who sent a work order: the order stays, and so does its
-      // audit entry, but the row stops naming the person.
+      /*
+       * The handler who sent a work order: the order stays, and so does its
+       * audit entry, but the row stops naming the person. Under the lock a
+       * sending takes before it checks the handler's access and inserts: one
+       * that read the access before this purge removed the role would
+       * otherwise commit its `sentByPersonId` after the detachment below, and
+       * nothing later counts that reference.
+       */
+      await lockWorkOrderSender(tx, personId);
       const { count: workOrdersNoLongerSentBy } = await tx.workOrder.updateMany(
         {
           where: { sentByPersonId: personId },
