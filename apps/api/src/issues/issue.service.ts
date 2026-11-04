@@ -227,12 +227,23 @@ export type IssueHandlerView = AuthorView;
  * in, not where. Without the apartment they lead to no door, and whoever the
  * board sends there needs them.
  *
+ * `aboutApartment` says whether it was filed against an apartment, which the
+ * mask does not hide: it names no apartment, and on an issue about one the
+ * handler records the entry permission rather than a common-area place, as the
+ * server decides it.
+ *
  * The same row for every handler, the board included. The queue is one view
  * under one capability, and the board already has the address book, which has
  * a statutory reason to print the apartment. A board member who has to send
  * someone to the door looks there.
  */
 export type QueuedIssueView = OwnIssueView & {
+  /**
+   * Whether it was filed against an apartment, true also while `apartment` is
+   * withheld for a protected reporter. The handler's screen offers the entry
+   * permission or a common-area place from it, never from `apartment`.
+   */
+  aboutApartment: boolean;
   /** The status it stands in, as the board named it for this type. */
   status: { id: string; label: string };
   /** Whom it waits on, while its status means WAITING; null otherwise. */
@@ -2872,6 +2883,7 @@ function toQueuedView(
   const targetDate = formatDateColumn(issue.targetDate);
   const queued = {
     ...toOwnView(issue, today),
+    aboutApartment: issue.apartment !== null,
     status: { id: issue.status.id, label: issue.status.label },
     waitingReason: issue.waitingReason,
     outcome: issue.outcome,

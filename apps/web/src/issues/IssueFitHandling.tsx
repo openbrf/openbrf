@@ -87,6 +87,10 @@ function perform(issueId: string, act: Act): Promise<ApiResult<QueuedIssue>> {
  * report form offers it. The entry permission is offered on an issue about an
  * apartment that is not done, because it is cleared when the issue closes; the
  * finding on an issue that is not done. The server decides all of it again.
+ *
+ * Whether the issue is about an apartment is `aboutApartment`, never
+ * `apartment`: the queue withholds the apartment of a reporter with protected
+ * personal data, and their issue is still about it.
  */
 export function IssueFitHandling({
   issue,
@@ -165,7 +169,7 @@ export function IssueFitHandling({
         </Notice>
       ) : null}
 
-      {issue.apartment === null ? (
+      {issue.aboutApartment ? null : (
         <PlaceForm
           key={`place:${current?.id ?? ""}`}
           initial={current?.id ?? ""}
@@ -179,9 +183,9 @@ export function IssueFitHandling({
             });
           }}
         />
-      ) : null}
+      )}
 
-      {issue.apartment !== null && open ? (
+      {issue.aboutApartment && open ? (
         <section className="flex flex-col gap-2">
           <h3 className="text-label text-ink-muted uppercase">
             {t("issues.entry.title")}

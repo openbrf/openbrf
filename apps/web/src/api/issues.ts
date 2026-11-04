@@ -241,6 +241,11 @@ export type IssueReporter =
 export type ReporterLinkState = "live" | "ended" | "pending" | "none";
 
 export type QueuedIssue = OwnIssue & {
+  /**
+   * Filed against an apartment, true also while `apartment` is withheld for a
+   * protected reporter. Decides between the entry permission and a place.
+   */
+  aboutApartment: boolean;
   /** The status it stands in, as the board named it for its type. */
   status: { id: string; label: string };
   waitingReason: IssueWaitingReason | null;

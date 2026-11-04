@@ -190,6 +190,7 @@ interface QueuedRow {
   id: string;
   reporter: { kind: string };
   apartment: { id: string; number: string; address: string } | null;
+  aboutApartment: boolean;
   location: string | null;
 }
 
@@ -1001,6 +1002,13 @@ describe("the triage queue", () => {
       description: "Rapport fran en skyddad person.",
     });
     expect(filed.statusCode).toBe(201);
+    // And one about no apartment, which the mask must not turn into one.
+    const unhoused = await report(residentCookie, {
+      typeId: typeIds.member,
+      location: "Gården",
+      description: "Rapport utan lägenhet från en skyddad person.",
+    });
+    expect(unhoused.statusCode).toBe(201);
 
     // The control: the same row carries the apartment while the reporter is
     // not protected, so what follows is the masking and not a missing join.
@@ -1009,10 +1017,11 @@ describe("the triage queue", () => {
       url: "/api/issue-queue",
       headers: { cookie: managerCookie },
     });
-    expect(
-      before.json<QueuedRow[]>().find((candidate) => candidate.id === filed.id)
-        ?.apartment?.id,
-    ).toBe(ownApartmentId);
+    const unmasked = before
+      .json<QueuedRow[]>()
+      .find((candidate) => candidate.id === filed.id);
+    expect(unmasked?.apartment?.id).toBe(ownApartmentId);
+    expect(unmasked?.aboutApartment).toBe(true);
 
     await prisma.person.update({
       where: { id: resident.personId },
@@ -1031,6 +1040,9 @@ describe("the triage queue", () => {
         // could link this row to them by it.
         expect(row?.reporter).toEqual({ kind: "protected" });
         expect(row?.apartment).toBeNull();
+        // That it is about an apartment stays, naming none: it is what tells
+        // the handler's screen to offer the entry permission and no place.
+        expect(row?.aboutApartment).toBe(true);
         const text = JSON.stringify(row);
         expect(text).not.toContain(resident.personId);
         expect(text).not.toContain("Rune");
@@ -1054,6 +1066,11 @@ describe("the triage queue", () => {
             .json<QueuedRow[]>()
             .find((candidate) => candidate.id === filed.id),
         );
+        const other = queue
+          .json<QueuedRow[]>()
+          .find((candidate) => candidate.id === unhoused.id);
+        expect(other?.reporter).toEqual({ kind: "protected" });
+        expect(other?.aboutApartment).toBe(false);
       }
 
       // The row a status change answers with is built the same way.

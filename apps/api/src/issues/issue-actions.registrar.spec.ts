@@ -40,6 +40,7 @@ const QUEUED: QueuedIssueView = {
   place: null,
   description: "Det droppar från taket.",
   apartment: { id: "apartment-1", number: "1001", address: "Storgatan 12" },
+  aboutApartment: true,
   entry: null,
   photos: [
     {
@@ -74,6 +75,7 @@ const EXTERNAL: QueuedIssueView = {
   ...QUEUED,
   id: "issue-2",
   apartment: null,
+  aboutApartment: false,
   photos: [],
   reporter: {
     kind: "external",

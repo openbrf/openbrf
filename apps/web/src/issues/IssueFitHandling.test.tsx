@@ -58,6 +58,7 @@ function issue(overrides: Partial<QueuedIssue> = {}): QueuedIssue {
     place: null,
     description: "Det droppar i taket.",
     apartment: null,
+    aboutApartment: false,
     entry: null,
     finding: null,
     photos: [],
@@ -131,6 +132,7 @@ describe("the common area", () => {
     renderFit(
       issue({
         apartment: { id: "a-1", number: "1401", address: "Storgatan 12" },
+        aboutApartment: true,
       }),
     );
 
@@ -165,11 +167,42 @@ describe("permission to enter", () => {
     renderFit(
       issue({
         apartment: { id: "a-1", number: "1401", address: "Storgatan 12" },
+        aboutApartment: true,
       }),
     );
 
     expect(await screen.findByText("Tillträde")).toBeTruthy();
     expect(screen.getByLabelText("Ja")).toBeTruthy();
+  });
+
+  it("is offered, with the answer given, on a protected reporter's apartment issue", async () => {
+    // The queue withholds the apartment of a reporter with protected personal
+    // data, but the issue is still about it: the answer is shown and can be
+    // changed, and no common area is offered, which the server would refuse.
+    renderFit(
+      issue({
+        reporter: { kind: "protected" },
+        apartment: null,
+        aboutApartment: true,
+        entry: {
+          answer: "YES",
+          note: "Ring på",
+          pets: true,
+          masterKey: false,
+          until: null,
+          expired: false,
+        },
+      }),
+    );
+
+    expect(await screen.findByText("Tillträde")).toBeTruthy();
+    expect((screen.getByLabelText("Ja") as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect(
+      (screen.getByLabelText("Hur man kommer in") as HTMLTextAreaElement).value,
+    ).toBe("Ring på");
+    expect(screen.queryByLabelText("Gemensamt utrymme")).toBeNull();
   });
 
   it("is not offered without an apartment, or once the issue is done", () => {
@@ -184,6 +217,7 @@ describe("permission to enter", () => {
         issue={issue({
           meaning: "DONE",
           apartment: { id: "a-1", number: "1401", address: "Storgatan 12" },
+          aboutApartment: true,
         })}
         onChanged={vi.fn()}
       />,

@@ -13,7 +13,10 @@ the common area it is about, and the mark of an inspection finding.
   no, and for a yes whether there are pets, whether the master key may be used,
   a short note on how to get in and the last day the permission stands. A
   handler can record the same answer from what the resident said on the
-  telephone. The answer is cleared when the issue is closed, in the same step
+  telephone. The handler sees and records it also on an issue whose reporter
+  has protected personal data, where the queue withholds the apartment: each
+  issue in the queue says whether it is about an apartment without naming one.
+  The answer is cleared when the issue is closed, in the same step
   that closes it, and the database refuses a closed issue that holds one. A
   note that reads like a door code is refused, with a sentence saying why, and
   is never stored, while a time such as 08.00-12.00 or a date is not; a note a handler writes is also refused while it carries a

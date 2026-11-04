@@ -219,6 +219,7 @@ describe("a page of the queue read while a reporter's data becomes protected", (
           place: null,
           description: "Description of ordinary-issue-id",
           apartment: null,
+          aboutApartment: false,
           entry: null,
           photos: [],
           enteredByHandler: false,
