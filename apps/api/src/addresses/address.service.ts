@@ -5,6 +5,7 @@ import { PrismaService } from "../database/prisma.service";
 import { isUniqueViolation } from "../database/unique-violation";
 import { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { NO_ENTRY_PERMISSION } from "../issues/issue-fit-views";
 
 export class AddressError extends DomainError {
   readonly status: number;
@@ -307,7 +308,20 @@ export class AddressService {
     }
 
     try {
-      await this.prisma.apartment.delete({ where: { id } });
+      /*
+       * An issue about the apartment outlives it (its key is SetNull), but a
+       * resident's permission to enter belongs to an issue about an apartment
+       * (BRL 7 kap. 13 §): with the home gone from the register it lets nobody
+       * in anywhere, so it goes in the same transaction as the apartment, and
+       * a delete the keys refuse leaves it standing.
+       */
+      await this.prisma.$transaction([
+        this.prisma.issue.updateMany({
+          where: { apartmentId: id, entryAnswer: { not: null } },
+          data: NO_ENTRY_PERMISSION,
+        }),
+        this.prisma.apartment.delete({ where: { id } }),
+      ]);
     } catch (cause) {
       /*
        * The counts above narrow the window; the foreign keys close it. A charge

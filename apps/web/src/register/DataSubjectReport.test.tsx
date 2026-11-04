@@ -373,6 +373,7 @@ const FULL_REPORT: Report = {
       outcome: null,
       waitingReason: null,
       costResponsibility: null,
+      place: null,
       location: "Storgatan 12, entren",
       description: ISSUE_DESCRIPTION,
       entry: null,
@@ -1930,6 +1931,26 @@ describe("what the document prints", () => {
     expect((row as HTMLElement).textContent ?? "").toContain(
       "inga husdjur · huvudnyckel får inte användas",
     );
+  });
+
+  it("names the common area an issue is about, also once its text is gone", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          place: "Tvättstuga",
+          location: null,
+          description: "",
+          freeTextRemovedAt: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText("Gemensamt utrymme: Tvättstuga")).toBeTruthy();
   });
 
   it("says an issue's text was removed instead of printing it blank", async () => {

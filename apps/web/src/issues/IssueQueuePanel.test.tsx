@@ -35,6 +35,7 @@ const setIssueBoardOnly = vi.fn();
 const setIssueCostResponsibility = vi.fn();
 const fetchHandlerResponsibilityGuide = vi.fn();
 const fetchIssueCharges = vi.fn();
+const removeIssueFinding = vi.fn();
 /** The conversation beside the handling, read when an issue is opened. */
 const conversationReads = {
   fetchIssueMessages: vi.fn(),
@@ -53,6 +54,7 @@ vi.mock("../api/issues", async (importOriginal) => ({
   setIssueTargetDate: (input: unknown) => setIssueTargetDate(input),
   setIssueBoardOnly: (input: unknown) => setIssueBoardOnly(input),
   fetchIssuePlaceCounts: () => Promise.resolve({ ok: true, value: [] }),
+  removeIssueFinding: (id: string) => removeIssueFinding(id),
   fetchIssueMessages: (id: string) => conversationReads.fetchIssueMessages(id),
   fetchIssueNotes: (id: string) => conversationReads.fetchIssueNotes(id),
   fetchIssueAttachments: (id: string) =>
@@ -255,6 +257,7 @@ beforeEach(() => {
     setIssueTargetDate,
     setIssueBoardOnly,
     setIssueCostResponsibility,
+    removeIssueFinding,
   ]) {
     write.mockReset().mockResolvedValue({ ok: true, value: issue() });
   }
@@ -1140,6 +1143,42 @@ describe("handling an issue", () => {
 
     expect(await screen.findByText(/Flyttat till Pågår/)).toBeTruthy();
     expect(fetchIssueTimeline).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads the timeline again when a finding is taken off", async () => {
+    // Taking the mark off moves neither the issue's revision nor its status,
+    // so only the save itself can tell the open timeline to read again.
+    const session = userEvent.setup();
+    render(
+      <IssueQueuePanel
+        issues={[
+          issue({
+            finding: {
+              kind: "OVK",
+              inspectedOn: "2026-03-10",
+              protocol: null,
+            },
+          }),
+        ]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await openHandling(session);
+    await waitFor(() => {
+      expect(fetchIssueTimeline).toHaveBeenCalledTimes(1);
+    });
+
+    await session.click(
+      await screen.findByRole("button", { name: "Ta bort markeringen" }),
+    );
+
+    await waitFor(() => {
+      expect(removeIssueFinding).toHaveBeenCalledWith("issue-1");
+    });
+    await waitFor(() => {
+      expect(fetchIssueTimeline).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("drops a timeline read that a newer revision superseded", async () => {

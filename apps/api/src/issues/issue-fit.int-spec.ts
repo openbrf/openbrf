@@ -7,6 +7,7 @@ import type { ActionContext } from "@openbrf/plugin-sdk";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { ActionRegistryService } from "../actions/action-registry.service";
+import { AddressService } from "../addresses/address.service";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -690,6 +691,45 @@ describe("permission to enter", () => {
       }),
     ).rejects.toThrow();
     expect((await stored(issueId)).entryAnswer).toBeNull();
+  });
+
+  it("goes with the apartment when the board removes it", async () => {
+    const goneId = `if-apartment-gone-${suffix}`;
+    await prisma.apartment.create({
+      data: {
+        id: goneId,
+        addressId: `if-address-${suffix}`,
+        number: "1702",
+        floor: 7,
+      },
+    });
+    const issueId = await filed(plain);
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        apartmentId: goneId,
+        entryAnswer: "YES",
+        entryNote: "Ring på",
+        entryPets: true,
+        entryMasterKey: false,
+      },
+    });
+
+    await app.get(AddressService).removeApartment(goneId);
+
+    expect(await stored(issueId)).toMatchObject({
+      entryAnswer: null,
+      entryNote: null,
+      entryPets: null,
+      entryMasterKey: null,
+      entryUntil: null,
+    });
+    // The issue itself stays, about no apartment now.
+    const after = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: { apartmentId: true },
+    });
+    expect(after.apartmentId).toBeNull();
   });
 
   it("keeps a half-filled yes out of the table", async () => {

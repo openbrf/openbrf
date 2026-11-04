@@ -562,6 +562,11 @@ export interface ReportIssue {
    * (ADR 0054). Never an amount: a charge made from it is in `charges`.
    */
   costResponsibility: IssueCostResponsibility | null;
+  /**
+   * The name of the common area the issue is about (decision 30), or null.
+   * A building record rather than free text, so the purge leaves it.
+   */
+  place: string | null;
   location: string | null;
   description: string;
   /**

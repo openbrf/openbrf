@@ -18,8 +18,10 @@ common area it is about, and the mark of an inspection finding.
   note that reads like a door code is refused, with a sentence saying why, and
   is never stored, while a time such as 08.00-12.00 or a date is not; a note a handler writes is also refused while it carries a
   personal identity number. The answer is on the resident's data subject access
-  report while the issue is open, and the purge of a person clears it with them. Nothing of it is offered to a connected app
-  or the AI package.
+  report while the issue is open. The purge of a person clears it from an issue
+  whose text is already gone, when it detaches them from that issue, and
+  removing the apartment from the register clears it from the issues about that
+  apartment. Nothing of it is offered to a connected app or the AI package.
 - **Common areas.** The board keeps a short list of common areas, such as the
   laundry room, the lift and the yard, under Settings, and a report can name one
   beside its free-text location. The list never holds an apartment. A new
@@ -28,7 +30,8 @@ common area it is about, and the mark of an inspection finding.
   an issue, and the queue shows how many issues each area has, closed ones
   included, so a fault that keeps coming back in the same place is seen as one.
   The count is of the issues the reader may open. An area an issue names is
-  switched off and not removed.
+  switched off and not removed. The area an issue names is on its reporter's
+  data subject access report.
 - **Inspection findings.** A handler can mark an issue as a finding of an OVK,
   lift or fire inspection, with the day of the inspection, the protocol (one of
   the issue's files for handlers, which residents cannot open) and a target

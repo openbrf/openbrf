@@ -77,6 +77,11 @@ function build(
       createMany: vi.fn().mockResolvedValue({ count: 0 }),
       delete: vi.fn().mockResolvedValue({ id: "apartment-1" }),
     },
+    issue: {
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    // The array form: each write is already a promise, settled in order.
+    $transaction: vi.fn((writes: Promise<unknown>[]) => Promise.all(writes)),
   };
 
   return {
@@ -341,6 +346,26 @@ describe("removing an apartment", () => {
     expect(prisma.apartment.delete).toHaveBeenCalledWith({
       where: { id: "apartment-1" },
     });
+  });
+
+  it("takes the permission to enter off its issues in the same transaction", async () => {
+    const { service, prisma } = build({
+      apartment: { id: "apartment-1", number: "1101" },
+    });
+
+    await service.removeApartment("apartment-1");
+
+    expect(prisma.issue.updateMany).toHaveBeenCalledWith({
+      where: { apartmentId: "apartment-1", entryAnswer: { not: null } },
+      data: {
+        entryAnswer: null,
+        entryNote: null,
+        entryPets: null,
+        entryMasterKey: null,
+        entryUntil: null,
+      },
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
   it.each([

@@ -1660,6 +1660,16 @@ export function DataSubjectReport({
                     </td>
                     <td className={DATA_CELL}>{day(issue.reportedAt)}</td>
                     <td className={TEXT_CELL}>
+                      {/* The common area is a building record and outlives
+                        the free text, so it is shown above whatever became
+                        of the words. */}
+                      {issue.place !== null && (
+                        <span className="block">
+                          {t("register.person.report.issuePlace", {
+                            place: issue.place,
+                          })}
+                        </span>
+                      )}
                       {issue.locationRedactedAt !== null ? (
                         <RedactedMark at={issue.locationRedactedAt} t={t} />
                       ) : issue.location === null &&

@@ -1,7 +1,12 @@
 import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
-import { answerOwnEntry, type OwnIssue, withdrawOwnEntry } from "../api/issues";
+import {
+  answerOwnEntry,
+  type IssueEntry,
+  type OwnIssue,
+  withdrawOwnEntry,
+} from "../api/issues";
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Panel } from "../ui/Panel";
@@ -16,6 +21,11 @@ export interface OwnIssuesPanelProps {
   onClosed: () => void;
   /** Told when an answer about entering the apartment changed. */
   onChanged: () => void;
+  /**
+   * Told the answer about entering an issue holds after a save or a
+   * withdrawal, as the save answered it, before `onChanged`.
+   */
+  onEntrySaved: (issueId: string, entry: IssueEntry | null) => void;
 }
 
 /**
@@ -30,6 +40,7 @@ export function OwnIssuesPanel({
   issues,
   onClosed,
   onChanged,
+  onEntrySaved,
 }: OwnIssuesPanelProps): ReactElement {
   const { t } = useTranslation();
 
@@ -125,6 +136,9 @@ export function OwnIssuesPanel({
                       answerOwnEntry({ issueId: issue.id, entry })
                     }
                     withdraw={() => withdrawOwnEntry(issue.id)}
+                    onSaved={(entry) => {
+                      onEntrySaved(issue.id, entry);
+                    }}
                     onChanged={onChanged}
                   />
                 </details>

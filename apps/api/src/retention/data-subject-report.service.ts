@@ -691,6 +691,9 @@ export class DataSubjectReportService {
         waitingReason: true,
         // Who pays, which a handler decided about the reporter's own matter.
         costResponsibility: true,
+        // The common area the person named (decision 30). A building record,
+        // not free text, so it stands after the purge and is in the copy.
+        place: { select: { name: true } },
         location: true,
         description: true,
         entryAnswer: true,
@@ -1743,6 +1746,7 @@ export class DataSubjectReportService {
         outcome: issue.outcome,
         waitingReason: issue.waitingReason,
         costResponsibility: issue.costResponsibility,
+        place: issue.place?.name ?? null,
         location: issue.location,
         description: issue.description,
         entry:

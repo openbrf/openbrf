@@ -832,6 +832,8 @@ export interface DataSubjectReport {
     waitingReason: IssueWaitingReason | null;
     /** Who a handler recorded as paying for it, or null. Never an amount. */
     costResponsibility: IssueCostResponsibility | null;
+    /** The name of the common area the issue is about, or null. */
+    place: string | null;
     location: string | null;
     description: string;
     /** The answer about entering their apartment, while the issue is open. */

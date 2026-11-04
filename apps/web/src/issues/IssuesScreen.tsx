@@ -16,6 +16,7 @@ import {
   fetchReportableTypes,
   fetchReporterResponsibilityGuide,
   type IssueApartment,
+  type IssueEntry,
   type IssuePlaceChoice,
   type OwnIssue,
   type ReportableIssueType,
@@ -213,6 +214,25 @@ export function IssuesScreen({
     };
   }, [reload]);
 
+  /**
+   * The answer about entering an issue, as its save answered it. Applied
+   * before the re-read that follows, so the summary and the withdraw button
+   * show what was saved even when that re-read fails and the list it read
+   * before stays on screen. A re-read that lands afterwards replaces it with
+   * the same answer, read from the server.
+   */
+  const applyEntry = useCallback(
+    (issueId: string, entry: IssueEntry | null): void => {
+      setLoaded((previous) => ({
+        ...previous,
+        own: previous.own.map((issue) =>
+          issue.id === issueId ? { ...issue, entry } : issue,
+        ),
+      }));
+    },
+    [],
+  );
+
   const { ready, types, apartments, places, own, loadFailed } = loaded;
 
   return (
@@ -272,7 +292,12 @@ export function IssuesScreen({
               reload();
             }}
           />
-          <OwnIssuesPanel issues={own} onClosed={reload} onChanged={reload} />
+          <OwnIssuesPanel
+            issues={own}
+            onClosed={reload}
+            onEntrySaved={applyEntry}
+            onChanged={reload}
+          />
         </>
       ) : null}
     </div>

@@ -64,6 +64,7 @@ const PHONE = runPhone(suffix);
 const addressId = `dsar-address-${suffix}`;
 const apartmentId = `dsar-apartment-${suffix}`;
 const issueTypeId = `dsar-issue-type-${suffix}`;
+const issuePlaceId = `dsar-issue-place-${suffix}`;
 const mediaFileId = `dsar-media-${suffix}`;
 const binderFileId = `dsar-binder-media-${suffix}`;
 const bookableResourceId = `dsar-resource-${suffix}`;
@@ -669,14 +670,25 @@ beforeAll(async () => {
     name: `Vattenskada ${suffix}`,
     reporters: ["RESIDENTS"],
   });
+  await prisma.issuePlace.create({
+    data: { id: issuePlaceId, name: `Tvattstuga ${suffix}` },
+  });
+  // The open one carries an answer about entering the apartment and names a
+  // common area, so the copy is read from rows that hold both.
   await prisma.issue.create({
     data: {
       typeId: issueTypeId,
       statusId: issueType.statusIds.NEW,
       reporterPersonId: subject.personId,
       apartmentId,
+      placeId: issuePlaceId,
       location: "Badrummet",
       description: "Vatten pa golvet under handfatet",
+      entryAnswer: "YES",
+      entryNote: "Ring pa forst",
+      entryPets: true,
+      entryMasterKey: false,
+      entryUntil: new Date("2099-02-28"),
     },
   });
   // One waiting and one closed, so the report's reason and outcome are read
@@ -1248,6 +1260,7 @@ afterAll(async () => {
           }),
         () => prisma.issue.deleteMany({ where: { typeId: issueTypeId } }),
         () => prisma.issueType.deleteMany({ where: { id: issueTypeId } }),
+        () => prisma.issuePlace.deleteMany({ where: { id: issuePlaceId } }),
         () =>
           prisma.publicationConsent.deleteMany({
             where: { personId: { in: personIds } },
@@ -1749,16 +1762,30 @@ describe("what the report contains", () => {
     // Open and not waiting, so neither the outcome nor a reason is set.
     expect(open?.outcome).toBeNull();
     expect(open?.waitingReason).toBeNull();
+    // The answer about entering, each part as it was recorded, and the
+    // common area by its name.
+    expect(open?.entry).toEqual({
+      answer: "YES",
+      note: "Ring pa forst",
+      pets: true,
+      masterKey: false,
+      until: "2099-02-28",
+    });
+    expect(open?.place).toBe(`Tvattstuga ${suffix}`);
 
     const waiting = byDescription("Droppar fran taket i koket");
     expect(waiting?.meaning).toBe("WAITING");
     expect(waiting?.waitingReason).toBe("CONTRACTOR");
     expect(waiting?.outcome).toBeNull();
+    // Never answered, and no common area named.
+    expect(waiting?.entry).toBeNull();
+    expect(waiting?.place).toBeNull();
 
     const closed = byDescription("Lampan i hallen blinkar");
     expect(closed?.meaning).toBe("DONE");
     expect(closed?.outcome).toBe("FIXED");
     expect(closed?.waitingReason).toBeNull();
+    expect(closed?.entry).toBeNull();
 
     expect(JSON.stringify(report.issues)).not.toContain("Ny");
     expect(report.documents).toHaveLength(1);

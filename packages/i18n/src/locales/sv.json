@@ -943,7 +943,8 @@
           "typeDefault": "Varje nytt ärende av typen"
         },
         "issueCostResponsibility": "Vem betalar: {{who}}",
-        "issueEntry": "Tillträde: {{answer}}. {{details}}"
+        "issueEntry": "Tillträde: {{answer}}. {{details}}",
+        "issuePlace": "Gemensamt utrymme: {{place}}"
       },
       "requests": {
         "kind": {

@@ -943,7 +943,8 @@
           "typeDefault": "Every new issue of this type"
         },
         "issueCostResponsibility": "Who pays: {{who}}",
-        "issueEntry": "Permission to enter: {{answer}}. {{details}}"
+        "issueEntry": "Permission to enter: {{answer}}. {{details}}",
+        "issuePlace": "Common area: {{place}}"
       },
       "requests": {
         "kind": {

@@ -299,7 +299,16 @@ export function IssueHandling({
         }}
       />
 
-      <IssueFitHandling issue={issue} onChanged={onChanged} />
+      {/* A save there writes a timeline step too, and taking a finding off
+        moves neither the revision nor the status: the timeline is read
+        again here, as after a save of this panel's own. */}
+      <IssueFitHandling
+        issue={issue}
+        onChanged={() => {
+          setReads((count) => count + 1);
+          onChanged();
+        }}
+      />
 
       <section className="flex flex-col gap-2">
         <ChoiceForm

@@ -36,6 +36,8 @@ const fetchOwnIssueMessages = vi.fn();
 const sendOwnIssueMessage = vi.fn();
 const fetchIssuePlaces = vi.fn();
 const fetchGuide = vi.fn();
+const answerOwnEntry = vi.fn();
+const withdrawOwnEntry = vi.fn();
 
 vi.mock("../api/feed", () => ({
   fetchPost: (input: unknown) => fetchPost(input),
@@ -53,6 +55,8 @@ vi.mock("../api/issues", async (importOriginal) => ({
   fetchOwnIssues: () => fetchOwnIssues(),
   fetchOwnIssueMessages: (id: string) => fetchOwnIssueMessages(id),
   sendOwnIssueMessage: (input: unknown) => sendOwnIssueMessage(input),
+  answerOwnEntry: (input: unknown) => answerOwnEntry(input),
+  withdrawOwnEntry: (id: string) => withdrawOwnEntry(id),
   fetchIssueQueue: () => Promise.resolve(ok([])),
   reportIssue: (input: unknown) => reportIssue(input),
   attachIssuePhoto: (issueId: string, file: File) =>
@@ -224,6 +228,66 @@ describe("a report made from a post", () => {
     });
     await screen.findByText("Ärendena kunde inte läsas just nu.");
     expect(screen.getByText("Hissen står still.")).toBeTruthy();
+  });
+
+  it("shows the answer about entering as saved when the list cannot be read again", async () => {
+    fetchOwnIssues.mockResolvedValueOnce(
+      ok([
+        {
+          id: "issue-1",
+          meaning: "IN_PROGRESS",
+          typeId: "type-lift",
+          typeName: "Hiss",
+          location: null,
+          place: null,
+          description: "Kranen droppar.",
+          apartment: { id: "a-1", number: "1401", address: "Storgatan 12" },
+          entry: null,
+          photos: [],
+          enteredByHandler: false,
+          descriptionRedactedAt: null,
+          locationRedactedAt: null,
+          freeTextRemovedAt: null,
+          createdAt: "2026-08-20T08:00:00.000Z",
+          updatedAt: "2026-08-20T08:00:00.000Z",
+        },
+      ]),
+    );
+    fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    const saved = {
+      answer: "NO",
+      note: null,
+      pets: null,
+      masterKey: null,
+      until: null,
+      expired: false,
+    };
+    answerOwnEntry.mockResolvedValue(ok({ entry: saved }));
+    withdrawOwnEntry.mockResolvedValue(ok({ entry: null }));
+    const session = userEvent.setup();
+    render(<IssuesScreen viewer={READER} />);
+
+    expect(await screen.findByText("Kranen droppar.")).toBeTruthy();
+    // Every re-read after a save fails, so only the save's own answer can
+    // move what the report shows.
+    fetchOwnIssues.mockResolvedValue(refused(500, "unknown"));
+    await session.click(screen.getByText("Tillträde"));
+    await session.click(screen.getByRole("radio", { name: "Nej" }));
+    await session.click(screen.getByRole("button", { name: "Spara svar" }));
+
+    expect(await screen.findByText("Tillträde · Nej")).toBeTruthy();
+    expect(fetchOwnIssues).toHaveBeenCalledTimes(2);
+    await screen.findByText("Ärendena kunde inte läsas just nu.");
+
+    // And withdrawn, the answer goes, and with it the way to withdraw it.
+    await session.click(
+      screen.getByRole("button", { name: "Ta tillbaka svaret" }),
+    );
+    expect(await screen.findByText("Tillträde")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Ta tillbaka svaret" }),
+    ).toBeNull();
+    expect(withdrawOwnEntry).toHaveBeenCalledWith("issue-1");
   });
 
   it("opens the form when only the optional places could not be read", async () => {

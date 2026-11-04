@@ -50,6 +50,13 @@ export interface EntryPermissionFormProps {
   withdraw: () => Promise<ApiResult<{ entry: IssueEntry | null }>>;
   /** Told after a save or a withdrawal, and after a refusal that says the issue is out of date. */
   onChanged: () => void;
+  /**
+   * Told the answer the issue now holds, as the save answered it, before
+   * `onChanged`. A caller whose list is read again after `onChanged` applies it,
+   * so a re-read that fails does not leave the answer from before the save on
+   * screen.
+   */
+  onSaved?: (entry: IssueEntry | null) => void;
 }
 
 /** One act on the answer, so a save and a withdrawal share one in flight. */
@@ -73,6 +80,7 @@ export function EntryPermissionForm({
   answer,
   withdraw,
   onChanged,
+  onSaved,
 }: EntryPermissionFormProps): ReactElement {
   const { t } = useTranslation();
   const [draft, setDraft] = useState<{
@@ -93,7 +101,8 @@ export function EntryPermissionForm({
 
   const save = useSaveAction(
     (act: Act) => (act.kind === "answer" ? answer(act.input) : withdraw()),
-    () => {
+    (saved) => {
+      onSaved?.(saved.entry);
       onChanged();
     },
     (failure) => {
