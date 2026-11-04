@@ -94,7 +94,14 @@ application bundle, no cookie and no third-party request.
 - The pages are served with `Referrer-Policy: no-referrer`,
   `Cache-Control: no-store` and `X-Robots-Tag: noindex`, so the token leaves in
   no `Referer`, stays in no shared cache and is listed by no search engine. No
-  log line records the path of these routes.
+  log line records the path of these routes. The headers are set by a hook on
+  the route the router matched, or on the decoded path where no route did, so a
+  percent-encoded spelling of the path carries them as well and the refusals the
+  rate limit and the exception filters build carry them too, and none of these answers carries an `ETag`, a CORS header or a
+  cookie. Under `no-referrer` a browser posts the page's own form with
+  `Origin: null`, so a post is accepted with that origin or the instance's own
+  and refused with any other: the token, not the origin, is what stops a forged
+  post, because there is no cookie for one to ride on.
 
 ### Expiry and revocation
 
@@ -103,11 +110,17 @@ after it was issued, and a handler revoking it (decision 24). Issuing a new link
 for the same work order revokes the old one, so a work order has one live link
 at most.
 
-A reporter's link is issued with the first mail to the reporter's address and
-ends when the case's contact details are purged
-([ADR 0057](0057-purging-issues-in-two-layers.md)). How long it stays usable
-before that is open (question 1). A handler can revoke it, and doing so mails
-nobody.
+A reporter's link is issued with the first mail to the reporter's address, the
+one that follows their report, and ends at the first of: 30 days after the issue
+is closed, 365 days after the issue's latest message (or the day the link was
+issued, if no message came), a handler revoking it, and the purge clearing the
+issue's contact details ([ADR 0057](0057-purging-issues-in-two-layers.md)),
+which also removes the link. In the 30 days after closing the page reads and takes no reply, until
+the reopening rule decides what such a reply does (ADR 0054). Both numbers are
+constants in code. This answers question 1 as the threat review of this record
+required (APT-9360, control B4): "until the contact details are purged" can be
+years, and a link is a bearer secret in a mailbox. A handler can revoke it, and
+doing so mails nobody. A revoked link is not issued again.
 
 Every check is made on every request, at the moment of the request, by one
 lookup that reads the token's digest together with its expiry, its revocation
@@ -131,6 +144,33 @@ is made on, so it gets a budget set for the most a real reader needs. Writes are
 bounded per link as well: a reporter's replies and a contractor's notes per
 hour, on the pattern of the feed's write budget, so a leaked link cannot fill a
 case.
+
+For the reporter's link the numbers are: 30 page reads and 5 messages a minute
+per client address, spent before the token is resolved so that a refusal is
+the same for every token; and 10 messages an hour and 100 in all per link,
+counted in the database against the issue the link opens, so a link used from
+many addresses shares one budget. A message is text of at most the length of
+any issue message, and a body larger than such a message can be sent as is
+refused before it is read.
+
+There is no lockout of a token after failed attempts. A wrong token has no row
+to lock, and locking a live link after strangers' failures would let a stranger
+end it. The defence against guessing is the address budget and 256 bits.
+
+The website's form cannot be made to mail a stranger at will: one link mail
+per issue, never sent again, at most three a day to one address, counted in the
+database, and none to an address whose owner restricted processing (GDPR art.
+18). The form answers the same whether a mail goes or not, because the mail is
+sent by a job after the answer. There is no way to ask for a link to be sent
+again. "Never sent again" has one exception: if the mail server takes the
+message and the stamp that records it then fails, the job's retry mints a new
+token and mails that, and the first mail's link opens nothing. Only the digest
+is kept, so the first token cannot be sent again.
+
+A link that was issued and will not be mailed (a restriction granted, the issue
+closed, no mail settings, or the retries spent) is deleted, so it no longer
+counts toward its address's three a day. A link whose mail is still being
+retried keeps its place in the count.
 
 ### The contractor's photographs
 
@@ -243,9 +283,10 @@ reporter's link is not behind that gate.
 Calls the plan does not make, left to the owner and listed on the task that
 wrote this record:
 
-1. **How long a reporter's link stays usable.** Proposed and not decided: while
-   the case is open and for the 30 days after it closes in which a reply reopens
-   it (ADR 0054), after which the page reads but takes no reply.
+1. **How long a reporter's link stays usable.** Answered by the threat review's
+   control B4 and built that way (see [Expiry and revocation](#expiry-and-revocation)):
+   30 days after closing, and 365 days after the latest message while the issue
+   stays open. The owner may set other numbers; each is one constant.
 2. **How a contractor's link reaches the contractor.** The register the plan
    describes holds a name, a trade and a telephone number (decision 23), so it
    has no address to mail the link or the work order to.

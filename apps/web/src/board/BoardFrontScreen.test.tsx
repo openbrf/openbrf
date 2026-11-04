@@ -19,7 +19,7 @@ import { BoardFrontScreen } from "./BoardFrontScreen";
 
 /** The path the API serves and the capability its controller requires. */
 const GUARDS: readonly [path: string, capability: string][] = [
-  ["/api/issue-queue", "issues:handle"],
+  ["/api/issue-queue/counts", "issues:handle"],
   ["/api/board-mailbox/threads", "boardMailbox:handle"],
   ["/api/motion-queue", "motions:handle"],
   ["/api/sublet-queue", "sublets:handle"],
@@ -60,7 +60,12 @@ type Answers = Record<string, unknown>;
 
 function answers(): Answers {
   return {
-    "/api/issue-queue": ok([{ id: "a" }, { id: "b" }, { id: "c" }]),
+    "/api/issue-queue/counts": ok({
+      mine: 1,
+      unassigned: 2,
+      overdue: 1,
+      all: 3,
+    }),
     "/api/board-mailbox/threads": ok({
       threads: [
         { id: "1", status: "NEW" },
@@ -110,14 +115,23 @@ vi.mock("../api/client", async (importOriginal) => ({
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
     to,
+    search,
     children,
     className,
   }: {
     to: string;
+    search?: Record<string, string>;
     children: ReactNode;
     className?: string;
   }): ReactElement => (
-    <a href={to} className={className}>
+    <a
+      href={
+        search === undefined
+          ? to
+          : `${to}?${new URLSearchParams(search).toString()}`
+      }
+      className={className}
+    >
       {children}
     </a>
   ),
@@ -166,7 +180,7 @@ describe("the front page for a board member", () => {
   it("puts a row with a count and a link for each queue", async () => {
     renderFor(BOARD_MEMBER);
 
-    await within(row("Nya ärenden")).findByText("3");
+    await within(row("Ärenden")).findByText("3");
     expect(
       within(row("Obesvarade trådar i styrelsens brevlåda")).getByText("2"),
     ).toBeTruthy();
@@ -197,12 +211,15 @@ describe("the front page for a board member", () => {
 
   it("leads each row to the page the queue is worked on", async () => {
     renderFor(BOARD_MEMBER);
-    await within(row("Nya ärenden")).findByText("3");
+    await within(row("Ärenden")).findByText("3");
 
     expect(
       screen.getAllByRole("link").map((link) => link.getAttribute("href")),
     ).toEqual([
       "/board/issues",
+      "/board/issues?view=all",
+      "/board/issues?view=overdue",
+      "/board/issues?view=unassigned",
       "/board/mailbox",
       "/board/motions",
       "/board/sublets",
@@ -236,12 +253,87 @@ describe("the front page for a board member", () => {
       "/api/feed/reports": ok({ reports: [], next: null, mayModerate: false }),
     });
 
-    await within(row("Nya ärenden")).findByText("3");
+    await within(row("Ärenden")).findByText("3");
     // The row stands while its read is out, so wait for the answer to take it.
     await waitFor(() => {
       expect(screen.queryByRole("link", { name: "Anmälda inlägg" })).toBeNull();
     });
     expect(screen.getAllByRole("listitem")).toHaveLength(7);
+  });
+});
+
+describe("the issue queue's row", () => {
+  it("gives the open, the overdue and the unassigned issues, each leading to its view", async () => {
+    renderFor(BOARD_MEMBER, {
+      "/api/issue-queue/counts": ok({
+        mine: 2,
+        unassigned: 4,
+        overdue: 1,
+        all: 9,
+      }),
+    });
+
+    const issues = row("Ärenden");
+    const open = await within(issues).findByRole("link", { name: "Öppna 9" });
+    expect(open.getAttribute("href")).toBe("/board/issues?view=all");
+    expect(
+      within(issues)
+        .getByRole("link", { name: "Försenade 1" })
+        .getAttribute("href"),
+    ).toBe("/board/issues?view=overdue");
+    expect(
+      within(issues)
+        .getByRole("link", { name: "Ej tilldelade 4" })
+        .getAttribute("href"),
+    ).toBe("/board/issues?view=unassigned");
+    // Counted by the server, the open issues alone, as the views count them.
+    expect(requested).toContain("/api/issue-queue/counts?meaning=OPEN");
+  });
+
+  it("makes the overdue issues stand out, and only while there are some", async () => {
+    renderFor(BOARD_MEMBER);
+    const overdue = await within(row("Ärenden")).findByRole("link", {
+      name: "Försenade 1",
+    });
+    expect(overdue.className).toContain("text-danger");
+    expect(
+      within(row("Ärenden")).getByRole("link", { name: "Öppna 3" }).className,
+    ).not.toContain("text-danger");
+  });
+
+  it("does not make nothing overdue stand out", async () => {
+    renderFor(BOARD_MEMBER, {
+      "/api/issue-queue/counts": ok({
+        mine: 0,
+        unassigned: 0,
+        overdue: 0,
+        all: 2,
+      }),
+    });
+    const overdue = await within(row("Ärenden")).findByRole("link", {
+      name: "Försenade 0",
+    });
+    expect(overdue.className).not.toContain("text-danger");
+  });
+
+  it("puts its own failure and retry on its row", async () => {
+    renderFor(BOARD_MEMBER, { "/api/issue-queue/counts": failed });
+    const issues = row("Ärenden");
+
+    expect(await within(issues).findByText("Kunde inte läsas.")).toBeTruthy();
+    answered["/api/issue-queue/counts"] = ok({
+      mine: 0,
+      unassigned: 1,
+      overdue: 0,
+      all: 1,
+    });
+    await userEvent.click(
+      within(issues).getByRole("button", { name: "Försök igen" }),
+    );
+
+    expect(
+      await within(issues).findByRole("link", { name: "Ej tilldelade 1" }),
+    ).toBeTruthy();
   });
 });
 
@@ -332,7 +424,7 @@ describe("a failed read", () => {
 
     expect(await within(sublets).findByText("Kunde inte läsas.")).toBeTruthy();
     // The other rows keep their counts.
-    expect(await within(row("Nya ärenden")).findByText("3")).toBeTruthy();
+    expect(await within(row("Ärenden")).findByText("3")).toBeTruthy();
     expect(screen.getAllByText("Försök igen")).toHaveLength(1);
 
     answered["/api/sublet-queue"] = ok({ applications: [{ id: "a" }] });

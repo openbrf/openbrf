@@ -744,7 +744,12 @@ export type QueuedIssueRow = {
   readonly typeName: string;
   readonly description: string;
   readonly photos: readonly { readonly url: string }[];
-  readonly reporter: { readonly kind: string; readonly name?: string };
+  readonly reporter: {
+    readonly kind: string;
+    readonly name?: string;
+    /** For an external reporter: where their private link stands. */
+    readonly link?: "live" | "ended" | "none";
+  };
 };
 
 export async function listIssueQueue(
@@ -754,6 +759,72 @@ export async function listIssueQueue(
   const response = await request.get(`${baseUrl}/api/issue-queue`);
   await expectOk(response, "GET /api/issue-queue");
   return (await response.json()) as readonly QueuedIssueRow[];
+}
+
+/** How many issues each view of the queue holds, as the server counts them. */
+export type IssueQueueCountsRow = Readonly<
+  Record<"mine" | "unassigned" | "overdue" | "all", number>
+>;
+
+/** The counts of the queue's views under a filter, as the screens read them. */
+export async function issueQueueCounts(
+  request: APIRequestContext,
+  baseUrl: string,
+  filter: Readonly<Record<string, string>> = {},
+): Promise<IssueQueueCountsRow> {
+  const query = new URLSearchParams(filter).toString();
+  const response = await request.get(
+    `${baseUrl}/api/issue-queue/counts${query === "" ? "" : `?${query}`}`,
+  );
+  await expectOk(response, "GET /api/issue-queue/counts");
+  return (await response.json()) as IssueQueueCountsRow;
+}
+
+/**
+ * Opens an internal issue, with no reporter, as a handler does (decision 14).
+ *
+ * Here rather than through the screen for the specs that need issues in a
+ * given state before the screen under test is opened; opening one has its own
+ * coverage.
+ */
+export async function openInternalIssue(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: { typeId: string; description: string },
+): Promise<QueuedIssueRow> {
+  const response = await request.post(`${baseUrl}/api/issue-queue`, {
+    data: input,
+  });
+  await expectOk(response, "POST /api/issue-queue");
+  return (await response.json()) as QueuedIssueRow;
+}
+
+/** Gives an issue to a handler, or to nobody. */
+export async function assignIssue(
+  request: APIRequestContext,
+  baseUrl: string,
+  issueId: string,
+  assigneePersonId: string | null,
+): Promise<void> {
+  const response = await request.post(
+    `${baseUrl}/api/issue-queue/${encodeURIComponent(issueId)}/assignee`,
+    { data: { assigneePersonId } },
+  );
+  await expectOk(response, "POST /api/issue-queue/:id/assignee");
+}
+
+/** Sets the day an issue is meant to be done by, `YYYY-MM-DD`. */
+export async function setIssueTargetDate(
+  request: APIRequestContext,
+  baseUrl: string,
+  issueId: string,
+  targetDate: string | null,
+): Promise<void> {
+  const response = await request.post(
+    `${baseUrl}/api/issue-queue/${encodeURIComponent(issueId)}/target-date`,
+    { data: { targetDate } },
+  );
+  await expectOk(response, "POST /api/issue-queue/:id/target-date");
 }
 
 /**
@@ -992,6 +1063,36 @@ export async function postContactForm(
   if (response.status() !== 303) {
     throw new Error(
       `POST /${slug}/kontakt answered ${String(response.status())}, not the redirect a stored message gets`,
+    );
+  }
+}
+
+/**
+ * Reports an issue through the issue report form on a published page, as a
+ * visitor would: a plain form post, answered with a redirect back to the page.
+ * `type` is the issue type's id, which is what the form's select posts.
+ *
+ * A report the form could not read is redirected too, to the page with `fel`
+ * rather than `skickat`, so the address is what tells the two apart.
+ */
+export async function postIssueReportForm(
+  request: APIRequestContext,
+  baseUrl: string,
+  slug: string,
+  input: { type: string; description: string; email?: string },
+): Promise<void> {
+  const response = await request.post(`${baseUrl}/${slug}/felanmalan`, {
+    form: {
+      type: input.type,
+      description: input.description,
+      ...(input.email === undefined ? {} : { email: input.email }),
+    },
+    maxRedirects: 0,
+  });
+  const location = response.headers()["location"] ?? "";
+  if (response.status() !== 303 || !location.includes("skickat=")) {
+    throw new Error(
+      `POST /${slug}/felanmalan answered ${String(response.status())} to ${location || "nowhere"}, not the redirect a stored report gets`,
     );
   }
 }

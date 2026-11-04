@@ -143,6 +143,14 @@
       "bodyUndated": "{{event}} för {{apartment}} registrerades den {{triggeredOn}} och ska anmälas till Lantmäteriet.",
       "noDeadlineNotice": "Lag (2026:484) 3 kap. 3 § tredje stycket sätter ingen frist för den här anmälan, så ingen anges här."
     },
+    "issueReporterLink": {
+      "subject": "Ditt ärende hos {{association}}",
+      "heading": "Tack för din anmälan",
+      "body": "Föreningen har tagit emot din anmälan ({{type}}). Via länken nedan kan du följa ärendet, läsa föreningens svar och skriva till föreningen.",
+      "action": "Öppna ditt ärende",
+      "footerNotice": "Du får detta eftersom du har anmält ett ärende till {{association}}.",
+      "keepPrivate": "Länken är personlig: den som har den kan läsa och skriva i ärendet, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats eller 365 dagar efter det senaste meddelandet i det, det som inträffar först. Innan något meddelande har skrivits räknas de 365 dagarna från det här mejlet."
+    },
     "issueHandlerNotice": {
       "footerNotice": "Du får detta eftersom du handlägger ärenden för {{association}}.",
       "facts": "Ärende {{number}} · {{type}} · Prioritet: {{priority}}",
@@ -902,7 +910,9 @@
           "SUPPORT_SESSION_ISSUED": "Inloggningslänk för support utfärdades",
           "SUPPORT_SESSION_STARTED": "Supportperson loggade in",
           "SUPPORT_REQUEST": "Supportperson tittade",
-          "SUPPORT_SESSION_ENDED": "Supportperson loggade ut"
+          "SUPPORT_SESSION_ENDED": "Supportperson loggade ut",
+          "ISSUE_REPORTER_LINK_ISSUED": "En privat länk till ett ärende skickades till anmälaren",
+          "ISSUE_REPORTER_LINK_REVOKED": "Anmälarens privata länk till ett ärende drogs tillbaka"
         },
         "pluginRecorded": "Tillägget {{plugin}}: {{event}}",
         "channel": {
@@ -913,7 +923,8 @@
           "PLUGIN": "Ett tillägg",
           "MANAGEMENT": "Hanterings-API:t",
           "SUPPORT": "Supportåtkomst",
-          "unknown": "Skrevs innan loggen började registrera kanalen."
+          "unknown": "Skrevs innan loggen började registrera kanalen.",
+          "LINK": "En privat länk"
         },
         "dispatchingPlugin": "Tillägg:",
         "dispatchingPluginUnknown": "Skrevs innan loggen började registrera tillägget.",
@@ -3622,6 +3633,41 @@
       "calendar": "Kalender",
       "brokerInformation": "Mäklarinfo",
       "requestAccount": "Ansök om konto"
+    },
+    "issueLink": {
+      "title": "Ditt ärende",
+      "type": "Typ",
+      "status": "Status",
+      "received": "Inkom",
+      "meaning": {
+        "NEW": "Mottaget",
+        "IN_PROGRESS": "Pågår",
+        "WAITING": "Väntar",
+        "DONE": "Avslutat"
+      },
+      "conversation": "Meddelanden",
+      "empty": "Inga meddelanden ännu. Föreningen svarar här.",
+      "removed": "Föreningen har tagit bort det här meddelandet.",
+      "signature": {
+        "BOARD": "Styrelsen",
+        "PROPERTY_MANAGER": "Förvaltaren"
+      },
+      "you": "Du",
+      "message": "Skriv till föreningen",
+      "messageHint": "Skriv inga personnummer. Det går inte att bifoga filer här.",
+      "send": "Skicka",
+      "closedNotice": "Ärendet är avslutat och tar inte emot fler meddelanden. Har du något nytt att anmäla gör du en ny anmälan på föreningens webbplats.",
+      "private": "Länken är personlig, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats eller ett år efter det senaste meddelandet i det, det som inträffar först. Innan något meddelande har skrivits räknas året från att länken mejlades.",
+      "notFoundTitle": "Länken öppnar inget ärende",
+      "notFoundBody": "Länken kan ha gått ut eller dragits tillbaka. Kontakta föreningen via webbplatsen om du behöver hjälp med ditt ärende.",
+      "notice": {
+        "sent": "Ditt meddelande har skickats till föreningen.",
+        "refused": "Meddelandet kunde inte läsas. Skriv en text på högst 4 000 tecken och försök igen.",
+        "identity": "Meddelandet innehåller ett personnummer och skickades inte. Ta bort det och försök igen.",
+        "closed": "Ärendet är avslutat och tar inte emot fler meddelanden.",
+        "limited": "Ärendet tar inte emot fler meddelanden just nu. Försök igen senare.",
+        "full": "Ärendet har nått det högsta antal meddelanden som en länk tar emot. Fler meddelanden kan inte skickas via länken."
+      }
     }
   },
   "signup": {
@@ -3764,7 +3810,7 @@
     },
     "queue": {
       "title": "Ärendekön",
-      "description": "Allt som anmälts: nya ärenden först, sedan de som pågår, väntar och är klara. Inom varje följer ärendena statusarnas ordning, och det äldsta kommer först inom en status.",
+      "description": "Nya ärenden först, sedan de som pågår, väntar och är klara. Inom varje följer ärendena statusarnas ordning, och det äldsta kommer först inom en status.",
       "empty": "Ingenting har anmälts.",
       "reporter": "Anmäld av",
       "reporterProtected": "Skyddade personuppgifter: fråga styrelsen.",
@@ -3782,7 +3828,7 @@
       "waitingOn": "Väntar på: {{reason}}",
       "closedAs": "Utfall: {{outcome}}",
       "noOutcome": "Stängdes innan utfall registrerades.",
-      "statusesUnavailable": "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas. Ladda om sidan.",
+      "statusesUnavailable": "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.",
       "saving": "Sparar...",
       "errors": {
         "issueNotFound": "Det ärendet finns inte längre. Kön har lästs om.",
@@ -3914,6 +3960,32 @@
         "unknown": "Ärendet gick inte att lägga upp just nu. Försök igen."
       }
     },
+    "views": {
+      "label": "Vyer",
+      "MINE": "Mina",
+      "UNASSIGNED": "Ej tilldelade",
+      "OVERDUE": "Försenade",
+      "ALL": "Alla",
+      "empty": {
+        "MINE": "Inga öppna ärenden har dig som ansvarig.",
+        "UNASSIGNED": "Alla öppna ärenden du kan se har en ansvarig.",
+        "OVERDUE": "Inget öppet ärende du kan se är försenat.",
+        "ALL": "Inget ärende du kan se är öppet."
+      },
+      "noMatch": "Inga ärenden stämmer med filtren just nu."
+    },
+    "filter": {
+      "label": "Sök och filtrera ärenden",
+      "search": "Sök",
+      "status": "Status",
+      "statusOpen": "Öppna",
+      "statusAny": "Alla, även klara",
+      "type": "Typ",
+      "typeAny": "Alla typer",
+      "priority": "Prioritet",
+      "priorityAny": "Alla prioriteter",
+      "clear": "Rensa filter"
+    },
     "costResponsibility": {
       "ASSOCIATION": "Föreningen",
       "TENANT_OWNER": "Bostadsrättshavaren",
@@ -3970,7 +4042,7 @@
       "send": "Skicka",
       "sending": "Skickar...",
       "closedOwn": "Anmälan är avslutad och tar inte emot fler meddelanden.",
-      "noReporter": "Ingen kan läsa ett svar på det här ärendet: anmälaren har inget konto att läsa det på, eller så saknas anmälare.",
+      "noReporter": "Ingen kan läsa ett svar på det här ärendet: anmälaren har inget konto och ingen privat länk som öppnar ärendet, eller så saknas anmälare.",
       "savedReply": "Sparat svar",
       "savedReplyPick": "Infoga ett sparat svar...",
       "savedReplyTooLong": "Det sparade svaret ryms inte: meddelandet skulle bli längre än {{max}} tecken. Korta först ner det du har skrivit.",
@@ -4004,6 +4076,19 @@
         "tooLarge": "Filen är större än vad som tillåts.",
         "unsupported": "Bara en bild (PNG, JPEG, WebP, GIF) eller en pdf kan bifogas.",
         "unknown": "Filen gick inte att bifoga just nu. Försök igen."
+      }
+    },
+    "reporterLink": {
+      "live": "Anmälaren har inget konto och läser svaren via en privat länk som skickades med e-post.",
+      "ended": "Länken som skickades till anmälaren öppnar inte längre ärendet: den har dragits tillbaka eller gått ut, eller så avslutades ärendet för mer än 30 dagar sedan.",
+      "pending": "Den privata länken till anmälaren har inte skickats än. Mejlet ligger i kö eller skickas om, så titta igen strax.",
+      "none": "Ingen privat länk skickades till anmälaren: ingen e-postadress lämnades, eller så kunde inget mejl skickas.",
+      "revoke": "Dra tillbaka länken",
+      "revoking": "Drar tillbaka …",
+      "revokeNamed": "{{type}}: dra tillbaka anmälarens privata länk",
+      "errors": {
+        "none": "Anmälaren har ingen privat länk att dra tillbaka.",
+        "unknown": "Länken kunde inte dras tillbaka. Försök igen."
       }
     },
     "redaction": {
@@ -7166,7 +7251,7 @@
       "none": "Inget väntar",
       "atLeast": "{{count}} eller fler",
       "queue": {
-        "issues": "Nya ärenden",
+        "issues": "Ärenden",
         "boardMailbox": "Obesvarade trådar i styrelsens brevlåda",
         "motions": "Motioner som inte är mottagna",
         "sublets": "Ansökningar om andrahandsupplåtelse att besluta om",
@@ -7175,6 +7260,11 @@
         "accountRequests": "Kontoansökningar att besluta om",
         "chatReports": "Anmälda inlägg",
         "importProposals": "Föreslagna medlemslistor att granska"
+      },
+      "issues": {
+        "open": "Öppna",
+        "overdue": "Försenade",
+        "unassigned": "Ej tilldelade"
       }
     }
   },

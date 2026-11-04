@@ -377,6 +377,22 @@ locally the application runs from source beside the PostgreSQL that
       name, a mail says only that there is a new message and never what it says,
       and no action offers it to a connected app
       or the AI package (ADR 0056)
+- [x] A reporter without an account: a report from the website's form that
+      left an email address is followed by a mail with a private link to a
+      page for that issue, where the reporter reads the conversation and writes
+      back, text only. The mail carries the issue's type and the link and
+      nothing anybody wrote. The link is stored only as a digest, ends 30 days
+      after the issue is closed or a year after its latest message, and can be
+      withdrawn by a handler; every link that opens nothing answers alike.
+      Page reads and messages are limited per address, messages per link as
+      well, and the form mails one address at most three links a day (ADR 0055)
+- [x] Working the issue queue: four views, Mine, Unassigned, Overdue and All,
+      each with its count, and a filter by status, type and priority with a
+      search, all applied to every view. The views open on open issues. The
+      board's front page shows how many issues are open, how many are overdue
+      and how many have no assignee, and each number opens its view. The search
+      never matches a protected reporter's name or apartment. No dashboards
+      (ADR 0054)
 - [x] One page, one audience: the board's work on its own pages under the
       Styrelsen section, each signed on its own heading, the overview as the
       house's notice board with one line for whoever works a queue, and a phone
