@@ -508,10 +508,10 @@ function useHandlerGuide(
  *
  * Mounted only for a reader who may read charges. Read again whenever the
  * issue moves to a newer revision (`issueRevision`), and not with every read of
- * the queue, so a charge made in another tab shows, and charges withheld
- * because the reporter has become protected stop being shown, once the issue is
- * saved or the panel opened again; an answer for an earlier read is dropped.
- * Making one
+ * the queue, so a charge made in another tab shows once the issue is saved or
+ * the panel opened again; an answer for an earlier read is dropped. Charges are
+ * withheld at once where the queue shows the reporter as protected, whatever
+ * was read before. Making one
  * opens the charges screen with the form filled in from the issue, where the
  * amount is entered and where it lives.
  */
@@ -545,9 +545,16 @@ function IssueCharges({ issue }: { issue: QueuedIssue }): ReactElement {
   /*
    * Another issue's answer is never shown under this one. The same issue's
    * last answer stays while a newer revision is read, rather than flashing
-   * back to "reading".
+   * back to "reading". A reporter who has become protected withholds them at
+   * once, from the issue as the queue reads it now, whatever the last answer
+   * held: the protection changes the person and not the issue's revision.
    */
-  const charges = read?.issueId === issue.id ? read.charges : "reading";
+  const charges =
+    issue.reporter.kind === "protected"
+      ? null
+      : read?.issueId === issue.id
+        ? read.charges
+        : "reading";
 
   return (
     <section className="flex flex-col gap-2">

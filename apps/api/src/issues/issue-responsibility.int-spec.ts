@@ -542,6 +542,46 @@ describe("a charge made from an issue", () => {
     }
   });
 
+  it("masks the basis of an issue whose reporter has protected personal data, as the whole read does", async () => {
+    const was = await prisma.person.findUniqueOrThrow({
+      where: { id: shielded.personId },
+      select: { protectedPersonalData: true },
+    });
+    try {
+      const issueId = await filed("basis-shielded", shielded.personId);
+      await prisma.person.update({
+        where: { id: shielded.personId },
+        data: { protectedPersonalData: true },
+      });
+
+      const basis = await inject({
+        method: "GET",
+        url: `/api/member-charges/issues/${issueId}/basis`,
+        cookie: cookies[board.personId],
+      });
+      expect(basis.statusCode).toBe(200);
+      expect(basis.json()).toEqual({
+        issueId,
+        typeName: `Vattenläcka ${suffix}`,
+        costResponsibility: null,
+        reporterProtected: true,
+        party: null,
+      });
+      for (const withheld of [
+        shielded.personId,
+        shielded.lastName,
+        apartmentId,
+      ]) {
+        expect(basis.body).not.toContain(withheld);
+      }
+    } finally {
+      await prisma.person.update({
+        where: { id: shielded.personId },
+        data: { protectedPersonalData: was.protectedPersonalData },
+      });
+    }
+  });
+
   it("never shows the property manager an amount", async () => {
     const issueId = await filed("manager-blind");
     await chargeFrom(issueId, "987.65");
@@ -701,6 +741,14 @@ describe("a charge made from an issue", () => {
         electedOn: new Date("2025-05-15"),
       },
     });
+    // The seat alone lets the actor handle the issue, so the refusal below
+    // is the read after the lock and not a scope that never held.
+    const before = await inject({
+      method: "GET",
+      url: `/api/member-charges/issues/${issueId}/basis`,
+      cookie: cookies[seated.personId],
+    });
+    expect(before.statusCode, "the seat lets the actor handle it").toBe(200);
     let reached: (pid: number) => void = () => undefined;
     const holding = new Promise<number>((resolve) => {
       reached = resolve;
