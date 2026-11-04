@@ -159,8 +159,21 @@ export function IssueQueueScreen({
    */
   const [typesReadCount, setTypesReadCount] = useState(0);
   const retryTypes = useCallback((): void => {
+    /*
+     * Their notice goes while the retry is out, so a retry that fails too puts
+     * a new one on screen, which is announced, rather than leaving the old one
+     * standing as if nothing had been tried. Only offered while the types are
+     * null, so no status form or draft goes with it.
+     */
+    setTypes(undefined);
     setTypesReadCount((count) => count + 1);
   }, []);
+  /*
+   * Whether the latest read of the types was one the reader set off from this
+   * screen, a retry or the read after a change, rather than the first: only
+   * then is its failure news, and announced.
+   */
+  const [typesReadAsked, setTypesReadAsked] = useState(false);
 
   /*
    * The search is asked once the handler stops typing, rather than once per
@@ -239,9 +252,11 @@ export function IssueQueueScreen({
       return;
     }
     let current = true;
+    const asked = readCount > 0 || typesReadCount > 0;
     void fetchHandlerIssueTypes().then((read) => {
       if (current) {
         setTypes(read.ok ? read.value : null);
+        setTypesReadAsked(asked);
       }
     });
     return () => {
@@ -253,6 +268,9 @@ export function IssueQueueScreen({
   // The list on screen answers an earlier filter, or an earlier read under
   // this one, until this read's answer lands.
   const reading = loaded.key !== key || loaded.readCount !== readCount;
+  // Of those, the read a change on the queue asked for, which the rows'
+  // controls wait for (`IssueQueuePanel`'s `rereading`).
+  const rereading = loaded.readCount !== readCount;
   const { queue, counts, loadFailed } = loaded;
   const narrowed =
     filter.status !== NO_FILTER.status ||
@@ -399,7 +417,8 @@ export function IssueQueueScreen({
             types={types === undefined ? [] : types}
             onChanged={reload}
             onRetryTypes={retryTypes}
-            reading={reading}
+            announceTypesFailure={typesReadAsked}
+            rereading={rereading}
             canManageCharges={viewer.capabilities.includes(
               "memberCharges:manage",
             )}

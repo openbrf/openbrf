@@ -577,6 +577,35 @@ describe("moving a report to another status", () => {
 
     expect(screen.getByText(/statusarna kunde inte läsas/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Spara status" })).toBeNull();
+    // A standing notice unless the caller says the failure is news.
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("announces the statuses' failure when the caller says it is news", () => {
+    const { rerender } = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={null}
+        onChanged={() => undefined}
+        announceTypesFailure
+      />,
+    );
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /statusarna kunde inte läsas/i,
+    );
+
+    rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={null}
+        onChanged={() => undefined}
+        onRetryTypes={() => undefined}
+        announceTypesFailure
+      />,
+    );
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /statusarna kunde inte läsas/i,
+    );
   });
 
   it("offers a retry of the types when the caller can read them again", async () => {

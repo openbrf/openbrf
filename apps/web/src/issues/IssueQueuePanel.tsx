@@ -72,6 +72,14 @@ export interface IssueQueuePanelProps {
    */
   onRetryTypes?: () => void;
   /**
+   * Whether the notice that the types could not be read is announced. Set when
+   * the read that failed was one the reader set off from this screen - a retry,
+   * or the read after a change - so the failure is news; a first read that
+   * fails is there as the reader arrives, and stays quiet as `LoadFailure`
+   * explains.
+   */
+  announceTypesFailure?: boolean;
+  /**
    * What an empty list says: which view is empty, or that nothing matches
    * the filter. The queue as a whole, by default.
    */
@@ -82,12 +90,18 @@ export interface IssueQueuePanelProps {
    */
   canManageCharges?: boolean;
   /**
-   * Whether the queue is being read again. The rows on screen may not be the
-   * ones the new read returns, so their status forms and handling controls are
-   * off until it is back, rather than a change saved on an issue the view
-   * no longer holds.
+   * Whether the queue is being read again after a change to it: a status
+   * saved, an issue opened or handled. The rows on screen still show the issues
+   * as they stood before it, and a form whose draft the save carried would
+   * offer the same move twice, so the status forms and the handling controls
+   * are off until the read is back.
+   *
+   * Not set for a read that only follows the view, the filter or the search:
+   * the rows on screen are then as current as when they were read, and
+   * turning their controls off under each word typed would take the keyboard
+   * focus out of the row the handler is working in.
    */
-  reading?: boolean;
+  rereading?: boolean;
 }
 
 /**
@@ -117,9 +131,10 @@ export function IssueQueuePanel({
   types,
   onChanged,
   onRetryTypes,
+  announceTypesFailure = false,
   emptyMessage,
   canManageCharges = false,
-  reading = false,
+  rereading = false,
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
   const move = useSaveAction(setIssueStatus, onChanged, (failure) => {
@@ -161,14 +176,14 @@ export function IssueQueuePanel({
             form renders, so the retry here is the only way back to one.
           */}
           {types !== null ? null : onRetryTypes === undefined ? (
-            <Notice tone="danger" live>
+            <Notice tone="danger" live={announceTypesFailure}>
               {t("issues.queue.statusesUnavailable")}
             </Notice>
           ) : (
             <LoadFailure
               messageKey="issues.queue.statusesUnavailable"
               onRetry={onRetryTypes}
-              live
+              live={announceTypesFailure}
             />
           )}
         </>
@@ -300,7 +315,7 @@ export function IssueQueuePanel({
                     key={`${issue.status.id}:${issue.waitingReason ?? ""}`}
                     issue={issue}
                     type={type}
-                    disabled={saving || reading}
+                    disabled={saving || rereading}
                     saving={saving && actingOn === issue.id}
                     onDraftChanged={() => {
                       if (move.state.kind === "failed") {
@@ -318,7 +333,7 @@ export function IssueQueuePanel({
                   issue={issue}
                   type={type}
                   canManageCharges={canManageCharges}
-                  reading={reading}
+                  rereading={rereading}
                   onChanged={onChanged}
                 />
               </li>
@@ -340,13 +355,13 @@ function HandlingDisclosure({
   issue,
   type,
   canManageCharges,
-  reading,
+  rereading,
   onChanged,
 }: {
   issue: QueuedIssue;
   type: IssueTypeView | undefined;
   canManageCharges: boolean;
-  reading: boolean;
+  rereading: boolean;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -364,7 +379,7 @@ function HandlingDisclosure({
       </summary>
       {open ? (
         <fieldset
-          disabled={reading}
+          disabled={rereading}
           className="m-0 flex min-w-0 flex-col gap-6 border-0 px-0 pt-2 pb-0"
         >
           <IssueHandling

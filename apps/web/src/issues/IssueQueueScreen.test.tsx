@@ -319,6 +319,34 @@ describe("a read that fails", () => {
       ),
     ).toBeNull();
   });
+
+  it("keeps a first read's failure of the types quiet, and announces a retry's", async () => {
+    fetchHandlerIssueTypes.mockReset().mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    const unavailable =
+      "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.";
+
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    // There as the reader arrives, so not reported to them as an event.
+    expect(
+      (await screen.findByText(unavailable)).closest("[role='alert']"),
+    ).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    await waitFor(() => {
+      expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(2);
+    });
+    // The retry the reader asked for failed as well: that is news.
+    await waitFor(() => {
+      expect(
+        screen.getByText(unavailable).closest("[role='alert']"),
+      ).not.toBeNull();
+    });
+  });
 });
 
 /** The views' navigation. */
@@ -609,6 +637,37 @@ describe("a save that finishes under another view or filter", () => {
     expect(
       document.querySelector("details fieldset")?.hasAttribute("disabled"),
     ).toBe(false);
+  });
+
+  it("leaves the status form and the handling on while a change of filter is read", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+    await userEvent.click(screen.getByText(/^Hantera Vatten:/));
+
+    let answerFiltered: (value: unknown) => void = () => undefined;
+    fetchIssueQueueSnapshot.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answerFiltered = resolve;
+        }),
+    );
+    const status = screen.getByLabelText(
+      "Vatten anmält 2026-08-20: status",
+    ) as HTMLSelectElement;
+    await userEvent.selectOptions(field("Prioritet"), "URGENT");
+    await screen.findByText("Hämtar ärendena...");
+
+    // The row is as current as when it was read, so nothing in it is turned
+    // off under a control the handler may have focused.
+    expect(status.disabled).toBe(false);
+    expect(
+      document.querySelector("details fieldset")?.hasAttribute("disabled"),
+    ).toBe(false);
+
+    answerFiltered(answer([issue()]));
+    await waitFor(() => {
+      expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
+    });
   });
 
   it("keeps the types' retry beside the notice of a save that failed", async () => {
