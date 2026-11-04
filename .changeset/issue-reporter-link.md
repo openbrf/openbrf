@@ -18,12 +18,14 @@ through a private link (ADR 0055).
   note, no priority, no waiting reason, and nothing the reporter wrote on the
   form.
 - **The mail.** It carries the issue's type and the link, and nothing anybody
-  wrote. It is sent once per issue and never again, at most three a day to one
-  address, and never to a person who restricted processing. The issues entry
+  wrote. It is sent once per issue and not again, with one exception: when the
+  mail server accepts the mail but recording that it was sent fails, the retry
+  mails a new link and the earlier one opens nothing. At most three go to one
+  address a day, and none to a person who restricted processing. The issues entry
   in the record of processing activities now names the mail server.
 - **How long it works.** The link ends at the first of: 30 days after the
   issue is closed, a year after the issue's latest message (or after the link
-  was mailed, if no message came), and a handler withdrawing it. A handler sees on the issue whether the reporter's link still
+  was issued, if no message came), and a handler withdrawing it. A handler sees on the issue whether the reporter's link still
   works, writes to the reporter while it does, and can withdraw it. Every link
   that opens nothing gets the same page.
 - **Limits.** Thirty page reads and five messages a minute from one address,

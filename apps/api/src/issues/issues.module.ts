@@ -27,6 +27,13 @@ import {
   IssueTypeAdminController,
   ResponsibilityGuideAdminController,
 } from "./issues.controller";
+import { ContractorService } from "./contractor.service";
+import { WorkOrderMailerService } from "./work-order-mailer.service";
+import { WorkOrderService } from "./work-order.service";
+import {
+  ContractorAdminController,
+  IssueWorkOrderController,
+} from "./work-orders.controller";
 import { ResponsibilityGuideService } from "./responsibility-guide.service";
 
 /**
@@ -34,7 +41,8 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
  * queue whoever handles issues works from, the resident picker a handler
  * names a resident from on an issue they open, the conversation on an
  * issue - its messages, the handlers' notes and files, and the saved replies -
- * the association's responsibility guide, read before filing and when
+ * the contractors a handler sends a work order to, with the record of what was
+ * sent, the association's responsibility guide, read before filing and when
  * deciding who pays, and the mail and the overdue reminder that tell
  * handlers of their issues (`IssueMailer`).
  *
@@ -59,6 +67,8 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueReportController,
     IssueQueueController,
     IssueTypeAdminController,
+    IssueWorkOrderController,
+    ContractorAdminController,
     ResponsibilityGuideAdminController,
     IssueSavedReplyAdminController,
     IssueRedactionController,
@@ -79,6 +89,9 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueRedactionService,
     IssueRetentionSettingService,
     IssueActionsRegistrar,
+    ContractorService,
+    WorkOrderService,
+    WorkOrderMailerService,
     ResponsibilityGuideService,
   ],
   exports: [
