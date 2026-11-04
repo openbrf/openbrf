@@ -775,7 +775,7 @@ beforeAll(async () => {
   await prisma.workOrderLink.create({
     data: {
       workOrderId: linked.id,
-      tokenDigest: `${suffix}${"A".repeat(43)}`.slice(-43),
+      tokenDigest: `${"A".repeat(43)}${suffix}`.slice(-43),
       expiresAt: new Date("2026-03-28T09:00:00.000Z"),
       revokedAt: new Date("2026-02-27T09:00:00.000Z"),
     },

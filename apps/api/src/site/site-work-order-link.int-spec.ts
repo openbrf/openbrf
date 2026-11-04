@@ -1263,6 +1263,30 @@ describe("H5. the photographs a link has shown, counted for the access report", 
   });
 });
 
+describe("H5b. a photograph chosen once the link opens nothing is not counted", () => {
+  it("counts nothing for a choice made after the contractor declined", async () => {
+    const ids = await linked();
+    const exposures = () =>
+      prisma.workOrderPhotoExposure.count({
+        where: { workOrderId: ids.workOrderId },
+      });
+    const before = await exposures();
+    expect((await act(ids.token, { act: "decline" })).statusCode).toBe(200);
+
+    expect(
+      (
+        await choose(ids.issueId, ids.workOrderId, [
+          ids.chosenFileId,
+          ids.unchosenFileId,
+        ])
+      ).statusCode,
+    ).toBe(204);
+
+    // The link opens nothing now, so the new photograph was never shown.
+    expect(await exposures()).toBe(before);
+  });
+});
+
 describe("H4. marking a person protected", () => {
   it("ends the links of their issues on the row, so clearing the protection brings none back", async () => {
     const ids = await linked();
@@ -1539,6 +1563,9 @@ describe("C. no enumeration", () => {
     const [otherOwn] = await prisma.workOrderFile.findMany({
       where: { workOrderId: other.workOrderId },
     });
+    // The control is that this file is out of reach: a nonexistent id would
+    // be refused whatever the grant, so the file has to exist first.
+    expect(otherOwn?.fileId).toEqual(expect.any(String));
     const photo = (fileId: string) =>
       inject({
         method: "GET",
@@ -1557,7 +1584,7 @@ describe("C. no enumeration", () => {
       // Another issue's photograph, chosen for that issue's work order.
       other.chosenFileId,
       // Another work order's contractor's photograph.
-      otherOwn?.fileId ?? "none",
+      otherOwn?.fileId ?? "",
       // No file at all.
       "no-such-file",
     ]) {
@@ -1883,6 +1910,27 @@ describe("G. the contractor's photographs", () => {
     });
     const answer = await upload(ids.token, jpegBytes(8, 8));
     expect(answer.headers.location).toContain("svar=photo-full");
+  });
+
+  it("G3b: a photograph above the text limit is accepted, which only the upload route is exempt from", async () => {
+    const ids = await linked();
+    // Comment segments (at most 64 KiB each) take the file past the 64 KiB
+    // that every other link route reads, and are stripped from what is stored.
+    const comment = (length: number) => {
+      const segment = Buffer.alloc(4 + length, 0x41);
+      segment.writeUInt16BE(0xfffe, 0);
+      segment.writeUInt16BE(length + 2, 2);
+      return segment;
+    };
+    const large = jpegBytes(8, 8, [comment(60000), comment(60000)]);
+    expect(large.length).toBeGreaterThan(64 * 1024);
+    const answer = await upload(ids.token, large);
+    expect(answer.headers.location).toContain("svar=photo-added");
+    expect(
+      await prisma.workOrderFile.count({
+        where: { workOrderId: ids.workOrderId },
+      }),
+    ).toBe(1);
   });
 
   it("G4: the type is the bytes', and anything but a whole image is refused", async () => {

@@ -8,7 +8,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { NO_ENTRY_PERMISSION } from "../issues/issue-fit-views";
-import { ISSUE_FREE_TEXT_STANDING } from "../issues/issue-free-text";
+import { ISSUE_FREE_TEXT_STANDING_UNREDACTED } from "../issues/issue-free-text";
 import { lockIssue, lockWorkOrderSender } from "../issues/issue-lock";
 import { WORK_ORDER_TEXT_STANDING } from "../issues/issue-retention";
 import { JobQueueService } from "../jobs/job-queue.service";
@@ -675,12 +675,14 @@ export class PurgeService implements OnModuleInit {
     ] = await Promise.all([
       // Only where neither the free text nor a work order's text stands: an
       // issue on which either does keeps its reporter, so naming them here
-      // would select somebody this job then leaves as it found them.
+      // would select somebody this job then leaves as it found them. A
+      // contractor's note a handler redacted is blank and does not count, as it
+      // does not for the erasure (the clock still takes its row).
       this.prisma.issue.groupBy({
         by: ["reporterPersonId"],
         where: {
           reporterPersonId: { not: null },
-          NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
+          NOT: [ISSUE_FREE_TEXT_STANDING_UNREDACTED, WORK_ORDER_TEXT_STANDING],
         },
       }),
       this.prisma.issue.groupBy({
@@ -991,7 +993,7 @@ export class PurgeService implements OnModuleInit {
       const { count: issuesDetachedFromPerson } = await tx.issue.updateMany({
         where: {
           reporterPersonId: personId,
-          NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
+          NOT: [ISSUE_FREE_TEXT_STANDING_UNREDACTED, WORK_ORDER_TEXT_STANDING],
         },
         data: {
           reporterPersonId: null,

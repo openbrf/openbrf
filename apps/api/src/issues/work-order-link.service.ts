@@ -483,17 +483,22 @@ export class WorkOrderLinkService {
             sortOrder,
           })),
         });
-        // A photograph chosen while a link stands is shown from now on. One
-        // chosen with none standing was never shown, and is not counted.
-        const standing = await tx.workOrderLink.findFirst({
-          where: {
+        // A photograph chosen while a link opens the work order is shown from
+        // now on. One chosen with none opening it (ended by an answer, by an
+        // expiry, by a protected household, or never issued) was never shown,
+        // and is not counted: the access report names recipients that were
+        // given a photograph, and states nothing else (GDPR art. 15(1)(c)).
+        // The test is the lookup's own, on the database's clock.
+        const standing =
+          !(await showsProtectedHousehold(
+            tx,
+            issueId,
+            localDayOf(new Date()),
+          )) &&
+          (await liveWorkOrderLinksOfIssue(tx, issueId, this.enabled)).has(
             workOrderId,
-            revokedAt: null,
-            expiresAt: { gt: new Date() },
-          },
-          select: { id: true },
-        });
-        if (standing !== null) {
+          );
+        if (standing) {
           await this.recordExposure(tx, workOrderId, wanted);
         }
       }

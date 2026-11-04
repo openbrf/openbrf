@@ -1180,7 +1180,8 @@ A handler can give the contractor of a work order a link of their own, at
 photographs the board chose for it, and through which the contractor answers
 it, writes notes and adds photographs without an account. It is switched off
 until the legal review of a contractor as a recipient of the association's
-data clears it: `OPENBRF_CONTRACTOR_LINKS_ENABLED=true` switches it on, and
+data clears it: `OPENBRF_CONTRACTOR_LINKS_ENABLED=true` in the env file (the
+production Compose file passes it on to the application) switches it on, and
 turning it off again makes every link refuse at once, and a link that has not
 expired or ended opens again if it is switched back on. With it off, every
 address under `/arbetsorder/` answers the same 404 as a link that never

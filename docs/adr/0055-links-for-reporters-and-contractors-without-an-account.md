@@ -107,10 +107,11 @@ application bundle, no cookie and no third-party request.
 
 ### Expiry and revocation
 
-A contractor's link ends at the first of: the work order marked done, 30 days
-after it was issued, and a handler revoking it (decision 24). Issuing a new link
-for the same work order revokes the old one, so a work order has one live link
-at most.
+A contractor's link ends at the first of: the contractor declining or marking
+the work order done, 30 days after it was issued, and a handler revoking it
+(decision 24; the other ends are listed under "When it ends" below). Issuing a
+new link for the same work order revokes the old one, so a work order has one
+live link at most.
 
 A reporter's link is issued with the first mail to the reporter's address, the
 one that follows their report, and ends at the first of: 30 days after the issue
