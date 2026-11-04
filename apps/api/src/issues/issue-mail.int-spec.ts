@@ -238,13 +238,16 @@ async function lastNotice(issueId: string): Promise<IssueNoticeJob> {
   return job as IssueNoticeJob;
 }
 
+/** How long {@link untilWaitingForLock} looks before it gives up. */
+const LOCK_WAIT_DEADLINE_MS = 10_000;
+
 /**
  * Waits until a transaction is waiting for an advisory lock another one holds,
  * by its key's two halves. The key is this run's own, an issue's or a person's,
  * so no other suite's waiter is counted.
  */
 async function untilWaitingForLock(key: string, what: string): Promise<void> {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + LOCK_WAIT_DEADLINE_MS;
   for (;;) {
     const [row] = await prisma.$queryRawUnsafe<{ waiting: number }[]>(
       `SELECT count(*)::int AS waiting FROM pg_locks
@@ -1475,28 +1478,43 @@ describe("an issue message", () => {
       // its transaction is kept open while a message on the second issue
       // counts. That one has to wait for the reporter's budget lock: counting
       // without it, it would not see the first and be mailed about too.
-      let racing: Promise<unknown> | undefined;
+      const racing: Promise<unknown>[] = [];
       await mailer.ensureQueues();
-      await prisma.$transaction(async (tx) => {
-        count += 1;
-        await tx.issueMessage.create({
-          data: {
-            issueId: first,
-            side: "REPORTER",
-            authorPersonId: resident.personId,
-            body: `${REPORTER_DESCRIPTION} (${count})`,
+      try {
+        await prisma.$transaction(
+          async (tx) => {
+            count += 1;
+            await tx.issueMessage.create({
+              data: {
+                issueId: first,
+                side: "REPORTER",
+                authorPersonId: resident.personId,
+                body: `${REPORTER_DESCRIPTION} (${count})`,
+              },
+            });
+            expect(
+              await mailer.messageInTransaction(tx, first, {
+                kind: "reporter",
+              }),
+            ).toBe(1);
+            racing.push(write(second));
+            await untilWaitingForLock(
+              `issue-message-budget:person:${resident.personId}`,
+              "the reporter's message budget lock",
+            );
           },
-        });
-        expect(
-          await mailer.messageInTransaction(tx, first, { kind: "reporter" }),
-        ).toBe(1);
-        racing = write(second);
-        await untilWaitingForLock(
-          `issue-message-budget:person:${resident.personId}`,
-          "the reporter's message budget lock",
+          // Longer than the helper's own deadline, so a lock nobody waits for
+          // fails with the helper's message, not the transaction's timeout.
+          { timeout: LOCK_WAIT_DEADLINE_MS + 5_000 },
         );
-      });
-      await racing;
+      } catch (error) {
+        // The transaction has rolled back and let go of the lock, so the write
+        // that waited for it ends; settle it so it is not left unhandled, and
+        // let the failure that matters be the one reported.
+        await Promise.allSettled(racing);
+        throw error;
+      }
+      await Promise.all(racing);
 
       // Four more at once, two on each issue, all past the budget.
       await Promise.all(

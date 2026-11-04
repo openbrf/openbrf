@@ -576,7 +576,7 @@ export class IssueMailer implements OnModuleInit {
         tx,
         issueId,
         await this.assigneeOrHandlers(tx, issue, "message", now),
-        issue.reporterPersonId,
+        reporter,
         author.messageId,
       );
     }
@@ -830,19 +830,34 @@ export class IssueMailer implements OnModuleInit {
     return found !== null;
   }
 
-  /** One look at a delivery: sends the mail when it is owed. */
-  private async send(job: IssueNoticeJob, now: Date): Promise<Delivery> {
+  /**
+   * One look at whether a notice is still owed, by the time it is asked:
+   * reads the issue, asks whether the notice still holds and its message
+   * stands, and finds the person it goes to. `null` when the notice is not
+   * owed, with the person `null` when it is but nobody is left to receive it.
+   */
+  private async lookUp(
+    job: IssueNoticeJob,
+    at: Date,
+  ): Promise<{
+    issue: NoticeIssue;
+    recipient: {
+      firstName: string;
+      lastName: string;
+      emailCipher: string | null;
+      preferredLocale: string | null;
+    } | null;
+  } | null> {
     const issue = await this.readIssue(this.prisma, job.issueId);
     if (
       issue === null ||
-      !stillSo(issue, job, now) ||
+      !stillSo(issue, job, at) ||
       !(await this.messageStands(job))
     ) {
-      return "notOwed";
+      return null;
     }
-
     const recipient = await this.prisma.person.findFirst({
-      where: recipientWhereOf(issue, job, now),
+      where: recipientWhereOf(issue, job, at),
       select: {
         firstName: true,
         lastName: true,
@@ -850,6 +865,16 @@ export class IssueMailer implements OnModuleInit {
         preferredLocale: true,
       },
     });
+    return { issue, recipient };
+  }
+
+  /** One look at a delivery: sends the mail when it is owed. */
+  private async send(job: IssueNoticeJob, now: Date): Promise<Delivery> {
+    const found = await this.lookUp(job, now);
+    if (found === null) {
+      return "notOwed";
+    }
+    const recipient = found.recipient;
     const cipher = recipient?.emailCipher;
     if (recipient === null || cipher == null) {
       this.logger.log(
@@ -872,27 +897,15 @@ export class IssueMailer implements OnModuleInit {
     // closing it would need the mail to be handed over inside a transaction
     // that holds the lock.
     const handoffAt = new Date(Math.max(now.getTime(), Date.now()));
-    const current = await this.readIssue(this.prisma, job.issueId);
-    const stillRecipient =
-      current !== null &&
-      stillSo(current, job, handoffAt) &&
-      (await this.messageStands(job))
-        ? await this.prisma.person.findFirst({
-            where: recipientWhereOf(current, job, handoffAt),
-            select: { emailCipher: true },
-          })
-        : null;
+    const again = await this.lookUp(job, handoffAt);
     // An address changed while it was decrypted is not the one decrypted.
-    if (
-      current === null ||
-      stillRecipient === null ||
-      stillRecipient.emailCipher !== cipher
-    ) {
+    if (again?.recipient?.emailCipher !== cipher) {
       this.logger.log(
         `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
       );
       return "notOwed";
     }
+    const current = again.issue;
     const recipientName = `${recipient.firstName} ${recipient.lastName}`.trim();
     try {
       if (job.event === "reporterMessage") {
