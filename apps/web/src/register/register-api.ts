@@ -512,6 +512,11 @@ export type ReportAuditAction =
   | "ISSUE_COST_RESPONSIBILITY_CHANGED"
   | "ISSUE_MESSAGE_SENT"
   | "ISSUE_NOTE_ADDED"
+  | "ISSUE_ENTRY_PERMISSION_SET"
+  | "ISSUE_ENTRY_PERMISSION_REMOVED"
+  | "ISSUE_PLACE_CHANGED"
+  | "ISSUE_FINDING_MARKED"
+  | "ISSUE_FINDING_REMOVED"
   | "ISSUE_REPORTER_LINK_ISSUED"
   | "ISSUE_REPORTER_LINK_REVOKED"
   | "ISSUE_REDACTED"
@@ -832,8 +837,18 @@ export interface DataSubjectReport {
     waitingReason: IssueWaitingReason | null;
     /** Who a handler recorded as paying for it, or null. Never an amount. */
     costResponsibility: IssueCostResponsibility | null;
+    /** The name of the common area the issue is about, or null. */
+    place: string | null;
     location: string | null;
     description: string;
+    /** The answer about entering their apartment, while the issue is open. */
+    entry: {
+      answer: "YES" | "NO";
+      note: string | null;
+      pets: boolean | null;
+      masterKey: boolean | null;
+      until: string | null;
+    } | null;
     /** When a handler removed the description or the location (ADR 0057). */
     descriptionRedactedAt: string | null;
     locationRedactedAt: string | null;

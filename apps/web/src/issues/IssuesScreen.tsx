@@ -10,11 +10,14 @@ import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import {
+  fetchIssuePlaces,
   fetchOwnApartments,
   fetchOwnIssues,
   fetchReportableTypes,
   fetchReporterResponsibilityGuide,
   type IssueApartment,
+  type IssueEntry,
+  type IssuePlaceChoice,
   type OwnIssue,
   type ReportableIssueType,
   type ResponsibilityGuide,
@@ -46,6 +49,7 @@ interface Loaded {
   ready: boolean;
   types: readonly ReportableIssueType[];
   apartments: readonly IssueApartment[];
+  places: readonly IssuePlaceChoice[];
   own: readonly OwnIssue[];
   /**
    * The responsibility guide the board has adopted, shown before filing, or
@@ -60,6 +64,7 @@ const EMPTY: Loaded = {
   ready: false,
   types: [],
   apartments: [],
+  places: [],
   own: [],
   guide: null,
   loadFailed: false,
@@ -133,14 +138,20 @@ export function IssuesScreen({
   }, [fromPostId, canReport, t]);
 
   /**
-   * One read of the three lists and the guide. A list that could not be read
-   * comes back `null`, so a re-read that fails on one of them leaves what the
-   * screen already shows in place instead of replacing it with an empty list.
+   * One read of the three lists, the places and the guide. A list that could
+   * not be read comes back `null`, so a re-read that fails on one of them
+   * leaves what the screen already shows in place instead of replacing it
+   * with an empty list.
+   *
+   * The places alone do not fail the screen: a place is optional on a report,
+   * so without them the form still reports an issue in the apartment, as the
+   * queue tolerates a places read that fails.
    */
   const read = useCallback(async () => {
-    const [types, apartments, own, guide] = await Promise.all([
+    const [types, apartments, places, own, guide] = await Promise.all([
       canReport ? fetchReportableTypes() : null,
       canReport ? fetchOwnApartments() : null,
+      canReport ? fetchIssuePlaces() : null,
       canReport ? fetchOwnIssues() : null,
       canReport ? fetchReporterResponsibilityGuide() : null,
     ]);
@@ -148,6 +159,7 @@ export function IssuesScreen({
     return {
       types: types?.ok === true ? types.value : null,
       apartments: apartments?.ok === true ? apartments.value : null,
+      places: places?.ok === true ? places.value : null,
       own: own?.ok === true ? own.value : null,
       /**
        * Not a failed load either way: a report is filed without the guide.
@@ -181,6 +193,7 @@ export function IssuesScreen({
           types: next.types ?? (next.asked ? previous.types : []),
           apartments:
             next.apartments ?? (next.asked ? previous.apartments : []),
+          places: next.places ?? (next.asked ? previous.places : []),
           own: next.own ?? (next.asked ? previous.own : []),
           guide: next.guide === undefined ? previous.guide : next.guide,
           loadFailed: next.loadFailed,
@@ -201,7 +214,26 @@ export function IssuesScreen({
     };
   }, [reload]);
 
-  const { ready, types, apartments, own, loadFailed } = loaded;
+  /**
+   * The answer about entering an issue, as its save answered it. Applied
+   * before the re-read that follows, so the summary and the withdraw button
+   * show what was saved even when that re-read fails and the list it read
+   * before stays on screen. A re-read that lands afterwards replaces it with
+   * the same answer, read from the server.
+   */
+  const applyEntry = useCallback(
+    (issueId: string, entry: IssueEntry | null): void => {
+      setLoaded((previous) => ({
+        ...previous,
+        own: previous.own.map((issue) =>
+          issue.id === issueId ? { ...issue, entry } : issue,
+        ),
+      }));
+    },
+    [],
+  );
+
+  const { ready, types, apartments, places, own, loadFailed } = loaded;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -252,6 +284,7 @@ export function IssuesScreen({
             key={fromPost.kind === "read" ? fromPost.prefill.postId : "blank"}
             types={types}
             apartments={apartments}
+            places={places}
             guide={loaded.guide}
             {...(fromPost.kind === "read" ? { prefill: fromPost.prefill } : {})}
             onReported={(postId) => {
@@ -259,7 +292,12 @@ export function IssuesScreen({
               reload();
             }}
           />
-          <OwnIssuesPanel issues={own} onClosed={reload} />
+          <OwnIssuesPanel
+            issues={own}
+            onClosed={reload}
+            onEntrySaved={applyEntry}
+            onChanged={reload}
+          />
         </>
       ) : null}
     </div>

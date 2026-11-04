@@ -691,6 +691,15 @@ const SAVED_REPLY = {
 const SAVED_REPLIES_CARD = "Sparade svar";
 
 /**
+ * A common area the board adds to its own card (decision 30): a room, never an
+ * apartment, and nobody's own words.
+ */
+const COMMON_AREA = "Bastu";
+
+/** The settings card the common areas are kept in. */
+const COMMON_AREAS_CARD = "Gemensamma utrymmen";
+
+/**
  * A fault reported from the website by somebody without an account (ADR 0055),
  * and what the board writes on it: to the reporter, and to itself. About the
  * building, and nobody's own words.
@@ -2490,6 +2499,49 @@ export const SCREENS: readonly Screen[] = [
     // once the list has been read back with the reply in it.
     waitFor: { button: `Ta bort ${SAVED_REPLY.title}` },
     capture: { panel: SAVED_REPLIES_CARD },
+  },
+  {
+    /*
+     * The common areas an issue can name beside its free-text location.
+     *
+     * The same route as the cards above, and a card of its own. The board adds
+     * an area, so the marker is the row the save wrote rather than the card,
+     * which renders before its list is read.
+     *
+     * Added only where it is not there yet: a walk against a stack that is
+     * already up added it before, and adding it again is refused as a name
+     * taken, with the refusal on the card the image shows. So the entry first
+     * waits for the list's read, a row's count or the empty notice.
+     */
+    name: "settings-issue-places",
+    as: "administrator",
+    goto: appPath("/board/settings/issues-bookings"),
+    prepare: [
+      {
+        see: {
+          text: /^(\d+ ärenden?|Inga gemensamma utrymmen\.)$/,
+          within: COMMON_AREAS_CARD,
+          first: true,
+        },
+      },
+      {
+        unlessSeen: { button: `Ta bort ${COMMON_AREA}` },
+        steps: [
+          {
+            fill: {
+              label: "Nytt gemensamt utrymme",
+              within: COMMON_AREAS_CARD,
+            },
+            value: COMMON_AREA,
+          },
+          { click: { button: "Lägg till", within: COMMON_AREAS_CARD } },
+        ],
+      },
+    ],
+    // The row the save wrote carries its own remove control, which exists only
+    // once the list has been read back with the area in it.
+    waitFor: { button: `Ta bort ${COMMON_AREA}` },
+    capture: { panel: COMMON_AREAS_CARD },
   },
   {
     /*
