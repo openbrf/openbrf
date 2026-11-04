@@ -115,6 +115,21 @@ describe("one run of the issue text purge", () => {
     );
   });
 
+  it("counts only the attempts that removed nothing when some removals succeed", async () => {
+    const { service } = build((id) => (id === "p1-0" ? "removed" : "fail"));
+
+    const summary = await service.run(NOW, 2);
+
+    // One removal succeeded, so the figure is the attempts less that one,
+    // not the attempts as a whole.
+    expect(summary).toEqual({ considered: 1000, purged: 1, failed: 999 });
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "999 of which removed nothing (999 failed removals, 0 unfinished issues, the rest kept)",
+      ),
+    );
+  });
+
   it("reads past failing old issues to newer ones", async () => {
     const { service, eligiblePage } = build((id) =>
       id.startsWith("p1-") ? "fail" : "removed",
