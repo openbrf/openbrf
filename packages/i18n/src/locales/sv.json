@@ -3717,7 +3717,7 @@
         "identity": "Meddelandet innehåller ett personnummer och skickades inte. Ta bort det och försök igen.",
         "closed": "Ärendet är avslutat och tar inte emot fler meddelanden.",
         "limited": "Ärendet tar inte emot fler meddelanden just nu. Försök igen senare.",
-        "full": "Ärendet har nått det högsta antal meddelanden som en länk tar emot. Fler meddelanden kan inte skickas via länken."
+        "full": "Ärendet har nått det högsta antalet meddelanden som en länk tar emot. Fler meddelanden kan inte skickas via länken."
       }
     }
   },

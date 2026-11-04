@@ -11,6 +11,7 @@ import { AuthService } from "../auth/auth.service";
 import { ENV } from "../config/config.module";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { MediaService } from "../media/media.service";
 import { pngBytes } from "../media/testing/image-fixtures";
 import { erasureRemainder } from "../retention/erasure-domains";
@@ -24,7 +25,10 @@ import {
 } from "../testing/issue-fixtures";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
 import { IssueErasureService } from "./issue-erasure.service";
-import { IssueFreeTextService } from "./issue-free-text.service";
+import {
+  IssueFreeTextService,
+  type FreeTextRemoval,
+} from "./issue-free-text.service";
 import { IssueTextPurgeService } from "./issue-text-purge.service";
 import { IssueService } from "./issue.service";
 import { WorkOrderMailerService } from "./work-order-mailer.service";
@@ -54,6 +58,7 @@ let encryption: FieldEncryptionService;
 let media: MediaService;
 let storage: StorageService;
 let clock: IssueTextPurgeService;
+let freeText: IssueFreeTextService;
 let erasure: IssueErasureService;
 let personPurge: PurgeService;
 
@@ -377,6 +382,7 @@ beforeAll(async () => {
   media = app.get(MediaService);
   storage = app.get(StorageService);
   clock = app.get(IssueTextPurgeService);
+  freeText = app.get(IssueFreeTextService);
   erasure = app.get(IssueErasureService);
   personPurge = app.get(PurgeService);
 
@@ -807,6 +813,155 @@ describe("the clock", () => {
     expect(await clock.eligible(new Date(), 1)).not.toContain(issue.id);
     expect(await clock.purgeIssue(issue.id, new Date(), 1)).toBe("kept");
     expect((await read(issue.id)).description).toBe(DESCRIPTION);
+  });
+});
+
+describe("a free-text removal that is refused after files went", () => {
+  /**
+   * A removal whose `stillDue` answers from a script, one answer for each ask:
+   * once for each file and once more in the closing transaction. An ask past
+   * the script's end answers yes.
+   */
+  function scripted(
+    answers: boolean[],
+    inTransaction?: (tx: Prisma.TransactionClient) => Promise<void>,
+  ): FreeTextRemoval {
+    let asked = 0;
+    return {
+      targetPersonId: null,
+      context: { test: true },
+      stillDue: async (tx) => {
+        const answer = answers[asked] ?? true;
+        asked += 1;
+        if (asked === answers.length && inTransaction !== undefined) {
+          await inTransaction(tx);
+        }
+        return answer;
+      },
+    };
+  }
+
+  /** The lines this run logged about one issue's partial removal. */
+  async function partialLines(
+    issueId: string,
+    removal: FreeTextRemoval,
+  ): Promise<{ outcome: string; lines: string[] }> {
+    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => {});
+    try {
+      const outcome = await freeText.remove(issueId, new Date(), removal);
+      const lines = log.mock.calls
+        .map(([message]) => String(message))
+        .filter((message) => message.includes(`Issue ${issueId} kept`));
+      return { outcome, lines };
+    } finally {
+      log.mockRestore();
+    }
+  }
+
+  /** An issue with a description and no files at all. */
+  async function seedWithoutFiles(): Promise<string> {
+    const issue = await prisma.issue.create({
+      data: {
+        typeId,
+        statusId: type.statusIds.DONE,
+        outcome: "FIXED",
+        priority: "NORMAL",
+        reporterPersonId: resident.personId,
+        apartmentId,
+        description: DESCRIPTION,
+        closedAt: new Date(Date.now() - 3 * 365 * DAY),
+        createdAt: new Date("2021-03-01T08:00:00Z"),
+      },
+      select: { id: true },
+    });
+    return issue.id;
+  }
+
+  it("logs once, with the count, when the second file is refused", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 3 * 365,
+    });
+
+    const { outcome, lines } = await partialLines(
+      issue.id,
+      scripted([true, false]),
+    );
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([
+      `Issue ${issue.id} kept its free text after 1 files were removed`,
+    ]);
+    // The first file stays taken, the second and the text stand.
+    const after = await read(issue.id);
+    expect(after._count.photos + after._count.attachments).toBe(1);
+    expect(after.description).toBe(DESCRIPTION);
+  });
+
+  it("logs nothing when the first file is refused", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 3 * 365,
+    });
+
+    const { outcome, lines } = await partialLines(issue.id, scripted([false]));
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([]);
+    const after = await read(issue.id);
+    expect(after._count.photos + after._count.attachments).toBe(2);
+  });
+
+  it("logs nothing when an issue with no files is refused", async () => {
+    const issueId = await seedWithoutFiles();
+
+    const { outcome, lines } = await partialLines(issueId, scripted([false]));
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([]);
+    expect((await read(issueId)).description).toBe(DESCRIPTION);
+  });
+
+  it("logs once when the closing transaction refuses after the files went", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 3 * 365,
+    });
+
+    const { outcome, lines } = await partialLines(
+      issue.id,
+      scripted([true, true, false]),
+    );
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([
+      `Issue ${issue.id} kept its free text after 2 files were removed`,
+    ]);
+    const after = await read(issue.id);
+    expect(after._count.photos + after._count.attachments).toBe(0);
+    // The messages and notes go only after the closing check passes.
+    expect(after._count).toMatchObject({ messages: 1, notes: 1 });
+    expect(after.description).toBe(DESCRIPTION);
+    expect(after.freeTextRemovedAt).toBeNull();
+  });
+
+  it("logs once when the issue is gone by the closing transaction", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 3 * 365,
+    });
+
+    const { outcome, lines } = await partialLines(
+      issue.id,
+      scripted([true, true, true], async (tx) => {
+        await tx.issue.delete({ where: { id: issue.id } });
+      }),
+    );
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([
+      `Issue ${issue.id} kept its free text after 2 files were removed`,
+    ]);
   });
 });
 
