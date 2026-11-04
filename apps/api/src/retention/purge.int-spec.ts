@@ -18,6 +18,8 @@ import {
 import type { Prisma } from "../generated/prisma/client";
 import { lockIssue, lockWorkOrderSender } from "../issues/issue-lock";
 import { IssuePurgeService } from "../issues/issue-purge.service";
+import { IssueRedactionService } from "../issues/issue-redaction.service";
+import { IssueTextPurgeService } from "../issues/issue-text-purge.service";
 import { WORK_ORDER_BODY_RETENTION_DAYS } from "../issues/issue-retention";
 import { waitFor } from "../testing/advisory-locks";
 import { backendPid, waitersBehind } from "../testing/lock-waiters";
@@ -2030,8 +2032,15 @@ describe("an issue a work order's text still stands on", () => {
   const woApartmentId = apartmentId("work-order");
   const reportedId = `purge-wo-issue-${suffix}`;
   const requestedId = `purge-wo-issue-requested-${suffix}`;
+  // Issues of the same requester's, written after the request was carried
+  // out: free text stands on each beside the work order's.
+  const workOrderFirstId = `purge-wo-issue-wo-first-${suffix}`;
+  const freeTextFirstId = `purge-wo-issue-text-first-${suffix}`;
+  const redactedId = `purge-wo-issue-redacted-${suffix}`;
+  const laterIds = [workOrderFirstId, freeTextFirstId, redactedId];
   const WORK_ORDER_TEXT = "Byt packningen i koket hos grannen i 1202.";
   let issuePurge: IssuePurgeService;
+  let textPurge: IssueTextPurgeService;
 
   /**
    * An issue the person reported, closed today, with a work order sent. Its
@@ -2101,6 +2110,7 @@ describe("an issue a work order's text still stands on", () => {
 
   beforeAll(async () => {
     issuePurge = app.get(IssuePurgeService);
+    textPurge = app.get(IssueTextPurgeService);
     await prisma.apartment.create({
       data: { id: woApartmentId, addressId, number: "3001", floor: 2 },
     });
@@ -2133,7 +2143,7 @@ describe("an issue a work order's text still stands on", () => {
     await cleanUp([
       () =>
         prisma.issue.deleteMany({
-          where: { id: { in: [reportedId, requestedId] } },
+          where: { id: { in: [reportedId, requestedId, ...laterIds] } },
         }),
       () =>
         prisma.legalHold.deleteMany({
@@ -2244,6 +2254,118 @@ describe("an issue a work order's text still stands on", () => {
         reporterDetached: true,
       },
     ]);
+  });
+
+  /*
+   * Text written on a case after its reporter's request was carried out, as a
+   * note added once the issue was reopened: the request is closed, so no job
+   * erases it on the request, and it waits on the clock. The link stays while
+   * either text stands, and whichever removal takes the last of them clears it.
+   * Each test relies on the one above having carried the request out.
+   */
+  async function laterIssueWithFreeText(id: string): Promise<void> {
+    await expect(
+      prisma.dataSubjectRequest.count({
+        where: {
+          personId: requester,
+          kind: "ERASURE",
+          executedAt: { not: null },
+        },
+      }),
+    ).resolves.toBe(1);
+    await reportedWithWorkOrder(id, requester);
+    await prisma.issueNote.create({
+      data: { issueId: id, body: "Grannen i 1202 var inte hemma." },
+    });
+    await pastTheTenYears(id);
+  }
+
+  async function purgeEntriesOn(id: string) {
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "SERVICE_DATA_PURGED",
+        targetKind: "issue",
+        targetId: id,
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { context: true },
+    });
+    return entries.map((entry) => entry.context);
+  }
+
+  it("keeps the reporter of an executed request while the free text stands, and the text's removal clears it", async () => {
+    await laterIssueWithFreeText(workOrderFirstId);
+
+    // The work order's text goes first, at its ten years. The note still
+    // stands, so the link does too.
+    await expect(
+      issuePurge.purgeWorkOrderTexts(workOrderFirstId),
+    ).resolves.toBe(true);
+    expect(await textOn(workOrderFirstId)).toBeNull();
+    expect(await reporterOf(workOrderFirstId)).toBe(requester);
+
+    // The clock then takes the note, the last text on the case, and the link
+    // goes with it: no run of the person purge selects the requester again.
+    await expect(
+      textPurge.purgeIssue(workOrderFirstId, new Date(), 10),
+    ).resolves.toBe("removed");
+    expect(await reporterOf(workOrderFirstId)).toBeNull();
+
+    expect(await purgeEntriesOn(workOrderFirstId)).toEqual([
+      {
+        workOrderTexts: 1,
+        retentionDaysAfterClosing: WORK_ORDER_BODY_RETENTION_DAYS,
+      },
+      {
+        layer: "freeText",
+        issueMessages: 0,
+        internalNotes: 1,
+        files: 0,
+        reporterDetached: true,
+        retentionYearsAfterClosing: 10,
+      },
+    ]);
+  });
+
+  it("keeps the reporter of an executed request while a work order's text stands after the free text went", async () => {
+    await laterIssueWithFreeText(freeTextFirstId);
+
+    await expect(
+      textPurge.purgeIssue(freeTextFirstId, new Date(), 10),
+    ).resolves.toBe("removed");
+    expect(await textOn(freeTextFirstId)).toBe(WORK_ORDER_TEXT);
+    expect(await reporterOf(freeTextFirstId)).toBe(requester);
+
+    await expect(issuePurge.purgeWorkOrderTexts(freeTextFirstId)).resolves.toBe(
+      true,
+    );
+    expect(await reporterOf(freeTextFirstId)).toBeNull();
+  });
+
+  it("clears the reporter of an executed request when a handler redacts the last text", async () => {
+    await reportedWithWorkOrder(redactedId, requester);
+    await prisma.workOrder.updateMany({
+      where: { issueId: redactedId },
+      data: { body: null },
+    });
+    await prisma.issue.update({
+      where: { id: redactedId },
+      data: { description: "Lackage under diskbanken hos grannen." },
+    });
+
+    await app
+      .get(IssueRedactionService)
+      .redact(people.board, redactedId, { target: "description" });
+    expect(await reporterOf(redactedId)).toBeNull();
+
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "ISSUE_REDACTED", targetId: redactedId },
+      select: { context: true },
+    });
+    expect(entry.context).toEqual({
+      target: "description",
+      reporterDetached: true,
+    });
   });
 });
 

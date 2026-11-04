@@ -31,6 +31,7 @@
  */
 
 import type { Prisma } from "../generated/prisma/client";
+import { ISSUE_FREE_TEXT_STANDING } from "./issue-free-text";
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -96,6 +97,55 @@ export const WORK_ORDER_BODY_RETENTION_DAYS = 3653;
 export const WORK_ORDER_TEXT_STANDING = {
   workOrders: { some: { body: { not: null } } },
 } as const satisfies Prisma.IssueWhereInput;
+
+/**
+ * Detaches an issue's reporter once their erasure request has been carried
+ * out and no text stands on the issue, and answers whether it did.
+ *
+ * Called by what removes text, the free-text layer's removal and the
+ * work-order text purge, in the transaction that removes it and under the
+ * issue's lock. The person purge detaches a reporter only from an issue on
+ * which neither text stands, and no run selects a person after their request
+ * is executed, so the job that removes the last text is the one left to clear
+ * the link. While either text stands the link stays (ADR 0057: no case whose
+ * text stands may lose its selector): a hold or a restriction placed later on
+ * the person reaches that text only through it.
+ *
+ * The columns the person purge clears when it detaches, all four of them.
+ */
+export async function detachErasedReporter(
+  tx: Prisma.TransactionClient,
+  issueId: string,
+  reporterPersonId: string | null,
+): Promise<boolean> {
+  if (reporterPersonId === null) {
+    return false;
+  }
+  const executed = await tx.dataSubjectRequest.count({
+    where: {
+      personId: reporterPersonId,
+      kind: "ERASURE",
+      executedAt: { not: null },
+    },
+  });
+  if (executed === 0) {
+    return false;
+  }
+  const { count } = await tx.issue.updateMany({
+    where: {
+      id: issueId,
+      reporterPersonId,
+      NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
+    },
+    data: {
+      reporterPersonId: null,
+      reporterNameCipher: null,
+      reporterEmailCipher: null,
+      reporterEmailIndex: null,
+    },
+  });
+  return count > 0;
+}
 
 /**
  * The date a closed issue's reporter details become erasable.

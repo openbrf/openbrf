@@ -7,6 +7,7 @@ import type { Prisma } from "../generated/prisma/client";
 import { MediaService } from "../media/media.service";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
 import { lockIssueForHandling } from "./issue-lock";
+import { detachErasedReporter } from "./issue-retention";
 import { IssueError } from "./issue.error";
 
 /**
@@ -286,6 +287,18 @@ export class IssueRedactionService {
     target: IssueRedactionTarget,
     rowId: string | null,
   ): Promise<void> {
+    // A redaction that took the last of the text detaches a reporter whose
+    // erasure request was already carried out: no run of the person purge
+    // selects them again, so nothing else would.
+    const issue = await tx.issue.findUnique({
+      where: { id: issueId },
+      select: { reporterPersonId: true },
+    });
+    const reporterDetached = await detachErasedReporter(
+      tx,
+      issueId,
+      issue?.reporterPersonId ?? null,
+    );
     await this.audit.record(
       {
         action: "ISSUE_REDACTED",
@@ -296,7 +309,11 @@ export class IssueRedactionService {
         // What was reached and which row, never a word of it nor a file's
         // name. No target person: on a reporter's own access report, the
         // entry would name the handler to them.
-        context: rowId === null ? { target } : { target, id: rowId },
+        context: {
+          target,
+          ...(rowId === null ? {} : { id: rowId }),
+          ...(reporterDetached ? { reporterDetached: true } : {}),
+        },
       },
       tx,
     );

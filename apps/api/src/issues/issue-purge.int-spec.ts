@@ -10,8 +10,10 @@ import { AuthService } from "../auth/auth.service";
 import { ENV } from "../config/config.module";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { createIssueTypeFixture } from "../testing/issue-fixtures";
+import { lockIssueForHandling } from "./issue-lock";
 import { IssuePurgeService } from "./issue-purge.service";
 import {
   ISSUE_RETENTION_DAYS,
@@ -946,6 +948,69 @@ describe("the text of a work order", () => {
     expect(summary.workOrderTexts.failed).toBe(0);
     expect((await readOrder(orderId)).body).toBeNull();
   });
+
+  it("is kept by a hold on the issue placed while the purge waits for the issue", async () => {
+    /*
+     * A handler's hold takes the issue's lock (`lockIssueForHandling`) before
+     * it writes `legalHoldAt`, and the purge reads the hold again under that
+     * lock. Held open here with the hold written, the purge queues behind it;
+     * the hold commits as the lock goes, so the purge finds it. A resident's
+     * report, with no address index, so the purge writes nothing to the issue
+     * before the lock and the wait is on the advisory key, which `pg_locks`
+     * shows, rather than a row.
+     */
+    const issueId = await residentIssueClosed(
+      "Sprucken ruta i portdorren.",
+      WORK_ORDER_BODY_RETENTION_DAYS + 1,
+    );
+    const orderId = await workOrderOn(issueId, "Byt rutan i portdorren.");
+    const key = `issue:${issueId}`;
+
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    let holder: Promise<void> | undefined;
+    let running: Promise<boolean> | undefined;
+
+    try {
+      // Longer than the waits below, so the transaction held open on purpose
+      // is not aborted by the five-second default and its lock released early.
+      holder = prisma.$transaction(
+        async (tx) => {
+          await lockIssueForHandling(tx, issueId);
+          await tx.issue.update({
+            where: { id: issueId },
+            data: { legalHoldAt: new Date() },
+          });
+          await holderDone;
+        },
+        { timeout: 60_000, maxWait: 20_000 },
+      );
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, true)) > 0n,
+      );
+
+      running = purge.purgeWorkOrderTexts(issueId);
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, false)) > 0n,
+      );
+
+      releaseHolder?.();
+      await holder;
+
+      await expect(running).resolves.toBe(false);
+      expect((await readOrder(orderId)).body).toBe("Byt rutan i portdorren.");
+    } finally {
+      releaseHolder?.();
+      await holder?.catch(() => undefined);
+      await running?.catch(() => undefined);
+      await prisma.issue.update({
+        where: { id: issueId },
+        data: { legalHoldAt: null },
+      });
+    }
+  }, 60_000);
 
   it("is kept while a legal hold stands against the reporter", async () => {
     const issueId = await reportPublicly(
