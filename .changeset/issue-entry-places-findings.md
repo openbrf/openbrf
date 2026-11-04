@@ -21,8 +21,8 @@ common area it is about, and the mark of an inspection finding.
   report while the issue is open. The purge of a person clears it from an issue
   whose text is already gone, when it detaches them from that issue, and
   removing the apartment from the register clears it from the issues about that
-  apartment; an answer saved while the apartment is being removed is cleared
-  with them or refused. Nothing of it is offered to a connected app or the AI package.
+  apartment, recorded as withdrawn by whoever removed it; an answer saved while
+  the apartment is being removed is cleared with them or refused. Nothing of it is offered to a connected app or the AI package.
 - **Common areas.** The board keeps a short list of common areas, such as the
   laundry room, the lift and the yard, under Settings, and a report can name one
   beside its free-text location. The list never holds an apartment. A new
@@ -37,7 +37,8 @@ common area it is about, and the mark of an inspection finding.
   lift or fire inspection, with the day of the inspection, the protocol (one of
   the issue's files for handlers, which residents cannot open) and a target
   date. The target date is the issue's own, so the Overdue view reads it as it
-  reads any other, and a finding cannot be left without one. A lift's must fall
+  reads any other and its assignee is reminded once it has passed, and a
+  finding cannot be left without one. A lift's must fall
   no later than a month after the inspection (BFS 2025:11, 1 kap. 17 §); the
   other kinds have the date the handler sets. When the protocol is later
   removed from the issue the mark stays.

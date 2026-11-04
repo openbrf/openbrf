@@ -4,6 +4,7 @@ import {
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import type { ActionContext } from "@openbrf/plugin-sdk";
+import { addLocalDays, formatLocalDay, localDayOf } from "@openbrf/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { ActionRegistryService } from "../actions/action-registry.service";
@@ -22,6 +23,10 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { holdOfferedPlace } from "./issue-lock";
+import {
+  ISSUE_NOTICE_QUEUE,
+  ISSUE_OVERDUE_QUEUE,
+} from "./issue-mailer.service";
 
 /**
  * What is particular to a Swedish house on an issue, over HTTP against a real
@@ -193,6 +198,16 @@ async function place(name: string, active = true): Promise<string> {
     select: { id: true },
   });
   return created.id;
+}
+
+/** The overdue reminders queued for one issue, in the order they were queued. */
+async function overdueJobs(issueId: string): Promise<unknown[]> {
+  const rows = await prisma.$queryRawUnsafe<{ data: unknown }[]>(
+    "SELECT data FROM pgboss.job WHERE name = $1 AND data->>'issueId' = $2 ORDER BY created_on, id",
+    ISSUE_OVERDUE_QUEUE,
+    issueId,
+  );
+  return rows.map((row) => row.data);
 }
 
 async function stored(issueId: string) {
@@ -376,6 +391,22 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(async () => {
+  // The jobs this run's issues queued: a finding's target date queues its
+  // overdue reminder.
+  const issueIds = (
+    await prisma.issue.findMany({
+      where: { typeId: { in: Object.values(typeIds) } },
+      select: { id: true },
+    })
+  ).map((issue) => issue.id);
+  if (issueIds.length > 0) {
+    await prisma.$executeRawUnsafe(
+      "DELETE FROM pgboss.job WHERE name IN ($1, $2) AND data->>'issueId' = ANY($3::text[])",
+      ISSUE_NOTICE_QUEUE,
+      ISSUE_OVERDUE_QUEUE,
+      issueIds,
+    );
+  }
   await prisma.issue.deleteMany({
     where: { typeId: { in: Object.values(typeIds) } },
   });
@@ -765,7 +796,9 @@ describe("permission to enter", () => {
       },
     });
 
-    await app.get(AddressService).removeApartment(goneId);
+    await app
+      .get(AddressService)
+      .removeApartment(goneId, { personId: board.personId, channel: "WEB" });
 
     expect(await stored(issueId)).toMatchObject({
       entryAnswer: null,
@@ -780,6 +813,23 @@ describe("permission to enter", () => {
       select: { apartmentId: true },
     });
     expect(after.apartmentId).toBeNull();
+
+    // Recorded as withdrawn by the board member who removed the apartment, so
+    // the timeline does not end on the answer; facts only, never the note.
+    const removed = await prisma.auditLogEntry.findMany({
+      where: {
+        targetKind: "issue",
+        targetId: issueId,
+        action: "ISSUE_ENTRY_PERMISSION_REMOVED",
+      },
+      select: { actorPersonId: true, context: true },
+    });
+    expect(removed).toEqual([
+      {
+        actorPersonId: board.personId,
+        context: { byReporter: false, apartmentRemoved: true },
+      },
+    ]);
   });
 
   it("goes with the apartment when an answer is still being written as the board removes it", async () => {
@@ -806,7 +856,9 @@ describe("permission to enter", () => {
         data: { entryAnswer: "YES", entryPets: false, entryMasterKey: true },
       }),
     );
-    const removal = app.get(AddressService).removeApartment(goneId);
+    const removal = app
+      .get(AddressService)
+      .removeApartment(goneId, { personId: board.personId, channel: "WEB" });
     expect(await blockedBehind(write.pid)).toBe(true);
     write.release();
     await write.done;
@@ -822,6 +874,17 @@ describe("permission to enter", () => {
       select: { apartmentId: true },
     });
     expect(after.apartmentId).toBeNull();
+    // The answer committed while the removal waited is the one recorded as
+    // taken off.
+    expect(
+      await prisma.auditLogEntry.count({
+        where: {
+          targetKind: "issue",
+          targetId: issueId,
+          action: "ISSUE_ENTRY_PERMISSION_REMOVED",
+        },
+      }),
+    ).toBe(1);
   });
 
   it("is refused when it lands after the board removed the apartment", async () => {
@@ -1127,6 +1190,33 @@ describe("an inspection finding", () => {
     });
     // The file's name is free text about a case.
     expect(JSON.stringify(entry)).not.toContain("protokoll");
+  });
+
+  it("queues the overdue reminder for its target date, as any target date does", async () => {
+    const issueId = await filed(plain, { withApartment: false });
+    const protocol = await attachProtocol(board, issueId);
+    const today = localDayOf(new Date());
+    const finding = {
+      kind: "OVK",
+      inspectedOn: formatLocalDay(today),
+      protocolAttachmentId: protocol,
+      targetDate: formatLocalDay(addLocalDays(today, 60)),
+    };
+
+    const marked = await call(
+      board,
+      "PUT",
+      `/api/issue-queue/${issueId}/finding`,
+      finding,
+    );
+    expect(marked.statusCode).toBe(200);
+    expect(await overdueJobs(issueId)).toEqual([
+      { issueId, targetDate: finding.targetDate },
+    ]);
+
+    // The same mark again changes no date and queues nothing more.
+    await call(board, "PUT", `/api/issue-queue/${issueId}/finding`, finding);
+    expect(await overdueJobs(issueId)).toHaveLength(1);
   });
 
   it("is read as overdue once its target date has passed", async () => {

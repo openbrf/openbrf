@@ -28,6 +28,7 @@ import {
   lockIssue,
   lockIssueForHandling,
 } from "./issue-lock";
+import { IssueMailer } from "./issue-mailer.service";
 import { IssueError } from "./issue.error";
 import { IssueService, type QueuedIssueView } from "./issue.service";
 
@@ -103,6 +104,7 @@ export class IssueFitService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
     private readonly issues: IssueService,
+    private readonly mailer: IssueMailer,
   ) {}
 
   /** The reporter answers the entry question on their own issue. */
@@ -198,7 +200,8 @@ export class IssueFitService {
   /**
    * Marks an issue as a finding of an inspection, or changes the mark (decision
    * 31). The protocol must be one of the issue's own handler files, and the due
-   * date is written as the issue's target date in the same transaction.
+   * date is written as the issue's target date in the same transaction, with
+   * the overdue reminder any target date has.
    */
   async markFinding(
     handlerPersonId: string,
@@ -209,6 +212,7 @@ export class IssueFitService {
     const targetDate = requireDay(input.targetDate);
     requireFindingTargetDate(input.kind, input.inspectedOn, input.targetDate);
 
+    await this.mailer.ensureQueues();
     const written = await this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
       const issue = await this.requireHandled(tx, issueId, handlerPersonId);
@@ -250,7 +254,9 @@ export class IssueFitService {
         create: { issueId, ...data },
         update: data,
       });
-      if (formatDateColumn(issue.targetDate) !== input.targetDate) {
+      const dateChanged =
+        formatDateColumn(issue.targetDate) !== input.targetDate;
+      if (dateChanged) {
         await this.audit.record(
           {
             action: "ISSUE_TARGET_DATE_CHANGED",
@@ -270,6 +276,11 @@ export class IssueFitService {
         where: { id: issueId },
         data: { targetDate: dateColumnOf(targetDate) },
       });
+      // The overdue reminder for the finding's date, as for any target date
+      // (`IssueService.setTargetDate`); one queued for an old date sends nothing.
+      if (dateChanged) {
+        await this.mailer.targetDateSetInTransaction(tx, issueId, targetDate);
+      }
       await this.audit.record(
         {
           action: "ISSUE_FINDING_MARKED",

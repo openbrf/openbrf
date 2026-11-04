@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import type { ActorContext } from "../audit/actor-context";
+import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import { AddressService } from "./address.service";
@@ -80,15 +82,29 @@ function build(
     issue: {
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
-    // The array form: each write is already a promise, settled in order.
-    $transaction: vi.fn((writes: Promise<unknown>[]) => Promise.all(writes)),
+    // The issues of the apartment, read under their row locks.
+    $queryRaw: vi
+      .fn()
+      .mockResolvedValue([] as { id: string; entryAnswer: string | null }[]),
+    // The interactive form: the work runs against the same fake, in order.
+    $transaction: vi.fn(
+      async (work: (tx: unknown) => Promise<unknown>): Promise<unknown> =>
+        work(prisma),
+    ),
   };
+  const audit = { record: vi.fn().mockResolvedValue(undefined) };
 
   return {
-    service: new AddressService(prisma as unknown as PrismaService),
+    service: new AddressService(
+      prisma as unknown as PrismaService,
+      audit as unknown as AuditLogService,
+    ),
     prisma,
+    audit,
   };
 }
+
+const BOARD: ActorContext = { personId: "board-1", channel: "WEB" };
 
 describe("listing addresses", () => {
   it("carries the apartment count, so the house tabs can be built", async () => {
@@ -341,7 +357,7 @@ describe("removing an apartment", () => {
       apartment: { id: "apartment-1", number: "1101" },
     });
 
-    await service.removeApartment("apartment-1");
+    await service.removeApartment("apartment-1", BOARD);
 
     expect(prisma.apartment.delete).toHaveBeenCalledWith({
       where: { id: "apartment-1" },
@@ -353,7 +369,7 @@ describe("removing an apartment", () => {
       apartment: { id: "apartment-1", number: "1101" },
     });
 
-    await service.removeApartment("apartment-1");
+    await service.removeApartment("apartment-1", BOARD);
 
     expect(prisma.issue.updateMany).toHaveBeenCalledWith({
       where: { apartmentId: "apartment-1" },
@@ -366,12 +382,56 @@ describe("removing an apartment", () => {
       },
     });
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    // Both writes are in that one transaction, the clearing first.
-    const [writes] = prisma.$transaction.mock.calls[0] ?? [];
-    // Compared by identity: two pending promises are deep-equal to anything.
-    expect(writes).toHaveLength(2);
-    expect(writes?.[0]).toBe(prisma.issue.updateMany.mock.results[0]?.value);
-    expect(writes?.[1]).toBe(prisma.apartment.delete.mock.results[0]?.value);
+    // Inside that one transaction: the rows are locked first, then cleared,
+    // then the apartment goes.
+    const [read] = prisma.$queryRaw.mock.invocationCallOrder;
+    const [clear] = prisma.issue.updateMany.mock.invocationCallOrder;
+    const [remove] = prisma.apartment.delete.mock.invocationCallOrder;
+    expect(read).toBeLessThan(clear ?? 0);
+    expect(clear).toBeLessThan(remove ?? 0);
+    const [query] = prisma.$queryRaw.mock.calls[0] ?? [];
+    expect((query as TemplateStringsArray).join("?")).toContain("FOR UPDATE");
+  });
+
+  it("records each answer it takes off as withdrawn by whoever removed the apartment", async () => {
+    const { service, prisma, audit } = build({
+      apartment: { id: "apartment-1", number: "1101" },
+    });
+    prisma.$queryRaw.mockResolvedValue([
+      { id: "issue-answered", entryAnswer: "YES" },
+      { id: "issue-unanswered", entryAnswer: null },
+    ]);
+
+    await service.removeApartment("apartment-1", BOARD);
+
+    // Only the issue that held an answer, in the transaction, and never the note.
+    expect(audit.record).toHaveBeenCalledTimes(1);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "ISSUE_ENTRY_PERMISSION_REMOVED",
+        actorPersonId: "board-1",
+        channel: "WEB",
+        targetKind: "issue",
+        targetId: "issue-answered",
+        context: { byReporter: false, apartmentRemoved: true },
+      }),
+      prisma,
+    );
+  });
+
+  it("records nothing when the delete is refused", async () => {
+    const { service, prisma, audit } = build({
+      apartment: { id: "apartment-1", number: "1101", counts: { fees: 1 } },
+    });
+    prisma.$queryRaw.mockResolvedValue([
+      { id: "issue-answered", entryAnswer: "YES" },
+    ]);
+
+    await expect(
+      service.removeApartment("apartment-1", BOARD),
+    ).rejects.toMatchObject({ reason: "apartment-in-use" });
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(prisma.issue.updateMany).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -394,7 +454,9 @@ describe("removing an apartment", () => {
       apartment: { id: "apartment-1", number: "1101", counts },
     });
 
-    await expect(service.removeApartment("apartment-1")).rejects.toMatchObject({
+    await expect(
+      service.removeApartment("apartment-1", BOARD),
+    ).rejects.toMatchObject({
       reason: "apartment-in-use",
     });
     expect(prisma.apartment.delete).not.toHaveBeenCalled();
@@ -417,7 +479,9 @@ describe("removing an apartment", () => {
       }),
     );
 
-    await expect(service.removeApartment("apartment-1")).rejects.toMatchObject({
+    await expect(
+      service.removeApartment("apartment-1", BOARD),
+    ).rejects.toMatchObject({
       reason: "apartment-in-use",
     });
   });
@@ -425,7 +489,7 @@ describe("removing an apartment", () => {
   it("reports an apartment that is not there", async () => {
     const { service } = build({ apartment: null });
 
-    await expect(service.removeApartment("nope")).rejects.toMatchObject({
+    await expect(service.removeApartment("nope", BOARD)).rejects.toMatchObject({
       reason: "not-found",
     });
   });
