@@ -9,7 +9,8 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { NO_ENTRY_PERMISSION } from "../issues/issue-fit-views";
 import { ISSUE_FREE_TEXT_STANDING } from "../issues/issue-free-text";
-import { lockIssue } from "../issues/issue-lock";
+import { lockIssue, lockWorkOrderSender } from "../issues/issue-lock";
+import { WORK_ORDER_TEXT_STANDING } from "../issues/issue-retention";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import {
@@ -654,7 +655,8 @@ export class PurgeService implements OnModuleInit {
    * enteredByPersonId on an issue, defaultAssigneePersonId on an issue type,
    * authorPersonId on an issue message and on an internal note,
    * uploadedByPersonId on a document and the same column on a media file, and
-   * filedByPersonId on an apartment binder entry, are plain columns with an
+   * filedByPersonId on an apartment binder entry, and sentByPersonId on a work
+   * order, are plain columns with an
    * index each, and asking each of them for its distinct values is one index
    * scan apiece.
    */
@@ -669,15 +671,16 @@ export class PurgeService implements OnModuleInit {
       documents,
       media,
       binderEntries,
+      workOrderSenders,
     ] = await Promise.all([
-      // Only where the free text is gone: an issue whose text still stands
-      // keeps its reporter, so naming them here would select somebody this
-      // job then leaves as it found them.
+      // Only where neither the free text nor a work order's text stands: an
+      // issue on which either does keeps its reporter, so naming them here
+      // would select somebody this job then leaves as it found them.
       this.prisma.issue.groupBy({
         by: ["reporterPersonId"],
         where: {
           reporterPersonId: { not: null },
-          NOT: ISSUE_FREE_TEXT_STANDING,
+          NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
         },
       }),
       this.prisma.issue.groupBy({
@@ -711,6 +714,10 @@ export class PurgeService implements OnModuleInit {
       this.prisma.apartmentDocument.groupBy({
         by: ["filedByPersonId"],
         where: { filedByPersonId: { not: null } },
+      }),
+      this.prisma.workOrder.groupBy({
+        by: ["sentByPersonId"],
+        where: { sentByPersonId: { not: null } },
       }),
     ]);
 
@@ -748,6 +755,11 @@ export class PurgeService implements OnModuleInit {
     for (const row of binderEntries) {
       if (row.filedByPersonId !== null) {
         ids.add(row.filedByPersonId);
+      }
+    }
+    for (const row of workOrderSenders) {
+      if (row.sentByPersonId !== null) {
+        ids.add(row.sentByPersonId);
       }
     }
     return [...ids];
@@ -963,17 +975,24 @@ export class PurgeService implements OnModuleInit {
       }
 
       /*
-       * Only from an issue whose free-text layer is gone (ADR 0057). While the
-       * text stands - the issue is open, waits on its clock or on a hold of its
-       * own, or the issue erasure job still owes it - the reporter column is
-       * what ties it to this person: for a request granted later, for the
-       * closing job's count and for the access report. Detached tonight, a
-       * request granted afterwards would find no issue and close with the text
-       * still there. The clock, the issue erasure job and a handler's
-       * redaction remove the text; this job, on a later night, the reference.
+       * Only from an issue whose free-text layer is gone and on which no work
+       * order's text stands (ADR 0057: no case whose text stands may lose its
+       * selector). While the text stands - the issue is open, waits on its clock
+       * or on a hold of its own, the issue erasure job still owes it, or a work
+       * order's words are kept for their ten years - the reporter column is what
+       * ties it to this person: for a request granted later, for the closing
+       * job's count, for the access report, and for a legal hold or a
+       * restriction placed on them later, which the purges read only through it.
+       * Detached tonight, a request granted afterwards would find no issue and
+       * close with the text still there. The clock, the issue erasure job and a
+       * handler's redaction remove the text; this job, on a later night, the
+       * reference.
        */
       const { count: issuesDetachedFromPerson } = await tx.issue.updateMany({
-        where: { reporterPersonId: personId, NOT: ISSUE_FREE_TEXT_STANDING },
+        where: {
+          reporterPersonId: personId,
+          NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
+        },
         data: {
           reporterPersonId: null,
           reporterNameCipher: null,
@@ -1008,6 +1027,21 @@ export class PurgeService implements OnModuleInit {
         where: { enteredByPersonId: personId },
         data: { enteredByPersonId: null },
       });
+      /*
+       * The handler who sent a work order: the order stays, and so does its
+       * audit entry, but the row stops naming the person. Under the lock a
+       * sending takes before it checks the handler's access and inserts: one
+       * that read the access before this purge removed the role would
+       * otherwise commit its `sentByPersonId` after the detachment below, and
+       * nothing later counts that reference.
+       */
+      await lockWorkOrderSender(tx, personId);
+      const { count: workOrdersNoLongerSentBy } = await tx.workOrder.updateMany(
+        {
+          where: { sentByPersonId: personId },
+          data: { sentByPersonId: null },
+        },
+      );
       const { count: typesNoLongerDefaulting } = await tx.issueType.updateMany({
         where: { defaultAssigneePersonId: personId },
         data: { defaultAssigneePersonId: null },
@@ -1075,6 +1109,9 @@ export class PurgeService implements OnModuleInit {
         0
       ) {
         cleared.push("issueAssignments");
+      }
+      if (workOrdersNoLongerSentBy > 0) {
+        cleared.push("workOrders");
       }
       if (documentsDetachedFromPerson > 0) {
         cleared.push("documents");

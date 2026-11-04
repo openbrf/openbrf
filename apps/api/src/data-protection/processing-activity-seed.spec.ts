@@ -523,6 +523,20 @@ describe("seedRows", () => {
     }
   });
 
+  it("names the contractors as recipients of the issues, beside the mail server their work orders go through", () => {
+    /*
+     * A work order carries what a handler wrote about an issue to a firm
+     * outside the association (art. 30(1)(d)), by mail, so the row names both;
+     * and the photographs are stored like any other upload.
+     */
+    expect(rowFor("issues").recipients).toBe(
+      "smtp.example.test " +
+        "dataProtection.processing.seed.recipients.contractors " +
+        "dataProtection.processing.seed.recipients.localDisk",
+    );
+    expect(rowFor("documents").recipients).not.toContain("contractors");
+  });
+
   it("names Lantmäteriet as the recipient of the apartment register and of the reporting ledger", () => {
     /*
      * The initial supply is a file the board hands over and each report goes

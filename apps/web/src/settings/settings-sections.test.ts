@@ -65,6 +65,7 @@ describe("the panels", () => {
     ["contactInbox", "signupRequest:decide"],
     ["brokerUpdateRequests", "site:manage"],
     ["issueTypes", "issues:configure"],
+    ["contractors", "issues:configure"],
     ["responsibilityGuide", "issues:configure"],
     ["issueSavedReplies", "issues:configure"],
     ["issuePlaces", "issues:configure"],

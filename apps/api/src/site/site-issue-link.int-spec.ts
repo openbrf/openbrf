@@ -1148,18 +1148,14 @@ describe("D. rate limits and abuse", () => {
       await lockTaken;
       const delivering = links.deliver(id);
       // Wait until the first transaction has committed the link.
-      const deadline = Date.now() + 10_000;
-      while (
-        (await prisma.issueReporterLink.findUnique({
-          where: { issueId: id },
-          select: { id: true },
-        })) === null
-      ) {
-        if (Date.now() > deadline) {
-          throw new Error("The private link was not issued in time.");
-        }
-        await new Promise((done) => setTimeout(done, 20));
-      }
+      await waitFor(
+        async () =>
+          (await prisma.issueReporterLink.findUnique({
+            where: { issueId: id },
+            select: { id: true },
+          })) !== null,
+        10_000,
+      );
       // The link is issued and not yet mailed: the first transaction is done.
       expect(
         await prisma.issueReporterLink.findUnique({

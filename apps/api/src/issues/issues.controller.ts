@@ -226,6 +226,9 @@ const placeInputSchema = z.strictObject({
   sortOrder: z.coerce.number().int().min(0).max(999).optional(),
 });
 
+/** Strict: the ring-fence is changed by a request that names it and nothing else. */
+const ringFenceSchema = z.strictObject({ ringFenced: z.boolean() });
+
 /** Who pays, or null to say nothing again (decision 26). Never an amount. */
 const costResponsibilitySchema = z.strictObject({
   costResponsibility: z.enum(ISSUE_COST_RESPONSIBILITIES).nullable(),
@@ -958,6 +961,20 @@ export class IssueTypeAdminController {
   @HttpCode(204)
   async remove(@Param("id") id: string): Promise<void> {
     await this.types.remove(id);
+  }
+
+  /** Ring-fences a type from contractors, or lifts its ring-fence. */
+  @Put(":id/ring-fence")
+  async setRingFence(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<ConfiguredIssueTypeView> {
+    return this.types.setRingFence(
+      id,
+      ringFenceSchema.parse(body).ringFenced,
+      actingPersonId(request),
+    );
   }
 
   /** Adds a status to a type, under one of the four meanings. */

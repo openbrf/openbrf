@@ -15,6 +15,16 @@ import {
 } from "./people";
 
 /**
+ * The contractor the work order screens use: a firm nobody runs, at an address
+ * on the reserved .test domain, with no telephone number.
+ */
+const LIFT_CONTRACTOR = {
+  name: "Hissfirman i Storgatan",
+  trade: "Hisstekniker",
+  email: "order@hissfirman.test",
+} as const;
+
+/**
  * Every screen the capture writes an image of, in the order it walks them.
  *
  * This file is data. A branch that builds a screen adds it here, in the same
@@ -2664,6 +2674,79 @@ export const SCREENS: readonly Screen[] = [
     ],
     // The timeline's first step, which is there only once its read is back.
     waitFor: { text: "Upplagt som internt ärende" },
+    capture: "page",
+  },
+  {
+    /*
+     * The contractor list (decision 23 of the issue module's plan), with the
+     * lift firm the next screen sends a work order to. Added once: a walk
+     * against a stack that is already up finds it on the list. No telephone
+     * number, as nothing a capture photographs may carry one, and the address
+     * is on the reserved .test domain.
+     */
+    name: "settings-contractors",
+    as: "administrator",
+    goto: appPath("/board/settings/issues-bookings"),
+    prepare: [
+      { see: { panel: "Entreprenörer" } },
+      // The list's own read, empty or not, before asking whether the firm is
+      // on it.
+      {
+        see: {
+          text: /^(Det finns inga entreprenörer på listan än\.|Skrivna arbetsorder: \d+)$/,
+          first: true,
+        },
+      },
+      {
+        unlessSeen: { button: `Ta bort ${LIFT_CONTRACTOR.name}` },
+        steps: [
+          {
+            fill: { label: "Namn", within: "Entreprenörer" },
+            value: LIFT_CONTRACTOR.name,
+          },
+          {
+            fill: { label: "Yrke", within: "Entreprenörer" },
+            value: LIFT_CONTRACTOR.trade,
+          },
+          {
+            fill: { label: "E-postadress", within: "Entreprenörer" },
+            value: LIFT_CONTRACTOR.email,
+          },
+          {
+            click: { button: "Lägg till entreprenör", within: "Entreprenörer" },
+          },
+        ],
+      },
+    ],
+    waitFor: { button: `Ta bort ${LIFT_CONTRACTOR.name}` },
+    capture: { panel: "Entreprenörer" },
+  },
+  {
+    /*
+     * A work order on the lift issue the handling screen opened, previewed
+     * before it is sent: the mail as the contractor will receive it, carrying
+     * the handler's text and nothing of the issue. Not sent, so the walk
+     * leaves no mail behind.
+     */
+    name: "board-issues-work-order",
+    // Alla, where the lift issue the handling screen opened lands: it is given
+    // to nobody, and the queue opens on Mina.
+    goto: appPath("/board/issues?view=all"),
+    prepare: [
+      // The first, for the reason the handling screen gives.
+      { click: { text: /^Arbetsorder för Hiss$/, first: true } },
+      {
+        select: { combobox: "Hiss: entreprenör" },
+        option: `${LIFT_CONTRACTOR.name} (${LIFT_CONTRACTOR.trade})`,
+      },
+      {
+        fill: { label: "Hiss: arbetsorder" },
+        value:
+          "Hissen i port B stannar mellan våning två och tre. Nyckeln till maskinrummet finns hos styrelsen.",
+      },
+      { click: { button: "Förhandsgranska" } },
+    ],
+    waitFor: { text: "Mejlet som entreprenören kommer att få" },
     capture: "page",
   },
   {

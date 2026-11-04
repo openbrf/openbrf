@@ -45,3 +45,5 @@ export { registerReportObligationMail } from "./register-report-obligation.templ
 export type { RegisterReportObligationMailProps } from "./register-report-obligation.template";
 export { smtpTestMail } from "./smtp-test.template";
 export type { SmtpTestMailProps } from "./smtp-test.template";
+export { workOrderMail } from "./work-order.template";
+export type { WorkOrderMailProps } from "./work-order.template";

@@ -717,6 +717,46 @@ beforeAll(async () => {
       },
     ],
   });
+  // Two work orders on the waiting issue: one to a contractor still on the
+  // list, and one to a contractor since removed, whose name the removal erased.
+  const waitingIssue = await prisma.issue.findFirstOrThrow({
+    where: { typeId: issueTypeId, description: "Droppar fran taket i koket" },
+    select: { id: true },
+  });
+  await prisma.workOrder.createMany({
+    data: [
+      {
+        issueId: waitingIssue.id,
+        recipientName: `Rormokare ${suffix}`,
+        // Never read by the report, which carries no address.
+        recipientEmailCipher: "not-a-cipher",
+        body: "Laga laeckan i koket",
+        sentByPersonId: board.personId,
+        deliveryStatus: "SENT",
+        createdAt: new Date("2026-02-20T09:00:00.000Z"),
+      },
+      {
+        issueId: waitingIssue.id,
+        recipientName: null,
+        recipientEmailCipher: null,
+        body: "Titta pa taket igen",
+        sentByPersonId: board.personId,
+        deliveryStatus: "FAILED",
+        deliveryFailure: "send-failed",
+        createdAt: new Date("2026-02-22T09:00:00.000Z"),
+      },
+      {
+        issueId: waitingIssue.id,
+        recipientName: `Elektriker ${suffix}`,
+        recipientEmailCipher: "not-a-cipher",
+        body: "Byt proppen",
+        sentByPersonId: board.personId,
+        deliveryStatus: "FAILED",
+        deliveryFailure: "mail-not-configured",
+        createdAt: new Date("2026-02-24T09:00:00.000Z"),
+      },
+    ],
+  });
 
   await prisma.mediaFile.create({
     data: {
@@ -1777,9 +1817,36 @@ describe("what the report contains", () => {
     expect(waiting?.meaning).toBe("WAITING");
     expect(waiting?.waitingReason).toBe("CONTRACTOR");
     expect(waiting?.outcome).toBeNull();
+    // Whom the issue was sent to and when (art. 15(1)(c)), oldest first; a
+    // removed contractor is named by nobody, and no text or address is copied.
+    expect(waiting?.workOrders).toEqual([
+      {
+        recipientName: `Rormokare ${suffix}`,
+        writtenAt: "2026-02-20T09:00:00.000Z",
+        deliveryStatus: "SENT",
+        notSent: false,
+      },
+      {
+        recipientName: null,
+        writtenAt: "2026-02-22T09:00:00.000Z",
+        deliveryStatus: "FAILED",
+        // A server's refusal may have come after it took the message.
+        notSent: false,
+      },
+      {
+        recipientName: `Elektriker ${suffix}`,
+        writtenAt: "2026-02-24T09:00:00.000Z",
+        deliveryStatus: "FAILED",
+        // No mail server: nothing left this instance.
+        notSent: true,
+      },
+    ]);
     // Never answered, and the common area by its name.
     expect(waiting?.entry).toBeNull();
     expect(waiting?.place).toBe(`Tvattstuga ${suffix}`);
+    expect(JSON.stringify(report.issues)).not.toContain("Laga laeckan");
+    expect(JSON.stringify(report.issues)).not.toContain("not-a-cipher");
+    expect(open?.workOrders).toEqual([]);
 
     const closed = byDescription("Lampan i hallen blinkar");
     expect(closed?.meaning).toBe("DONE");

@@ -82,6 +82,7 @@ import {
   terminationsDuringHolding,
 } from "./holding-periods";
 import { dueOn } from "../data-protection/data-subject-request";
+import { workOrderKnownNotSent } from "../issues/work-order-delivery";
 import { connectedAppHost } from "../connected-apps/client-host";
 import { ExportSlots } from "./export-slots";
 import { computePurgeDate } from "./purge-date";
@@ -707,6 +708,17 @@ export class DataSubjectReportService {
         createdAt: true,
         type: { select: { name: true } },
         _count: { select: { photos: true } },
+        // Whom the issue was sent to (art. 15(1)(c)); never the text, which is
+        // the handler's and may name others (see `ReportIssueWorkOrder`).
+        workOrders: {
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: {
+            recipientName: true,
+            createdAt: true,
+            deliveryStatus: true,
+            deliveryFailure: true,
+          },
+        },
       },
     });
 
@@ -1765,6 +1777,14 @@ export class DataSubjectReportService {
         freeTextRemovedAt: issue.freeTextRemovedAt?.toISOString() ?? null,
         reportedAt: issue.createdAt.toISOString(),
         photographs: issue._count.photos,
+        workOrders: issue.workOrders.map((order) => ({
+          recipientName: order.recipientName,
+          writtenAt: order.createdAt.toISOString(),
+          deliveryStatus: order.deliveryStatus,
+          notSent:
+            order.deliveryStatus === "FAILED" &&
+            workOrderKnownNotSent(order.deliveryFailure),
+        })),
       })),
       issueAssignments: [
         ...assignedIssues.map((issue) => ({
