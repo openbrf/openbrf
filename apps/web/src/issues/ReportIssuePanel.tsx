@@ -214,13 +214,19 @@ export function ReportIssuePanel({
   const chosen = offered.find((type) => type.id === draft.typeId);
   const ready = chosen !== undefined && draft.description.trim() !== "";
 
-  if (types.length === 0) {
+  if (offered.length === 0) {
     return (
       <Panel
         title={t("issues.report.title")}
         description={t("issues.report.description")}
       >
-        <Notice tone="info">{t("issues.report.noTypes")}</Notice>
+        <Notice tone="info">
+          {t(
+            types.length === 0
+              ? "issues.report.noTypes"
+              : "issues.report.noTypesFromPost",
+          )}
+        </Notice>
       </Panel>
     );
   }

@@ -454,6 +454,17 @@ change it.
   apps, and put them back on the board's own clock, which the plan says the
   board may not set for them. A type ring-fenced by mistake is switched off and
   replaced.
+- **Held for what is filed after it, on a type that already has issues.** The
+  switch may be set on a type that has issues, and it takes hold of their reads,
+  mails and clock from then on. A post an earlier issue was filed from keeps its
+  link, though, so the feed still answers that post as already reported, and the
+  house can see that a report was made. Only a report made after the ring-fence
+  is kept off the post (`ring-fenced-post`). The owner may ask for earlier links
+  to be hidden as well.
+- **A legal hold stands over the ring-fenced clock.** The year after closing
+  applies to a ring-fenced case that no legal hold stands on. A damage case
+  places a hold, and a handler may place one, so such a case keeps its text
+  until the hold is released ([ADR 0057](0057-purging-issues-in-two-layers.md#the-clock)).
 
 What else the ring-fence does is in the glossary's row _ring-fenced issue type_
 (avskärmad ärendetyp): no mail about one to anybody, no report under it from a

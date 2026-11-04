@@ -30,13 +30,16 @@ leaves it.
   such an issue and what not to write, and that formal steps under the
   Tenant-Ownership Act are taken outside Open BRF.
 - **Its own clock.** The free text of a ring-fenced issue is purged one year
-  after the issue closes, whatever the board set for other issues. The board
-  does not set it; it stays at one year until the legal review of the module
-  says otherwise.
+  after the issue closes, whatever the board set for other issues, unless a
+  legal hold stands on it, a damage case included. The board does not set the
+  year; it stays at one year until the legal review of the module says
+  otherwise.
 - **Lifted only from an unused type.** The ring-fence cannot be lifted once
   anything has been reported under the type, so the earlier reports never reach
   the property manager or the AI package, and never return to the board's
-  longer clock. A type ring-fenced by mistake is switched off and replaced.
+  longer clock. A type ring-fenced by mistake is switched off and replaced. The
+  ring-fence holds for what is reported after it is set; a post an earlier issue
+  was filed from keeps its link.
 - **Record of processing activities.** The issues row says that a ring-fenced
   issue is never mailed about and has its own clock, and that a damage case
   places a legal hold. A row the board has edited keeps its own text and is not

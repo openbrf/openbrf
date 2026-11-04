@@ -1796,7 +1796,7 @@
       "handledByEveryHandlerHint": "Alla som hanterar ärenden ser de här ärendena, förvaltaren också. Ett ärende utan ansvarig meddelas till alla.",
       "ringFenced": "Avskärmad: bara styrelsen, inget lämnar den",
       "ringFencedNamed": "{{name}}: avskärmad, bara styrelsen och inget lämnar den",
-      "ringFencedHint": "En avskärmad typ, som Störningar, hanteras bara av styrelsen. Inget om dess ärenden går till förvaltaren, en entreprenör, en ansluten app eller ut med e-post, den erbjuds inte i webbplatsens formulär, och fritexten tas bort ett år efter att ärendet stängts, vad styrelsen än har valt för andra ärenden. Avskärmningen kan inte hävas när något har anmälts under typen.",
+      "ringFencedHint": "En avskärmad typ, som Störningar, hanteras bara av styrelsen. Inget om dess ärenden går till förvaltaren, en entreprenör, en ansluten app eller ut med e-post, den erbjuds inte i webbplatsens formulär, och fritexten tas bort ett år efter att ärendet stängts, vad styrelsen än har valt för andra ärenden, om inte ett rättsligt bevarandekrav står på ärendet. Avskärmningen kan inte hävas när något har anmälts under typen.",
       "ringFencedLocked": "Ärenden har anmälts under typen, så den förblir avskärmad. Stäng av typen och lägg till en ny om den behövs utan avskärmning.",
       "ringFencedPublic": "Ta bort webbplatsens formulär från typen innan den avskärmas."
     },
@@ -2080,7 +2080,7 @@
         "range": "Välj ett helt antal år mellan 1 och 10.",
         "unknown": "Inställningen gick inte att spara just nu. Försök igen."
       },
-      "ringFenced": "En avskärmad ärendetyp, som Störningar, har en egen klocka: fritexten tas bort ett år efter att ärendet stängts, vad som än väljs här. Den sätts inte av styrelsen."
+      "ringFenced": "En avskärmad ärendetyp, som Störningar, har en egen klocka: fritexten tas bort ett år efter att ärendet stängts, vad som än väljs här, om inte ett rättsligt bevarandekrav står på ärendet. Den sätts inte av styrelsen."
     },
     "responsibilityGuide": {
       "title": "Ansvarsfördelning",
@@ -3829,6 +3829,7 @@
       "type": "Vad gäller det",
       "typePlaceholder": "Välj en typ",
       "noTypes": "Styrelsen har inte lagt in några ärendetyper än, så det finns inget att anmäla under. Be dem lägga till en under Inställningar.",
+      "noTypesFromPost": "En anmälan som görs från ett inlägg kan inte läggas under någon av de typer du får anmäla. Öppna formuläret för felanmälan och skriv den där i stället.",
       "apartment": "Lägenhet",
       "apartmentNone": "Inte i en lägenhet",
       "location": "Var i huset",
@@ -4270,12 +4271,12 @@
       }
     },
     "ringFence": {
-      "formWarning": "Det här läses bara av styrelsen, aldrig av förvaltaren, en entreprenör eller en ansluten app, och inget om det skickas med e-post. Texten tas bort ett år efter att ärendet stängts. Beskriv vad som hänt, var och när. Skriv inte vem du tror har gjort det, och inget om någons hälsa eller om brott. Formella steg enligt bostadsrättslagen tas inte här.",
-      "caseNotice": "Avskärmat ärende. Bara styrelsen läser det. Inget om det går till förvaltaren, en entreprenör, en ansluten app eller ut med e-post, och fritexten tas bort ett år efter att ärendet stängts. Formella steg enligt bostadsrättslagen tas utanför Open BRF."
+      "formWarning": "Det här läses bara av styrelsen, aldrig av förvaltaren, en entreprenör eller en ansluten app, och inget om det skickas med e-post. Texten tas bort ett år efter att ärendet stängts, om inte ett rättsligt bevarandekrav står på det. Beskriv vad som hänt, var och när. Skriv inte vem du tror har gjort det, och inget om någons hälsa eller om brott. Formella steg enligt bostadsrättslagen tas inte här.",
+      "caseNotice": "Avskärmat ärende. Bara styrelsen läser det. Inget om det går till förvaltaren, en entreprenör, en ansluten app eller ut med e-post, och fritexten tas bort ett år efter att ärendet stängts, om inte ett rättsligt bevarandekrav står på det. Formella steg enligt bostadsrättslagen tas utanför Open BRF."
     },
     "damageCase": {
       "title": "Skadeärende",
-      "hint": "Markera ärendet som en försäkringsskada. Markeringen lägger ett rättsligt bevarandekrav på ärendet, så att texten och bilderna inte gallras medan skadan handläggs. Kravet står kvar om markeringen tas bort och hävs för sig.",
+      "hint": "Markera ärendet som en försäkringsskada. Markeringen lägger ett rättsligt bevarandekrav på ärendet, så att texten och bilderna inte gallras medan skadan handläggs, inte heller i ett avskärmat ärende: kravet håller kvar texten längre än det år ett avskärmat ärende annars sparas. Kravet står kvar om markeringen tas bort och hävs för sig.",
       "insurer": "Försäkringsbolag",
       "claimNumber": "Skadenummer",
       "occurredOn": "Skadedag",
@@ -4297,7 +4298,7 @@
       "removed": "Markeringen är borttagen. Det rättsliga bevarandekravet står kvar tills någon häver det.",
       "errors": {
         "incomplete": "Fyll i försäkringsbolaget och skadenumret.",
-        "identityNumber": "Ett personnummer hör inte hemma i ett skadeärende. Ta bort det och försök igen.",
+        "identityNumber": "Ett personnummer hör inte hemma i ett skadeärende. Ta bort det och försök igen; en referens som är formad som ett personnummer måste skrivas på ett annat sätt.",
         "dateInvalid": "Skadedagen måste vara ett datum som har varit.",
         "notFound": "Ärendet finns inte längre, eller hanteras inte av dig. Läs in sidan igen.",
         "unknown": "Skadeärendet kunde inte sparas just nu. Försök igen."
@@ -6689,7 +6690,7 @@
           "name": "Felanmälningar",
           "purpose": "Ta emot och åtgärda fel i huset, med de arbetsorder som skickas till entreprenörer, och meddela den som handlägger ett ärende och den som anmälde det med e-post. Mejlen om ett ärende innehåller ärendenummer, ärendetyp och en länk, och de till den som handlägger det också prioritet, aldrig vad någon har skrivit. Mejlet med en arbetsorder innehåller den text en handläggare skrev till entreprenören och inget annat från ärendet. Ett ärende av en avskärmad ärendetyp, som Störningar, läses bara av styrelsen och mejlas aldrig om, till någon.",
           "legalBasisNote": "Berättigat intresse: att förvalta fastigheten. Den som anmäler kan självmant skriva uppgifter om hälsa (art. 9).",
-          "retention": "Vad ärendet gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, behålls. Beskrivningen, platsen, svaren, de interna anteckningarna och bilderna gallras det antal år efter avslut som styrelsen bestämmer (1 till 10, 2 som standard) om inte ett rättsligt bevarandekrav gäller, eller tidigare när anmälarens begäran om radering beviljas. Kopplingen till anmälaren tas bort när anmälarens egna personuppgifter gallras, när den texten är borta och ingen arbetsorders text finns kvar, så att ett rättsligt bevarandekrav eller en begränsning som läggs på personen senare fortfarande behåller texten. Kontaktuppgifterna i en anmälan från det öppna formuläret gallras 365 dagar efter avslut; har en arbetsorder skickats om anmälan sparas e-postadressen i en kodad form som inte går att läsa tillbaka tills arbetsorderns text raderas, så att ett rättsligt bevarandekrav eller en begränsning för den som anmälde fortfarande behåller texten. Texten i en arbetsorder till en entreprenör raderas tio år efter att ärendet avslutats, när ett anspråk om arbetet preskriberas (preskriptionslagen 2 §); när den skickades sparas, och vem den gick till sparas så länge entreprenören finns kvar i registret. Att ta bort en entreprenör från registret raderar namn och e-postadress på dess arbetsorder. Fritexten i ett ärende av en avskärmad ärendetyp, som Störningar, gallras ett år efter avslut, vad styrelsen än har bestämt för andra ärenden. Ett skadeärende lägger ett rättsligt bevarandekrav på ärendet, som står kvar tills en handläggare häver det."
+          "retention": "Vad ärendet gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, behålls. Beskrivningen, platsen, svaren, de interna anteckningarna och bilderna gallras det antal år efter avslut som styrelsen bestämmer (1 till 10, 2 som standard) om inte ett rättsligt bevarandekrav gäller, eller tidigare när anmälarens begäran om radering beviljas. Kopplingen till anmälaren tas bort när anmälarens egna personuppgifter gallras, när den texten är borta och ingen arbetsorders text finns kvar, så att ett rättsligt bevarandekrav eller en begränsning som läggs på personen senare fortfarande behåller texten. Kontaktuppgifterna i en anmälan från det öppna formuläret gallras 365 dagar efter avslut; har en arbetsorder skickats om anmälan sparas e-postadressen i en kodad form som inte går att läsa tillbaka tills arbetsorderns text raderas, så att ett rättsligt bevarandekrav eller en begränsning för den som anmälde fortfarande behåller texten. Texten i en arbetsorder till en entreprenör raderas tio år efter att ärendet avslutats, när ett anspråk om arbetet preskriberas (preskriptionslagen 2 §); när den skickades sparas, och vem den gick till sparas så länge entreprenören finns kvar i registret. Att ta bort en entreprenör från registret raderar namn och e-postadress på dess arbetsorder. Fritexten i ett ärende av en avskärmad ärendetyp, som Störningar, gallras ett år efter avslut, vad styrelsen än har bestämt för andra ärenden, om inte ett rättsligt bevarandekrav står på ärendet. Ett skadeärende lägger ett rättsligt bevarandekrav på ärendet, som står kvar tills en handläggare häver det, och ett rättsligt bevarandekrav håller kvar texten i ett avskärmat ärende längre än det året."
         },
         "documents": {
           "name": "Dokumentarkiv",

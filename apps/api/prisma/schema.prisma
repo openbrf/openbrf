@@ -4601,7 +4601,7 @@ model Issue {
   /// to another date and processing its reminder must not forget the first.
   /// Grows by one for each reminder sent. Written with the claim that queues the
   /// mail, under the issue's lock. Not personal data.
-  overdueRemindedFor DateTime[] @default([]) @db.Date
+  overdueRemindedFor DateTime[] @db.Date @default([])
 
   /// Closed to every handler but the board, whatever its type allows (decision
   /// 13). A handler tightens an issue; only the board loosens it again, and

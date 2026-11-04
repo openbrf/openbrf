@@ -80,6 +80,14 @@ takes the shorter of it and the board's setting, and reads whether a type is
 ring-fenced on every run, so a type ring-fenced later brings its closed cases
 onto the shorter clock from the next night.
 
+A legal hold stands over the ring-fenced clock as it does over the board's: the
+purge skips a case under a hold, ring-fenced or not, until a handler releases
+it. That includes a damage case, which places a hold without a word to the
+handler who marks it. A ring-fenced case under a hold therefore keeps its text
+past the year, and the texts that promise the year say "unless a legal hold
+stands". Whether a ring-fenced case may be held at all, or the mark refused on
+one, is part of question 4 below.
+
 The text of a work order has a clock of its own too: ten years after closing
 (3,653 days, so never before the tenth anniversary and up to a day after it),
 whatever the board's setting. The owner asked on 2026-11-03 for it to be kept as
@@ -294,7 +302,9 @@ review:
    15(4))_: a case about a person who did not report it, where that person asks
    for their data.
 4. **The ring-fenced clock** _(legal review)_: whether Störningar may be held this
-   way at all, for how long, and art. 10 on an allegation (decision 32).
+   way at all, for how long, whether a legal hold may stand on a ring-fenced
+   case (today it does, and keeps the text past the year), and art. 10 on an
+   allegation (decision 32).
 5. **The timeline** (decision 16): if it is a table of its own rather than read
    from the audit log, each person column on it needs its own answer here.
 6. **A contractor's own data**, a sole trader's name and telephone number in the

@@ -34,7 +34,10 @@ export async function createIssueTypeFixture(
     handledBy?: IssueHandledBy;
     defaultPriority?: IssuePriority;
     defaultAssigneePersonId?: string | null;
-    /** Written as it stands, so a fenced type is also handled by the board. */
+    /**
+     * Written as it stands. The CHECKs hold a ring-fenced type to the board and
+     * to no PUBLIC reporter, so the caller passes `handledBy: "BOARD"` with it.
+     */
     ringFenced?: boolean;
   },
 ): Promise<IssueTypeFixture> {

@@ -515,6 +515,35 @@ describe("a report made from a post", () => {
     expect(screen.getByRole("option", { name: "Vatten" })).toBeTruthy();
   });
 
+  it("says so, and offers no form, when only ring-fenced types are left for a post", () => {
+    render(
+      <ReportIssuePanel
+        types={[
+          {
+            id: "type-noise",
+            name: "Störningar",
+            reporters: ["RESIDENTS"],
+            ringFenced: true,
+          },
+        ]}
+        apartments={APARTMENTS}
+        prefill={PREFILL}
+        onReported={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        /kan inte läggas under någon av de typer du får anmäla/i,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/inte lagt in några ärendetyper/i)).toBeNull();
+    expect(screen.queryByLabelText(/vad gäller det/i)).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /skicka anmälan/i }),
+    ).toBeNull();
+  });
+
   it("says when the post was already reported from", async () => {
     reportIssue.mockResolvedValue({
       ok: false,

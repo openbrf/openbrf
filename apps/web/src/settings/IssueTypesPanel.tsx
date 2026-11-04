@@ -122,21 +122,6 @@ function settingsOf(type: ConfiguredIssueType): IssueTypeInput {
   };
 }
 
-/**
- * The board's catalogue of issue types.
- *
- * Who may report a type is on the row rather than hidden in a submenu, because
- * it decides who is shown what: a type the website's form may report appears on
- * a form anyone can reach, and one for handlers only is the association's own
- * note to itself. A board member changing a name should not be able to move a
- * category between those without seeing it happen.
- *
- * Under each type, its statuses (ADR 0054): the board names them, adds to them
- * and switches them off, and each means one of four fixed things - new, in
- * progress, waiting, done - which is what the queue, the purge and everything
- * else that decides reads. A status is never removed, so the issues that stood
- * in it keep saying where they stood.
- */
 /** Why the ring-fence switch of a type cannot move, where it cannot. */
 function FenceLockedHint({
   type,
@@ -164,6 +149,21 @@ function fenceLockedReason(type: ConfiguredIssueType): TranslationKey | null {
     : null;
 }
 
+/**
+ * The board's catalogue of issue types.
+ *
+ * Who may report a type is on the row rather than hidden in a submenu, because
+ * it decides who is shown what: a type the website's form may report appears on
+ * a form anyone can reach, and one for handlers only is the association's own
+ * note to itself. A board member changing a name should not be able to move a
+ * category between those without seeing it happen.
+ *
+ * Under each type, its statuses (ADR 0054): the board names them, adds to them
+ * and switches them off, and each means one of four fixed things - new, in
+ * progress, waiting, done - which is what the queue, the purge and everything
+ * else that decides reads. A status is never removed, so the issues that stood
+ * in it keep saying where they stood.
+ */
 export function IssueTypesPanel(): ReactElement {
   const { t } = useTranslation();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
