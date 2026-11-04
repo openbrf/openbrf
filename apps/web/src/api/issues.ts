@@ -79,6 +79,8 @@ export type IssueHandler = AuthorView;
 /** A type on the board's configuration screen, with its default assignee. */
 export type ConfiguredIssueType = IssueTypeView & {
   defaultAssignee: IssueHandler | null;
+  /** Nothing about its issues may reach a contractor (ADR 0055). */
+  ringFenced: boolean;
 };
 
 /** Somebody a type's issues may be given to by default. */
@@ -150,12 +152,26 @@ export interface OwnIssue {
  * `unknown` is a
  * reporter the register no longer holds - issue data outlives nobody, and the
  * queue says so rather than inventing a name.
+ *
+ * `external` is a reporter without an account, from the website's form. Their
+ * `link` is where the private link mailed to them stands (ADR 0055): `live`
+ * opens the issue, so a handler's message reaches them; `ended` was mailed and
+ * no longer opens it (withdrawn, expired, or the issue closed 30 days ago);
+ * `none` was never mailed, because they left no address or none could be sent.
  */
 export type IssueReporter =
   | { kind: "resident"; personId: string; name: string }
   | { kind: "protected" }
-  | { kind: "external"; name: string | null; email: string | null }
+  | {
+      kind: "external";
+      name: string | null;
+      email: string | null;
+      link: ReporterLinkState;
+    }
   | { kind: "unknown" };
+
+/** Where an external reporter's private link stands. */
+export type ReporterLinkState = "live" | "ended" | "pending" | "none";
 
 export type QueuedIssue = OwnIssue & {
   /** The status it stands in, as the board named it for its type. */
@@ -259,6 +275,10 @@ export type IssueTimelineStep = {
   | { kind: "access"; boardOnly: boolean }
   | { kind: "redacted"; target: IssueRedactionTarget | null }
   | { kind: "legalHold"; held: boolean }
+  | {
+      kind: "workOrder";
+      delivery: "pending" | "sent" | "failed" | "unconfirmed" | null;
+    }
   | {
       kind: "costResponsibility";
       from: IssueCostResponsibility | null;
@@ -662,6 +682,18 @@ export function updateIssueType(input: {
   );
 }
 
+/** Ring-fences a type from contractors, or lifts its ring-fence. */
+export function setIssueTypeRingFence(input: {
+  id: string;
+  ringFenced: boolean;
+}): Promise<ApiResult<ConfiguredIssueType>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-types/${encodeURIComponent(input.id)}/ring-fence`,
+    { ringFenced: input.ringFenced },
+  );
+}
+
 export function removeIssueType(id: string): Promise<ApiResult<undefined>> {
   return apiRequest("DELETE", `/api/issue-types/${encodeURIComponent(id)}`);
 }
@@ -803,6 +835,19 @@ export function sendIssueMessage(input: {
     "POST",
     `/api/issue-queue/${encodeURIComponent(input.issueId)}/messages`,
     { body: input.body },
+  );
+}
+
+/**
+ * Withdraws the private link mailed to an issue's reporter (ADR 0055). It opens
+ * nothing from the next request on; nobody is mailed.
+ */
+export function revokeIssueReporterLink(
+  issueId: string,
+): Promise<ApiResult<void>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/reporter-link/revoke`,
   );
 }
 

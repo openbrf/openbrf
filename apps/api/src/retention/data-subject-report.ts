@@ -574,6 +574,43 @@ export interface ReportIssue {
   freeTextRemovedAt: string | null;
   reportedAt: string;
   photographs: number;
+  /**
+   * The work orders a handler sent a contractor about it, oldest first: the
+   * recipients this issue was disclosed to, which GDPR art. 15(1)(c) has the
+   * report name.
+   */
+  workOrders: ReportIssueWorkOrder[];
+}
+
+/**
+ * One work order sent about an issue this person reported: whom it went to,
+ * when, and whether the mail went out.
+ *
+ * Never the text of the work order. It is the handler's own words to a firm
+ * and may name other people - a neighbour, another household - whom art. 15(4)
+ * keeps off this person's copy; the recipient and the date are what the
+ * article asks for. Nor the contractor's address, which is the contractor's
+ * personal data rather than the reporter's.
+ */
+export interface ReportIssueWorkOrder {
+  /**
+   * The contractor as the mail addressed them. Null once the contractor was
+   * removed from the association's list, which erases their name from the
+   * work orders sent them too: the report then says a removed contractor.
+   */
+  recipientName: string | null;
+  /**
+   * When the handler wrote it and it was queued for the mail: the date of the
+   * disclosure. Not a claim that the mail went out, which `deliveryStatus`
+   * says, and which a failed sending never did.
+   */
+  writtenAt: string;
+  deliveryStatus: "PENDING" | "SENT" | "FAILED";
+  /**
+   * A failed sending that is known not to have gone out (no mail server, a
+   * contractor removed, a text erased), as against one nobody can vouch for.
+   */
+  notSent: boolean;
 }
 
 /**

@@ -28,6 +28,7 @@ import { BrokerUpdateRequestsPanel } from "./BrokerUpdateRequestsPanel";
 import { ContactInboxPanel } from "./ContactInboxPanel";
 import { HousingCooperativePanel } from "./HousingCooperativePanel";
 import { IssueReportingPanel } from "./IssueReportingPanel";
+import { ContractorsPanel } from "./ContractorsPanel";
 import { IssueRetentionPanel } from "./IssueRetentionPanel";
 import { IssueSavedRepliesPanel } from "./IssueSavedRepliesPanel";
 import { IssueTypesPanel } from "./IssueTypesPanel";
@@ -425,6 +426,10 @@ export function AssociationSettingsScreen({
            board configures the catalogue; an administrator decides whether
            the public one exists. */
         return <IssueTypesPanel />;
+      case "contractors":
+        /* The firms a work order goes to, beside the types whose issues
+           need them, kept under the same capability. */
+        return <ContractorsPanel />;
       case "responsibilityGuide":
         /* Beside the types it is read with: the board's reading of its own
            bylaws on who maintains what, shown to the handlers deciding who

@@ -24,6 +24,7 @@ const fetchIssueSavedReplies = vi.fn();
 const sendIssueMessage = vi.fn();
 const addIssueNote = vi.fn();
 const attachIssueFile = vi.fn();
+const revokeIssueReporterLink = vi.fn();
 
 vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
@@ -34,6 +35,7 @@ vi.mock("../api/issues", async (importOriginal) => ({
   sendIssueMessage: (input: unknown) => sendIssueMessage(input),
   addIssueNote: (input: unknown) => addIssueNote(input),
   attachIssueFile: (input: unknown) => attachIssueFile(input),
+  revokeIssueReporterLink: (id: string) => revokeIssueReporterLink(id),
 }));
 
 function issue(overrides: Partial<QueuedIssue> = {}): QueuedIssue {
@@ -301,11 +303,16 @@ describe("the conversation with the reporter", () => {
     expect(screen.getByLabelText("Vatten: intern anteckning")).toBeTruthy();
   });
 
-  it("offers no field to an external reporter with only an address", async () => {
+  it("offers no field to an external reporter whose link was never mailed", async () => {
     render(
       <IssueConversation
         issue={issue({
-          reporter: { kind: "external", name: null, email: "a@exempel.se" },
+          reporter: {
+            kind: "external",
+            name: null,
+            email: "a@exempel.se",
+            link: "none",
+          },
         })}
         onStale={vi.fn()}
       />,
@@ -317,6 +324,87 @@ describe("the conversation with the reporter", () => {
     expect(
       screen.queryByLabelText("Vatten: meddelande till anmälaren"),
     ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Dra tillbaka/ })).toBeNull();
+  });
+
+  it("says the mail is on its way, and not that none can be sent, while the link is pending", async () => {
+    render(
+      <IssueConversation
+        issue={issue({
+          reporter: {
+            kind: "external",
+            name: null,
+            email: "a@exempel.se",
+            link: "pending",
+          },
+        })}
+        onStale={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText(/har inte skickats än/)).toBeTruthy();
+    expect(screen.queryByText(/Ingen privat länk skickades/)).toBeNull();
+    expect(
+      screen.queryByLabelText("Vatten: meddelande till anmälaren"),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Dra tillbaka/ })).toBeNull();
+  });
+
+  it("offers no field and nothing to withdraw once the link has ended", async () => {
+    render(
+      <IssueConversation
+        issue={issue({
+          reporter: {
+            kind: "external",
+            name: null,
+            email: "a@exempel.se",
+            link: "ended",
+          },
+        })}
+        onStale={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText(/Länken .* öppnar inte längre/),
+    ).toBeTruthy();
+    expect(
+      screen.queryByLabelText("Vatten: meddelande till anmälaren"),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Dra tillbaka/ })).toBeNull();
+  });
+
+  it("writes to an external reporter through a live link, and withdraws it", async () => {
+    revokeIssueReporterLink.mockResolvedValue({ ok: true, value: undefined });
+    const onStale = vi.fn();
+    render(
+      <IssueConversation
+        issue={issue({
+          reporter: {
+            kind: "external",
+            name: null,
+            email: "a@exempel.se",
+            link: "live",
+          },
+        })}
+        onStale={onStale}
+      />,
+    );
+
+    expect(
+      await screen.findByLabelText("Vatten: meddelande till anmälaren"),
+    ).toBeTruthy();
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Vatten: dra tillbaka anmälarens privata länk",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(revokeIssueReporterLink).toHaveBeenCalledWith("issue-1");
+      // The queue is read again, which brings the link's new state.
+      expect(onStale).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("tells the queue when a read says the issue is no longer the reader's", async () => {
@@ -407,6 +495,26 @@ describe("the conversation with the reporter", () => {
     expect(screen.queryByText("Kommer någon i dag?")).toBeNull();
   });
 
+  it("tells the queue when the reporter can no longer be written to", async () => {
+    sendIssueMessage.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "no-reporter" },
+    });
+    const onStale = vi.fn();
+    const session = userEvent.setup();
+    render(<IssueConversation issue={issue()} onStale={onStale} />);
+
+    await session.type(
+      await screen.findByLabelText("Vatten: meddelande till anmälaren"),
+      "Hej",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    await waitFor(() => {
+      expect(onStale).toHaveBeenCalled();
+    });
+  });
+
   it("drops the thread and the notes on screen when the purge removed them and the reads after fail", async () => {
     const { rerender } = render(
       <IssueConversation issue={issue()} onStale={vi.fn()} />,
@@ -442,6 +550,41 @@ describe("the conversation with the reporter", () => {
       expect(screen.queryByText("Kommer någon i dag?")).toBeNull();
     });
     expect(screen.queryByText("Grannen har klagat förut.")).toBeNull();
+  });
+
+  it("keeps the thread and the notes on screen when only the revision changed and the reads after fail", async () => {
+    // The counterpart of the purge: nothing was removed, so a read that fails
+    // leaves the outcome uncertain and the text the reader already holds
+    // stays rather than being dropped on a guess.
+    const { rerender } = render(
+      <IssueConversation issue={issue()} onStale={vi.fn()} />,
+    );
+    await screen.findByText("Kommer någon i dag?");
+    await screen.findByText("Grannen har klagat förut.");
+
+    fetchIssueMessages.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    fetchIssueNotes.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unknown" },
+    });
+    rerender(
+      <IssueConversation
+        issue={issue({ updatedAt: "2026-08-21T08:00:00.000Z" })}
+        onStale={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(fetchIssueMessages).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(fetchIssueNotes).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByText("Kommer någon i dag?")).toBeTruthy();
+    expect(screen.getByText("Grannen har klagat förut.")).toBeTruthy();
   });
 
   it("tells the queue when the issue is no longer the reader's", async () => {

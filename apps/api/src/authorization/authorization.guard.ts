@@ -52,6 +52,7 @@ import {
   TokenBuckets,
   trustedProxyList,
 } from "../http/public-rate-limit.guard";
+import { decodedPathOf } from "../http/request-path";
 import { PluginAddressBookService } from "../plugins/plugin-address-book.service";
 import type { PluginBoot } from "../plugins/plugin-boot";
 import { PLUGIN_BOOT } from "../plugins/plugin-loader.service";
@@ -881,12 +882,6 @@ function pathParameters(request: FastifyRequest): Record<string, string> {
   );
 }
 
-/** The path alone, with any query string dropped. */
-function pathOf(url: string): string {
-  const query = url.indexOf("?");
-  return query === -1 ? url : url.slice(0, query);
-}
-
 /**
  * Whether a request reaches the resource, read as the router reads it.
  *
@@ -905,14 +900,4 @@ function isResourceRequest(request: FastifyRequest, base: string): boolean {
     isResourcePath(decodedPathOf(request.url), base) ||
     (matched !== undefined && isResourcePath(matched, base))
   );
-}
-
-function decodedPathOf(url: string): string {
-  const path = pathOf(url);
-  try {
-    return decodeURIComponent(path);
-  } catch {
-    // A malformed escape is refused by the router before any guard runs.
-    return path;
-  }
 }

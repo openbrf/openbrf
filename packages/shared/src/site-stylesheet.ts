@@ -852,6 +852,38 @@ export const SITE_LAYOUT_STYLESHEET = `.site {
 }
 
 /*
+ * The page a reporter's private link opens: what the issue is and where it
+ * stands, then its messages, each kept as written with its line breaks. The
+ * date is register data and takes the data face, as a news item's does.
+ */
+.site-issue-facts {
+  display: grid;
+  gap: 0.25rem 1rem;
+  grid-template-columns: max-content 1fr;
+  margin: 0 0 1.5rem;
+}
+
+.site-issue-facts dt {
+  color: var(--obrf-text-secondary);
+  font-size: 0.875rem;
+}
+
+.site-issue-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.site-issue-date {
+  font-family: var(--obrf-font-data);
+}
+
+.site-issue-message {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+/*
  * The decoy field on every public form: out of sight, and out of the
  * accessibility tree by the aria-hidden the markup carries. Clipped rather than
  * displayed as none, because a script reading the page has to find it - that is

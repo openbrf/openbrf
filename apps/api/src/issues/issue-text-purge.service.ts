@@ -141,10 +141,13 @@ export class IssueTextPurgeService implements OnModuleInit {
    * @param now The moment to judge the clock at, passed in so a test can drive
    *   it forward instead of waiting years.
    * @param years The clock, in whole years; the board's setting by default.
+   * @param pageSize How many issues the scan reads at a time, passed in so a
+   *   test can make it read past a page without seeding five hundred issues.
    */
   async run(
     now: Date = new Date(),
     years?: number,
+    pageSize: number = MAX_ISSUES_PER_RUN,
   ): Promise<IssueTextPurgeRunSummary> {
     const clock = years ?? (await issueTextRetentionYears(this.prisma));
 
@@ -159,7 +162,7 @@ export class IssueTextPurgeService implements OnModuleInit {
     const bounded = (): boolean =>
       purged >= MAX_ISSUES_PER_RUN || considered >= MAX_ATTEMPTS_PER_RUN;
     while (!bounded()) {
-      const page = await this.eligiblePage(now, clock, after);
+      const page = await this.eligiblePage(now, clock, after, pageSize);
       if (page.length === 0) {
         break;
       }
@@ -235,11 +238,14 @@ export class IssueTextPurgeService implements OnModuleInit {
    * answer, for the reason the website form's purge gives: the bound is
    * applied by the database, and held issues sorting first would otherwise
    * fill every run for as long as the hold stood.
+   *
+   * @param take The most issues the page holds.
    */
   async eligiblePage(
     now: Date,
     years: number,
     after?: IssueCursor,
+    take: number = MAX_ISSUES_PER_RUN,
   ): Promise<{ id: string; closedAt: Date }[]> {
     const withheldPersons = await withheldPersonIds(this.prisma);
     const withheldAddresses = [
@@ -288,7 +294,7 @@ export class IssueTextPurgeService implements OnModuleInit {
         ],
       },
       orderBy: [{ closedAt: "asc" }, { id: "asc" }],
-      take: MAX_ISSUES_PER_RUN,
+      take,
       select: { id: true, closedAt: true },
     });
     return issues.flatMap((issue) =>
