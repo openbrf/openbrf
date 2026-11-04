@@ -52,6 +52,30 @@ export function issueHandlersWhere(
 }
 
 /**
+ * The handlers of a scope whom a mail about an issue may go to: those of
+ * {@link issueHandlersWhere} with an address on record and whose processing is
+ * not restricted.
+ *
+ * The rule and nothing beside it, as `activeBoardRecipientsWhere` is the seat
+ * with an address added: a handler with no address still handles and is still
+ * assignable, and is simply not somebody this channel reaches. A person whose
+ * processing is restricted (GDPR art. 18) still handles too, but is mailed
+ * nothing: art. 18(2) permits storing what is known of them and little else,
+ * and sending is a use.
+ */
+export function issueRecipientsWhere(
+  handledBy: IssueHandledBy,
+  now: Date,
+): Prisma.PersonWhereInput {
+  return {
+    AND: [
+      issueHandlersWhere(handledBy, now),
+      { emailCipher: { not: null }, processingRestrictedAt: null },
+    ],
+  };
+}
+
+/**
  * Who handles one issue: its type's handlers, narrowed to the board when the
  * issue is closed to everybody else. An issue is tightened past its type and
  * never loosened past it.
