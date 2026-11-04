@@ -677,13 +677,15 @@ describe("the clock", () => {
       ).statusCode,
     ).toBe(204);
     const late = await upload();
+    const tonight = new Date();
+    const tomorrow = new Date(tonight.getTime() + 24 * 60 * 60 * 1000);
 
     // The file arrives on the transaction that takes the text, after the
     // files were read: the last `stillDue` is the text's.
     let asked = 0;
     const outcome = await app
       .get(IssueFreeTextService)
-      .remove(issue.id, new Date(), {
+      .remove(issue.id, tonight, {
         targetPersonId: null,
         context: {},
         stillDue: async (tx) => {
@@ -703,16 +705,14 @@ describe("the clock", () => {
     const midway = await read(issue.id);
     expect(midway.description).toBe("");
     expect(midway.descriptionRedactedAt).toBeNull();
-    expect(midway.freeTextRemovedAt).not.toBeNull();
+    expect(midway.freeTextRemovedAt).toEqual(tonight);
     expect(midway._count.photos).toBe(1);
 
     // The next run takes the file and moves the mark to that run.
-    expect(await clock.purgeIssue(issue.id, new Date(), 1)).toBe("removed");
+    expect(await clock.purgeIssue(issue.id, tomorrow, 1)).toBe("removed");
     const after = await read(issue.id);
     expect(after._count.photos).toBe(0);
-    expect(after.freeTextRemovedAt?.getTime()).toBeGreaterThanOrEqual(
-      midway.freeTextRemovedAt?.getTime() ?? Infinity,
-    );
+    expect(after.freeTextRemovedAt).toEqual(tomorrow);
     expect(await stored(late.storageKey)).toBe(false);
   });
 

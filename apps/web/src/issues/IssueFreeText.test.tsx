@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vite-plus/test";
 
 import "../i18n";
-import { IssueLocation } from "./IssueFreeText";
+import { IssueDescription, IssueLocation } from "./IssueFreeText";
 
 /**
  * How a location reads once the issue's free text is gone (ADR 0057): as
@@ -52,5 +52,48 @@ describe("the location of an issue", () => {
     );
 
     expect(screen.queryByText(/Fritexten togs bort|Borttaget/)).toBeNull();
+  });
+});
+
+describe("the description of an issue", () => {
+  const photo = {
+    id: "photo-1",
+    url: "/media/photo-1",
+    fileName: "photo.jpg",
+    width: null,
+    height: null,
+  };
+
+  it("says the free text, the conversation and the photographs went once none stands", () => {
+    render(
+      <IssueDescription
+        issue={{
+          description: "",
+          descriptionRedactedAt: null,
+          freeTextRemovedAt: "2026-11-03T03:21:00.000Z",
+          photos: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/Fritexten, svaren och bilderna/)).toBeTruthy();
+    expect(screen.getByText("2026-11-03")).toBeTruthy();
+  });
+
+  it("claims no photograph gone while one attached during the purge stands", () => {
+    render(
+      <IssueDescription
+        issue={{
+          description: "",
+          descriptionRedactedAt: null,
+          freeTextRemovedAt: "2026-11-03T03:21:00.000Z",
+          photos: [photo],
+        }}
+      />,
+    );
+
+    expect(screen.queryByText(/bilderna/)).toBeNull();
+    expect(screen.getByText(/Fritexten togs bort/)).toBeTruthy();
+    expect(screen.getByText("2026-11-03")).toBeTruthy();
   });
 });
