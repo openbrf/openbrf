@@ -407,7 +407,7 @@ export class WorkOrderService {
     });
     if (repeated !== null) {
       throw new IssueError(
-        "A work order was sent to this contractor a short while ago.",
+        "A work order to this contractor was written a short while ago and may have been sent.",
         "work-order-duplicate",
       );
     }

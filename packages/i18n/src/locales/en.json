@@ -4050,7 +4050,7 @@
         "unknown": "The work order could not be prepared or sent just now. Please try again.",
         "previewStale": "The contractor's details or the text changed since the preview. Preview it again before sending.",
         "issueClosed": "This issue is closed. Reopen it before writing a work order.",
-        "duplicate": "A work order was sent to this contractor a short while ago. Check the list of work orders above before sending it again; one whose text was removed holds back a new one until the half hour has passed.",
+        "duplicate": "A work order to this contractor was written a short while ago and may have been sent. Check the list of work orders above before writing another; one whose text was removed holds back a new one until the half hour has passed.",
         "budgetSpent": "You have sent as many work orders as one person may in an hour. Try again later."
       },
       "recipientRemoved": "A contractor since removed from the list",

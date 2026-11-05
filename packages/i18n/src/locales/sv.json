@@ -4050,7 +4050,7 @@
         "unknown": "Arbetsordern gick inte att förbereda eller skicka just nu. Försök igen.",
         "previewStale": "Entreprenörens uppgifter eller texten har ändrats sedan förhandsvisningen. Förhandsvisa den igen innan du skickar.",
         "issueClosed": "Ärendet är avslutat. Öppna det igen innan du skriver en arbetsorder.",
-        "duplicate": "En arbetsorder skickades till entreprenören för en stund sedan. Titta i listan ovan innan du skickar en ny; en vars text har tagits bort håller tillbaka en ny tills halvtimmen har gått.",
+        "duplicate": "En arbetsorder till entreprenören skrevs för en stund sedan och kan ha skickats. Titta i listan ovan innan du skriver en ny; en vars text har tagits bort håller tillbaka en ny tills halvtimmen har gått.",
         "budgetSpent": "Du har skickat så många arbetsorder som en person får skicka på en timme. Försök igen senare."
       },
       "recipientRemoved": "En entreprenör som sedan tagits bort från listan",
