@@ -4007,9 +4007,9 @@
       "failed": "Inte skickad.",
       "failure": {
         "mailNotConfigured": "Inte skickad: ingen e-postserver är inställd.",
-        "sendFailed": "Inte skickad: e-postservern gick inte att nå eller tog inte emot den.",
+        "sendFailed": "Inte skickad: meddelandet kunde inte förberedas, eller e-postservern gick inte att nå eller tog inte emot den.",
         "sendingInterrupted": "Inte skickad: sändningen avbröts innan den började. Skriv den igen för att skicka den.",
-        "deliveryUnconfirmed": "Obekräftad: sändningen avbröts innan e-postservern bekräftade den, och det går inte att veta om den kom fram. Fråga entreprenören innan du skickar den igen.",
+        "deliveryUnconfirmed": "Obekräftad: sändningen avbröts, och det går inte att veta om den kom fram. Fråga entreprenören innan du skickar den igen.",
         "recipientRemoved": "Inte skickad: entreprenören togs bort från listan innan den gick iväg.",
         "recipientUnreadable": "Inte skickad: entreprenörens adress gick inte att läsa, så inget mejlades. Skriv arbetsordern igen när styrelsen har kontrollerat entreprenörens uppgifter.",
         "textErased": "Inte skickad: arbetsordens text raderades innan den gick iväg.",
@@ -4347,9 +4347,9 @@
       "pending": "Svaret ligger i kö och har inte gått i väg än.",
       "sent": "Svaret togs emot av e-postservern.",
       "mailNotConfigured": "Svaret gick inte i väg: den här instansen har ingen e-postserver inställd.",
-      "refused": "Svaret gick inte i väg: e-postservern gick inte att nå eller avvisade det.",
+      "refused": "Svaret gick inte i väg: svaret kunde inte förberedas, eller e-postservern gick inte att nå eller avvisade det.",
       "interrupted": "Svaret gavs upp innan det gick i väg.",
-      "unconfirmed": "Utskicket avbröts innan e-postservern bekräftade svaret, så det går inte att veta om det gick i väg. Fråga mottagaren innan du skickar det igen.",
+      "unconfirmed": "Utskicket avbröts, så det går inte att veta om svaret gick i väg. Fråga mottagaren innan du skickar det igen.",
       "unknown": "Svaret gick inte i väg."
     },
     "errors": {

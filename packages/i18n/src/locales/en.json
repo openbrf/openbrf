@@ -4007,9 +4007,9 @@
       "failed": "Not sent.",
       "failure": {
         "mailNotConfigured": "Not sent: this instance has no mail server set up.",
-        "sendFailed": "Not sent: the mail server could not be reached or refused it.",
+        "sendFailed": "Not sent: the message could not be prepared, or the mail server could not be reached or refused it.",
         "sendingInterrupted": "Not sent: the sending stopped before it began. Write it again to send it.",
-        "deliveryUnconfirmed": "Unconfirmed: the sending stopped before the mail server confirmed it, and nobody knows whether it went out. Ask the contractor before sending it again.",
+        "deliveryUnconfirmed": "Unconfirmed: the sending stopped, and nobody knows whether it went out. Ask the contractor before sending it again.",
         "recipientRemoved": "Not sent: the contractor was removed from the list before it went out.",
         "recipientUnreadable": "Not sent: the contractor's address could not be read, so nothing was mailed. Write the work order again once the board has checked the contractor's entry.",
         "textErased": "Not sent: the text of the work order was erased before it went out.",
@@ -4347,9 +4347,9 @@
       "pending": "The answer is queued and has not gone out yet.",
       "sent": "The answer was accepted by the mail server.",
       "mailNotConfigured": "The answer did not go out: this instance has no mail server set up.",
-      "refused": "The answer did not go out: the mail server could not be reached or refused it.",
+      "refused": "The answer did not go out: the answer could not be prepared, or the mail server could not be reached or refused it.",
       "interrupted": "The answer was given up on before it went out.",
-      "unconfirmed": "The sending stopped before the mail server confirmed the answer, so it is not known whether it went out. Check with the recipient before you send it again.",
+      "unconfirmed": "The sending stopped, so it is not known whether the answer went out. Check with the recipient before you send it again.",
       "unknown": "The answer did not go out."
     },
     "errors": {

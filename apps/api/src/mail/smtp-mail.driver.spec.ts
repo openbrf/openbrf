@@ -289,6 +289,10 @@ describe("a failed send", () => {
       { code: "ETIMEDOUT", timeoutType: "GREETING_TIMEOUT", command: "CONN" },
     ],
     [
+      "a greeting that refuses the connection",
+      { code: "EPROTOCOL", command: "CONN", responseCode: 554 },
+    ],
+    [
       "a connection refused",
       { code: "ESOCKET", originalCode: "ECONNREFUSED", command: "CONN" },
     ],

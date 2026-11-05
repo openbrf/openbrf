@@ -26,6 +26,8 @@ type AfterData = "accept" | "refuse" | "hang-up";
 interface Behaviour {
   /** Whether the greeting is sent when the client connects. */
   greeting: boolean;
+  /** What the greeting says, where it is not the usual 220. */
+  greetingLine?: string;
   afterData: AfterData;
 }
 
@@ -44,7 +46,7 @@ async function listen(behaviour: Behaviour): Promise<number> {
     socket.on("error", () => undefined);
     socket.setEncoding("utf8");
     if (behaviour.greeting) {
-      socket.write("220 relay.test ESMTP\r\n");
+      socket.write(`${behaviour.greetingLine ?? "220 relay.test ESMTP"}\r\n`);
     }
     let buffered = "";
     let inData = false;
@@ -207,6 +209,24 @@ describe("a send that fails against a real SMTP conversation", () => {
     expect(failure).toMatchObject({
       code: "ETIMEDOUT",
       timeoutType: "GREETING_TIMEOUT",
+      handover: "not-handed-over",
+    });
+    expect(mayHaveBeenHandedOver(failure)).toBe(false);
+  });
+
+  it("says a server that refuses the connection in its greeting was not handed over", async () => {
+    const failure = await failureAt(
+      await listen({
+        greeting: true,
+        greetingLine: "554 no SMTP service here",
+        afterData: "accept",
+      }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "EPROTOCOL",
+      command: "CONN",
+      responseCode: 554,
       handover: "not-handed-over",
     });
     expect(mayHaveBeenHandedOver(failure)).toBe(false);

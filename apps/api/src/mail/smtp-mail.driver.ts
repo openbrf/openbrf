@@ -162,18 +162,32 @@ const BEFORE_HANDOVER_TIMEOUTS: ReadonlySet<string> = new Set([
  * system or TLS code it wrapped under its own (`originalCode`), which is how a
  * refused connection and an expired certificate, both reported as `ESOCKET`,
  * are told from a reset.
+ *
+ * A reply code on a `CONN` protocol error places it before the handover as
+ * well: nodemailer raises that for a greeting that is not a 220, and for a
+ * reply nobody awaits, which only arrives once the answer to the message has
+ * been taken and the send has already resolved.
  */
 function smtpHandover(error: unknown): MailHandover {
   if (typeof error !== "object" || error === null) {
     return "may-have-been-handed-over";
   }
-  const { code, timeoutType, originalCode } = error as {
+  const { code, timeoutType, originalCode, command, responseCode } = error as {
     code?: unknown;
     timeoutType?: unknown;
     originalCode?: unknown;
+    command?: unknown;
+    responseCode?: unknown;
   };
   const before =
     (typeof code === "string" && BEFORE_HANDOVER_CODES.has(code)) ||
+    // A server that answers the connection with a refusal (a 554 or 421 where
+    // the 220 greeting belongs) is reported as `EPROTOCOL` on the connection
+    // (`CONN`) with the server's reply code. A connection that broke or went
+    // quiet carries no reply code, and stays ambiguous.
+    (code === "EPROTOCOL" &&
+      command === "CONN" &&
+      typeof responseCode === "number") ||
     (code === "ETIMEDOUT" &&
       typeof timeoutType === "string" &&
       BEFORE_HANDOVER_TIMEOUTS.has(timeoutType)) ||

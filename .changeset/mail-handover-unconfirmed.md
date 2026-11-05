@@ -23,3 +23,10 @@ than as sent. An answer whose correspondent's address cannot be read back is now
 retried and then recorded as interrupted, not as refused by the mail server.
 A repeated or redelivered job for an answer that is already sent or failed no
 longer decrypts the correspondent's address before it is skipped.
+
+A work order that failed with the earlier "not sent" code before this change is
+recorded as unconfirmed by a migration, since nothing then told whether the mail
+server had taken it. A mail server that refuses the connection in its greeting
+is recorded as not sent. The two messages for a mail error before the handover
+now also name a message that could not be prepared, and the two for an
+unconfirmed one no longer say when the sending stopped.
