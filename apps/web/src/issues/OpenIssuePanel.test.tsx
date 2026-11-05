@@ -249,10 +249,11 @@ describe("opening an issue as a handler", () => {
       screen.queryByText(/Det gick inte att läsa vilka som bor i lägenheten/),
     ).toBeNull();
   });
+
   it("does not send a type that was switched off after it was picked", async () => {
     const session = userEvent.setup();
-    const ringFenced = {
-      ...TYPES[0],
+    const ringFenced: IssueTypeView = {
+      ...TYPES[0]!,
       id: "type-noise",
       name: "Störningar",
       ringFenced: true,
