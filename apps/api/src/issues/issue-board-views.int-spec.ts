@@ -1059,6 +1059,22 @@ describe("the search", () => {
     const wildcards = await issue(type, "wildcards", {
       description: `Rabatt 50% på kvitto_nr${suffix}`,
     });
+    /*
+     * One beside each, which the query for it would match too were one of its
+     * characters read as LIKE reads it: `\s` and `\k` as a plain `s` and `k`,
+     * `%` as any run of characters, `_` as any one. Each holds what the query
+     * asks for but for that one character, so each of the three escapes is
+     * guarded on its own.
+     */
+    const unslashed = await issue(type, "backslash-read-as-escape", {
+      description: `Sökvägen C:skrivbordkvitto${suffix}`,
+    });
+    await issue(type, "percent-read-as-wildcard", {
+      description: `Rabatt 50 kr på kvitto_nr${suffix}`,
+    });
+    await issue(type, "underscore-read-as-wildcard", {
+      description: `Rabatt 50% på kvittoXnr${suffix}`,
+    });
 
     expect(
       ids(
@@ -1069,7 +1085,7 @@ describe("the search", () => {
         }),
       ),
     ).toEqual([backslashed]);
-    // The characters either side of the backslash are not stand-ins for it.
+    // Nor are the backslashes in the stored text dropped before it is matched.
     expect(
       ids(
         await list(board, {
@@ -1078,7 +1094,7 @@ describe("the search", () => {
           q: `C:skrivbordkvitto${suffix}`,
         }),
       ),
-    ).toEqual([]);
+    ).toEqual([unslashed]);
     expect(
       ids(
         await list(board, {
@@ -1088,16 +1104,6 @@ describe("the search", () => {
         }),
       ),
     ).toEqual([wildcards]);
-    // Neither is a stand-in for the character it stands beside.
-    expect(
-      ids(
-        await list(board, {
-          view: "ALL",
-          typeId: type.id,
-          q: `kvitto-nr${suffix}`,
-        }),
-      ),
-    ).toEqual([]);
   });
 
   it("drops an invisible character pasted into a word", async () => {
