@@ -678,7 +678,8 @@ export class PurgeService implements OnModuleInit {
       // issue on which either does keeps its reporter, so naming them here
       // would select somebody this job then leaves as it found them. A
       // contractor's note a handler redacted is blank and does not count, as it
-      // does not for the erasure (the clock still takes its row).
+      // does not for the detaching of an erased reporter (the clock still takes
+      // its row).
       this.prisma.issue.groupBy({
         by: ["reporterPersonId"],
         where: {

@@ -104,9 +104,11 @@ const LINK_STALE_REASONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * How long the issuing of a link waits for the association's name, which only
- * dresses the message the handler sends with the address. The address is shown
- * once and cannot be shown again, so a read that stalls must not hold it back.
+ * How long an issued link waits for the association's name, which only dresses
+ * the message the handler sends with the address. The address is shown once
+ * and cannot be shown again, so a read that stalls holds the address back at
+ * most this long, and the address is then shown without the name. A refused
+ * issuing does not wait for the name at all.
  */
 const VIEWER_READ_MS = 5_000;
 
@@ -435,13 +437,14 @@ export function IssueWorkOrders({
         const revoked = await revokeWorkOrderLink(ref);
         return revoked.ok ? { ok: true, value: { act, shown: null } } : revoked;
       }
-      const [issued, viewer] = await Promise.all([
-        issueWorkOrderLink(ref),
-        boundedViewer(),
-      ]);
+      // Read beside the issuing, and waited for only once the link is
+      // issued: a refusal is shown as soon as it comes.
+      const viewerRead = boundedViewer();
+      const issued = await issueWorkOrderLink(ref);
       if (!issued.ok) {
         return issued;
       }
+      const viewer = await viewerRead;
       return {
         ok: true,
         value: {

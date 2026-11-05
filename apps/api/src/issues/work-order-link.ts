@@ -37,10 +37,10 @@ import { issuesReportedByProtectedPersons } from "./issue-reporter-protection";
  *
  * And one more, asked beside the query in the same transaction because it
  * reads the register: **nobody with protected personal data reported the
- * issue or lives or is to live in its apartment** (`showsProtectedHousehold`). The threat
- * review asked that such a work order fail closed until the owner answers
- * ADR 0055's question 4, since the photographs the board chose may show the
- * home.
+ * issue or lives or is to live in its apartment** (`showsProtectedHousehold`).
+ * The threat review asked that such a work order fail closed until the owner
+ * answers ADR 0055's question 4, since the photographs the board chose may
+ * show the home.
  */
 
 /** Days a contractor's link opens its work order, counted from its issue. */
@@ -100,20 +100,30 @@ export async function liveWorkOrderLinkByDigest(
 }
 
 /**
- * The links of an issue's work orders that the lookup would open, with when
- * each ends. Not the protected household, which is asked of the issue once
- * (`showsProtectedHousehold`): the handlers' record asks both, as `resolve`
- * does on every request.
+ * The links of an issue's work orders that a request through them would open,
+ * with when each ends, and whether somebody the issue concerns has protected
+ * personal data: the lookup's conditions and `showsProtectedHousehold`, asked
+ * as `resolve` asks them on every request. While the household is protected no
+ * link opens, so the map is empty.
+ *
+ * The one place the handlers' record and the photographs' choice ask it, so
+ * the two never judge a link differently.
  */
 export async function liveWorkOrderLinksOfIssue(
   db: Db,
   issueId: string,
   enabled: boolean,
-): Promise<Map<string, Date>> {
+): Promise<{ protectedHousehold: boolean; live: Map<string, Date> }> {
+  if (await showsProtectedHousehold(db, issueId, localDayOf(new Date()))) {
+    return { protectedHousehold: true, live: new Map() };
+  }
   const rows = await db.$queryRaw<{ workOrderId: string; expiresAt: Date }[]>`
     SELECT l."workOrderId" AS "workOrderId", l."expiresAt" AS "expiresAt" ${FROM}
     WHERE w."issueId" = ${issueId} AND ${live(enabled)}`;
-  return new Map(rows.map((row) => [row.workOrderId, row.expiresAt]));
+  return {
+    protectedHousehold: false,
+    live: new Map(rows.map((row) => [row.workOrderId, row.expiresAt])),
+  };
 }
 
 /**

@@ -83,7 +83,6 @@ export function isLinkPath(url: string): boolean {
 }
 
 /**
-/**
  * Whether the decoded path is a token's own address: the one segment right
  * below /arende or /arbetsorder, in the form of that link's token.
  *

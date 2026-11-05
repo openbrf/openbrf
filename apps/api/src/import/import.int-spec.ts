@@ -27,7 +27,15 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
+import {
+  mintWorkOrderLinkToken,
+  workOrderLinkDigest,
+} from "../issues/work-order-link-token";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import {
+  createIssueTypeFixture,
+  type IssueTypeFixture,
+} from "../testing/issue-fixtures";
 import { buildWorkbook } from "../testing/xlsx-fixture";
 import { writeCsv } from "./csv";
 import { IMPORT_CHUNK_ROWS, ImportApplyService } from "./import-apply.service";
@@ -131,6 +139,11 @@ const apartments = {
   s: `imp-apartment-s-${suffix}`,
   /** Where the files imported again are imported. Residents only. */
   t: `imp-apartment-t-${suffix}`,
+  /**
+   * The apartment of an issue with a contractor's link, where a residency is
+   * imported for a protected person and for one who is not.
+   */
+  u: `imp-apartment-u-${suffix}`,
 };
 
 const actors = {
@@ -710,6 +723,7 @@ beforeAll(async () => {
       { id: apartments.r, addressId, number: "2118", floor: 1 },
       { id: apartments.s, addressId, number: "2119", floor: 1 },
       { id: apartments.t, addressId, number: "2120", floor: 1 },
+      { id: apartments.u, addressId, number: "2121", floor: 1 },
     ],
   });
 
@@ -862,6 +876,7 @@ afterAll(async () => {
           apartments.r,
           apartments.s,
           apartments.t,
+          apartments.u,
         ],
       },
     },
@@ -7577,6 +7592,296 @@ describe("a person who holds a plugin access", () => {
       });
       await prisma.person.deleteMany({ where: { id: renter.personId } });
       await prisma.installedPlugin.deleteMany({ where: { id: pluginId } });
+    }
+  }, 60_000);
+});
+
+describe("a contractor's link to an issue of the apartment a residency is imported into", () => {
+  /*
+   * A protected person's household is not one a contractor's link may open an
+   * issue of, from the day it is recorded (ADR 0055), so a residency the import
+   * writes for such a person ends the links of the apartment's issues in the
+   * same chunk. The issue, its work order and its link are written as
+   * fixtures: issuing a link is the work order link suite's.
+   */
+  let type: IssueTypeFixture;
+
+  beforeAll(async () => {
+    type = await createIssueTypeFixture(prisma, {
+      id: `imp-link-type-${suffix}`,
+      name: `Läckage ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+  });
+
+  afterAll(async () => {
+    await prisma.issue.deleteMany({ where: { typeId: type.id } });
+    await prisma.issueType.deleteMany({ where: { id: type.id } });
+  });
+
+  /** An issue about apartment `u` with a work order and a live link. */
+  async function linkedIssue(
+    tag: string,
+  ): Promise<{ issueId: string; workOrderId: string; linkId: string }> {
+    const issue = await prisma.issue.create({
+      data: {
+        id: `imp-link-issue-${tag}-${suffix}`,
+        typeId: type.id,
+        statusId: type.statusIds.IN_PROGRESS,
+        apartmentId: apartments.u,
+        description: "Det droppar under diskbänken",
+        waitingReason: null,
+      },
+      select: { id: true },
+    });
+    const order = await prisma.workOrder.create({
+      data: {
+        issueId: issue.id,
+        contractorId: null,
+        recipientName: `Rörfirman ${suffix}`,
+        body: "Byt packningen under diskbänken",
+        sentByPersonId: actors.board.personId,
+        deliveryStatus: "SENT",
+      },
+      select: { id: true },
+    });
+    const link = await prisma.workOrderLink.create({
+      data: {
+        workOrderId: order.id,
+        tokenDigest: workOrderLinkDigest(mintWorkOrderLinkToken()),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+      select: { id: true },
+    });
+    return { issueId: issue.id, workOrderId: order.id, linkId: link.id };
+  }
+
+  /** A person of the register the import's row matches by email. */
+  async function registerPerson(
+    tag: string,
+    protectedPersonalData: boolean,
+  ): Promise<{ personId: string; email: string }> {
+    const person = {
+      personId: `imp-link-${tag}-${suffix}`,
+      email: `imp-link-${tag}-${suffix}@exempel.se`,
+    };
+    await createPerson({
+      personId: person.personId,
+      firstName: "Länkgranne",
+      email: person.email,
+    });
+    if (protectedPersonalData) {
+      await prisma.person.update({
+        where: { id: person.personId },
+        data: { protectedPersonalData: true },
+      });
+    }
+    return person;
+  }
+
+  /** A file of one row: the person moving into apartment `u`. */
+  function rowsFor(email: string): string[][] {
+    return [
+      HEADERS,
+      [
+        addressLabel,
+        "2121",
+        "Länkgranne",
+        surname,
+        "Boende",
+        email,
+        "070-123 45 67",
+        "2024-05-01",
+      ],
+    ];
+  }
+
+  async function revokedAt(linkId: string): Promise<Date | null> {
+    return (
+      await prisma.workOrderLink.findUniqueOrThrow({
+        where: { id: linkId },
+        select: { revokedAt: true },
+      })
+    ).revokedAt;
+  }
+
+  async function removePerson(personId: string): Promise<void> {
+    await prisma.residency.deleteMany({ where: { personId } });
+    await prisma.person.deleteMany({ where: { id: personId } });
+  }
+
+  it("ends the link when the residency is a protected person's", async () => {
+    const cookie = await signIn(actors.board.email);
+    const ids = await linkedIssue("protected");
+    const person = await registerPerson("protected", true);
+    try {
+      const session = await uploadAndPreview(
+        cookie,
+        "skyddad.csv",
+        rowsFor(person.email),
+      );
+      const response = await applyImport(cookie, session.sessionId);
+      expect(response.statusCode, response.body).toBe(202);
+      await waitForRun(
+        cookie,
+        session.sessionId,
+        (candidate) => candidate.status === "APPLIED",
+      );
+
+      expect(
+        await prisma.residency.count({
+          where: { personId: person.personId, apartmentId: apartments.u },
+        }),
+      ).toBe(1);
+      expect(await revokedAt(ids.linkId)).not.toBeNull();
+      // Named by the issue and the link, in the name of the board member who
+      // uploaded the file, and never with who the person is.
+      const entries = await prisma.auditLogEntry.findMany({
+        where: {
+          targetKind: "issue",
+          targetId: ids.issueId,
+          action: "ISSUE_WORK_ORDER_LINK_REVOKED",
+        },
+        select: {
+          actorPersonId: true,
+          channel: true,
+          targetPersonId: true,
+          context: true,
+        },
+      });
+      expect(entries).toEqual([
+        {
+          actorPersonId: actors.board.personId,
+          channel: "WEB",
+          targetPersonId: null,
+          context: { workOrderId: ids.workOrderId, linkId: ids.linkId },
+        },
+      ]);
+    } finally {
+      await removePerson(person.personId);
+      await prisma.issue.deleteMany({ where: { id: ids.issueId } });
+    }
+  }, 60_000);
+
+  it("ends nothing when the residency is of a person who is not protected", async () => {
+    const cookie = await signIn(actors.board.email);
+    const ids = await linkedIssue("plain");
+    const person = await registerPerson("plain", false);
+    try {
+      const session = await uploadAndPreview(
+        cookie,
+        "oskyddad.csv",
+        rowsFor(person.email),
+      );
+      const response = await applyImport(cookie, session.sessionId);
+      expect(response.statusCode, response.body).toBe(202);
+      await waitForRun(
+        cookie,
+        session.sessionId,
+        (candidate) => candidate.status === "APPLIED",
+      );
+
+      expect(
+        await prisma.residency.count({
+          where: { personId: person.personId, apartmentId: apartments.u },
+        }),
+      ).toBe(1);
+      expect(await revokedAt(ids.linkId)).toBeNull();
+      expect(
+        await prisma.auditLogEntry.count({
+          where: {
+            targetKind: "issue",
+            targetId: ids.issueId,
+            action: "ISSUE_WORK_ORDER_LINK_REVOKED",
+          },
+        }),
+      ).toBe(0);
+    } finally {
+      await removePerson(person.personId);
+      await prisma.issue.deleteMany({ where: { id: ids.issueId } });
+    }
+  }, 60_000);
+
+  it("holds the protection's lock before the chunk writes its first person, so a person being marked protected waits for the lock and not on the person's row", async () => {
+    /*
+     * A person marked protected takes the protection's lock before it writes
+     * the person. A chunk that wrote the person first and took the lock only
+     * at the residency would hold the person's row while waiting for the lock
+     * the marking holds while waiting for that row: a deadlock. So the chunk
+     * takes the lock before its first person write, and this case stops it
+     * there, at the plan made under its locks, and asks the database whether
+     * it holds the lock yet.
+     */
+    const lockKey = "work-order-link-protection";
+    const cookie = await signIn(actors.board.email);
+    const person = await registerPerson("order", false);
+    const session = await uploadAndPreview(
+      cookie,
+      "ordning.csv",
+      rowsFor(person.email),
+    );
+
+    let entered!: () => void;
+    const planning = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const planner = app.get(ImportPlannerService);
+    const plan = planner.plan.bind(planner);
+    const planned = vi
+      .spyOn(planner, "plan")
+      .mockImplementation(async (request) => {
+        // The plan made inside the chunk's transaction, after its locks and
+        // before anything is written.
+        if (request.db !== undefined) {
+          planned.mockRestore();
+          entered();
+          await held;
+        }
+        return plan(request);
+      });
+    let protecting: Promise<unknown> = Promise.resolve();
+    try {
+      const response = await applyImport(cookie, session.sessionId);
+      expect(response.statusCode, response.body).toBe(202);
+      await planning;
+      expect(await advisoryLockCount(prisma, lockKey, true)).toBeGreaterThan(
+        0n,
+      );
+
+      // The person the chunk is about to write is marked protected meanwhile.
+      protecting = app.get(PersonService).setProtectedPersonalData({
+        personId: person.personId,
+        protectedPersonalData: true,
+        actorPersonId: actors.board.personId,
+      });
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, lockKey, false)) > 0n,
+      );
+    } finally {
+      planned.mockRestore();
+      release();
+    }
+    await protecting;
+    await waitForRun(
+      cookie,
+      session.sessionId,
+      (candidate) => candidate.status === "APPLIED",
+    );
+
+    try {
+      const written = await prisma.person.findUniqueOrThrow({
+        where: { id: person.personId },
+        select: { protectedPersonalData: true, phoneCipher: true },
+      });
+      // Both writes went through: the chunk's, then the marking's.
+      expect(written.phoneCipher).not.toBeNull();
+      expect(written.protectedPersonalData).toBe(true);
+    } finally {
+      await removePerson(person.personId);
     }
   }, 60_000);
 });
