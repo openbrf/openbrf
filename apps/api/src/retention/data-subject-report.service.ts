@@ -3006,9 +3006,10 @@ function subjectScopedContext(
   /*
    * The issue a charge was made from, while its reporter has protected personal
    * data, and is somebody else (the caller leaves this person's own reports out
-   * of the set). The charge list withholds the same link, because an issue identifier
-   * beside the charged person or apartment pairs the report with the identity
-   * the queue withholds. The fact that the charge came from an issue stays.
+   * of the set). The charge list withholds the same link, because an issue
+   * identifier beside the charged person or apartment pairs the report with the
+   * identity the queue withholds. The fact that the charge came from an issue
+   * stays.
    */
   const issueId = context[ISSUE_KEY];
   if (typeof issueId === "string" && withheldIssueIds.has(issueId)) {
