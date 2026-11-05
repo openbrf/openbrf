@@ -665,10 +665,10 @@ export class IssueTypeService {
    *
    * Ring-fencing a type also revokes every contractor's link to a work order on
    * its issues, in the same transaction (ADR 0055, control B5 of its threat
-   * review). The link's lookup refuses them anyway; the revocation is the end
-   * kept as a fact on the row, against a ring-fence changed outside this
-   * service. Through it a type with issues is never lifted
-   * (`ring-fence-in-use`, ADR 0054, decision 32).
+   * review). The lookup refuses them anyway; the revocation writes the end onto
+   * the row, so a ring-fence changed outside this service (which itself never
+   * lifts one from a type with issues, `ring-fence-in-use`, ADR 0054, decision
+   * 32) brings no link back.
    *
    * Not a recall: a work order claimed before the type was ring-fenced is on
    * its way, and may have left.

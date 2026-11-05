@@ -348,11 +348,10 @@ export class IssueRedactionService {
    * reporter column). Only the reporter whose key was taken before the issue's
    * lock: one the issue no longer names, or names since, is left to the person
    * purge. A legal hold or a restriction on that reporter needs no check here:
-   * both callers ran {@link requireRedactable} earlier in this transaction and
-   * it refused the redaction. It read a legal hold under the same locks; a
-   * restriction (`processingRestrictedAt`) is written without the reporter's
-   * hold key, the registry lock or the issue lock, so what it read of one is
-   * only as it stood then.
+   * both callers ran {@link requireRedactable} earlier in this transaction,
+   * under the reporter's hold key and the registry lock (`lockForRedaction`),
+   * which a legal hold and the granting of a restriction take as well, and it
+   * refused the redaction.
    */
   private async detachIfFinished(
     tx: Prisma.TransactionClient,

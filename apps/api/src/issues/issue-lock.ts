@@ -101,7 +101,7 @@ export function mailHandoffDeadline(): AbortSignal {
  * the issue's (`lockIssue`), the other mails take it alone. No transaction
  * takes the type's lock across a handoff: the work order mailer's claim
  * (`WorkOrderMailer.claim`) takes it, but in a short transaction that ends
- * before the send and takes no ring-fence, so nothing takes these locks in
+ * before the send and takes no ring-fence lock, so nothing takes these locks in
  * the opposite order.
  */
 export async function lockIssueTypeRingFence(

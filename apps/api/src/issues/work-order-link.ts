@@ -135,8 +135,8 @@ export async function liveWorkOrderLinksOfIssue(
  * purge of its text, its type ring-fenced, its contractor removed, its issue
  * closed. The lookup would refuse such a link anyway; the revocation makes the
  * end a fact on the row, so a later change back (the issue reopened, or a
- * ring-fence changed outside the service: it refuses to lift one a type with
- * issues has) does not bring the link back to life.
+ * ring-fence changed outside the service (the service refuses to lift one from
+ * a type with issues)) does not bring the link back to life.
  */
 export async function revokeWorkOrderLinks(
   tx: Prisma.TransactionClient,
