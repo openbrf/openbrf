@@ -14,6 +14,9 @@ deploy and exit, and nothing else to install.
 - A machine reachable at the public https:// address members will use, with TLS
   in front of it. Passkeys need a secure origin, and so does a session cookie
   that is worth anything.
+- The `pg_trgm` extension, where the instance runs on a database server of your
+  own rather than the bundled one
+  ([The search's extension](#the-searchs-extension))
 
 ## Starting an instance
 
@@ -497,6 +500,31 @@ application start that has none of the three, because the alternative is an
 application connecting as the owner - so that refusal, rather than a missing
 value in the env file, is the error an operator will read whose application
 starts without the data volume the password is on.
+
+## The search's extension
+
+The issue queue's search reads messages and internal notes through trigram
+indexes, so the database server has to offer the `pg_trgm` extension. It ships
+with PostgreSQL's contrib modules, which the bundled database's image includes;
+on a server built from packages, install them. `pg_trgm` is a trusted
+extension, so the migrations create it as the schema owner, with no superuser.
+A managed server that allows extensions one by one has to allow `pg_trgm`
+first. Without it the migration that creates it stops the deploy with
+PostgreSQL's own error.
+
+A server may have `pg_trgm` installed in a schema other than `public` already,
+as some managed servers keep every extension in a schema named `extensions`.
+The migrations then leave it there and name that schema in the indexes, so the
+schema owner needs `USAGE` on it. Without that the migration stops the deploy
+with `permission denied for schema extensions`. Whoever owns that schema, the
+server's administrator, grants it:
+
+```sql
+GRANT USAGE ON SCHEMA extensions TO openbrf_owner;  -- or the OWNER_DB_USER role
+```
+
+The runtime role needs nothing on that schema: it writes and searches the
+indexed tables without naming the extension.
 
 ## The database passwords
 
@@ -1021,13 +1049,9 @@ with a message that names what is wrong:
   connection limit the script sets for the role has to be 1 or more; `-1`
   would mean no limit.
 
-The server also has to offer the `pg_trgm` extension, which the issue queue's
-search is indexed with. It ships with PostgreSQL's contrib modules, which the
-bundled database's image includes; on a server built from packages, install
-them. `pg_trgm` is a trusted extension, so the migrations create it as the
-schema owner, with no superuser; a managed server that has extensions allowed
-one by one has to allow it first. Without it the migration that creates it
-stops the deploy with PostgreSQL's own error.
+The server also has to offer the `pg_trgm` extension, and where another schema
+holds it already, each instance's owner needs `USAGE` on that schema
+([The search's extension](#the-searchs-extension)).
 
 A new database grants `CONNECT` to every role on the server. Each deploy that
 constrains the runtime role revokes that grant on the instance's own database,
