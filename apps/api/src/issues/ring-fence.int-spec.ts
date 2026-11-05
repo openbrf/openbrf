@@ -23,6 +23,7 @@ import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
+import { PendingChangeService } from "../pending-changes/pending-change.service";
 import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
@@ -52,7 +53,9 @@ import { IssueService } from "./issue.service";
  *   type, an issue's conversation, notes, files, timeline or handlers, and is
  *   never assigned one.
  * - **`mcp` and `ai`** are offered none of it: not on any page of
- *   `issue_list`, not by `issue_get`, not as a type of `issue_type_list`.
+ *   `issue_list`, not by `issue_get`, not as a type of `issue_type_list`, and
+ *   `issue_handler_list` and every write answer one as not found, a write
+ *   proposed on `ai` included when it is confirmed.
  * - **Mail.** Nothing about one is mailed, to a handler or to its reporter,
  *   and a notice queued before the ring-fence sends nothing.
  * - **Posts and the website's form.** No report under it is made from a post,
@@ -79,6 +82,7 @@ let reporterLinks: IssueReporterLinkService;
 let registry: ActionRegistryService;
 let callers: ActionCallerFactory;
 let encryption: FieldEncryptionService;
+let changes: PendingChangeService;
 
 const suffix = process.hrtime.bigint().toString(36);
 const PASSWORD = "a-long-enough-password";
@@ -232,7 +236,7 @@ function connectedApp(personId: string): ActionCaller {
   const token = {
     clientId: `client-${suffix}`,
     clientHost: "app.example",
-    scopes: ["mcp:read"],
+    scopes: ["mcp:read", "mcp:write"],
   };
   const request = {
     id: `request-${suffix}`,
@@ -245,6 +249,23 @@ function connectedApp(personId: string): ActionCaller {
     requestId: request.id,
   });
   return callers.forRequest(request);
+}
+
+/**
+ * The AI package's own route, serving the person's session: its dispatch is
+ * on `ai`, where a write is only proposed (ADR 0039).
+ */
+function aiPackage(personId: string): ActionCaller {
+  const request = {
+    id: `request-ai-package-${suffix}`,
+    principal: { personId, capabilities: new Set<string>() },
+  } as unknown as RequestWithToken;
+  markAuthenticated(request, new LiveResponse(), {
+    personId,
+    token: null,
+    requestId: request.id,
+  });
+  return callers.forPlugin(request, { id: `rf-ai-${suffix}`, ai: true });
 }
 
 /**
@@ -320,6 +341,7 @@ beforeAll(async () => {
   registry = app.get(ActionRegistryService);
   callers = app.get(ActionCallerFactory);
   encryption = app.get(FieldEncryptionService);
+  changes = app.get(PendingChangeService);
 
   createdAssociation =
     (await prisma.association.findUnique({
@@ -418,6 +440,11 @@ afterAll(async () => {
     "DELETE FROM pgboss.job WHERE data->>'issueId' = ANY($1::text[])",
     filed.map((issue) => issue.id),
   );
+  // A change proposed on ai for a ring-fenced issue, which confirming refused
+  // and so is still waiting.
+  await prisma.pendingChange.deleteMany({
+    where: { proposedByPersonId: { in: personIds } },
+  });
   await prisma.issue.deleteMany({ where: { typeId: { in: typeIds } } });
   await prisma.issueType.deleteMany({ where: { id: { in: typeIds } } });
   await prisma.residency.deleteMany({
@@ -721,6 +748,135 @@ describe("mcp and ai", () => {
       expect(ids).not.toContain(fenced.id);
       expect(ids).toContain(open.id);
     }
+  });
+
+  /** What the issue's handling holds, which no refused write may move. */
+  async function handling(issueId: string) {
+    return prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: {
+        assigneePersonId: true,
+        priority: true,
+        targetDate: true,
+        statusId: true,
+      },
+    });
+  }
+
+  /** Each write of ADR 0056 on one issue, by its own type's statuses. */
+  function everyWrite(issueId: string, type: IssueTypeFixture) {
+    return [
+      ["issue_assign", { id: issueId, assigneePersonId: board.personId }],
+      ["issue_set_priority", { id: issueId, priority: "URGENT" }],
+      ["issue_set_target_date", { id: issueId, targetDate: "2031-05-30" }],
+      [
+        "issue_set_status",
+        { id: issueId, statusId: type.statusIds.IN_PROGRESS },
+      ],
+    ] as const;
+  }
+
+  it("answer a ring-fenced issue as not found to every write and to the list of who may take it", async () => {
+    const issueId = await reported(fenced);
+    const ordinary = await reported(open, `Fläkten låter ${suffix}`);
+    const before = await handling(issueId);
+
+    for (const [name, input] of [
+      ["issue_handler_list", { id: issueId }],
+      ...everyWrite(issueId, fenced),
+    ] as const) {
+      // Answered as an identifier that never existed, with the same words.
+      const fencedRefusal = await registry
+        .invoke(connectedApp(board.personId), name, input)
+        .catch((cause: unknown) => cause);
+      const missing = await registry
+        .invoke(connectedApp(board.personId), name, {
+          ...input,
+          id: `rf-never-${suffix}`,
+        })
+        .catch((cause: unknown) => cause);
+      expect(fencedRefusal, name).toMatchObject({ reason: "issue-not-found" });
+      expect((fencedRefusal as Error).message, name).toBe(
+        (missing as Error).message,
+      );
+    }
+    expect(await handling(issueId)).toEqual(before);
+    // Nothing was recorded against it.
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { targetKind: "issue", targetId: issueId, channel: "MCP" },
+      }),
+    ).toBe(0);
+
+    // The control: the same writes land on an ordinary issue, as the person
+    // who connected the app and under the channel they came by.
+    expect(
+      (
+        await registry.invoke<{ handlers: { personId?: string }[] }>(
+          connectedApp(board.personId),
+          "issue_handler_list",
+          { id: ordinary },
+        )
+      ).handlers.map((handler) => handler.personId),
+    ).toContain(board.personId);
+    for (const [name, input] of everyWrite(ordinary, open)) {
+      await registry.invoke(connectedApp(board.personId), name, input);
+    }
+    expect(await handling(ordinary)).toEqual({
+      assigneePersonId: board.personId,
+      priority: "URGENT",
+      targetDate: new Date("2031-05-30T00:00:00.000Z"),
+      statusId: open.statusIds.IN_PROGRESS,
+    });
+    const entries = await prisma.auditLogEntry.findMany({
+      where: { targetKind: "issue", targetId: ordinary, channel: "MCP" },
+      select: { action: true, actorPersonId: true },
+    });
+    expect(entries.map((entry) => entry.action).sort()).toEqual([
+      "ISSUE_ASSIGNED",
+      "ISSUE_PRIORITY_CHANGED",
+      "ISSUE_STATUS_CHANGED",
+      "ISSUE_TARGET_DATE_CHANGED",
+    ]);
+    for (const entry of entries) {
+      expect(entry.actorPersonId, entry.action).toBe(board.personId);
+    }
+  });
+
+  it("show a write proposed on ai for a ring-fenced issue as gone, and refuse to confirm it", async () => {
+    const issueId = await reported(fenced);
+    const before = await handling(issueId);
+
+    // On ai a write is never carried out directly.
+    await expect(
+      registry.invoke(aiPackage(board.personId), "issue_set_priority", {
+        id: issueId,
+        priority: "LOW",
+      }),
+    ).rejects.toMatchObject({ reason: "confirmation-required" });
+
+    // Proposed, it waits: nothing about the issue is read to hold it.
+    const proposed = await changes.propose(
+      aiPackage(board.personId),
+      "issue_set_priority",
+      { id: issueId, priority: "LOW" },
+    );
+    expect(
+      await registry.targetOf(
+        "issue_set_priority",
+        { id: issueId, priority: "LOW" },
+        board.personId,
+      ),
+    ).toEqual({ kind: "issue", id: issueId, state: "missing", facts: [] });
+
+    const confirmed = await inject({
+      method: "POST",
+      url: `/api/pending-changes/mine/${proposed.id}/confirm`,
+      cookie: as(board),
+    });
+    expect(confirmed.statusCode, confirmed.body).toBe(404);
+    expect(confirmed.json<{ reason: string }>().reason).toBe("issue-not-found");
+    expect(await handling(issueId)).toEqual(before);
   });
 });
 

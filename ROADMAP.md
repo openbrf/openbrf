@@ -451,6 +451,20 @@ locally the application runs from source beside the PostgreSQL that
       and how many have no assignee, and each number opens its view. The search
       never matches a protected reporter's name or apartment. No dashboards
       (ADR 0054)
+- [x] Handling an issue from a connected app or the AI package: the queue and
+      one issue carry the priority, the target date, whether it is overdue and
+      the assignee, the issue types carry who handles them and their default
+      priority, and a new read names who one issue may be given to. A connected
+      app assigns an issue and sets its priority, target date and status at
+      once, as the person who signed it in, and the audit log records that it
+      came through a connected app; the AI package only proposes the same four,
+      for that person to confirm on the platform's own screen, which shows the
+      issue's number, type, status, priority and target date beside what the
+      change sets. No action writes to the reporter, reaches a contractor,
+      reads the conversation or an internal note, and an issue of a ring-fenced
+      type or one a person with protected personal data reported is answered
+      as one that does not exist. The MCP Connector is offered these once its
+      manifest declares the personal data they carry (ADR 0056)
 - [x] What is particular to a Swedish house on an issue: on an issue about an
       apartment the resident answers whether the association or a contractor
       may enter - yes or no, pets, whether the master key may be used, a note on

@@ -979,7 +979,11 @@ holds for core actions, for another plugin's and for the plugin's own, and
 whether the request on its route came with a session or with a connected app's
 token. It is what keeps a plugin that has not declared names from being handed
 names by an action a board member on its route may call: `motion_queue_list` and
-the news comment actions return the names of members. It does not reach
+the news comment actions return the names of members. The MCP Connector is a
+plugin too, and is held to the same rule: it is offered the issue actions only
+once its manifest declares `name`, `apartment`, `freeText` and `health`, what
+`issue_list` and `issue_get` carry
+([ADR 0056](adr/0056-issue-handling-on-mcp-and-ai.md#why-the-connector-is-offered-no-issue-action)). It does not reach
 categories the plugin has declared and the board consented to. A plugin that
 declares `name` can call those actions while an authorised board member uses
 its route, and what it receives is its to keep; that is what the consent screen

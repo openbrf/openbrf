@@ -11,11 +11,13 @@ import type {
 const KIND = {
   news: "pendingChanges.target.kind.news",
   page: "pendingChanges.target.kind.page",
+  issue: "pendingChanges.target.kind.issue",
 } as const satisfies Record<Target["kind"], TranslationKey>;
 
 const MISSING = {
   news: "pendingChanges.target.missing.news",
   page: "pendingChanges.target.missing.page",
+  issue: "pendingChanges.target.missing.issue",
 } as const satisfies Record<Target["kind"], TranslationKey>;
 
 /**
@@ -29,6 +31,11 @@ const FACT: Readonly<Record<string, TranslationKey>> = {
   visibility: "pendingChanges.target.fact.visibility",
   mailingRequested: "pendingChanges.target.fact.mailingRequested",
   frontPage: "pendingChanges.target.fact.frontPage",
+  number: "pendingChanges.target.fact.number",
+  type: "pendingChanges.target.fact.type",
+  issueStatus: "pendingChanges.target.fact.issueStatus",
+  priority: "pendingChanges.target.fact.priority",
+  targetDate: "pendingChanges.target.fact.targetDate",
 };
 
 /** The values of the facts that are a choice of a few, by fact. */
@@ -45,10 +52,31 @@ const VALUE: Readonly<
     PUBLIC: "pendingChanges.target.value.visibility.PUBLIC",
     MEMBER: "pendingChanges.target.value.visibility.MEMBER",
   },
+  priority: {
+    URGENT: "pendingChanges.target.value.priority.URGENT",
+    NORMAL: "pendingChanges.target.value.priority.NORMAL",
+    LOW: "pendingChanges.target.value.priority.LOW",
+  },
 };
 
 /**
- * What a pending change is to: the news item or page its input names by id.
+ * The facts the API leaves empty when there is nothing, by the word for that:
+ * an issue's target date, which is optional and never an empty day.
+ */
+const EMPTY: Readonly<Record<string, TranslationKey>> = {
+  targetDate: "pendingChanges.target.value.noTargetDate",
+};
+
+/** The facts that are register data, read character by character. */
+const DATA_FACTS: ReadonlySet<string> = new Set([
+  "slug",
+  "number",
+  "targetDate",
+]);
+
+/**
+ * What a pending change is to: the news item, page or issue its input names
+ * by id.
  *
  * The input alone cannot say it. "Publish" with an id is not something a
  * person can check, so the screen reads what the id names as it stands now -
@@ -151,12 +179,12 @@ function FactValue({
       </span>
     );
   }
-  const label = VALUE[fact]?.[value];
+  const label = value === "" ? EMPTY[fact] : VALUE[fact]?.[value];
   if (label !== undefined) {
     return <span>{t(label)}</span>;
   }
-  if (fact === "slug") {
-    // An address is register data, and is read character by character.
+  if (DATA_FACTS.has(fact)) {
+    // An address, an issue number and a day are register data.
     return <span className="font-data text-data break-all">{value}</span>;
   }
   // As the input preview shows text: every space and line kept, and escaped.

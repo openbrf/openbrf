@@ -244,16 +244,77 @@ export const MEETING_AGENDA_ACTION_ERRORS: readonly ActionErrorSpec[] = [
  * declares.
  *
  * A subset rather than the whole union, unlike the lists above, because the
- * group binds reads alone: the other reasons belong to filing a report, the
- * photographs and the type catalogue, and none of them is reachable from here.
- * A write bound later publishes what it can raise. `never`, because an issue
- * that is gone, and one a caller outside the instance is not shown, are both
- * facts about the association rather than about the request. Not the queue's
- * own sentence, which says the queue has been read again: the screen does
- * that, and a read does not.
+ * group binds the queue's reads and four writes (ADR 0056), and the other
+ * reasons belong to filing a report, the photographs, the conversation and the
+ * type catalogue, none of them reachable from here. Each write publishes what
+ * it can raise besides, below. `never`, because an issue that is gone, and one
+ * a caller outside the instance is not shown, are both facts about the
+ * association rather than about the request. Not the queue's own sentence,
+ * which says the queue has been read again: the screen does that, and an
+ * action does not.
  */
 export const ISSUE_ACTION_ERRORS: readonly ActionErrorSpec[] = [
   spec("issue-not-found", "never", "actions.errors.issueNotFound"),
+];
+
+/**
+ * What assigning an issue raises (`issue_assign`): somebody who does not
+ * handle the issue now, a person `issue_handler_list` never named or one who
+ * stopped handling since. `after-edit`, because another handler from that
+ * list, or nobody, is what works. Its own sentence, since the screen's says
+ * the list has been read again.
+ */
+export const ISSUE_ASSIGN_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  ...ISSUE_ACTION_ERRORS,
+  spec(
+    "assignee-not-a-handler",
+    "after-edit",
+    "actions.errors.assigneeNotAHandler",
+  ),
+];
+
+/**
+ * What setting an issue's target date raises (`issue_set_target_date`): a
+ * day the calendar does not have, and the inspection's rule for a finding,
+ * which needs a date and, for a lift, one within a month. Each is `after-edit`:
+ * another day works.
+ */
+export const ISSUE_TARGET_DATE_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  ...ISSUE_ACTION_ERRORS,
+  spec("target-date-invalid", "after-edit", "actions.errors.targetDateInvalid"),
+  spec(
+    "finding-needs-target-date",
+    "after-edit",
+    "issues.fit.errors.findingNeedsTargetDate",
+  ),
+  spec(
+    "finding-target-date-too-late",
+    "after-edit",
+    "issues.fit.errors.findingTargetDateTooLate",
+  ),
+];
+
+/**
+ * What moving an issue to another status raises (`issue_set_status`): a status
+ * that is not one of the issue's own type's or is switched off, and a move
+ * without what the status's meaning requires, or with what it does not take
+ * (ADR 0054). Each is `after-edit`: `issue_type_list` names the statuses, and
+ * the move is sent again with the reason or the outcome.
+ */
+export const ISSUE_STATUS_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  ...ISSUE_ACTION_ERRORS,
+  spec("status-not-found", "after-edit", "actions.errors.statusNotFound"),
+  spec(
+    "waiting-reason-required",
+    "after-edit",
+    "issues.queue.errors.waitingReasonRequired",
+  ),
+  spec("outcome-required", "after-edit", "issues.queue.errors.outcomeRequired"),
+  spec(
+    "status-detail-not-applicable",
+    "after-edit",
+    "actions.errors.statusDetailNotApplicable",
+  ),
 ];
 
 /**

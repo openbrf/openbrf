@@ -131,6 +131,49 @@ describe("the preview", () => {
     expect(factOf("Rubrik")).toBe("Styrelsens interna anteckningar");
   });
 
+  it("shows the issue a held write names, by its number, and a date it has not", async () => {
+    fetchMyPendingChanges.mockResolvedValue(
+      listing([
+        {
+          ...NEWS,
+          action: {
+            title: "Sätt ett ärendes prioritet",
+            description: "Sätter ett ärendes prioritet.",
+            effect: "write",
+            needsConfirmation: false,
+            errors: [],
+          },
+          actionName: "issue_set_priority",
+          input: { id: "issue-7", priority: "URGENT" },
+          channel: "AI",
+          target: {
+            kind: "issue",
+            id: "issue-7",
+            state: "found",
+            facts: [
+              { fact: "number", now: "42" },
+              { fact: "type", now: "Vatten" },
+              { fact: "issueStatus", now: "Väntar på reservdelar" },
+              { fact: "priority", now: "NORMAL", after: "URGENT" },
+              { fact: "targetDate", now: "" },
+            ],
+          },
+        },
+      ]),
+    );
+
+    render(<PendingChangesScreen />);
+
+    const factOf = async (label: string) =>
+      (await screen.findByText(label, { selector: "dt" })).nextElementSibling;
+    expect((await factOf("Prioritet"))?.textContent).toBe("Normal → blir Akut");
+    expect((await factOf("Senast klart"))?.textContent).toBe("Inget datum");
+    expect((await factOf("Ärendenummer"))?.innerHTML).toContain("font-data");
+    // The board's own label, as it wrote it.
+    expect((await factOf("Status"))?.textContent).toBe("Väntar på reservdelar");
+    expect(screen.getByText(/^Ärende/, { selector: "p" })).toBeTruthy();
+  });
+
   it("says when a fact the change sets is already so", async () => {
     fetchMyPendingChanges.mockResolvedValue(
       listing([

@@ -45,7 +45,7 @@ export interface ProposedInputIssue {
 }
 
 /** What kind of thing a target is, which the screen names it by. */
-export type ActionTargetKind = "news" | "page";
+export type ActionTargetKind = "news" | "page" | "issue";
 
 /**
  * One fact about a target: what it is now and what confirming would set.
@@ -68,8 +68,17 @@ export interface ActionTarget<Input> {
   /**
    * The facts about what the id names, as it stands now and as the call would
    * leave it. Null when nothing answers to the id any more.
+   *
+   * Read for the person viewing the change, who holds the action's capability
+   * (`ActionRegistryService.targetOf`). A target whose rows that capability
+   * does not open alike to everybody holding it - an issue, which a property
+   * manager reads only where the board lets them - reads them as that person,
+   * and answers null for one they may not open.
    */
-  readonly read: (input: Input) => Promise<readonly ActionTargetFact[] | null>;
+  readonly read: (
+    input: Input,
+    readerPersonId: string,
+  ) => Promise<readonly ActionTargetFact[] | null>;
 }
 
 /**

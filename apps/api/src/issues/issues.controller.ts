@@ -35,6 +35,7 @@ import {
 } from "@openbrf/shared";
 import { z } from "zod";
 
+import { webActor } from "../audit/actor-context";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import type { Principal } from "../authorization/capabilities";
 import { RequireCapability } from "../authorization/require-capability.decorator";
@@ -835,7 +836,7 @@ export class IssueQueueController {
     @Param("id") id: string,
     @Req() request: RequestWithPrincipal,
   ): Promise<IssueHandlerView[]> {
-    return this.issues.handlers(actingPersonId(request), id);
+    return this.issues.handlers(actingPersonId(request), id, "show");
   }
 
   /** Who did what to the issue, and when (decision 16). */
@@ -856,7 +857,8 @@ export class IssueQueueController {
     return this.issues.assign(
       id,
       assignSchema.parse(body).assigneePersonId,
-      actingPersonId(request),
+      webActor(request),
+      "show",
     );
   }
 
@@ -869,7 +871,8 @@ export class IssueQueueController {
     return this.issues.setPriority(
       id,
       prioritySchema.parse(body).priority,
-      actingPersonId(request),
+      webActor(request),
+      "show",
     );
   }
 
@@ -882,7 +885,8 @@ export class IssueQueueController {
     return this.issues.setTargetDate(
       id,
       targetDateSchema.parse(body).targetDate,
-      actingPersonId(request),
+      webActor(request),
+      "show",
     );
   }
 
@@ -1021,7 +1025,8 @@ export class IssueQueueController {
     return this.issues.setStatus(
       id,
       statusMoveSchema.parse(body),
-      actingPersonId(request),
+      webActor(request),
+      "show",
     );
   }
 
