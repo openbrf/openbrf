@@ -93,6 +93,7 @@ describe("a sign-in link", () => {
       expect(onSignedIn).toHaveBeenCalledTimes(1);
     });
     expect(startSupportSession).toHaveBeenCalledTimes(2);
+    expect(startSupportSession).toHaveBeenLastCalledWith("the-sign-in-token");
   });
 
   it("says to wait, and offers a retry, when the address has tried too often", async () => {
@@ -115,6 +116,9 @@ describe("a sign-in link", () => {
     await waitFor(() => {
       expect(onSignedIn).toHaveBeenCalledTimes(1);
     });
+    // The retry sends the token read on arrival, not an empty one.
+    expect(startSupportSession).toHaveBeenCalledTimes(2);
+    expect(startSupportSession).toHaveBeenLastCalledWith("the-sign-in-token");
   });
 
   it("sends nothing without a link, and says where one comes from", () => {
