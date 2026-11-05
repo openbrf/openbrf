@@ -13,6 +13,7 @@ import {
   strikePost,
 } from "../api/feed";
 import { IssueStatusChip } from "../issues/IssueStatusChip";
+import { KnownFaultNotice } from "../issues/KnownFaultNotice";
 import { BoardControls } from "../ui/BoardMark";
 import { HINT, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
@@ -347,6 +348,13 @@ export function PostCard({
       </header>
 
       <PostContent post={post} />
+
+      {/* The known fault on the issue reported from this post: the handler's
+          notice for the house, shown to every reader of the post, while the
+          report itself stays its reporter's and its handlers'. */}
+      {post.knownFault === null ? null : (
+        <KnownFaultNotice fault={post.knownFault} />
+      )}
 
       {copied === null ? null : (
         <p role="status" className={HINT}>

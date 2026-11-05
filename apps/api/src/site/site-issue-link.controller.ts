@@ -209,9 +209,14 @@ export class SiteIssueLinkController {
 
   /**
    * A read of any other one segment below the link's path: the refusal every
-   * token that opens nothing gets, on the same budget, so a value that is not
-   * shaped like a token is answered as one that is (ADR 0055, "No
-   * enumeration").
+   * token that opens nothing gets, so a value that is not shaped like a token
+   * is answered as one that is (ADR 0055, "No enumeration").
+   *
+   * Its budget is a bucket of its own: the rate limit guard keys one by class
+   * and handler name, so this route's 30 a minute are counted apart from
+   * `page`'s. That does not weaken the budget on guessing a token: a segment
+   * that is not token-shaped can never be one, and a token-shaped one is read
+   * by `page`, on its budget.
    *
    * A GET only. Nothing on the website reads a page's sub-address, and the
    * router ranks the token's route above this one; a post is left to the

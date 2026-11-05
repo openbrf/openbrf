@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import { decodedPathOf, pathOf } from "../http/request-path";
+import { hasReporterLinkTokenForm } from "../issues/issue-reporter-link-token";
 import { REPORTER_LINK_PATH } from "../issues/issue-reporter-link.service";
 
 /**
@@ -71,24 +72,51 @@ export function isReporterLinkPath(url: string): boolean {
 }
 
 /**
+ * Whether the decoded path is a token's own address: the one segment right
+ * below /arende, in a token's form.
+ *
+ * A segment of any other form is not a token, so `/arende/kontakt` stays the
+ * website's.
+ */
+function isTokenAddress(decodedPath: string): boolean {
+  const prefix = `${REPORTER_LINK_PATH}/`;
+  return (
+    decodedPath.startsWith(prefix) &&
+    hasReporterLinkTokenForm(decodedPath.slice(prefix.length))
+  );
+}
+
+/**
  * Whether a request is on a reporter's link, read as the router reads it.
  *
  * The router decodes a path before it matches one, so `/%61rende/<token>`
  * opens the page as `/arende/<token>` does, and the raw URL is not what decides
- * it. The route the router matched decides, which is the spelling the router
- * itself settled on: the link's own routes get the headers, and a website
- * route on an address below /arende does not (the forms of a page that kept
- * the slug `arende`, which answer as the website). Where no route of its own
- * made the answer (the router's 404, or the website's catch-all), the decoded
- * path decides, and decoding more than the router does only widens that.
+ * it. Three things decide, in this order:
+ *
+ * 1. A decoded path that is a token's address (`/arende/<token>`) is on the
+ *    link, whichever route the router matched. An escaped slash
+ *    (`/arende%2F<token>`) is one segment to the router, so the website's
+ *    `/:slug` route matches it, and its 404 still answers a request whose URL
+ *    carries a live token.
+ * 2. Otherwise the route the router matched decides, which is the spelling the
+ *    router itself settled on: the link's own routes get the headers, and a
+ *    website route on an address below /arende does not (the forms of a page
+ *    that kept the slug `arende`, which answer as the website).
+ * 3. Where no route of its own made the answer (the router's 404, or the
+ *    website's catch-all), the decoded path decides, and decoding more than the
+ *    router does only widens that.
  */
 export function isReporterLinkRequest(request: FastifyRequest): boolean {
+  const decoded = decodedPathOf(request.url);
+  if (isTokenAddress(decoded)) {
+    return true;
+  }
   const matched = (request as { routeOptions?: { url?: string } }).routeOptions
     ?.url;
   if (matched !== undefined && !matched.includes("*")) {
     return isReporterLinkPath(matched);
   }
-  return isReporterLinkPath(decodedPathOf(request.url));
+  return isReporterLinkPath(decoded);
 }
 
 /**

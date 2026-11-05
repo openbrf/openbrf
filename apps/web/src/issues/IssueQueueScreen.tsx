@@ -522,6 +522,7 @@ export function IssueQueueScreen({
             // notice that they failed either.
             types={types === undefined ? [] : types}
             onChanged={reload}
+            queueRead={loaded.readCount}
             onRetryTypes={retryTypes}
             announceTypesFailure={typesRead.by !== "arrival"}
             focusTypesRetry={typesRead.by === "retry"}

@@ -10,6 +10,7 @@
  * records what the feed is; the API's `feed` module is where each rule lives.
  */
 
+import type { IssueSignature } from "./issue-conversation.ts";
 import type { IssueStatusMeaning } from "./issue-status.ts";
 
 /**
@@ -160,6 +161,19 @@ export interface PostIssueView {
   reportedByReader: boolean;
 }
 
+/**
+ * The known fault (känt fel) published on the issue a post was reported from
+ * (decision 22 of the issue module plan): the handler's notice, signed with a
+ * role and never a person, shown to every reader of the post while the issue
+ * is open. Unlike the report itself, which stays its reporter's and its
+ * handlers' (`PostIssueView`), the notice is written for the house.
+ */
+export interface PostKnownFaultView {
+  body: string;
+  signature: IssueSignature;
+  publishedAt: string;
+}
+
 /** One post, as a reader is shown it. */
 export interface PostView {
   id: string;
@@ -230,6 +244,12 @@ export interface PostView {
    * handlers', and a post does not widen that.
    */
   issue: PostIssueView | null;
+  /**
+   * The known fault published on the issue made from it, or null: when none
+   * was made, none is published, the issue is closed, or the board keeps it
+   * to itself. Shown to every reader of the post.
+   */
+  knownFault: PostKnownFaultView | null;
   /**
    * Whether this reader may make an issue report from it ("Gör felanmälan"):
    * they wrote it or hold a board seat, they may report issues, and no report
