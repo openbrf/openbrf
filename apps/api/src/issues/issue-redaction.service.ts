@@ -312,8 +312,10 @@ export class IssueRedactionService {
    * redaction has just left with no text at all (ADR 0057: the clock, the
    * issue erasure job or a handler's redaction of the last of it clears the
    * reporter column). Only the reporter whose key was taken before the issue's
-   * lock, and only while no legal hold or restriction keeps them: one the
-   * issue no longer names, or names since, is left to the person purge.
+   * lock: one the issue no longer names, or names since, is left to the person
+   * purge. A legal hold or a restriction on that reporter needs no check here:
+   * both callers ran {@link requireRedactable} in this transaction, under the
+   * same locks, and it refused the redaction.
    */
   private async detachIfFinished(
     tx: Prisma.TransactionClient,
@@ -330,7 +332,7 @@ export class IssueRedactionService {
         NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
       },
     });
-    if (finished === 0 || (await isPersonWithheld(tx, lockedReporterId))) {
+    if (finished === 0) {
       return false;
     }
     return detachErasedReporter(tx, issueId, lockedReporterId);
