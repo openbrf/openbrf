@@ -52,7 +52,9 @@ export function pinnedSessionConfig(
   let pinned = connectionString;
   try {
     const url = new URL(connectionString);
-    const fromUrl = url.searchParams.get("options");
+    // `pg` takes the last of several `options` parameters, and `set` below
+    // drops the others, so the last is the one to keep.
+    const fromUrl = url.searchParams.getAll("options").at(-1) ?? null;
     url.searchParams.set(
       "options",
       pinnedOptions(

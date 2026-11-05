@@ -52,6 +52,14 @@ describe("pinnedSessionConfig", () => {
     ).toBe("-c work_mem=8MB -c TimeZone=UTC");
   });
 
+  it("keeps the last of several options parameters, as pg reads them", () => {
+    expect(
+      sentOptions(
+        "postgres://u:p@db/openbrf?options=-c%20work_mem%3D8MB&options=-c%20statement_timeout%3D5s",
+      ),
+    ).toBe("-c statement_timeout=5s -c TimeZone=UTC");
+  });
+
   it("keeps PGOPTIONS when the connection string's options are blank", () => {
     vi.stubEnv("PGOPTIONS", "-c statement_timeout=5s");
     expect(sentOptions("postgres://u:p@db/openbrf?options=")).toBe(
