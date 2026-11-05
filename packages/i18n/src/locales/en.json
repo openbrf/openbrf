@@ -2070,7 +2070,7 @@
     },
     "issueRetention": {
       "title": "Retention of issues",
-      "description": "How many years after an issue closes its free text is kept. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, stay with the issue; the description, the location, the conversation, the internal notes and the photographs and files are removed that many years after it closes, unless a legal hold stands on it.",
+      "description": "How many years after an issue closes its free text is kept. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, stay with the issue; the description, the location, the conversation, the internal notes and the photographs and files are removed that many years after it closes, unless a legal hold stands on it or a legal hold or a restriction on the person who reported it.",
       "years": "Years after an issue closes",
       "yearsHint": "A whole number between 1 and 10. A new instance starts at 2.",
       "purgeJob": "The purge runs every night and reads this number when it runs, so a change moves every pending date at once. After a shorter setting, the nights that follow remove the free text of the issues already past it, at most 500 issues in each run.",
@@ -4097,7 +4097,7 @@
       "send": "Send to {{name}}",
       "sending": "Sending...",
       "edit": "Change it",
-      "sent": "The work order to {{name}} is recorded. The log below says whether the mail went out.",
+      "sent": "The work order to {{name}} is recorded. The list of work orders below says whether the mail went out.",
       "errors": {
         "issueNotFound": "That issue is gone, or no longer yours to handle.",
         "contractorNotFound": "That contractor is no longer on the list. The list has been read again.",
@@ -4108,10 +4108,11 @@
         "unknown": "The work order could not be prepared or sent just now. Please try again.",
         "previewStale": "The contractor's details or the text changed since the preview. Preview it again before sending.",
         "issueClosed": "This issue is closed. Reopen it before writing a work order.",
-        "duplicate": "This work order was sent to this contractor a short while ago. Check the record above before sending it again.",
+        "duplicate": "A work order to this contractor was written a short while ago and may have been sent. Check the list of work orders above before writing another; one whose text was removed holds back a new one until the half hour has passed.",
         "budgetSpent": "You have sent as many work orders as one person may in an hour. Try again later."
       },
       "recipientRemoved": "A contractor since removed from the list",
+      "addressUnreadable": "The address could not be read.",
       "bodyErased": "The text was erased when the issue's retention period ran out."
     },
     "open": {
@@ -6849,7 +6850,7 @@
           "name": "Issue reports",
           "purpose": "Receiving and dealing with problems in the building, including the work orders handlers send to contractors, and telling whoever handles an issue, and whoever reported it, by email. The emails about an issue carry the issue number, the issue type and a link, and those to whoever handles it the priority too, never what anybody wrote. A work order's email carries the text a handler wrote for the contractor and nothing else from the issue.",
           "legalBasisNote": "Legitimate interest: managing the property. A reporter may volunteer data about health (art. 9).",
-          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, when a claim about the work becomes time-barred (preskriptionslagen 2 §); when it was sent is kept, and whom it went to is kept while the contractor stays on the list. Removing a contractor from the list erases the name and email address on their work orders."
+          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, the ordinary retention window chosen for it, which follows the general ten-year limitation period for a claim about the work (preskriptionslagen 2 §); a claim's limitation period can be interrupted or renewed, and the erasure does not follow that, so a legal hold on the issue or a legal hold or a restriction on the reporter is what keeps the text longer; when it was sent is kept, and whom it went to is kept while the contractor stays on the list. Removing a contractor from the list erases the name and email address on their work orders."
         },
         "documents": {
           "name": "Document archive",

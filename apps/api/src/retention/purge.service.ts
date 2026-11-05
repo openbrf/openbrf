@@ -1031,10 +1031,13 @@ export class PurgeService implements OnModuleInit {
       /*
        * The handler who sent a work order: the order stays, and so does its
        * audit entry, but the row stops naming the person. Under the lock a
-       * sending takes before it checks the handler's access and inserts: one
-       * that read the access before this purge removed the role would
-       * otherwise commit its `sentByPersonId` after the detachment below, and
-       * nothing later counts that reference.
+       * sending takes before it checks the handler's access and inserts. The
+       * purge removes no role: it refuses a person who holds one
+       * (`lockErasureEligibility`) and then deletes the account. The race is a
+       * sending that read the handler's access, then a role withdrawn, then
+       * this purge starting on a person who holds none: without the lock that
+       * sending would commit its `sentByPersonId` after the detachment below,
+       * and nothing later counts that reference.
        */
       await lockWorkOrderSender(tx, personId);
       const { count: workOrdersNoLongerSentBy } = await tx.workOrder.updateMany(
