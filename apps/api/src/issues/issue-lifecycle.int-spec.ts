@@ -10,6 +10,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { MailService, type SendMailInput } from "../mail/mail.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   createIssueTypeFixture,
@@ -19,6 +20,8 @@ import { IssueConversationService } from "./issue-conversation.service";
 import {
   ISSUE_NOTICE_QUEUE,
   ISSUE_OVERDUE_QUEUE,
+  IssueMailer,
+  type IssueNoticeJob,
 } from "./issue-mailer.service";
 import { lockIssuesForHandling } from "./issue-lock";
 import { IssueService } from "./issue.service";
@@ -41,6 +44,8 @@ let app: NestFastifyApplication;
 let prisma: PrismaService;
 let issues: IssueService;
 let conversation: IssueConversationService;
+let mailer: IssueMailer;
+let mail: MailService;
 
 const suffix = process.hrtime.bigint().toString(36);
 const PASSWORD = "a-long-enough-password";
@@ -192,21 +197,62 @@ async function own(who: { personId: string }, issueId: string) {
   return found;
 }
 
-/** Who is mailed what about one issue: the queued notices, as person and event. */
-async function noticesOf(
-  issueId: string,
-): Promise<{ personId: string; event: string }[]> {
-  const rows = await prisma.$queryRawUnsafe<
-    { data: { personId: string; event: string } }[]
-  >(
+/** The notices queued about one issue, as the queue holds them. */
+async function noticeJobsOf(issueId: string): Promise<IssueNoticeJob[]> {
+  const rows = await prisma.$queryRawUnsafe<{ data: IssueNoticeJob }[]>(
     "SELECT data FROM pgboss.job WHERE name = $1 AND data->>'issueId' = $2 ORDER BY created_on, id",
     ISSUE_NOTICE_QUEUE,
     issueId,
   );
-  return rows.map((row) => ({
-    personId: row.data.personId,
-    event: row.data.event,
+  return rows.map((row) => row.data);
+}
+
+/** Who is mailed what about one issue: the queued notices, as person and event. */
+async function noticesOf(
+  issueId: string,
+): Promise<{ personId: string; event: string }[]> {
+  return (await noticeJobsOf(issueId)).map((job) => ({
+    personId: job.personId,
+    event: job.event,
   }));
+}
+
+/**
+ * Delivers the queued notices to one person, with the send stubbed out, and
+ * answers each mail as rendered: its subject, both bodies and its props.
+ */
+async function renderedNoticesTo(
+  issueId: string,
+  personId: string,
+): Promise<{ event: string; parts: string[] }[]> {
+  const sent: SendMailInput<unknown>[] = [];
+  const send = vi.spyOn(mail, "send").mockImplementation(async (input) => {
+    sent.push(input as SendMailInput<unknown>);
+    return { messageId: null };
+  });
+  try {
+    for (const job of await noticeJobsOf(issueId)) {
+      if (job.personId === personId) {
+        await mailer.deliver(job);
+      }
+    }
+  } finally {
+    send.mockRestore();
+  }
+  return Promise.all(
+    sent.map(async (input) => {
+      const rendered = await mail.renderMail(input);
+      return {
+        event: (input.props as { event?: string }).event ?? "",
+        parts: [
+          rendered.subject,
+          rendered.html,
+          rendered.text,
+          JSON.stringify(input.props),
+        ],
+      };
+    }),
+  );
 }
 
 /** Runs `act` with the clock moved to `at`, and puts it back afterwards. */
@@ -232,6 +278,8 @@ beforeAll(async () => {
   prisma = app.get(PrismaService);
   issues = app.get(IssueService);
   conversation = app.get(IssueConversationService);
+  mailer = app.get(IssueMailer);
+  mail = app.get(MailService);
   const encryption = app.get(FieldEncryptionService);
 
   await prisma.association.upsert({
@@ -441,6 +489,32 @@ describe("a reply on a closed issue", () => {
       false,
     );
 
+    // What the assignee is mailed carries the number and the type, and none
+    // of the free text: not the reply that reopened it, not the opening words
+    // a shortened preview would still print, and not the report itself.
+    const report = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: { number: true, description: true, location: true },
+    });
+    const rendered = await renderedNoticesTo(issueId, board.personId);
+    expect(rendered.map((notice) => notice.event)).toContain("reopened");
+    const forbidden = [
+      "Det läcker igen.",
+      "läcker",
+      report.description,
+      report.location ?? "",
+      resident.lastName,
+    ];
+    for (const notice of rendered) {
+      for (const part of notice.parts) {
+        for (const text of forbidden) {
+          expect(part).not.toContain(text);
+        }
+        expect(part).toContain(String(report.number));
+        expect(part).toContain(`Hiss ${suffix}`);
+      }
+    }
+
     // The timeline says the reporter reopened it, and names nobody.
     const timeline = await as(
       board,
@@ -515,7 +589,7 @@ describe("a reply on a closed issue", () => {
     });
   });
 
-  it("does not reopen it on the 31st day, and offers a new report instead", async () => {
+  it("does not reopen it on the 31st day, mails nobody, and offers a new report instead", async () => {
     const issueId = await filed(plain);
     await close(issueId, plain);
     const { closedAt } = await prisma.issue.findUniqueOrThrow({
@@ -525,6 +599,11 @@ describe("a reply on a closed issue", () => {
     if (closedAt === null) {
       throw new Error("closing wrote no date");
     }
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: { assigneePersonId: board.personId },
+    });
+    const queuedBefore = await noticesOf(issueId);
 
     await atMoment(new Date(closedAt.getTime() + 31 * DAY_MS), async () => {
       const mine = await issues.listOwn(resident.personId);
@@ -551,6 +630,9 @@ describe("a reply on a closed issue", () => {
       closedAt,
       _count: { messages: 0 },
     });
+    // Nothing reopened, so the assignee is not mailed, and the refused reply
+    // queues no message notice either.
+    expect(await noticesOf(issueId)).toEqual(queuedBefore);
   });
 
   it("reopens through the reporter's route the moment after it closed", async () => {

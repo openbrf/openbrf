@@ -1863,7 +1863,7 @@ export class IssueService {
       }
       if (existing.mergedIntoIssueId !== null) {
         throw new IssueError(
-          "That issue is already a duplicate of another.",
+          "This issue is already a duplicate of another.",
           "merge-already-duplicate",
         );
       }
