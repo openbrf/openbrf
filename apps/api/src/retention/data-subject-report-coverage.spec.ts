@@ -186,10 +186,12 @@ const COLUMN_COVERAGE = {
   WorkOrder: { sentByPersonId: { actedAs: ["ISSUE_WORK_ORDER_SENT"] } },
   /*
    * The writer of an issue message, the reporter or a handler, and of an
-   * internal note, is the actor of its entry (ADR 0057). The words reach the
-   * reporter's `issues` section with the rest of the conversation in the
-   * change that adds it there; the entry is what reaches the writer's report
-   * now.
+   * internal note, is the actor of its entry (ADR 0057), which is what reaches
+   * the writer's report. The words of the conversation reach the reporter's
+   * through the issue, in its `issues` section as the reporter reads them,
+   * signed with a role and never a handler's name. An internal note's do not:
+   * whether art. 15 gives a reporter the notes about their issue is the legal
+   * review's question (ADR 0057, question 1), and the section's type says so.
    */
   IssueMessage: { authorPersonId: { actedAs: ["ISSUE_MESSAGE_SENT"] } },
   IssueNote: { authorPersonId: { actedAs: ["ISSUE_NOTE_ADDED"] } },

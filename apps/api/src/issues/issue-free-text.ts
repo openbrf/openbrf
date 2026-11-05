@@ -1,4 +1,7 @@
-import { ISSUE_TEXT_RETENTION_YEARS } from "@openbrf/shared";
+import {
+  ISSUE_TEXT_RETENTION_YEARS,
+  RING_FENCED_ISSUE_TEXT_RETENTION_YEARS,
+} from "@openbrf/shared";
 
 import type { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
@@ -89,6 +92,24 @@ function standing(
  */
 export function issueTextRetentionDays(years: number): number {
   return years * 365;
+}
+
+/**
+ * The clock an issue's free text is on, in whole years, by its type.
+ *
+ * The board's setting for an ordinary type. A ring-fenced one (decision 32)
+ * takes the shorter of that and {@link RING_FENCED_ISSUE_TEXT_RETENTION_YEARS},
+ * which the board does not set. The one rule the purge selects by, the access
+ * report dates by and the report forms tell a reporter, so none of them can
+ * state a clock the purge does not keep.
+ */
+export function issueTextClockYears(
+  boardYears: number,
+  ringFenced: boolean,
+): number {
+  return ringFenced
+    ? Math.min(boardYears, RING_FENCED_ISSUE_TEXT_RETENTION_YEARS)
+    : boardYears;
 }
 
 /**

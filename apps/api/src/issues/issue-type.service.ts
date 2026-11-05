@@ -31,6 +31,10 @@ import {
   MAIL_TRANSACTION_MS,
 } from "./issue-lock";
 import { IssueError } from "./issue.error";
+import {
+  issueTextClockYears,
+  issueTextRetentionYears,
+} from "./issue-free-text";
 import { revokeWorkOrderLinks } from "./work-order-link";
 
 /** A status as the board configures it. */
@@ -118,6 +122,13 @@ export interface ReportableIssueTypeView {
    * ring-fenced type.
    */
   ringFenced: boolean;
+  /**
+   * How many years after closing the free text of an issue of this type is
+   * removed (`issueTextClockYears`), so the form tells the reporter the clock
+   * the purge keeps (GDPR art. 13(2)(a)): the board's setting, or the shorter
+   * ring-fenced clock.
+   */
+  textRetentionYears: number;
 }
 
 export interface IssueTypeInput {
@@ -288,11 +299,18 @@ export class IssueTypeService {
       );
     }
 
-    return this.prisma.issueType.findMany({
-      where: { active: true, ...(await this.reportableWhere(principal)) },
-      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      select: { id: true, name: true, reporters: true, ringFenced: true },
-    });
+    const [types, boardYears] = await Promise.all([
+      this.prisma.issueType.findMany({
+        where: { active: true, ...(await this.reportableWhere(principal)) },
+        orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+        select: { id: true, name: true, reporters: true, ringFenced: true },
+      }),
+      issueTextRetentionYears(this.prisma),
+    ]);
+    return types.map((type) => ({
+      ...type,
+      textRetentionYears: issueTextClockYears(boardYears, type.ringFenced),
+    }));
   }
 
   /**

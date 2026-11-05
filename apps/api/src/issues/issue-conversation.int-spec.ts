@@ -4,6 +4,7 @@ import {
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import type { ActionContext } from "@openbrf/plugin-sdk";
+import { formatDayOfInstant } from "@openbrf/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { ActionRegistryService } from "../actions/action-registry.service";
@@ -17,6 +18,7 @@ import { StorageService } from "../storage/storage.service";
 import { waitFor } from "../testing/advisory-locks";
 import type { Prisma } from "../generated/prisma/client";
 import { lockResidencyTransitions } from "../registers/residency-lock";
+import { DataSubjectReportService } from "../retention/data-subject-report.service";
 import { lockErasureEligibility } from "../retention/erasure-lock";
 import { lockBoardPositions, lockSystemRole } from "../roles/role-lock";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
@@ -25,6 +27,7 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { backendPid, waitersBehind } from "../testing/lock-waiters";
+import { issueTextRetentionYears } from "./issue-free-text";
 import { lockIssueType } from "./issue-lock";
 
 /**
@@ -978,6 +981,106 @@ describe("mcp and ai", () => {
       expect(answered).not.toContain(message);
       expect(answered).not.toContain(note);
     }
+  });
+});
+
+describe("the data subject access report", () => {
+  it("gives a reporter their issues and conversations, and no internal note on any issue", async () => {
+    const own = await filed(plain);
+    const neighbours = await filed(plain, {
+      reporterPersonId: neighbour.personId,
+    });
+    const tag = `report-${suffix}`;
+
+    for (const [who, path, body] of [
+      [resident, `/api/issues/${own}/messages`, `Fråga ${tag}`],
+      [board, `/api/issue-queue/${own}/messages`, `Svar ${tag}`],
+      // About the reporter, on their own issue and on somebody else's.
+      [board, `/api/issue-queue/${own}/notes`, `Anteckning om Rune ${tag}`],
+      [manager, `/api/issue-queue/${neighbours}/notes`, `Rune igen ${tag}`],
+      // The neighbour's own conversation, which the resident never reads.
+      [neighbour, `/api/issues/${neighbours}/messages`, `Grannens ${tag}`],
+    ] as const) {
+      expect((await write(who, path, body)).statusCode).toBe(201);
+    }
+    // The handler the board assigned answers for it through its own section.
+    await prisma.issue.update({
+      where: { id: neighbours },
+      data: { assigneePersonId: board.personId },
+    });
+
+    const report = await app
+      .get(DataSubjectReportService)
+      .portable(resident.personId);
+    const issue = report.issues.find((entry) => entry.issueId === own);
+    expect(issue?.messages).toEqual([
+      expect.objectContaining({ side: "REPORTER", body: `Fråga ${tag}` }),
+      expect.objectContaining({
+        side: "HANDLER",
+        signature: "BOARD",
+        body: `Svar ${tag}`,
+      }),
+    ]);
+    expect(issue?.number).toEqual(expect.any(Number));
+    // Open, so no clock runs yet.
+    expect(issue?.freeTextErasableFrom).toBeNull();
+    expect(report.issues.map((entry) => entry.issueId)).not.toContain(
+      neighbours,
+    );
+    const text = JSON.stringify(report);
+    // No internal note, about them or anybody, and no other reporter's words.
+    expect(text).not.toContain(`Anteckning om Rune ${tag}`);
+    expect(text).not.toContain(`Rune igen ${tag}`);
+    expect(text).not.toContain(`Grannens ${tag}`);
+    // No handler named in the conversation: a role, as on the screen.
+    expect(JSON.stringify(issue?.messages)).not.toContain(board.personId);
+    expect(JSON.stringify(issue?.messages)).not.toContain(board.firstName);
+
+    // The assignee's report lists the issue by its number and type, and none
+    // of what anybody wrote on it.
+    const assigned = await app
+      .get(DataSubjectReportService)
+      .portable(board.personId);
+    expect(assigned.issueAssignments).toContainEqual(
+      expect.objectContaining({ kind: "issue", issueId: neighbours }),
+    );
+    expect(assigned.issues.map((entry) => entry.issueId)).not.toContain(
+      neighbours,
+    );
+    expect(JSON.stringify(assigned.issueAssignments)).not.toContain(tag);
+  });
+
+  it("dates the removal of a closed issue's text on its type's clock, and not under a hold on the issue", async () => {
+    const closed = await filed(plain, { meaning: "DONE" });
+    const closedAt = new Date("2026-03-10T10:00:00.000Z");
+    await prisma.issue.update({ where: { id: closed }, data: { closedAt } });
+    const held = await filed(plain, { meaning: "DONE" });
+    await prisma.issue.update({
+      where: { id: held },
+      data: { closedAt, legalHoldAt: new Date() },
+    });
+    // The board's setting is the association's singleton, which the retention
+    // suite changes while it runs: read on either side of the report, so the
+    // date the report states is the one for the setting it read.
+    const before = await issueTextRetentionYears(prisma);
+    const report = await app
+      .get(DataSubjectReportService)
+      .portable(resident.personId);
+    const after = await issueTextRetentionYears(prisma);
+    const on = (years: number) =>
+      formatDayOfInstant(
+        new Date(closedAt.getTime() + years * 365 * 24 * 60 * 60 * 1000),
+      );
+
+    const dated = report.issues.find((entry) => entry.issueId === closed);
+    expect(dated).toMatchObject({
+      closedAt: closedAt.toISOString(),
+      onLegalHold: false,
+    });
+    expect([on(before), on(after)]).toContain(dated?.freeTextErasableFrom);
+    expect(report.issues.find((entry) => entry.issueId === held)).toMatchObject(
+      { onLegalHold: true, freeTextErasableFrom: null },
+    );
   });
 });
 

@@ -565,6 +565,17 @@ export function ReportIssuePanel({
           )}
         </section>
 
+        {/* How long what is written and photographed here is kept (GDPR art.
+            13(2)(a)), on the clock of the type chosen, as the purge keeps it.
+            A ring-fenced type's warning above already says its year. */}
+        {chosen === undefined || chosen.ringFenced ? null : (
+          <p className={HINT}>
+            {t("issues.report.retention", {
+              count: chosen.textRetentionYears,
+            })}
+          </p>
+        )}
+
         <div>
           <button
             type="submit"

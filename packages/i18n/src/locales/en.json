@@ -683,7 +683,8 @@
           "changed": "Last changed",
           "eraseOn": "Erase date",
           "setAside": "Set aside",
-          "nameChoice": "You chose to show your name"
+          "nameChoice": "You chose to show your name",
+          "conversation": "Messages"
         },
         "appScope": {
           "read": "Read data",
@@ -1033,7 +1034,10 @@
         },
         "issueCostResponsibility": "Who pays: {{who}}",
         "issueEntry": "Permission to enter: {{answer}}. {{details}}",
-        "issuePlace": "Common area: {{place}}"
+        "issuePlace": "Common area: {{place}}",
+        "issueTextErasableFrom": "Free text removed from <data>{{date}}</data>",
+        "issueLegalHold": "Free text kept under a legal hold on the issue",
+        "issueClosed": "Closed <data>{{date}}</data>"
       },
       "requests": {
         "kind": {
@@ -1095,7 +1099,7 @@
         "groundLabel": "The person's own ground",
         "erasureGroundLabel": "Ground under art. 17(1)",
         "issueLabel": "An issue that names the person (optional)",
-        "issueNote": "The request is about a name in an issue's description. What is done to the text is the board's own decision on that issue; the purge never rewrites a description.",
+        "issueNote": "The request is about a name in an issue's description or conversation. A handler carries out a granted request by removing what the decision covers from that issue; the purge removes an issue's free text only on its own clock after the issue is closed.",
         "decisionLabel": "Decision",
         "decisionGroundLabel": "The board's ground",
         "exceptionLabel": "Assessment under art. 17(3)",
@@ -3640,7 +3644,9 @@
       "email": "Your email address (optional)",
       "submit": "Send the report",
       "sent": "Thank you. The report has reached the association.",
-      "refused": "The report could not be read. Check that you have chosen what it concerns and described the fault, then send it again."
+      "refused": "The report could not be read. Check that you have chosen what it concerns and described the fault, then send it again.",
+      "retention_one": "Your name and email address are removed a year after the issue is closed, and what you wrote {{count}} year after it is closed, unless the association has to keep them longer; its privacy notice says when.",
+      "retention_other": "Your name and email address are removed a year after the issue is closed, and what you wrote {{count}} years after it is closed, unless the association has to keep them longer; its privacy notice says when."
     },
     "documents": {
       "heading": "Documents",
@@ -3955,7 +3961,9 @@
       "followUpCancel": "Write a separate report instead",
       "place": "Common area",
       "placeNone": "None in particular",
-      "placeHint": "Choose one if the problem is in a common area. Describe exactly where in the field below."
+      "placeHint": "Choose one if the problem is in a common area. Describe exactly where in the field below.",
+      "retention_one": "What you write, the conversation and the photographs are removed {{count}} year after the issue is closed, unless the association has to keep them longer, for instance for an insurance claim; what it concerned and when stay. A contractor the association hires is sent only what whoever handles the issue writes for them, never the report itself.",
+      "retention_other": "What you write, the conversation and the photographs are removed {{count}} years after the issue is closed, unless the association has to keep them longer, for instance for an insurance claim; what it concerned and when stay. A contractor the association hires is sent only what whoever handles the issue writes for them, never the report itself."
     },
     "photos": {
       "title": "Photographs",
@@ -7052,7 +7060,7 @@
           "name": "Issue reports",
           "purpose": "Receiving and dealing with problems in the building, including the work orders handlers send to contractors, and telling whoever handles an issue, and whoever reported it, by email. The emails about an issue carry the issue number, the issue type and a link, and those to whoever handles it the priority too, never what anybody wrote. A work order's email carries the text a handler wrote for the contractor and nothing else from the issue. An issue of a ring-fenced issue type, such as one for disturbances between neighbours, is read by the board alone and never mailed about, to anybody.",
           "legalBasisNote": "Legitimate interest: managing the property. A reporter may volunteer data about health (art. 9).",
-          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, the ordinary retention window chosen for it, which follows the general ten-year limitation period for a claim about the work (preskriptionslagen 2 §); a claim's limitation period can be interrupted or renewed, and the erasure does not follow that, so a legal hold on the issue or a legal hold or a restriction on the reporter is what keeps the text longer; when it was sent is kept, and whom it went to is kept while the contractor stays on the list. Removing a contractor from the list erases the name and email address on their work orders. The free text of an issue of a ring-fenced issue type, such as one for disturbances between neighbours, is purged one year after closing, whatever the board set for other issues, unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it. A damage case places a legal hold on the issue, which stands until a handler releases it, and a legal hold keeps the text of a ring-fenced issue past that year as well."
+          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, the ordinary retention window chosen for it, which follows the general ten-year limitation period for a claim about the work (preskriptionslagen 2 §); a claim's limitation period can be interrupted or renewed, and the erasure does not follow that, so a legal hold on the issue or a legal hold or a restriction on the reporter is what keeps the text longer; when it was sent is kept, and whom it went to is kept while the contractor stays on the list. Removing a contractor from the list erases the name and email address on their work orders. The free text of an issue of a ring-fenced issue type, such as one for disturbances between neighbours, is purged one year after closing, whatever the board set for other issues, unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it. A damage case places a legal hold on the issue, which stands until a handler releases it, and a legal hold keeps the text of a ring-fenced issue past that year as well. A contractor stays on the association's list, with its name, trade, telephone number and email address, until the board removes it."
         },
         "documents": {
           "name": "Document archive",

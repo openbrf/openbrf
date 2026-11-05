@@ -67,7 +67,7 @@ function state(overrides: Partial<SiteFormState> = {}): SiteFormState {
     publiclyReadable: true,
     sent: null,
     refused: null,
-    issueTypes: [{ id: "type-1", name: "Trasig port" }],
+    issueTypes: [{ id: "type-1", name: "Trasig port", textRetentionYears: 2 }],
     responsibilityGuide: null,
     ...overrides,
   };
@@ -161,8 +161,8 @@ describe("the issue report form", () => {
       page([{ type: "issueReportForm" }]),
       state({
         issueTypes: [
-          { id: "type-1", name: "Trasig port" },
-          { id: "type-2", name: "Klotter" },
+          { id: "type-1", name: "Trasig port", textRetentionYears: 2 },
+          { id: "type-2", name: "Klotter", textRetentionYears: 2 },
         ],
       }),
     );
@@ -175,6 +175,10 @@ describe("the issue report form", () => {
     // The warning the law research asks for, beside the field rather than in a
     // policy elsewhere.
     expect(html).toContain("Utelämna uppgifter om hälsa");
+    // How long what it asks for is kept (art. 13(2)(a)), from the type's clock.
+    expect(html).toContain(
+      "Ditt namn och din e-postadress tas bort ett år efter att ärendet har stängts, och det du skrev 2 år efter",
+    );
   });
 
   it("takes text and never a file", () => {

@@ -25,6 +25,7 @@ import type {
 } from "@openbrf/shared";
 
 import type { DataSubjectRequestView } from "../api/data-protection";
+import type { OwnIssueMessage } from "../api/issues";
 
 export type RegisterSign =
   | "CHAIR"
@@ -837,6 +838,8 @@ export interface DataSubjectReport {
   )[];
   issues: {
     issueId: string;
+    /** The issue's number, as the reporter's own screen names it. */
+    number: number;
     typeName: string;
     /** Where it stands, as the meaning of its status (ADR 0054). */
     meaning: IssueStatusMeaning;
@@ -863,8 +866,21 @@ export interface DataSubjectReport {
     locationRedactedAt: string | null;
     /** When the purge removed the issue's free-text layer (ADR 0057). */
     freeTextRemovedAt: string | null;
+    /**
+     * "YYYY-MM-DD", the earliest day the purge removes the free-text layer.
+     * Null while open, under a legal hold on the issue, and once removed.
+     */
+    freeTextErasableFrom: string | null;
+    /** A legal hold stands on the issue itself, such as a damage case's. */
+    onLegalHold: boolean;
     reportedAt: string;
+    closedAt: string | null;
     photographs: number;
+    /**
+     * The conversation, oldest first, as the reporter reads it: handlers'
+     * messages signed with a role, never a name. Never an internal note.
+     */
+    messages: OwnIssueMessage[];
     /**
      * Whom the issue was sent to, oldest first. `recipientName` is null once
      * the contractor was removed from the list. Never the text or an address.

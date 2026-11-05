@@ -13,7 +13,19 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { pluginProcessorKey } from "../data-protection/processor-key";
+import {
+  ISSUE_FREE_TEXT_STANDING,
+  issueTextClockYears,
+  issueTextRetentionDays,
+  issueTextRetentionYears,
+} from "../issues/issue-free-text";
+import {
+  ISSUE_MESSAGE_ORDER,
+  ISSUE_MESSAGE_SELECT,
+  toReporterView,
+} from "../issues/issue-message-view";
 import { issuesReportedByProtectedPersons } from "../issues/issue-reporter-protection";
+import { computeIssuePurgeDate } from "../issues/issue-retention";
 import { pluginAccessViews } from "../plugin-access/plugin-access";
 import { consentedPersonRecordsOf } from "../plugins/plugin-registry.service";
 import {
@@ -678,11 +690,15 @@ export class DataSubjectReportService {
             },
           });
 
+    // The clock the free text of an ordinary type's issues is on, read in this
+    // transaction so the dates below agree with the setting the report names.
+    const issueTextYears = await issueTextRetentionYears(tx);
     const issues = await tx.issue.findMany({
       where: { reporterPersonId: personId },
       orderBy: [{ createdAt: "desc" }],
       select: {
         id: true,
+        number: true,
         // The meaning, in the reader's language, and never the board's label
         // for the status: what the issue module shows its reporter (ADR 0054).
         status: { select: { meaning: true } },
@@ -705,9 +721,18 @@ export class DataSubjectReportService {
         descriptionRedactedAt: true,
         locationRedactedAt: true,
         freeTextRemovedAt: true,
+        legalHoldAt: true,
         createdAt: true,
-        type: { select: { name: true } },
+        closedAt: true,
+        type: { select: { name: true, ringFenced: true } },
         _count: { select: { photos: true } },
+        // The conversation as the reporter reads it on their own screen
+        // (`toReporterView`). Never an internal note: that is a table of its
+        // own, which this read does not touch (ADR 0057, question 1).
+        messages: {
+          orderBy: ISSUE_MESSAGE_ORDER,
+          select: ISSUE_MESSAGE_SELECT,
+        },
         // Whom the issue was sent to (art. 15(1)(c)); never the text, which is
         // the handler's and may name others (see `ReportIssueWorkOrder`).
         workOrders: {
@@ -726,6 +751,21 @@ export class DataSubjectReportService {
         },
       },
     });
+
+    // Which of them still hold some of the free-text layer, by the rule the
+    // purge selects by, so that a date is stated only where there is something
+    // left for it to remove.
+    const issuesWithFreeText = new Set(
+      (
+        await tx.issue.findMany({
+          where: {
+            reporterPersonId: personId,
+            AND: [ISSUE_FREE_TEXT_STANDING],
+          },
+          select: { id: true },
+        })
+      ).map((issue) => issue.id),
+    );
 
     // The issues and types that name this person as their assignee, which
     // somebody else chose (ADR 0057): never the issue's text or its reporter.
@@ -1760,6 +1800,7 @@ export class DataSubjectReportService {
       })),
       issues: issues.map((issue) => ({
         issueId: issue.id,
+        number: issue.number,
         typeName: issue.type.name,
         meaning: issue.status.meaning,
         outcome: issue.outcome,
@@ -1782,8 +1823,31 @@ export class DataSubjectReportService {
           issue.descriptionRedactedAt?.toISOString() ?? null,
         locationRedactedAt: issue.locationRedactedAt?.toISOString() ?? null,
         freeTextRemovedAt: issue.freeTextRemovedAt?.toISOString() ?? null,
+        /*
+         * Derived here rather than stored, as a booking's is: the board's
+         * setting moves every pending date by that act alone, and a type
+         * ring-fenced since moves its issues onto the shorter clock. Stated as
+         * the earliest day for the reason the booking gives, and read on the
+         * association's calendar as it is.
+         */
+        freeTextErasableFrom:
+          issue.status.meaning !== "DONE" ||
+          issue.legalHoldAt !== null ||
+          !issuesWithFreeText.has(issue.id)
+            ? null
+            : formatDayOfInstant(
+                computeIssuePurgeDate(
+                  issue.closedAt,
+                  issueTextRetentionDays(
+                    issueTextClockYears(issueTextYears, issue.type.ringFenced),
+                  ),
+                ),
+              ),
+        onLegalHold: issue.legalHoldAt !== null,
         reportedAt: issue.createdAt.toISOString(),
+        closedAt: issue.closedAt?.toISOString() ?? null,
         photographs: issue._count.photos,
+        messages: issue.messages.map(toReporterView),
         workOrders: issue.workOrders.map((order) => ({
           recipientName: order.recipientName,
           writtenAt: order.createdAt.toISOString(),
