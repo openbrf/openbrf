@@ -67,7 +67,8 @@ const MEMBER_EMAIL = "astrid@eksemplet.test";
  * Every action this instance registers: the association's news, its pages, its
  * menu, its own facts, the comment threads under its notices, the motion
  * queue the board works, the general meetings it holds, the documents in its
- * archive, and the reads of the issue queue and the contact form inbox.
+ * archive, the issue queue with the four handling writes on it, and the reads
+ * of the contact form inbox.
  *
  * Written out rather than read back from the instance, because a list read from
  * the instance would only assert that the instance agrees with itself. This is
@@ -114,6 +115,11 @@ const CATALOGUE: readonly string[] = [
   "issue_list",
   "issue_get",
   "issue_type_list",
+  "issue_handler_list",
+  "issue_assign",
+  "issue_set_priority",
+  "issue_set_target_date",
+  "issue_set_status",
   "contact_message_list",
 ];
 
