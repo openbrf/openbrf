@@ -20,7 +20,7 @@ import {
   it,
 } from "vite-plus/test";
 
-import type { OutgoingMail } from "./mail-driver";
+import { mayHaveBeenHandedOver, type OutgoingMail } from "./mail-driver";
 import { SmtpMailDriver } from "./smtp-mail.driver";
 
 /**
@@ -356,6 +356,36 @@ describe.each(["starttls", "implicit"] as const)(
 );
 
 describe("a send whose signal is not aborted", () => {
+  it("says a refused connection was not handed over", async () => {
+    // Nodemailer rejects the send with the socket's error as it stands, so the
+    // driver's own connection says that nothing was sent.
+    const refusing = createServer();
+    await new Promise<void>((resolve) => {
+      refusing.listen(0, "127.0.0.1", resolve);
+    });
+    const { port: closedPort } = refusing.address() as AddressInfo;
+    await new Promise<void>((resolve) => {
+      refusing.close(() => {
+        resolve();
+      });
+    });
+
+    const failure = await new SmtpMailDriver({
+      host: "127.0.0.1",
+      port: closedPort,
+      secure: false,
+      requireTls: false,
+      user: null,
+      password: null,
+      allowPrivateHosts: true,
+    })
+      .send(MAIL, new AbortController().signal)
+      .catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ code: "ECONNREFUSED" });
+    expect(mayHaveBeenHandedOver(failure)).toBe(false);
+  });
+
   it("hands the message over as it would without one, and closes its connection", async () => {
     // The control case: the server above does take a message, so the
     // assertions there are about the abort and not about the server.

@@ -444,8 +444,12 @@ function connectUntil(
       signal,
     });
     const timedOut = (): void => {
+      // In the shape nodemailer gives its own connect timeout.
       socket.destroy(
-        Object.assign(new Error("Connection timeout"), { code: "ETIMEDOUT" }),
+        Object.assign(new Error("Connection timeout"), {
+          code: "ETIMEDOUT",
+          timeoutType: "CONNECT_TIMEOUT",
+        }),
       );
     };
     socket.setTimeout(CONNECTION_TIMEOUT_MS);
@@ -460,7 +464,15 @@ function connectUntil(
     socket.once("error", (error) => {
       if (!settled) {
         settled = true;
-        callback(error);
+        // The connection was never made, so nothing was sent: a refusal and
+        // the connect's bound above alike. Said here, because nodemailer
+        // rejects the send with this error as it stands, without the
+        // `originalCode` its own connection would give a refusal.
+        callback(
+          Object.assign(error, {
+            handover: "not-handed-over",
+          } satisfies MailHandoverFailure),
+        );
       }
     });
   };

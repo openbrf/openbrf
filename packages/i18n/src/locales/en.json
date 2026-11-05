@@ -4635,7 +4635,7 @@
     },
     "damageCase": {
       "title": "Damage case",
-      "hint": "Mark the issue as an insurance damage. The mark places a legal hold on the issue, so its text and photographs are not purged while the claim is handled, on a ring-fenced issue too: the hold keeps its text past the one year a ring-fenced issue is otherwise kept. The hold stays if the mark is taken off, and is released on its own.",
+      "hint": "Mark the issue as an insurance damage. The mark places a legal hold on the issue, so its text and photographs are not purged while the claim is handled, on a ring-fenced issue too: the hold keeps its text past the one year a ring-fenced issue is otherwise kept. The hold stays if the mark is taken off, and until a handler releases it: it is never released by itself.",
       "insurer": "Insurer",
       "claimNumber": "Claim number",
       "occurredOn": "Day of the damage",

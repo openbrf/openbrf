@@ -1,3 +1,6 @@
+import { EventEmitter } from "node:events";
+
+import type { SMTPTransportOptions } from "nodemailer";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type {
@@ -42,6 +45,14 @@ const transport = vi.hoisted(() => {
 
 vi.mock("nodemailer", () => ({
   createTransport: transport.createTransport,
+}));
+
+/** The connect a send with a signal opens its socket with, so a test can hand it one. */
+const net = vi.hoisted(() => ({ connect: vi.fn() }));
+
+vi.mock("node:net", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:net")>()),
+  connect: net.connect,
 }));
 
 const SERVER = {
@@ -425,5 +436,129 @@ describe("a failed send", () => {
       .catch((error: unknown) => error);
     expect(notPublic).toBeInstanceOf(MailServerNotPublicError);
     expect(mayHaveBeenHandedOver(notPublic)).toBe(false);
+  });
+});
+
+describe("the connection a send with the caller's signal opens", () => {
+  /**
+   * A socket that does what it is told: a test emits `connect`, `timeout` or
+   * `error` on it, and destroying it with an error emits that error, as a
+   * socket does.
+   */
+  class TestSocket extends EventEmitter {
+    setTimeout(): this {
+      return this;
+    }
+
+    destroy(error?: Error): this {
+      if (error !== undefined) {
+        this.emit("error", error);
+      }
+      return this;
+    }
+  }
+
+  /**
+   * Has the transport ask for its socket through the hook, as nodemailer does,
+   * and fail with the hook's error as it stands, which is what nodemailer does
+   * with it. Once connected, the send fails with `afterConnect`.
+   */
+  function sendThroughHook(socket: TestSocket, afterConnect?: object): void {
+    net.connect.mockReturnValue(socket);
+    transport.sendMail.mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          const options = transport.createTransport.mock.calls.at(-1)?.[0] as
+            SMTPTransportOptions | undefined;
+          options?.getSocket?.(
+            { ...options, host: "192.0.2.10", port: 587 },
+            (error) => {
+              if (error) {
+                reject(error);
+              } else if (afterConnect === undefined) {
+                resolve(undefined);
+              } else {
+                reject(
+                  Object.assign(new Error("Mail command failed"), afterConnect),
+                );
+              }
+            },
+          );
+        }),
+    );
+  }
+
+  async function failureOf(
+    socket: TestSocket,
+    happen: () => void,
+  ): Promise<unknown> {
+    const sending = new SmtpMailDriver(SERVER)
+      .send(MAIL, new AbortController().signal)
+      .catch((error: unknown) => error);
+    await vi.waitFor(() => {
+      expect(socket.listenerCount("error")).toBe(1);
+    });
+    happen();
+    return sending;
+  }
+
+  it("says a connect that ran out of time was not handed over", async () => {
+    // The connect's bound is armed before the connection is made, so when it
+    // runs out not a byte of the message has left.
+    const socket = new TestSocket();
+    sendThroughHook(socket);
+
+    const failure = await failureOf(socket, () => {
+      socket.emit("timeout");
+    });
+
+    expect(failure).toMatchObject({
+      code: "ETIMEDOUT",
+      timeoutType: "CONNECT_TIMEOUT",
+      handover: "not-handed-over",
+    });
+    expect(mayHaveBeenHandedOver(failure)).toBe(false);
+  });
+
+  it("says a refused connection was not handed over", async () => {
+    // Reported with the system's code as the error's own, not under the
+    // `originalCode` nodemailer's own connection gives it.
+    const socket = new TestSocket();
+    sendThroughHook(socket);
+
+    const failure = await failureOf(socket, () => {
+      socket.emit(
+        "error",
+        Object.assign(new Error("connect ECONNREFUSED"), {
+          code: "ECONNREFUSED",
+        }),
+      );
+    });
+
+    expect(failure).toMatchObject({
+      code: "ECONNREFUSED",
+      handover: "not-handed-over",
+    });
+    expect(mayHaveBeenHandedOver(failure)).toBe(false);
+  });
+
+  it("leaves a socket that broke once connected as it was", async () => {
+    // The control: what fails after the connection is nodemailer's to report,
+    // and a reset there may have come after the message.
+    const socket = new TestSocket();
+    sendThroughHook(socket, {
+      code: "ESOCKET",
+      originalCode: "ECONNRESET",
+      command: "CONN",
+    });
+
+    const failure = await failureOf(socket, () => {
+      socket.emit("connect");
+    });
+
+    expect(failure).toMatchObject({
+      handover: "may-have-been-handed-over",
+    });
+    expect(mayHaveBeenHandedOver(failure)).toBe(true);
   });
 });

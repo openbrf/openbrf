@@ -4635,7 +4635,7 @@
     },
     "damageCase": {
       "title": "Skadeärende",
-      "hint": "Markera ärendet som en försäkringsskada. Markeringen lägger ett rättsligt bevarandekrav på ärendet, så att texten och bilderna inte gallras medan skadan handläggs, inte heller i ett avskärmat ärende: kravet håller kvar texten längre än det år ett avskärmat ärende annars sparas. Kravet står kvar om markeringen tas bort och hävs för sig.",
+      "hint": "Markera ärendet som en försäkringsskada. Markeringen lägger ett rättsligt bevarandekrav på ärendet, så att texten och bilderna inte gallras medan skadan handläggs, inte heller i ett avskärmat ärende: kravet håller kvar texten längre än det år ett avskärmat ärende annars sparas. Kravet står kvar om markeringen tas bort, och tills en handläggare häver det: det hävs aldrig av sig självt.",
       "insurer": "Försäkringsbolag",
       "claimNumber": "Skadenummer",
       "occurredOn": "Skadedag",

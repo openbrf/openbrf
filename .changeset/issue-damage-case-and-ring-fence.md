@@ -13,8 +13,8 @@ leaves it.
   damage, with the insurer, the claim number, the day of the damage and its
   cause, on an open issue or a closed one. The first mark places a legal hold on
   the issue, so its text and photographs are not purged while the claim is
-  handled; taking the mark off leaves the hold, which a handler releases on its
-  own. The insurer and the claim number are refused while they hold a personal
+  handled; taking the mark off leaves the hold, which stays until a handler
+  releases it, since nothing releases it by itself. The insurer and the claim number are refused while they hold a personal
   identity number, and the audit log and the timeline record the cause and the
   day, never the insurer or the number. A change made from a mark that another
   handler has changed or taken off in the meantime is refused, whether it saves
