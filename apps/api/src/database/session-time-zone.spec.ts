@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import ConnectionParameters from "pg/lib/connection-parameters";
 
 import { pinnedSessionConfig } from "./session-time-zone";
@@ -12,6 +12,10 @@ function sentOptions(connectionString: string): string | undefined {
 }
 
 describe("pinnedSessionConfig", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("asks for UTC when the connection string says nothing", () => {
     expect(sentOptions("postgres://u:p@db:5432/openbrf")).toBe(
       "-c TimeZone=UTC",
@@ -32,6 +36,34 @@ describe("pinnedSessionConfig", () => {
         "postgres://u:p@db/openbrf?options=-c%20statement_timeout%3D5s",
       ),
     ).toBe("-c statement_timeout=5s -c TimeZone=UTC");
+  });
+
+  it("keeps the options of PGOPTIONS when the connection string has none", () => {
+    vi.stubEnv("PGOPTIONS", "-c statement_timeout=5s");
+    expect(sentOptions("postgres://u:p@db/openbrf")).toBe(
+      "-c statement_timeout=5s -c TimeZone=UTC",
+    );
+  });
+
+  it("reads the options of the connection string before PGOPTIONS, as pg does", () => {
+    vi.stubEnv("PGOPTIONS", "-c statement_timeout=5s");
+    expect(
+      sentOptions("postgres://u:p@db/openbrf?options=-c%20work_mem%3D8MB"),
+    ).toBe("-c work_mem=8MB -c TimeZone=UTC");
+  });
+
+  it("keeps PGOPTIONS when the connection string's options are blank", () => {
+    vi.stubEnv("PGOPTIONS", "-c statement_timeout=5s");
+    expect(sentOptions("postgres://u:p@db/openbrf?options=")).toBe(
+      "-c statement_timeout=5s -c TimeZone=UTC",
+    );
+  });
+
+  it("asks for UTC after a time zone PGOPTIONS names", () => {
+    vi.stubEnv("PGOPTIONS", "-c TimeZone=Asia/Tokyo");
+    expect(sentOptions("postgres://u:p@db/openbrf")).toBe(
+      "-c TimeZone=Asia/Tokyo -c TimeZone=UTC",
+    );
   });
 
   it("keeps the other parts of the connection string", () => {

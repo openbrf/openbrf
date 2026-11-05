@@ -37,24 +37,35 @@ function pinnedOptions(existing: string | null): string {
  * Connection settings with the session time zone pinned.
  *
  * `pg` lets an `options` parameter in the connection string replace the
- * `options` setting, so the pin is written into the string and not only into
- * the settings beside it: a URL ending `?options=-c TimeZone=Asia/Tokyo` must
- * not unpin the zone.
+ * `options` setting, and a truthy `options` setting replace the `PGOPTIONS`
+ * environment variable. The pin is therefore written into the string as well
+ * as the settings beside it, after whichever of the two `pg` would have read
+ * (the string first, then `PGOPTIONS`): a URL ending
+ * `?options=-c TimeZone=Asia/Tokyo` must not unpin the zone, and an operator's
+ * `PGOPTIONS=-c statement_timeout=5s` must not be dropped by it.
  */
 export function pinnedSessionConfig(
   connectionString: string,
   extra: Omit<PoolConfig, "connectionString" | "options"> = {},
 ): PoolConfig {
+  const fromEnvironment = process.env.PGOPTIONS ?? null;
   let pinned = connectionString;
   try {
     const url = new URL(connectionString);
+    const fromUrl = url.searchParams.get("options");
     url.searchParams.set(
       "options",
-      pinnedOptions(url.searchParams.get("options")),
+      pinnedOptions(
+        fromUrl !== null && fromUrl.trim() !== "" ? fromUrl : fromEnvironment,
+      ),
     );
     pinned = url.toString();
   } catch {
     // Not a URL `pg` could read either; it reports the string itself.
   }
-  return { ...extra, connectionString: pinned, options: PIN };
+  return {
+    ...extra,
+    connectionString: pinned,
+    options: pinnedOptions(fromEnvironment),
+  };
 }
