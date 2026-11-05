@@ -1590,6 +1590,32 @@ describe("a known fault", () => {
     ).not.toBeNull();
   });
 
+  it("does not add a note or move the status for a person who no longer holds issues:handle", async () => {
+    const issueId = await filed(plain);
+    // Past the route's guard, as a role withdrawn in between: the narrower
+    // scope admits the issue, so only the role check refuses.
+    await expect(
+      conversation.addNote(resident.personId, issueId, "Anteckning"),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    expect(await prisma.issueNote.count({ where: { issueId } })).toBe(0);
+
+    await expect(
+      issues.setStatus(
+        issueId,
+        { statusId: plain.statusIds.IN_PROGRESS },
+        resident.personId,
+      ),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    expect(
+      (
+        await prisma.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          select: { statusId: true },
+        })
+      ).statusId,
+    ).toBe(plain.statusIds.NEW);
+  });
+
   it("does not write to the reporter as a person who no longer holds issues:handle", async () => {
     const issueId = await filed(plain, neighbour);
     // Past the route's guard, as a role withdrawn in between: the narrower

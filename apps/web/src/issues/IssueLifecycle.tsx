@@ -500,6 +500,13 @@ function MergeForm({
     return null;
   }
   const busy = merge.state.kind === "saving";
+  // A target that left the list (it was closed, or merged elsewhere) is no
+  // longer chosen: the select has no option to show it, and confirming would
+  // send an issue the server refuses.
+  const selectedId = offered.some((candidate) => candidate.id === intoIssueId)
+    ? intoIssueId
+    : "";
+  const confirmingNow = confirming && selectedId !== "";
 
   return (
     <section className="flex flex-col gap-2">
@@ -525,7 +532,7 @@ function MergeForm({
         aria-label={t("issues.lifecycle.mergeIntoNamed", {
           type: issue.typeName,
         })}
-        value={intoIssueId}
+        value={selectedId}
         disabled={busy}
         onChange={(event) => {
           setIntoIssueId(event.target.value);
@@ -545,9 +552,9 @@ function MergeForm({
       </select>
       <p className={HINT}>{t("issues.lifecycle.mergeHint")}</p>
       <TwoPressConfirm
-        confirming={confirming}
+        confirming={confirmingNow}
         busy={busy}
-        askDisabled={busy || intoIssueId === ""}
+        askDisabled={busy || selectedId === ""}
         askText={t("issues.lifecycle.merge")}
         askClassName={SECONDARY_BUTTON}
         confirmText={t("issues.lifecycle.mergeConfirm")}
@@ -556,7 +563,7 @@ function MergeForm({
           setConfirming(true);
         }}
         onConfirm={() => {
-          void merge.submit(intoIssueId);
+          void merge.submit(selectedId);
         }}
         onKeep={() => {
           setConfirming(false);

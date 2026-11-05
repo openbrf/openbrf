@@ -164,9 +164,10 @@ export async function requireHandledIssue<S extends Prisma.IssueSelect>(
  * Refuses, as an issue that does not exist, a person who holds no
  * `issues:handle` role at `now`.
  *
- * For a write that signs with the role the writer holds (`signatureOf`), asked
- * inside its transaction once its locks are held and with the instant the
- * signature is judged at. {@link requireHandledIssue} answers the narrower
+ * For a handler's write, asked inside its transaction once its locks are held
+ * and with the instant its scope is judged at: those that sign with the role
+ * the writer holds (`signatureOf`), and the notes, attachments, status moves
+ * and link withdrawals that act for a handler. {@link requireHandledIssue} answers the narrower
  * scope for a person who handles nothing, which admits every issue an
  * every-handler type has, and `signatureOf` falls back to the board: a role
  * withdrawn since the route's check must not write or sign as the board.

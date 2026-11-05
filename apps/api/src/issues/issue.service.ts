@@ -1375,7 +1375,9 @@ export class IssueService {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
 
-      const scope = await this.readerScope(tx, actorPersonId, new Date());
+      const now = new Date();
+      const scope = await this.readerScope(tx, actorPersonId, now);
+      await requireHandlerRole(tx, actorPersonId, now);
       const existing = await tx.issue.findFirst({
         where: { id: issueId, ...issuesHandledWhere(scope) },
         select: {

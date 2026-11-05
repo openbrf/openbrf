@@ -532,7 +532,9 @@ export class IssueConversationService {
     const note = await this.prisma.$transaction(async (tx) => {
       await lockErasureEligibility(tx, handlerPersonId);
       await lockIssueForHandling(tx, issueId);
-      await this.requireHandled(tx, issueId, handlerPersonId);
+      const now = new Date();
+      await this.requireHandled(tx, issueId, handlerPersonId, now);
+      await requireHandlerRole(tx, handlerPersonId, now);
       const written = await tx.issueNote.create({
         data: { issueId, authorPersonId: handlerPersonId, body },
         select: NOTE_SELECT,
@@ -635,7 +637,14 @@ export class IssueConversationService {
     try {
       attachment = await this.prisma.$transaction(async (tx) => {
         await lockIssueForHandling(tx, input.issueId);
-        await this.requireHandled(tx, input.issueId, input.handlerPersonId);
+        const now = new Date();
+        await this.requireHandled(
+          tx,
+          input.issueId,
+          input.handlerPersonId,
+          now,
+        );
+        await requireHandlerRole(tx, input.handlerPersonId, now);
         const count = await tx.issueAttachment.count({
           where: { issueId: input.issueId },
         });

@@ -21,7 +21,11 @@ import {
   type ReporterIssueMessageView,
   toReporterView,
 } from "./issue-conversation.service";
-import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
+import {
+  issueReaderScope,
+  issuesHandledWhere,
+  requireHandlerRole,
+} from "./issue-handlers";
 import { lockIssue, lockIssueForHandling } from "./issue-lock";
 import { IssueMailer } from "./issue-mailer.service";
 import {
@@ -686,7 +690,9 @@ export class IssueReporterLinkService implements OnModuleInit {
   async revoke(handlerPersonId: string, issueId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
-      const scope = await issueReaderScope(tx, handlerPersonId, new Date());
+      const now = new Date();
+      const scope = await issueReaderScope(tx, handlerPersonId, now);
+      await requireHandlerRole(tx, handlerPersonId, now);
       const issue = await tx.issue.findFirst({
         where: { id: issueId, ...issuesHandledWhere(scope) },
         select: {
@@ -846,7 +852,7 @@ async function reporterMessageCounts(
 ): Promise<{ lastHour: number; total: number }> {
   const [counts] = await tx.$queryRaw<{ lastHour: bigint; total: bigint }[]>`
     SELECT
-      count(*) FILTER (WHERE "createdAt" > now() - interval '1 hour') AS "lastHour",
+      count(*) FILTER (WHERE "createdAt" > clock_timestamp() - interval '1 hour') AS "lastHour",
       count(*) AS "total"
     FROM "issue_message"
     WHERE "issueId" = ${issueId} AND "side" = 'REPORTER'`;

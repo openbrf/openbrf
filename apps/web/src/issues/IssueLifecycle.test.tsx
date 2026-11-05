@@ -538,6 +538,116 @@ describe("merging", () => {
     expect(screen.queryByText(/Skickat till 2 anmälare\./)).toBeNull();
   });
 
+  it("drops the count a message reached when one duplicate is replaced by another at the same count", async () => {
+    const duplicate = (id: string) => ({
+      kind: "issue" as const,
+      id,
+      typeName: "Hiss",
+      meaning: "DONE" as const,
+      createdAt: "2026-08-19T08:00:00.000Z",
+    });
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: {
+        ...NO_LINKS,
+        duplicateCount: 1,
+        duplicates: [duplicate("issue-2")],
+      },
+    });
+    sendToDuplicateReporters.mockResolvedValueOnce({
+      ok: true,
+      value: { sent: 1, skipped: 0 },
+    });
+    const session = userEvent.setup();
+    const { rerender } = render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[]}
+        queueRead={1}
+        onChanged={() => undefined}
+      />,
+    );
+    await session.type(
+      await screen.findByLabelText(
+        "Hiss: meddelande till anmälarna till de sammanslagna anmälningarna",
+      ),
+      "Tekniker kommer torsdag.",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+    expect(await screen.findByText(/Skickat till 1 anmälare\./)).toBeTruthy();
+
+    // A different duplicate takes the place of issue-2; the count stays at 1.
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: {
+        ...NO_LINKS,
+        duplicateCount: 1,
+        duplicates: [duplicate("issue-3")],
+      },
+    });
+    rerender(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[]}
+        queueRead={2}
+        onChanged={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.queryByText(/Skickat till 1 anmälare\./)).toBeNull();
+    });
+  });
+
+  it("does not confirm a merge into an issue that is no longer offered", async () => {
+    const third = issue({ id: "issue-3", typeName: "Tvättstuga" });
+    const session = userEvent.setup();
+    const { rerender } = render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER, third]}
+        onChanged={() => undefined}
+      />,
+    );
+    const target = await screen.findByLabelText(
+      "Hiss: slå samman med ett annat ärende",
+    );
+    await session.selectOptions(target, "issue-2");
+    await session.click(
+      screen.getByRole("button", { name: "Slå samman som dublett" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Ja, avsluta som dublett" }),
+    ).toBeTruthy();
+
+    // The chosen issue is closed and leaves the list.
+    rerender(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), third]}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(
+      (
+        screen.getByLabelText(
+          "Hiss: slå samman med ett annat ärende",
+        ) as HTMLSelectElement
+      ).value,
+    ).toBe("");
+    expect(
+      screen.queryByRole("button", { name: "Ja, avsluta som dublett" }),
+    ).toBeNull();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Slå samman som dublett",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(mergeIssue).not.toHaveBeenCalled();
+  });
+
   it("says how many follow-ups there are when only a page of them is listed", async () => {
     fetchIssueLinks.mockResolvedValue({
       ok: true,
