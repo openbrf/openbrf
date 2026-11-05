@@ -1209,6 +1209,39 @@ describe("handling an issue", () => {
     expect(fetchIssueCharges.mock.calls.length).toBe(charges);
   });
 
+  it("reads the charges again when the reporter stops being protected, though the issue's revision is the same", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue({ reporter: { kind: "protected" }, apartment: null })]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(
+      await screen.findByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeTruthy();
+    const charges = fetchIssueCharges.mock.calls.length;
+
+    // The protection ends: the person changes, the issue's revision does not.
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    expect(
+      screen.queryByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeNull();
+    expect(fetchIssueCharges.mock.calls.length).toBe(charges + 1);
+  });
+
   it("does not read the charges or the guide again when the queue brings the same revision in a new object", async () => {
     const session = userEvent.setup();
     const view = render(

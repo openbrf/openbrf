@@ -526,8 +526,13 @@ function IssueCharges({ issue }: { issue: QueuedIssue }): ReactElement {
 
   const revision = issueRevision(issue);
   const issueId = issue.id;
+  const reporterProtected = issue.reporter.kind === "protected";
 
   useEffect(() => {
+    // A protected reporter's charges are withheld at render, so no read is
+    // made; it is made again when the protection ends, as that changes the
+    // person and not the issue's revision.
+    if (reporterProtected) return;
     let active = true;
     void fetchIssueCharges(issueId).then((answer) => {
       if (active) {
@@ -540,21 +545,20 @@ function IssueCharges({ issue }: { issue: QueuedIssue }): ReactElement {
     return () => {
       active = false;
     };
-  }, [issueId, revision]);
+  }, [issueId, revision, reporterProtected]);
 
   /*
    * Another issue's answer is never shown under this one. The same issue's
    * last answer stays while a newer revision is read, rather than flashing
    * back to "reading". A reporter who has become protected withholds them at
    * once, from the issue as the queue reads it now, whatever the last answer
-   * held: the protection changes the person and not the issue's revision.
+   * held, and one whose protection has ended is read again.
    */
-  const charges =
-    issue.reporter.kind === "protected"
-      ? null
-      : read?.issueId === issue.id
-        ? read.charges
-        : "reading";
+  const charges = reporterProtected
+    ? null
+    : read?.issueId === issue.id
+      ? read.charges
+      : "reading";
 
   return (
     <section className="flex flex-col gap-2">
