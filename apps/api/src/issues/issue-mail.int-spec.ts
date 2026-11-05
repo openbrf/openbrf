@@ -355,6 +355,21 @@ async function overdueJobs(
   );
 }
 
+/**
+ * The overdue job queued last for an issue, as its worker would receive it.
+ * A test that runs the job queued again runs this one, not a payload it builds,
+ * so a replacement with the wrong target date fails the test.
+ */
+async function lastOverdueJob(
+  issueId: string,
+  targetDate: string,
+): Promise<IssueOverdueJob> {
+  const job = (await overdueJobs(issueId)).at(-1);
+  expect(job?.data).toEqual({ issueId, targetDate });
+  if (!job) throw new Error("no overdue job is queued");
+  return job.data;
+}
+
 function recipientsOf(jobs: IssueNoticeJob[]): Map<string, string> {
   return new Map(jobs.map((job) => [job.personId, job.event]));
 }
@@ -1873,7 +1888,9 @@ describe("an overdue reminder that is never sent", () => {
       expect(sent).toEqual([]);
       expect(await claimed(issueId)).toEqual([]);
       expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
-      expect(await mailer.remindOverdue({ issueId, targetDate })).toBe(true);
+      expect(
+        await mailer.remindOverdue(await lastOverdueJob(issueId, targetDate)),
+      ).toBe(true);
       const again = await lastNotice(issueId);
       expect(again).toEqual({
         issueId,
@@ -1920,7 +1937,9 @@ describe("an overdue reminder that is never sent", () => {
       // Still restricted when the job queued again runs: nothing is claimed,
       // and nothing more is queued.
       const noticesBefore = (await notices(issueId)).length;
-      expect(await mailer.remindOverdue({ issueId, targetDate })).toBe(false);
+      expect(
+        await mailer.remindOverdue(await lastOverdueJob(issueId, targetDate)),
+      ).toBe(false);
       expect(await claimed(issueId)).toEqual([]);
       expect(await notices(issueId)).toHaveLength(noticesBefore);
       expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
@@ -1961,7 +1980,9 @@ describe("an overdue reminder that is never sent", () => {
         where: { id: manager.personId },
         data: { processingRestrictedAt: null },
       });
-      expect(await mailer.remindOverdue({ issueId, targetDate })).toBe(true);
+      expect(
+        await mailer.remindOverdue(await lastOverdueJob(issueId, targetDate)),
+      ).toBe(true);
       const again = await lastNotice(issueId);
       expect(again).toEqual({
         issueId,
