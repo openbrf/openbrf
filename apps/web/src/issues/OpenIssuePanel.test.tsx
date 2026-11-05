@@ -302,4 +302,47 @@ describe("opening an issue as a handler", () => {
       }),
     ).toBeTruthy();
   });
+
+  it("describes the description field with the ring-fence warning for a ring-fenced type", async () => {
+    const session = userEvent.setup();
+    const ringFenced: IssueTypeView = {
+      ...TYPES[0]!,
+      id: "type-noise",
+      name: "Störningar",
+      ringFenced: true,
+    };
+    render(
+      <OpenIssuePanel
+        types={[...TYPES, ringFenced]}
+        onOpened={() => undefined}
+      />,
+    );
+
+    await session.selectOptions(
+      screen.getByLabelText("Vad gäller det"),
+      "type-noise",
+    );
+
+    const textarea = screen.getByRole("textbox", {
+      name: "Vad har hänt",
+      description: /läses bara av styrelsen, aldrig av förvaltaren/,
+    });
+    // The ordinary warning gives way to the ring-fence one.
+    expect(
+      screen.queryByRole("textbox", {
+        name: "Vad har hänt",
+        description: /extern förvaltare/i,
+      }),
+    ).toBeNull();
+
+    const describedBy = textarea.getAttribute("aria-describedby");
+    if (describedBy === null) throw new Error("Missing warning reference");
+    const warning = document.getElementById(describedBy);
+    if (warning === null) throw new Error("Missing warning element");
+    // The warning stands above the field, so it is read before writing.
+    expect(
+      warning.compareDocumentPosition(textarea) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
 });
