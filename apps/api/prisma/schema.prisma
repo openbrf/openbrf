@@ -4700,8 +4700,9 @@ model Issue {
   /// or on its reporter's granted erasure request (ADR 0057). The board's
   /// screen says so with the date rather than showing an empty issue. Written
   /// when the text goes, also while a file attached during the run stands,
-  /// and again by the run that takes that file. Not a selector: what the purge reaches is whatever free text still stands, so
-  /// text written after a reopening is reached on the next closing's clock.
+  /// and again by the run that takes that file. Not a selector: what the
+  /// purge reaches is whatever free text still stands, so text written after
+  /// a reopening is reached on the next closing's clock.
   freeTextRemovedAt DateTime?
 
   /// Since when a legal hold stands on the issue, or null when none does
