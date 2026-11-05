@@ -32,6 +32,7 @@ import {
   ResponsibilityGuideAdminController,
 } from "./issues.controller";
 import { ContractorService } from "./contractor.service";
+import { WorkOrderLinkService } from "./work-order-link.service";
 import { WorkOrderMailerService } from "./work-order-mailer.service";
 import { WorkOrderService } from "./work-order.service";
 import {
@@ -59,7 +60,8 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
  * The services are exported because the association's public website renders
  * the report form itself, in process, rather than calling this API over HTTP,
  * the saved replies because the setup wizard seeds them, and the reporter's
- * private link because its page is the website's too (ADR 0055).
+ * private link and the contractor's link because their pages are the
+ * website's too (ADR 0055).
  *
  * IssuePurgeService is a provider and not exported: it is a scheduled job with
  * nobody to call it, and the integration suite reaches it through the module
@@ -102,6 +104,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     ContractorService,
     WorkOrderService,
     WorkOrderMailerService,
+    WorkOrderLinkService,
     ResponsibilityGuideService,
   ],
   exports: [
@@ -110,6 +113,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueSavedReplyService,
     IssuePlaceService,
     IssueReporterLinkService,
+    WorkOrderLinkService,
     ResponsibilityGuideService,
   ],
 })

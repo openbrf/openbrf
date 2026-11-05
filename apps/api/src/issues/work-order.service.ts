@@ -24,6 +24,11 @@ import {
   WORK_ORDER_NEVER_LEFT,
   type WorkOrderDeliveryFailure,
 } from "./work-order-delivery";
+import {
+  type ChoosablePhotoView,
+  WorkOrderLinkService,
+  type WorkOrderLinkRecordView,
+} from "./work-order-link.service";
 import { WorkOrderMailerService } from "./work-order-mailer.service";
 import {
   previewKey,
@@ -114,6 +119,13 @@ export interface WorkOrderView {
   sentAt: string;
   deliveryStatus: "PENDING" | "SENT" | "FAILED";
   deliveryFailure: WorkOrderDeliveryFailure | null;
+  /**
+   * The contractor's link to it (ADR 0055): where the link stands, the
+   * contractor's answer, notes and photographs, and the photographs chosen
+   * for it. Listed whether or not the switch is on, so what came through a
+   * link stays on the record after the switch is turned off.
+   */
+  contractorLink: WorkOrderLinkRecordView;
 }
 
 export interface IssueWorkOrdersView {
@@ -130,6 +142,23 @@ export interface IssueWorkOrdersView {
    * handler reopens the issue to write one.
    */
   closed: boolean;
+  /**
+   * Whether contractors' links are switched on (decision 25). Off, the screen
+   * offers no link and no choice of photographs, only the withdrawal of a link
+   * issued while it was on, which the record still lists as `live`.
+   */
+  linksEnabled: boolean;
+  /**
+   * The issue's photographs a handler may choose for a link, while the switch
+   * is on; none while it is off.
+   */
+  choosablePhotos: ChoosablePhotoView[];
+  /**
+   * Whether somebody the issue concerns, its reporter or a person who lives
+   * in its apartment today, has protected personal data. No link is given
+   * then, and every link given before is ended (ADR 0055).
+   */
+  protectedHousehold: boolean;
   workOrders: WorkOrderView[];
 }
 
@@ -173,6 +202,7 @@ export class WorkOrderService {
     private readonly mail: MailService,
     private readonly mailer: WorkOrderMailerService,
     private readonly contractors: ContractorService,
+    private readonly links: WorkOrderLinkService,
   ) {
     this.previewKey = previewKey(env.BETTER_AUTH_SECRET);
   }
@@ -187,22 +217,42 @@ export class WorkOrderService {
     readerPersonId: string,
     issueId: string,
   ): Promise<IssueWorkOrdersView> {
-    const { issue, rows } = await this.prisma.$transaction(
-      async (tx) => {
-        const handled = await this.requireHandled(tx, issueId, readerPersonId);
-        const found = await tx.workOrder.findMany({
-          where: { issueId: handled.id },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          select: WORK_ORDER_SELECT,
-        });
-        return { issue: handled, rows: found };
-      },
-      { isolationLevel: "RepeatableRead" },
-    );
+    const { issue, rows, linkViews, choosable } =
+      await this.prisma.$transaction(
+        async (tx) => {
+          const handled = await this.requireHandled(
+            tx,
+            issueId,
+            readerPersonId,
+          );
+          const found = await tx.workOrder.findMany({
+            where: { issueId: handled.id },
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            select: WORK_ORDER_SELECT,
+          });
+          return {
+            issue: handled,
+            rows: found,
+            linkViews: await this.links.recordViews(
+              tx,
+              handled.id,
+              found.map((row) => row.id),
+            ),
+            choosable:
+              this.links.enabled && !handled.type.ringFenced
+                ? await this.links.choosableOf(tx, handled.id)
+                : [],
+          };
+        },
+        { isolationLevel: "RepeatableRead" },
+      );
     return {
       ringFenced: issue.type.ringFenced,
       closed: issue.closed,
-      workOrders: await this.views(rows),
+      linksEnabled: this.links.enabled,
+      choosablePhotos: choosable,
+      protectedHousehold: linkViews.protectedHousehold,
+      workOrders: await this.views(rows, linkViews.views),
     };
   }
 
@@ -390,8 +440,8 @@ export class WorkOrderService {
           {
             // An order known not to have left this instance is not an earlier
             // sending: its handler is told to write it again, and a refusal
-            // that says it was sent would be false. One that failed with
-            // `send-failed` or is unconfirmed may have gone out, and counts.
+            // that says it was sent would be false. One that is unconfirmed
+            // may have gone out, and counts.
             OR: [
               { deliveryStatus: { not: "FAILED" } },
               { deliveryFailure: null },
@@ -516,7 +566,10 @@ export class WorkOrderService {
     };
   }
 
-  private async views(rows: WorkOrderRow[]): Promise<WorkOrderView[]> {
+  private async views(
+    rows: WorkOrderRow[],
+    linkViews: ReadonlyMap<string, WorkOrderLinkRecordView> = new Map(),
+  ): Promise<WorkOrderView[]> {
     const viewOf = await readAuthors(
       this.prisma,
       rows.flatMap((row) =>
@@ -535,6 +588,7 @@ export class WorkOrderService {
         sentAt: row.createdAt.toISOString(),
         deliveryStatus: row.deliveryStatus,
         deliveryFailure: row.deliveryFailure as WorkOrderDeliveryFailure | null,
+        contractorLink: linkViews.get(row.id) ?? NO_LINK,
       })),
     );
   }
@@ -564,6 +618,16 @@ export class WorkOrderService {
     }
   }
 }
+
+/** The link part of a work order nobody has given a link to. */
+const NO_LINK: WorkOrderLinkRecordView = {
+  link: { state: "none", expiresAt: null },
+  answer: null,
+  answeredAt: null,
+  chosenFileIds: [],
+  notes: [],
+  files: [],
+};
 
 const WORK_ORDER_SELECT = {
   id: true,

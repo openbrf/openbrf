@@ -189,6 +189,11 @@
         "subject": "Nytt svar i ärende {{number}}: {{type}}",
         "heading": "Anmälaren har svarat",
         "body": "Anmälaren har skrivit ett nytt svar i ärende {{number}}, {{type}}. Svaret står i ärendekön, inte i det här mejlet."
+      },
+      "contractor": {
+        "subject": "En entreprenör har svarat i ärende {{number}}: {{type}}",
+        "heading": "En entreprenör har svarat på en arbetsorder",
+        "body": "Entreprenören för en arbetsorder i ärende {{number}}, {{type}}, har svarat, skrivit en anteckning eller lagt till ett foto via arbetsorderlänken. Ärendet i ärendekön visar vad som finns på det nu; det här mejlet säger inget om vad som skickades."
       }
     },
     "issueReporterNotice": {
@@ -565,6 +570,8 @@
           "description": "Beskrivning",
           "photographs": "Fotografier",
           "workOrders": "Arbetsorder skrivna till entreprenörer",
+          "workOrderLinkGiven_one": "Länk given till entreprenören; {{count}} foto visas",
+          "workOrderLinkGiven_other": "Länk given till entreprenören; {{count}} foton visas",
           "documentTitle": "Titel",
           "binder": "Pärm",
           "entryKind": "Sort",
@@ -881,6 +888,12 @@
           "ISSUE_COST_RESPONSIBILITY_CHANGED": "Vem som betalar för ett ärende angavs",
           "ISSUE_RESIDENTS_LISTED": "Någon som hanterar ärenden visades vilka som bor i en lägenhet, för att lägga upp ett ärende",
           "ISSUE_WORK_ORDER_SENT": "En arbetsorder i ett ärende skrevs och lades i kö för utskick till en entreprenör",
+          "ISSUE_WORK_ORDER_LINK_ISSUED": "En entreprenör fick en länk till en arbetsorder i ett ärende",
+          "ISSUE_WORK_ORDER_LINK_REVOKED": "En entreprenörs länk till en arbetsorder i ett ärende drogs tillbaka eller ersattes",
+          "ISSUE_WORK_ORDER_ANSWERED": "En entreprenör svarade på en arbetsorder i ett ärende via länken",
+          "ISSUE_WORK_ORDER_NOTE_ADDED": "En entreprenör skrev en anteckning på en arbetsorder i ett ärende via länken",
+          "ISSUE_WORK_ORDER_PHOTO_ADDED": "En entreprenör lade till ett foto på en arbetsorder i ett ärende via länken",
+          "ISSUE_WORK_ORDER_PHOTOS_CHOSEN": "Fotona som en arbetsorderlänk visar valdes",
           "CONTRACTOR_LIST_CHANGED": "En entreprenör lades till, ändrades eller togs bort i entreprenörslistan",
           "ISSUE_TYPE_RING_FENCE_CHANGED": "En ärendetyp stängdes för entreprenörer, eller öppnades igen",
           "ISSUE_MESSAGE_SENT": "Ett meddelande skrevs i ett ärende",
@@ -970,7 +983,9 @@
             "note": "En intern anteckning",
             "photo": "En bild",
             "attachment": "En fil",
-            "workOrder": "Texten i en arbetsorder"
+            "workOrder": "Texten i en arbetsorder",
+            "workOrderNote": "En anteckning från en entreprenör",
+            "workOrderFile": "Ett foto från en entreprenör"
           },
           "legalHoldSince": "Kravet gällde sedan {{date}}",
           "retentionChanged": "Från {{from}} till {{to}} år efter stängning"
@@ -3755,6 +3770,54 @@
         "limited": "Ärendet tar inte emot fler meddelanden just nu. Försök igen senare.",
         "full": "Ärendet har nått det högsta antalet meddelanden som en länk tar emot. Fler meddelanden kan inte skickas via länken."
       }
+    },
+    "workOrderLink": {
+      "title": "Arbetsorder",
+      "to": "Till",
+      "sent": "Skickad",
+      "state": "Ditt besked",
+      "stateOpen": "Inte besvarad ännu",
+      "stateAccepted": "Accepterad",
+      "until": "Länken fungerar till",
+      "text": "Uppdraget",
+      "photos": "Foton från föreningen",
+      "photoAlt": "Foto {{number}}",
+      "answer": "Lämna besked",
+      "accept": "Acceptera arbetsordern",
+      "done": "Markera som klar",
+      "decline": "Tacka nej",
+      "answerHint": "När du tackar nej eller markerar arbetsordern som klar slutar länken att fungera. Skriv eventuella anteckningar och lägg till foton innan dess.",
+      "notes": "Dina anteckningar",
+      "noNotes": "Inga anteckningar ännu.",
+      "removed": "Föreningen har tagit bort den här anteckningen.",
+      "note": "Skriv till föreningen",
+      "noteHint": "Till exempel vad du hittade eller gjorde, eller när du kan komma. Skriv inga personnummer.",
+      "addNote": "Skicka anteckning",
+      "ownPhotos": "Dina foton",
+      "photo": "Lägg till ett foto",
+      "photoHint": "En bild i JPEG, PNG, WebP eller GIF. Plats och kamerauppgifter tas bort innan den sparas.",
+      "addPhoto": "Skicka foto",
+      "private": "Länken är avsedd för dig, så dela den inte. Den slutar fungera 30 dagar efter att du fick den, när du tackar nej eller markerar arbetsordern som klar, eller när föreningen drar tillbaka den.",
+      "notFoundTitle": "Länken öppnar ingen arbetsorder",
+      "notFoundBody": "Länken kan ha gått ut, dragits tillbaka eller redan besvarats. Kontakta föreningen som skickade den om du behöver den igen.",
+      "ended": {
+        "declined": "Du har tackat nej till arbetsordern",
+        "done": "Du har markerat arbetsordern som klar",
+        "body": "Föreningen har fått besked. Länken fungerar inte längre."
+      },
+      "notice": {
+        "accepted": "Du har accepterat arbetsordern. Föreningen har fått besked.",
+        "noted": "Din anteckning har skickats till föreningen.",
+        "refused": "Det gick inte att läsa. Skriv en anteckning på högst 2 000 tecken och försök igen.",
+        "identity": "Anteckningen innehåller ett personnummer och skickades inte. Ta bort det och försök igen.",
+        "note-limited": "Arbetsordern tar inte emot fler anteckningar just nu. Försök igen senare.",
+        "note-full": "Arbetsordern har så många anteckningar som en länk tar emot. Kontakta föreningen på annat sätt.",
+        "photo-added": "Ditt foto har skickats till föreningen.",
+        "photo-refused": "Filen är inte en bild i JPEG, PNG, WebP eller GIF som går att läsa hela, och sparades inte.",
+        "photo-too-large": "Fotot är för stort och sparades inte. Skicka ett mindre.",
+        "photo-limited": "Arbetsordern tar inte emot fler foton just nu. Försök igen senare.",
+        "photo-full": "Arbetsordern har så många foton som en länk tar emot."
+      }
     }
   },
   "signup": {
@@ -4031,6 +4094,8 @@
         "photo": "Tog bort en bild",
         "attachment": "Tog bort en fil",
         "workOrder": "Tog bort texten i en arbetsorder",
+        "workOrderNote": "Tog bort en anteckning från en entreprenör",
+        "workOrderFile": "Tog bort ett foto från en entreprenör",
         "unknown": "Tog bort text eller en fil"
       },
       "legalHoldPlaced": "Lade ett rättsligt bevarandekrav",
@@ -4050,6 +4115,12 @@
         "sent": "En arbetsorder skickades till en entreprenör",
         "failed": "En arbetsorder till en entreprenör skickades inte",
         "unconfirmed": "En arbetsorder till en entreprenör kan ha uteblivit; ingen vet om den kom fram"
+      },
+      "workOrderAnswer": {
+        "accepted": "Entreprenören accepterade en arbetsorder",
+        "declined": "Entreprenören tackade nej till en arbetsorder",
+        "done": "Entreprenören markerade en arbetsorder som klar",
+        "unknown": "Entreprenören svarade på en arbetsorder"
       }
     },
     "workOrders": {
@@ -4065,7 +4136,7 @@
       "failed": "Inte skickad.",
       "failure": {
         "mailNotConfigured": "Inte skickad: ingen e-postserver är inställd.",
-        "sendFailed": "Obekräftad: e-postservern svarade med ett fel, och det går inte att veta om den kom fram. Fråga entreprenören innan du skickar den igen.",
+        "sendFailed": "Inte skickad: meddelandet kunde inte förberedas, eller e-postservern gick inte att nå eller tog inte emot den.",
         "sendingInterrupted": "Inte skickad: sändningen avbröts innan den började. Skriv den igen för att skicka den.",
         "deliveryUnconfirmed": "Obekräftad: sändningen avbröts, och det går inte att veta om den kom fram. Fråga entreprenören innan du skickar den igen.",
         "recipientRemoved": "Inte skickad: entreprenören togs bort från listan innan den gick iväg.",
@@ -4113,7 +4184,80 @@
       },
       "recipientRemoved": "En entreprenör som sedan tagits bort från listan",
       "addressUnreadable": "Adressen kunde inte läsas.",
-      "bodyErased": "Texten raderades när ärendets lagringstid gick ut."
+      "bodyErased": "Texten raderades när ärendets lagringstid gick ut.",
+      "link": {
+        "title": "Entreprenörens länk",
+        "titleNamed": "Entreprenörens länk: arbetsordern till {{name}} från {{at}}",
+        "titleUnnamed": "Entreprenörens länk: arbetsordern från {{at}}",
+        "live": "Länken öppnar arbetsordern till <data>{{date}}</data>.",
+        "liveUndated": "Länken öppnar arbetsordern.",
+        "switchedOff": "Arbetsorderlänkar är avstängda, så länken öppnar ingenting nu. Den skulle öppna arbetsordern igen om de slogs på före <data>{{date}}</data>. Dra tillbaka den för att avsluta den för gott.",
+        "ended": "Länken öppnar inte längre arbetsordern: den har dragits tillbaka, ersatts eller gått ut, entreprenören har tackat nej eller markerat den som klar, eller så har arbetsordern eller ärendet ändrats så att den inte längre får nå en entreprenör.",
+        "none": "Entreprenören har inte fått någon länk till den här arbetsordern.",
+        "hint": "Via länken ser entreprenören den här arbetsordern och fotona som väljs nedan, inget annat från ärendet. Där kan de tacka ja eller nej, markera arbetet som klart och lägga till anteckningar och foton.",
+        "answered": "Entreprenören har tackat nej till arbetsordern eller markerat den som klar, så ingen ny länk ges.",
+        "unavailable": "Arbetsordern kan inte få någon länk: dess text eller entreprenör finns inte längre kvar.",
+        "protected": "Någon som ärendet gäller, den som anmälde eller någon som bor i lägenheten, har skyddade personuppgifter, så ingen arbetsorder i ärendet får någon länk och en länk som getts tidigare öppnar den inte längre. Ge entreprenören det de behöver på annat sätt.",
+        "issue": "Ge entreprenören en länk",
+        "issueNamed": "Ge entreprenören en länk till arbetsordern till {{name}} från {{at}}",
+        "issueAgain": "Ge en ny länk",
+        "issueAgainNamed": "Ge en ny länk till arbetsordern till {{name}} från {{at}}",
+        "reissue": "Ge en ny länk – den nuvarande slutar fungera",
+        "reissueNamed": "Ge en ny länk – den nuvarande slutar fungera: arbetsordern till {{name}} från {{at}}",
+        "issuing": "Skapar länken...",
+        "revoke": "Dra tillbaka länken",
+        "revokeNamed": "Dra tillbaka länken till arbetsordern till {{name}} från {{at}}",
+        "revokeUnnamed": "Dra tillbaka länken till arbetsordern från {{at}}",
+        "revoking": "Drar tillbaka...",
+        "revoked": "Länken är tillbakadragen. Den öppnar inte längre arbetsordern.",
+        "shown": {
+          "once": "Länken visas bara nu. Kopiera den innan du går härifrån: den går inte att visa igen, och en ny länk ersätter den här.",
+          "expires": "Den öppnar arbetsordern till <data>{{date}}</data>, eller tills arbetet markeras som klart eller länken dras tillbaka.",
+          "send": "Open BRF skickar den inte. Skicka den själv till entreprenören på det sätt du väljer: med sms eller från din egen e-post.",
+          "url": "Länk",
+          "message": "Meddelande att skicka",
+          "messageText": "Här är länken till arbetsordern från {{association}}: {{url}}",
+          "messageTextUnnamed": "Här är länken till arbetsordern: {{url}}",
+          "copyUrl": "Kopiera länken",
+          "copyMessage": "Kopiera meddelandet",
+          "copied": "Kopierat.",
+          "copyFailed": "Det gick inte att kopiera. Markera texten och kopiera den själv."
+        },
+        "photos": {
+          "title": "Foton som länken visar",
+          "hint": "Välj bara det entreprenören behöver för jobbet. Ett foto kan visa personer, eller hur någon bor.",
+          "none": "Ärendet har inga foton att välja.",
+          "fromReport": "Från anmälan",
+          "fromHandler": "Bifogad fil",
+          "save": "Spara valet",
+          "saveNamed": "Spara valet av foton för arbetsordern till {{name}} från {{at}}",
+          "saveUnnamed": "Spara valet av foton för arbetsordern från {{at}}",
+          "saving": "Sparar...",
+          "saved": "Länken visar nu de valda fotona."
+        },
+        "errors": {
+          "issueClosed": "Ärendet är avslutat. Öppna det igen innan du ger en entreprenör en länk.",
+          "linksOff": "Länkar till entreprenörer är avstängda på den här instansen.",
+          "workOrderNotFound": "Arbetsordern finns inte längre i ärendet. Listan har lästs om.",
+          "answered": "Entreprenören har tackat nej till arbetsordern eller markerat den som klar, så ingen ny länk ges.",
+          "textErased": "Arbetsorderns text är borttagen, så den får ingen länk.",
+          "recipientRemoved": "Entreprenören för arbetsordern har tagits bort från listan, så den får ingen länk.",
+          "protected": "Någon som ärendet gäller har skyddade personuppgifter, så ingen arbetsorder i ärendet får någon länk.",
+          "photoNotFound": "Ett av fotona finns inte längre i ärendet. Listan har lästs om; välj igen.",
+          "unknown": "Länken gick inte att ge eller dra tillbaka just nu. Försök igen.",
+          "photosUnknown": "Valet av foton gick inte att spara just nu. Försök igen."
+        }
+      },
+      "answer": {
+        "title": "Från entreprenören",
+        "at": "{{answer}} <data>{{date}}</data>",
+        "ACCEPTED": "Accepterad",
+        "DECLINED": "Avböjd",
+        "DONE": "Klar",
+        "notes": "Entreprenörens anteckningar",
+        "files": "Entreprenörens foton",
+        "fileAlt": "Foto från entreprenören: {{name}}"
+      }
     },
     "open": {
       "__after__": "timeline",
@@ -4271,7 +4415,7 @@
       "toDuplicatesTitle": "Anmälarna till de sammanslagna anmälningarna",
       "toDuplicates": "Meddelande till alla som anmälde de sammanslagna anmälningarna",
       "toDuplicatesNamed": "{{type}}: meddelande till anmälarna till de sammanslagna anmälningarna",
-      "toDuplicatesHint_one": "Går till den som anmälde den {{count}} sammanslagna anmälan, i deras egen anmälan, undertecknat som styrelsen eller förvaltaren. Bara en anmälare med konto får det. Det når inte det här ärendets egen anmälare.",
+      "toDuplicatesHint_one": "Går till den som anmälde den sammanslagna anmälan, i deras egen anmälan, undertecknat som styrelsen eller förvaltaren. Bara en anmälare med konto får det. Det når inte det här ärendets egen anmälare.",
       "toDuplicatesHint_other": "Går till dem som anmälde de {{count}} sammanslagna anmälningarna, var och en i sin egen anmälan, undertecknat som styrelsen eller förvaltaren. Ingen av dem ser någon annans anmälan. Bara anmälare med konto får det, och det når inte det här ärendets egen anmälare.",
       "toDuplicatesSent_one": "Skickat till {{count}} anmälare.",
       "toDuplicatesSent_other": "Skickat till {{count}} anmälare.",
@@ -4310,7 +4454,7 @@
         "mergeLimit": "Det ärendet har redan så många dubletter som det får ha. Slå samman med ett annat ärende, eller svara anmälarna med ett känt fel. Kön har lästs om.",
         "mergeIntoClosed": "Det ärendet är avslutat. Öppna det igen först, eller slå samman med ett som fortfarande hanteras. Kön har lästs om.",
         "mergeHasDuplicates": "Andra ärenden har slagits samman med det här. Slå i stället samman det andra ärendet med det här. Kön har lästs om.",
-        "mergeAlreadyDuplicate": "Det ärendet är redan en dublett av ett annat. Öppna det igen för att slå samman det med något annat. Kön har lästs om.",
+        "mergeAlreadyDuplicate": "Det här ärendet är redan en dublett av ett annat. Öppna det igen för att slå samman det med något annat. Kön har lästs om.",
         "personalIdentityNumber": "Texten innehåller ett personnummer. Ta bort det och försök igen.",
         "noDuplicateReporter": "Ingen kan läsa ett svar i de sammanslagna anmälningarna: anmälarna har inget konto att läsa det i.",
         "unknown": "Det gick inte att spara just nu. Försök igen."
@@ -4439,6 +4583,8 @@
       "removeAttachment": "Ta bort filen {{name}}",
       "removeWorkOrder": "Ta bort texten i arbetsordern från {{at}}",
       "removeWorkOrderTo": "Ta bort texten i arbetsordern till {{name}} från {{at}}",
+      "removeWorkOrderNote": "Ta bort entreprenörens anteckning från {{at}}",
+      "removeWorkOrderFile": "Ta bort entreprenörens foto {{name}}",
       "description": "Beskrivning",
       "location": "Plats",
       "photos": "Anmälarens bilder",
@@ -4559,9 +4705,9 @@
       "pending": "Svaret ligger i kö och har inte gått i väg än.",
       "sent": "Svaret togs emot av e-postservern.",
       "mailNotConfigured": "Svaret gick inte i väg: den här instansen har ingen e-postserver inställd.",
-      "refused": "Svaret gick inte i väg: e-postservern avvisade det.",
+      "refused": "Svaret gick inte i väg: svaret kunde inte förberedas, eller e-postservern gick inte att nå eller avvisade det.",
       "interrupted": "Svaret gavs upp innan det gick i väg.",
-      "unconfirmed": "Utskicket avbröts halvvägs, så det går inte att veta om svaret gick i väg. Fråga mottagaren innan du skickar det igen.",
+      "unconfirmed": "Utskicket avbröts, så det går inte att veta om svaret gick i väg. Fråga mottagaren innan du skickar det igen.",
       "unknown": "Svaret gick inte i väg."
     },
     "errors": {

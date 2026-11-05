@@ -5,6 +5,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { MediaService } from "../media/media.service";
 import { detachErasedReporter } from "./issue-retention";
+import { revokeWorkOrderLinks } from "./work-order-link";
 
 /**
  * Why one issue's free-text layer is being removed, and the test that decides,
@@ -59,8 +60,9 @@ export type FreeTextRemovalOutcome =
  * run, rather than the erasure being recorded while the bytes remain with
  * nothing left to name them. The join rows go with the file by their cascade. Then
  * the text, in one transaction with the entry that records it: the description
- * emptied, the location cleared, every issue message and internal note deleted,
- * and `freeTextRemovedAt` written. It is written whenever the text goes, also
+ * emptied, the location cleared, every issue message, internal note and
+ * contractor's note deleted, every contractor's link revoked, and
+ * `freeTextRemovedAt` written. It is written whenever the text goes, also
  * when a file attached during the run stands (the outcome is then
  * `unfinished`), and again by the run that takes that file.
  *
@@ -145,6 +147,13 @@ export class IssueFreeTextService {
       const { count: notes } = await tx.issueNote.deleteMany({
         where: { issueId },
       });
+      const { count: contractorNotes } = await tx.workOrderNote.deleteMany({
+        where: { workOrder: { issueId } },
+      });
+      // A contractor's link to a work order on an issue whose free text is
+      // gone has nothing of its own left, and ends now (ADR 0055, control B5).
+      // On a closed issue it opened nothing already.
+      await revokeWorkOrderLinks(tx, { issueId });
       // A file attached since the files were read stands, and the issue is
       // found again tomorrow: the text goes tonight whatever, and is marked as
       // gone tonight.
@@ -159,6 +168,7 @@ export class IssueFreeTextService {
         filesRemoved === 0 &&
         messages === 0 &&
         notes === 0 &&
+        contractorNotes === 0 &&
         current.description === "" &&
         current.location === null;
       if (nothingTaken) {
@@ -205,6 +215,7 @@ export class IssueFreeTextService {
             layer: "freeText",
             issueMessages: messages,
             internalNotes: notes,
+            ...(contractorNotes > 0 ? { contractorNotes } : {}),
             files: filesRemoved,
             ...(reporterDetached ? { reporterDetached: true } : {}),
             ...removal.context,
@@ -217,7 +228,10 @@ export class IssueFreeTextService {
     });
   }
 
-  /** Every file on the issue: the reporter's photographs and the handlers'. */
+  /**
+   * Every file on the issue: the reporter's photographs, the handlers', and
+   * the contractors' through a work order's link.
+   */
   private async filesOf(
     client: PrismaService | Prisma.TransactionClient,
     issueId: string,
@@ -233,6 +247,13 @@ export class IssueFreeTextService {
       select: { fileId: true },
       orderBy: { fileId: "asc" },
     });
-    return [...photos, ...attachments].map((file) => file.fileId);
+    const contractorFiles = await client.workOrderFile.findMany({
+      where: { workOrder: { issueId } },
+      select: { fileId: true },
+      orderBy: { fileId: "asc" },
+    });
+    return [...photos, ...attachments, ...contractorFiles].map(
+      (file) => file.fileId,
+    );
   }
 }

@@ -16,10 +16,16 @@ import type { Prisma } from "../generated/prisma/client";
  * schema), so the reporters are read in a second query rather than joined. An
  * issue that is gone, or that nobody in the register reported, has no
  * protected reporter.
+ *
+ * `exceptReporterId` leaves out the issues that person reported. The withholding
+ * keeps a report from being paired with an identity the reader may not learn;
+ * the reporter's own copy of what the association holds about them (the access
+ * report, GDPR art. 15) pairs their report with themselves.
  */
 export async function issuesReportedByProtectedPersons(
   client: Pick<Prisma.TransactionClient, "issue" | "person">,
   issueIds: readonly string[],
+  exceptReporterId?: string,
 ): Promise<ReadonlySet<string>> {
   const ids = [...new Set(issueIds)];
   if (ids.length === 0) {
@@ -49,6 +55,7 @@ export async function issuesReportedByProtectedPersons(
       .filter(
         (issue) =>
           issue.reporterPersonId !== null &&
+          issue.reporterPersonId !== exceptReporterId &&
           protectedIds.has(issue.reporterPersonId),
       )
       .map((issue) => issue.id),

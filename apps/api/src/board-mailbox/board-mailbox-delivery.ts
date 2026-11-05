@@ -23,17 +23,24 @@ export const REPLY_DELIVERY_FAILURES = {
    */
   mailNotConfigured: "mail-not-configured",
 
-  /** The mail server refused the message. */
+  /**
+   * The mail send ended in an error the mail driver places before the answer
+   * was handed over: the mail server could not be reached, or refused the
+   * sign-in, the address or the message (`MailHandover`). It did not go out.
+   */
   refused: "send-failed",
 
   /** The sending was given up on before it reached this reply. */
   interrupted: "reply-sending-interrupted",
 
   /**
-   * The sending was given up on after an attempt had claimed this reply.
+   * Nobody knows whether the answer went out.
    *
-   * That attempt stopped somewhere between the claim and the record of its
-   * outcome - before the handover, during it, or after it with the record
+   * Either the mail send ended in an error after which the mail server may hold
+   * the answer - a connection that broke or went quiet once the answer was on
+   * its way - or the sending was given up on after an attempt had claimed this
+   * reply. That attempt stopped somewhere between the claim and the record of
+   * its outcome - before the handover, during it, or after it with the record
    * failing - and nothing on the row says which. So the board is told that
    * nobody knows whether the answer went out, rather than that it did not:
    * a board told the latter sends it again.

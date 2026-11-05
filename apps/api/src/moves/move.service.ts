@@ -26,6 +26,11 @@ import {
   moveOutMail,
 } from "../mail/templates";
 import { DataSubjectRequestService } from "../data-protection/data-subject-request.service";
+import {
+  HOUSEHOLD_PROTECTION_TRANSACTION,
+  lockHouseholdProtection,
+} from "../issues/issue-lock";
+import { revokeLinksOfProtectedHousehold } from "../issues/work-order-link";
 import { endPluginAccesses } from "../plugin-access/plugin-access";
 import { ApartmentRegisterService } from "../registers/apartment-register.service";
 import { residencyHeldOn } from "../registers/held-on";
@@ -253,7 +258,9 @@ export class MoveService implements OnModuleInit {
    *
    * The locks are taken here, so the caller must not hold another advisory
    * lock before calling it: lockApartmentResidencies gives the order every
-   * transaction keeps. The two exceptions come before these in that order: the
+   * transaction keeps, and the household protection's lock
+   * (`lockHouseholdProtection`) comes after them, before the residency is
+   * written. The two exceptions come before these in that order: the
    * same apartment's key, which is taken again at no cost, and the address key
    * from `person-email-lock.ts` that the sign-up approval takes after it.
    *
@@ -288,6 +295,11 @@ export class MoveService implements OnModuleInit {
       personId,
       ...(input.alsoLockPersonIds ?? []),
     ]);
+    // Last of the advisory keys, and before the first write: a person marked
+    // protected takes it before writing the person, so a move-in that held
+    // the person's row and then waited for it would close a cycle (see
+    // lockHouseholdProtection).
+    await lockHouseholdProtection(tx);
 
     // A residency on this apartment that would overlap the new one: open, or
     // ending after the new move-in date. One ending on that date does not
@@ -346,6 +358,15 @@ export class MoveService implements OnModuleInit {
      */
     await endPluginAccesses(tx, this.audit, {
       personId,
+      actorPersonId: input.actorPersonId,
+      channel: "WEB",
+    });
+
+    // A protected person's household is not one a contractor's link may open
+    // an issue of, from the day it is recorded (ADR 0055).
+    await revokeLinksOfProtectedHousehold(tx, this.audit, {
+      personId,
+      apartmentId,
       actorPersonId: input.actorPersonId,
       channel: "WEB",
     });
@@ -495,7 +516,7 @@ export class MoveService implements OnModuleInit {
         transferId,
         obligationId,
       };
-    });
+    }, HOUSEHOLD_PROTECTION_TRANSACTION);
 
     /*
      * After the commit, and best effort, for the reason the register screen's

@@ -3467,10 +3467,15 @@ describe("answering a letter", () => {
   it("records a refusal as a code and never in the mail server's words", async () => {
     const { replyMessageId } = await threadWithReply(`Refuserad ${suffix}`);
 
+    // The driver's refusal as it reaches the sender, saying nothing was handed
+    // over.
     const send = vi
       .spyOn(mail, "send")
       .mockRejectedValue(
-        new Error(`550 5.1.1 <${CORRESPONDENT}>: recipient rejected`),
+        Object.assign(
+          new Error(`550 5.1.1 <${CORRESPONDENT}>: recipient rejected`),
+          { handover: "not-handed-over" },
+        ),
       );
     try {
       expect(await mailer.sendReply(replyMessageId)).toBe("failed");
@@ -3486,6 +3491,32 @@ describe("answering a letter", () => {
     expect(stored?.deliveryFailure).toBe("send-failed");
     // A rejection quotes the envelope back, and the envelope is an address.
     expect(stored?.deliveryFailure).not.toContain("@");
+    expect(stored?.sentAt).toBeNull();
+  });
+
+  it("records a send that may have reached the mail server as unconfirmed", async () => {
+    const { replyMessageId } = await threadWithReply(`Brutet ${suffix}`);
+
+    // A connection that broke once the answer was on its way: the server may
+    // hold it, and a board told it did not go out would send it again.
+    const send = vi.spyOn(mail, "send").mockRejectedValue(
+      Object.assign(new Error("Timeout"), {
+        code: "ETIMEDOUT",
+        handover: "may-have-been-handed-over",
+      }),
+    );
+    try {
+      expect(await mailer.sendReply(replyMessageId)).toBe("failed");
+    } finally {
+      send.mockRestore();
+    }
+
+    const stored = await prisma.boardMailboxMessage.findUnique({
+      where: { id: replyMessageId },
+      select: { deliveryStatus: true, deliveryFailure: true, sentAt: true },
+    });
+    expect(stored?.deliveryStatus).toBe("FAILED");
+    expect(stored?.deliveryFailure).toBe("reply-delivery-unconfirmed");
     expect(stored?.sentAt).toBeNull();
   });
 

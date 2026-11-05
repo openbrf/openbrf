@@ -37,6 +37,9 @@ const fetchIssueWorkOrders = vi.fn();
 const fetchContractorChoices = vi.fn();
 const previewWorkOrder = vi.fn();
 const sendWorkOrder = vi.fn();
+const issueWorkOrderLink = vi.fn();
+const revokeWorkOrderLink = vi.fn();
+const chooseWorkOrderPhotos = vi.fn();
 
 vi.mock("../api/work-orders", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/work-orders")>()),
@@ -44,6 +47,16 @@ vi.mock("../api/work-orders", async (importOriginal) => ({
   fetchContractorChoices: () => fetchContractorChoices(),
   previewWorkOrder: (input: unknown) => previewWorkOrder(input),
   sendWorkOrder: (input: unknown) => sendWorkOrder(input),
+  issueWorkOrderLink: (input: unknown) => issueWorkOrderLink(input),
+  revokeWorkOrderLink: (input: unknown) => revokeWorkOrderLink(input),
+  chooseWorkOrderPhotos: (input: unknown) => chooseWorkOrderPhotos(input),
+}));
+
+const fetchViewer = vi.fn();
+
+vi.mock("../api/instance", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/instance")>()),
+  fetchViewer: () => fetchViewer(),
 }));
 
 const redactIssue = vi.fn();
@@ -84,7 +97,15 @@ const ISSUE = {
 function orders(
   overrides: Partial<IssueWorkOrdersData> = {},
 ): IssueWorkOrdersData {
-  return { ringFenced: false, closed: false, workOrders: [], ...overrides };
+  return {
+    ringFenced: false,
+    closed: false,
+    linksEnabled: false,
+    choosablePhotos: [],
+    protectedHousehold: false,
+    workOrders: [],
+    ...overrides,
+  };
 }
 
 function preview(body: string): WorkOrderPreview {
@@ -97,6 +118,15 @@ function preview(body: string): WorkOrderPreview {
   };
 }
 
+const NO_LINK: WorkOrder["contractorLink"] = {
+  link: { state: "none", expiresAt: null },
+  answer: null,
+  answeredAt: null,
+  chosenFileIds: [],
+  notes: [],
+  files: [],
+};
+
 const SENT: WorkOrder = {
   id: "wo-1",
   contractorId: PLUMBER.id,
@@ -108,6 +138,7 @@ const SENT: WorkOrder = {
   sentAt: "2026-11-03T09:00:00.000Z",
   deliveryStatus: "FAILED",
   deliveryFailure: "send-failed",
+  contractorLink: NO_LINK,
 };
 
 beforeEach(() => {
@@ -120,6 +151,13 @@ beforeEach(() => {
     .mockResolvedValue({ ok: true, value: [PLUMBER, PHONE_ONLY] });
   previewWorkOrder.mockReset();
   sendWorkOrder.mockReset();
+  issueWorkOrderLink.mockReset();
+  revokeWorkOrderLink.mockReset();
+  chooseWorkOrderPhotos.mockReset();
+  fetchViewer.mockReset().mockResolvedValue({
+    ok: true,
+    value: { housingCooperative: { name: "Brf Eksemplet" } },
+  });
   redactIssue.mockReset().mockResolvedValue({ ok: true, value: undefined });
 });
 
@@ -277,7 +315,9 @@ describe("IssueWorkOrders", () => {
     expect(screen.queryByLabelText("Vatten: arbetsorder")).toBeNull();
     // The record says it did not go out, and why, in words.
     expect(
-      screen.getByText(/^Obekräftad: e-postservern svarade med ett fel/),
+      screen.getByText(
+        /^Inte skickad: meddelandet kunde inte förberedas, eller e-postservern gick inte att nå/,
+      ),
     ).toBeTruthy();
   });
 
@@ -898,5 +938,519 @@ describe("removing a work order's text", () => {
         name: /^Ta bort texten i arbetsordern från/,
       }),
     ).toBeTruthy();
+  });
+});
+
+/**
+ * The contractor's link to a work order (ADR 0055), behind the instance's
+ * switch. Off, nothing of it is offered and what came through a link earlier
+ * still stands on the record. On, the address is shown once, in the answer to
+ * issuing it, and gone when the record is read again.
+ */
+describe("a contractor's link", () => {
+  const DELIVERED: WorkOrder = {
+    ...SENT,
+    deliveryStatus: "SENT",
+    deliveryFailure: null,
+  };
+  const ANSWERED: WorkOrder = {
+    ...DELIVERED,
+    contractorLink: {
+      link: { state: "ended", expiresAt: null },
+      answer: "DONE",
+      answeredAt: "2026-11-04T10:00:00.000Z",
+      chosenFileIds: [],
+      notes: [
+        {
+          id: "note-1",
+          body: "Packningen bytt, kranen tät.",
+          redactedAt: null,
+          createdAt: "2026-11-04T09:30:00.000Z",
+        },
+      ],
+      files: [
+        {
+          id: "file-1",
+          url: "/api/media/file-1",
+          fileName: "kranen.jpg",
+          width: 800,
+          height: 600,
+          createdAt: "2026-11-04T09:40:00.000Z",
+        },
+      ],
+    },
+  };
+  const PHOTOS = [
+    {
+      fileId: "f-1",
+      url: "/api/media/f-1",
+      fileName: "IMG_1.jpg",
+      source: "report" as const,
+    },
+    {
+      fileId: "f-2",
+      url: "/api/media/f-2",
+      fileName: "IMG_2.jpg",
+      source: "handler" as const,
+    },
+  ];
+  const ISSUED = {
+    url: "https://brf.test/arbetsorder/l/secret-token",
+    expiresAt: "2026-12-04T09:00:00.000Z",
+  };
+  const give = { name: /^Ge entreprenören en länk/ };
+
+  it("offers nothing while the switch is off, and still shows what came through a link", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ linksEnabled: false, workOrders: [ANSWERED] }),
+    });
+    render(<WithRedaction of={UNHELD} onChanged={vi.fn()} />);
+
+    expect(
+      await screen.findByText("Packningen bytt, kranen tät."),
+    ).toBeTruthy();
+    expect(screen.getByText(/^Klar/)).toBeTruthy();
+    expect(
+      screen.getByRole("img", { name: "Foto från entreprenören: kranen.jpg" }),
+    ).toBeTruthy();
+    // Each is removable as the rest of the issue's free text is.
+    expect(
+      screen.getByRole("button", {
+        name: /^Ta bort entreprenörens anteckning från/,
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Ta bort entreprenörens foto kranen.jpg",
+      }),
+    ).toBeTruthy();
+    // No sign of the link itself.
+    expect(screen.queryByText("Entreprenörens länk")).toBeNull();
+    expect(screen.queryByRole("button", give)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Dra tillbaka/ })).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
+  it("shows the address once, and drops it when the record is read again", async () => {
+    const withNote: WorkOrder = {
+      ...DELIVERED,
+      contractorLink: { ...NO_LINK, notes: ANSWERED.contractorLink.notes },
+    };
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ linksEnabled: true, workOrders: [withNote] }),
+    });
+    issueWorkOrderLink.mockResolvedValue({ ok: true, value: ISSUED });
+    const user = userEvent.setup();
+    render(<WithRedaction of={UNHELD} onChanged={vi.fn()} />);
+
+    expect(
+      await screen.findByText(
+        "Entreprenören har inte fått någon länk till den här arbetsordern.",
+      ),
+    ).toBeTruthy();
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        linksEnabled: true,
+        workOrders: [
+          {
+            ...withNote,
+            contractorLink: {
+              ...withNote.contractorLink,
+              link: { state: "live", expiresAt: ISSUED.expiresAt },
+            },
+          },
+        ],
+      }),
+    });
+    await user.click(screen.getByRole("button", give));
+
+    expect(issueWorkOrderLink).toHaveBeenCalledWith({
+      issueId: "issue-1",
+      workOrderId: "wo-1",
+    });
+    expect(await screen.findByDisplayValue(ISSUED.url)).toBeTruthy();
+    // The message carries the address and the association, and nothing of
+    // the work order, the issue or its reporter.
+    expect(
+      screen.getByDisplayValue(
+        `Här är länken till arbetsordern från Brf Eksemplet: ${ISSUED.url}`,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/^Länken visas bara nu/)).toBeTruthy();
+    // The read after issuing says the link is live, and leaves the address.
+    expect(
+      await screen.findByText(/^Länken öppnar arbetsordern till/),
+    ).toBeTruthy();
+    expect(screen.getByDisplayValue(ISSUED.url)).toBeTruthy();
+    // A live link is replaced only by a control that says the old one stops.
+    expect(
+      screen.getByRole("button", {
+        name: /^Ge en ny länk – den nuvarande slutar fungera/,
+      }),
+    ).toBeTruthy();
+
+    // Removing the contractor's note reads the record again.
+    await user.click(
+      screen.getByRole("button", {
+        name: /^Ta bort entreprenörens anteckning från/,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Ta bort för gott" }));
+    await waitFor(() => {
+      expect(redactIssue).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        redaction: { target: "workOrderNote", id: "note-1" },
+      });
+    });
+    await waitFor(() => {
+      expect(screen.queryByDisplayValue(ISSUED.url)).toBeNull();
+    });
+    expect(screen.queryByText(/^Länken visas bara nu/)).toBeNull();
+  });
+
+  it("withdraws a live link and reads the record again", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        linksEnabled: true,
+        workOrders: [
+          {
+            ...DELIVERED,
+            contractorLink: {
+              ...NO_LINK,
+              link: { state: "live", expiresAt: ISSUED.expiresAt },
+            },
+          },
+        ],
+      }),
+    });
+    revokeWorkOrderLink.mockResolvedValue({ ok: true, value: undefined });
+    const user = userEvent.setup();
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: /^Dra tillbaka länken till arbetsordern till Rörfirman från/,
+      }),
+    );
+    expect(revokeWorkOrderLink).toHaveBeenCalledWith({
+      issueId: "issue-1",
+      workOrderId: "wo-1",
+    });
+    expect(
+      await screen.findByText(
+        "Länken är tillbakadragen. Den öppnar inte längre arbetsordern.",
+      ),
+    ).toBeTruthy();
+    expect(fetchIssueWorkOrders).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers only the withdrawal of a live link while the switch is off", async () => {
+    const live: WorkOrder = {
+      ...DELIVERED,
+      contractorLink: {
+        ...NO_LINK,
+        link: { state: "live", expiresAt: ISSUED.expiresAt },
+      },
+    };
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ linksEnabled: false, workOrders: [live] }),
+    });
+    revokeWorkOrderLink.mockResolvedValue({ ok: true, value: undefined });
+    const user = userEvent.setup();
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    expect(
+      await screen.findByText(/^Arbetsorderlänkar är avstängda/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/^Länken öppnar arbetsordern/)).toBeNull();
+    expect(screen.queryByRole("button", give)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Ge en ny länk/ })).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        linksEnabled: false,
+        workOrders: [
+          {
+            ...live,
+            contractorLink: {
+              ...live.contractorLink,
+              link: { state: "ended", expiresAt: null },
+            },
+          },
+        ],
+      }),
+    });
+    await user.click(
+      screen.getByRole("button", {
+        name: /^Dra tillbaka länken till arbetsordern till Rörfirman från/,
+      }),
+    );
+    expect(revokeWorkOrderLink).toHaveBeenCalledWith({
+      issueId: "issue-1",
+      workOrderId: "wo-1",
+    });
+    // The outcome is said once the record reads the link as ended.
+    expect(
+      await screen.findByText(
+        "Länken är tillbakadragen. Den öppnar inte längre arbetsordern.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Dra tillbaka/ })).toBeNull();
+  });
+
+  it("saves the photographs chosen for the link, as the whole choice", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        linksEnabled: true,
+        choosablePhotos: PHOTOS,
+        workOrders: [
+          {
+            ...DELIVERED,
+            contractorLink: { ...NO_LINK, chosenFileIds: ["f-1"] },
+          },
+        ],
+      }),
+    });
+    chooseWorkOrderPhotos.mockResolvedValue({ ok: true, value: undefined });
+    const user = userEvent.setup();
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    const first = await screen.findByRole("checkbox", { name: /IMG_1\.jpg/ });
+    expect((first as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText(/Ett foto kan visa personer/)).toBeTruthy();
+    const save = screen.getByRole("button", { name: /^Spara valet/ });
+    // Nothing changed, nothing to save.
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+
+    await user.click(first);
+    await user.click(screen.getByRole("checkbox", { name: /IMG_2\.jpg/ }));
+    // The record read after the save carries the saved choice.
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        linksEnabled: true,
+        choosablePhotos: PHOTOS,
+        workOrders: [
+          {
+            ...DELIVERED,
+            contractorLink: { ...NO_LINK, chosenFileIds: ["f-2"] },
+          },
+        ],
+      }),
+    });
+    await user.click(save);
+
+    expect(chooseWorkOrderPhotos).toHaveBeenCalledWith({
+      issueId: "issue-1",
+      workOrderId: "wo-1",
+      fileIds: ["f-2"],
+    });
+    expect(
+      await screen.findByText("Länken visar nu de valda fotona."),
+    ).toBeTruthy();
+    // And that choice is what stands once the save has settled.
+    expect(
+      (screen.getByRole("checkbox", { name: /IMG_2\.jpg/ }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("checkbox", { name: /IMG_1\.jpg/ }) as HTMLInputElement)
+        .checked,
+    ).toBe(false);
+    // Changing the choice again lets go of the notice: it is about the last one.
+    await user.click(screen.getByRole("checkbox", { name: /IMG_1\.jpg/ }));
+    expect(screen.queryByText("Länken visar nu de valda fotona.")).toBeNull();
+  });
+
+  it("keeps a choice made while a save was out", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        linksEnabled: true,
+        choosablePhotos: PHOTOS,
+        workOrders: [DELIVERED],
+      }),
+    });
+    let answer: (value: unknown) => void = () => undefined;
+    chooseWorkOrderPhotos.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    await user.click(
+      await screen.findByRole("checkbox", { name: /IMG_1\.jpg/ }),
+    );
+    const save = screen.getByRole("button", { name: /^Spara valet/ });
+    await user.click(save);
+    // One save at a time.
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    await user.click(screen.getByRole("checkbox", { name: /IMG_2\.jpg/ }));
+
+    await act(async () => {
+      answer({ ok: true, value: undefined });
+      await Promise.resolve();
+    });
+    // The newer choice stands, unsaved, and is offered for saving.
+    expect(
+      (screen.getByRole("checkbox", { name: /IMG_2\.jpg/ }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    await waitFor(() => {
+      expect((save as HTMLButtonElement).disabled).toBe(false);
+    });
+    expect(screen.queryByText("Länken visar nu de valda fotona.")).toBeNull();
+  });
+
+  it("says why a link was refused", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ linksEnabled: true, workOrders: [DELIVERED] }),
+    });
+    issueWorkOrderLink.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "work-order-protected" },
+    });
+    const user = userEvent.setup();
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    await user.click(await screen.findByRole("button", give));
+    expect(
+      await screen.findByText(
+        "Någon som ärendet gäller har skyddade personuppgifter, så ingen arbetsorder i ärendet får någon länk.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByDisplayValue(ISSUED.url)).toBeNull();
+  });
+
+  it("reads the record again after a link is refused for a protected household", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ linksEnabled: true, workOrders: [DELIVERED] }),
+    });
+    issueWorkOrderLink.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "work-order-protected" },
+    });
+    const user = userEvent.setup();
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    await screen.findByRole("button", give);
+    const reads = fetchIssueWorkOrders.mock.calls.length;
+    await user.click(screen.getByRole("button", give));
+    await waitFor(() => {
+      expect(fetchIssueWorkOrders.mock.calls.length).toBeGreaterThan(reads);
+    });
+  });
+
+  it("shows the address though the association's name is never answered", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      fetchIssueWorkOrders.mockResolvedValue({
+        ok: true,
+        value: orders({ linksEnabled: true, workOrders: [DELIVERED] }),
+      });
+      issueWorkOrderLink.mockResolvedValue({ ok: true, value: ISSUED });
+      fetchViewer.mockReturnValue(new Promise(() => undefined));
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<IssueWorkOrders issue={ISSUE} />);
+
+      await user.click(await screen.findByRole("button", give));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000);
+      });
+      expect(await screen.findByDisplayValue(ISSUED.url)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not show the address of a link the record says has ended", async () => {
+    fetchIssueWorkOrders.mockResolvedValueOnce({
+      ok: true,
+      value: orders({ linksEnabled: true, workOrders: [DELIVERED] }),
+    });
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        linksEnabled: true,
+        workOrders: [
+          {
+            ...DELIVERED,
+            contractorLink: {
+              ...DELIVERED.contractorLink,
+              link: { state: "ended", expiresAt: null },
+            },
+          },
+        ],
+      }),
+    });
+    issueWorkOrderLink.mockResolvedValue({ ok: true, value: ISSUED });
+    const user = userEvent.setup();
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    await user.click(await screen.findByRole("button", give));
+    await waitFor(() => {
+      expect(fetchIssueWorkOrders.mock.calls.length).toBeGreaterThan(1);
+    });
+    expect(screen.queryByDisplayValue(ISSUED.url)).toBeNull();
+  });
+
+  it("offers no link, and shows the one given before as ended, while a resident has protected personal data", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        linksEnabled: true,
+        // The reporter is not protected; somebody living in the apartment is.
+        protectedHousehold: true,
+        workOrders: [
+          {
+            ...DELIVERED,
+            contractorLink: {
+              ...NO_LINK,
+              link: { state: "ended", expiresAt: null },
+            },
+          },
+        ],
+      }),
+    });
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    expect(
+      await screen.findByText(
+        /^Någon som ärendet gäller, den som anmälde eller någon som bor i lägenheten, har skyddade personuppgifter/,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/^Länken öppnar inte längre arbetsordern/),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", give)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Ge en ny länk/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Dra tillbaka/ })).toBeNull();
+  });
+
+  it("offers no new link for a work order the contractor marked done", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ linksEnabled: true, workOrders: [ANSWERED] }),
+    });
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    expect(
+      await screen.findByText(
+        "Entreprenören har tackat nej till arbetsordern eller markerat den som klar, så ingen ny länk ges.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Ge en ny länk/ })).toBeNull();
   });
 });

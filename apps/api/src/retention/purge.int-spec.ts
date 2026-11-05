@@ -81,7 +81,8 @@ const issueId = `purge-issue-${suffix}`;
 /**
  * An open issue of the same person's that holds an entry permission and whose
  * text a handler has redacted: nothing of its free text stands, so the purge
- * detaches the person and takes the permission with them.
+ * detaches the person and takes the permission with them. Its work order holds
+ * only a contractor's note a handler redacted, which stands as a blank row.
  */
 const entryIssueId = `purge-entry-issue-${suffix}`;
 /**
@@ -507,6 +508,20 @@ beforeAll(async () => {
       entryPets: true,
       entryMasterKey: false,
       entryUntil: new Date("2027-12-31"),
+    },
+  });
+  // The same open issue's work order, whose text is gone and whose only note
+  // from the contractor a handler has redacted: a blank row the clock has yet
+  // to take, which does not keep the reporter attached.
+  await prisma.workOrder.create({
+    data: {
+      issueId: entryIssueId,
+      recipientName: null,
+      recipientEmailCipher: null,
+      body: null,
+      sentByPersonId: null,
+      deliveryStatus: "SENT",
+      notes: { create: { body: "", redactedAt: new Date() } },
     },
   });
   // An earlier issue of theirs that the clock has finished: nothing of its

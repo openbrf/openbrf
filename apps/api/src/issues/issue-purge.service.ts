@@ -22,6 +22,7 @@ import {
   WORK_ORDER_BODY_RETENTION_DAYS,
   WORK_ORDER_TEXT_STANDING,
 } from "./issue-retention";
+import { revokeWorkOrderLinks } from "./work-order-link";
 
 /** Queue the nightly public-form issue purge runs on. */
 export const ISSUE_PURGE_QUEUE = "issue-purge";
@@ -416,6 +417,10 @@ export class IssuePurgeService implements OnModuleInit {
       if (count === 0) {
         return false;
       }
+      // A link to a work order with no text has nothing to show, and ends
+      // with it (ADR 0055, control B5). On a closed issue it opened nothing
+      // already; the revocation makes the end a fact on the row.
+      await revokeWorkOrderLinks(tx, { issueId });
 
       /*
        * The address index a public-form report kept past its contact details

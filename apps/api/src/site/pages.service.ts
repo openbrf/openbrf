@@ -147,8 +147,17 @@ const RESERVED_SLUGS: ReadonlySet<string> = new Set([
  * read below /arende is the link's, so the name is not offered to a page
  * written from now on. The English spelling is held on the news index's
  * argument.
+ *
+ * A contractor's link to a work order sits under /arbetsorder in the same way,
+ * whether or not the switch that opens it is on: every read below it answers
+ * as the link's, so a page written there would have no sub-address of its own.
  */
-const CLAIMED_BELOW: ReadonlySet<string> = new Set(["arende", "case"]);
+const CLAIMED_BELOW: ReadonlySet<string> = new Set([
+  "arende",
+  "case",
+  "arbetsorder",
+  "work-order",
+]);
 
 /**
  * The shape a slug must have.

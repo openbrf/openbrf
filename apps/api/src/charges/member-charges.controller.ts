@@ -220,6 +220,26 @@ export class MemberChargesController {
   }
 
   /**
+   * The issue alone, as a charge is made from it: the same basis `forIssue`
+   * answers with, without the charges made from it.
+   *
+   * The charges screen opens the form from this and shows no charges, and
+   * reading them would cost a query and a second read of the issue to settle
+   * a race the form does not have: the basis is one read of the issue, masked
+   * as the queue masks it, and says nothing of the charges. Guarded as
+   * `forIssue` is, and answered as one that does not exist for an issue the
+   * reader does not handle.
+   */
+  @Get("issues/:issueId/basis")
+  @RequireCapability("issues:handle")
+  async basisForIssue(
+    @Param("issueId") issueId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssueChargeBasis> {
+    return this.issues.chargeBasis(actingPersonId(request), issueId);
+  }
+
+  /**
    * Corrects one charge.
    *
    * A POST to a named act rather than a PATCH, which is the shape every other

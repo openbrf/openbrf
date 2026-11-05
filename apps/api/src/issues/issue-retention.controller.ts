@@ -33,7 +33,15 @@ import {
 const redactionSchema = z.discriminatedUnion("target", [
   z.strictObject({ target: z.enum(["description", "location"]) }),
   z.strictObject({
-    target: z.enum(["message", "note", "photo", "attachment", "workOrder"]),
+    target: z.enum([
+      "message",
+      "note",
+      "photo",
+      "attachment",
+      "workOrder",
+      "workOrderNote",
+      "workOrderFile",
+    ]),
     id: z.string().min(1).max(64),
   }),
 ]);

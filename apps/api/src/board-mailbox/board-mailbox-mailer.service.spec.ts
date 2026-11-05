@@ -5,8 +5,10 @@ import type { Env } from "../config/env";
 import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
+import { MailApiError } from "../mail/http-api-mail.driver";
 import type { SentMail } from "../mail/mail-driver";
 import type { MailService } from "../mail/mail.service";
+import { MailServerNotPublicError } from "../mail/smtp-mail.driver";
 import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
 
 /**
@@ -27,13 +29,15 @@ const REPLY = {
   body: "Tack for ditt brev.",
   messageId: MINTED,
   inReplyTo: "fraga-1@utanfor.example",
+  deliveryStatus: "PENDING",
+  sentAt: null,
   thread: {
     subject: "Fraga om balkongen",
     correspondentEmailCipher: "brf:email",
   },
 };
 
-function build(sent: SentMail) {
+function build(sent: SentMail & { suppressed?: true }) {
   const update = vi.fn().mockResolvedValue({});
   const prisma = {
     boardMailboxMessage: {
@@ -64,7 +68,7 @@ function build(sent: SentMail) {
     mail as unknown as MailService,
     {} as JobQueueService,
   );
-  return { mailer, update, mail, prisma };
+  return { mailer, update, mail, prisma, encryption };
 }
 
 afterEach(() => {
@@ -203,6 +207,175 @@ describe("a reply another attempt claimed", () => {
       });
 
     expect(await mailer.sendReply("reply-1")).toBe("skipped");
+    expect(mail.send).not.toHaveBeenCalled();
+  });
+});
+
+describe("a reply that was settled or claimed before the job ran", () => {
+  it.each([
+    [
+      "sent",
+      { deliveryStatus: "SENT", sentAt: new Date("2026-10-05T08:00:00Z") },
+    ],
+    ["failed", { deliveryStatus: "FAILED", sentAt: null }],
+  ])(
+    "skips a reply already %s without reading the correspondent's address",
+    async (_what, row) => {
+      const { mailer, mail, prisma, encryption } = build({ messageId: null });
+      prisma.boardMailboxMessage.findUnique.mockResolvedValueOnce({
+        ...REPLY,
+        ...row,
+      });
+
+      expect(await mailer.sendReply("reply-1")).toBe("skipped");
+      // Personal data a job with nothing to send has no use for, which is
+      // also what could no longer be decrypted and retried the job five times.
+      expect(encryption.decrypt).not.toHaveBeenCalled();
+      expect(prisma.boardMailboxMessage.updateMany).not.toHaveBeenCalled();
+      expect(mail.send).not.toHaveBeenCalled();
+    },
+  );
+
+  it("fails the job for a reply claimed and unsettled, also without reading the address", async () => {
+    const { mailer, mail, prisma, encryption } = build({ messageId: null });
+    prisma.boardMailboxMessage.findUnique.mockResolvedValueOnce({
+      ...REPLY,
+      sentAt: new Date("2026-10-05T08:00:00Z"),
+    });
+
+    await expect(mailer.sendReply("reply-1")).rejects.toThrow(/claimed/);
+    expect(encryption.decrypt).not.toHaveBeenCalled();
+    expect(mail.send).not.toHaveBeenCalled();
+  });
+});
+
+describe("an answer the mail did not confirm", () => {
+  /** Quiet, because each case below fails a send on purpose. */
+  function quietLog(): void {
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => {
+      // The failure is asserted on the row, not in the log.
+    });
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => {
+      // Likewise.
+    });
+  }
+
+  /** The send fails as a driver throws it. */
+  function failingWith(error: unknown) {
+    const built = build({ messageId: null });
+    built.mail.send.mockRejectedValueOnce(error);
+    return built;
+  }
+
+  it.each([
+    [
+      "a server this instance may not connect to",
+      new MailServerNotPublicError({ cause: null }),
+    ],
+    [
+      "the mail API refusing the request",
+      new MailApiError("refused", 422, "not-handed-over"),
+    ],
+  ])(
+    "records %s, which the driver says came before the handover, as not sent",
+    async (_what, error) => {
+      quietLog();
+      const { mailer, update } = failingWith(error);
+
+      expect(await mailer.sendReply("reply-1")).toBe("failed");
+
+      expect(update).toHaveBeenCalledWith({
+        where: { id: "reply-1" },
+        data: {
+          deliveryStatus: "FAILED",
+          deliveryFailure: "send-failed",
+          sentAt: null,
+        },
+      });
+    },
+  );
+
+  it.each([
+    [
+      "the mail API failing after it read the request",
+      new MailApiError("refused", 502, "may-have-been-handed-over"),
+    ],
+    [
+      "an SMTP connection that went quiet with the answer on its way",
+      Object.assign(new Error("Timeout"), {
+        code: "ETIMEDOUT",
+        handover: "may-have-been-handed-over",
+      }),
+    ],
+    [
+      "a failure that does not say how far it got",
+      new Error("Connection closed unexpectedly"),
+    ],
+  ])(
+    "records %s as unconfirmed, so the board does not send it twice",
+    async (_what, error) => {
+      quietLog();
+      const { mailer, update } = failingWith(error);
+
+      expect(await mailer.sendReply("reply-1")).toBe("failed");
+
+      expect(update).toHaveBeenCalledWith({
+        where: { id: "reply-1" },
+        data: {
+          deliveryStatus: "FAILED",
+          deliveryFailure: "reply-delivery-unconfirmed",
+          sentAt: null,
+        },
+      });
+    },
+  );
+
+  it("records an answer the mail service dropped for want of a mail server as not sent", async () => {
+    quietLog();
+    // Outside production with no mail configured, the mail service suppresses
+    // the message rather than refusing it, and reports no identifier.
+    const { mailer, update } = build({ messageId: null, suppressed: true });
+
+    expect(await mailer.sendReply("reply-1")).toBe("failed");
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: "reply-1" },
+      data: {
+        deliveryStatus: "FAILED",
+        deliveryFailure: "mail-not-configured",
+        sentAt: null,
+      },
+    });
+    expect(update).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ deliveryStatus: "SENT" }),
+      }),
+    );
+  });
+
+  it("claims nothing when the address cannot be read back", async () => {
+    // Before the claim, so the reply stays unclaimed: the queue retries it,
+    // and once the retries are spent records it as interrupted, which is true.
+    const { mailer, mail, prisma, encryption } = build({ messageId: null });
+    encryption.decrypt.mockRejectedValueOnce(new Error("bad tag"));
+
+    await expect(mailer.sendReply("reply-1")).rejects.toThrow("bad tag");
+    expect(prisma.boardMailboxMessage.updateMany).not.toHaveBeenCalled();
+    expect(mail.send).not.toHaveBeenCalled();
+  });
+
+  it("claims nothing when the mailbox settings cannot be read", async () => {
+    // Same reason: a claim followed by a failed read would leave the reply
+    // claimed, and every retry would be refused as an unsettled claim.
+    const { mailer, mail, prisma } = build({ messageId: null });
+    prisma.association.findUnique.mockRejectedValueOnce(
+      new Error("connection lost"),
+    );
+
+    await expect(mailer.sendReply("reply-1")).rejects.toThrow(
+      "connection lost",
+    );
+    expect(prisma.boardMailboxMessage.updateMany).not.toHaveBeenCalled();
     expect(mail.send).not.toHaveBeenCalled();
   });
 });
