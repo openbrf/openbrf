@@ -6517,8 +6517,9 @@ enum NewsDeliveryStatus {
   PENDING
   /// Accepted by the mail server. It is not a claim that anybody read it.
   SENT
-  /// The mail server refused it, or this instance has none configured. The
-  /// news item is published either way: only the mailing failed.
+  /// Not confirmed as handed over: the copy did not go out, or the send ended in
+  /// an error that leaves it unknown whether it did. `failureReason` says which.
+  /// The news item is published either way: only the mailing failed.
   FAILED
 }
 
@@ -7632,8 +7633,9 @@ enum MeetingNoticeDeliveryStatus {
   /// is not a claim that the notice was lawfully given: see MeetingNotice.
   SENT
 
-  /// The mail server refused it, or this instance has none configured. The
-  /// notice is issued either way: only this copy of it failed.
+  /// Not confirmed as handed over: the copy did not go out, or the send ended in
+  /// an error that leaves it unknown whether it did. `failureReason` says which.
+  /// The notice is issued either way: only this copy of it failed.
   FAILED
 }
 

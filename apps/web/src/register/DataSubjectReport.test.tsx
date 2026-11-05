@@ -2848,6 +2848,55 @@ describe("what the document answers for", () => {
     }
   });
 
+  it("says a copy nobody confirmed is unconfirmed, not that it was not sent", async () => {
+    /*
+     * The send ended in an error after which the mail server may hold the
+     * message. The ledger fails the row, as nothing confirmed it, but the
+     * person it is about is not told it did not go out.
+     */
+    renderReport({
+      ...FULL_REPORT,
+      newsDeliveries: [
+        {
+          newsTitle: "Portkoden byts",
+          newsSlug: "portkoden-byts",
+          channel: "EMAIL",
+          status: "FAILED",
+          failure: "delivery-unconfirmed",
+          queuedAt: "2026-01-19T08:00:00.000Z",
+          sentAt: null,
+        },
+      ],
+      meetingNoticeDeliveries: [
+        {
+          meetingHeldOn: "2027-05-12",
+          meetingKind: "ORDINARY",
+          channel: "EMAIL",
+          status: "FAILED",
+          failure: "delivery-unconfirmed",
+          queuedAt: "2027-04-14T09:00:00.000Z",
+          sentAt: null,
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const mailing = within(
+      sectionOf("Nyhetsutskick och smsutskick till dig"),
+    ).getByText("Portkoden byts");
+    const notice = within(
+      sectionOf("Kallelser till föreningsstämma som skickats till dig"),
+    ).getByText("2027-05-12");
+    for (const row of [mailing.closest("tr"), notice.closest("tr")]) {
+      expect(row?.textContent).toContain("Obekräftat");
+      expect(row?.textContent).toContain(
+        "Utskicket avbröts innan e-postservern bekräftade det, så det går inte att veta om det nådde dig",
+      );
+      expect(row?.textContent).not.toContain("Inte skickat");
+      expect(row?.textContent).not.toContain("delivery-unconfirmed");
+    }
+  });
+
   it("prints the passkeys on the account", async () => {
     /*
      * Each passkey's name, when it was added and whether it is synced between
