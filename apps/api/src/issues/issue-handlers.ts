@@ -52,9 +52,19 @@ export function issueHandlersWhere(
 }
 
 /**
+ * A person a mail about an issue may go to, whatever their part in it: one
+ * with an address on record and whose processing is not restricted (GDPR art.
+ * 18). The one spelling of it for the issue mail, to a handler through
+ * {@link issueRecipientsWhere} and to a reporter on its own.
+ */
+export const issueMailReachableWhere = {
+  emailCipher: { not: null },
+  processingRestrictedAt: null,
+} as const satisfies Prisma.PersonWhereInput;
+
+/**
  * The handlers of a scope whom a mail about an issue may go to: those of
- * {@link issueHandlersWhere} with an address on record and whose processing is
- * not restricted.
+ * {@link issueHandlersWhere} that {@link issueMailReachableWhere} reaches.
  *
  * The rule and nothing beside it, as `activeBoardRecipientsWhere` is the seat
  * with an address added: a handler with no address still handles and is still
@@ -68,10 +78,7 @@ export function issueRecipientsWhere(
   now: Date,
 ): Prisma.PersonWhereInput {
   return {
-    AND: [
-      issueHandlersWhere(handledBy, now),
-      { emailCipher: { not: null }, processingRestrictedAt: null },
-    ],
+    AND: [issueHandlersWhere(handledBy, now), { ...issueMailReachableWhere }],
   };
 }
 

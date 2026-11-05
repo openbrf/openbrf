@@ -15,7 +15,8 @@ an issue's free text (ADR 0057).
   from the list, which clears their name and address from every work order sent
   them), when, who sent it and whether the mail went out.
 - **Refused under a legal hold.** While a legal hold stands on the issue,
-  nothing is offered, and the server refuses a removal.
+  nothing is offered, and the server refuses a removal. It refuses one as well
+  while a legal hold or a restriction stands on the issue's reporter.
 - **A mail not yet sent.** A work order whose mail had not gone out when its
   text was removed is not sent, and is recorded as not sent because its text
   was erased.
@@ -25,5 +26,4 @@ an issue's free text (ADR 0057).
 - **The reporter link.** When the removal leaves an issue with no text at all,
   and its reporter's erasure request has already been carried out, the issue
   stops naming them at once, as the nightly erasure of a work order's text
-  already did. A legal hold or a restriction of processing on the reporter
-  keeps the link.
+  already did.

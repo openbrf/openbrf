@@ -14,6 +14,8 @@ import {
   ISSUE_CLOSING_OUTCOMES,
   ISSUE_COST_RESPONSIBILITIES,
   ISSUE_CONVERSATION_LIMITS,
+  ISSUE_DAMAGE_CASE_LIMITS,
+  ISSUE_DAMAGE_CAUSES,
   ISSUE_ENTRY_ANSWERS,
   ISSUE_FINDING_KINDS,
   ISSUE_FIT_LIMITS,
@@ -248,6 +250,37 @@ const placeInputSchema = z.strictObject({
 
 /** Strict: the ring-fence is changed by a request that names it and nothing else. */
 const ringFenceSchema = z.strictObject({ ringFenced: z.boolean() });
+
+/**
+ * A damage case (decision 28). Trimmed and bounded here; folded, scanned for a
+ * personal identity number and held to a day that has come in the service, so
+ * a refusal it makes has a reason the screen can put a sentence to.
+ */
+const damageCaseFields = {
+  insurer: z.string().trim().min(1).max(ISSUE_DAMAGE_CASE_LIMITS.insurer),
+  claimNumber: z
+    .string()
+    .trim()
+    .min(1)
+    .max(ISSUE_DAMAGE_CASE_LIMITS.claimNumber),
+  occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  cause: z.enum(ISSUE_DAMAGE_CAUSES),
+};
+
+/** The mark a removal means to take off, as the screen read it. */
+const removeDamageCaseSchema = z.strictObject({
+  replaces: z.strictObject(damageCaseFields),
+});
+
+const damageCaseSchema = z.strictObject({
+  ...damageCaseFields,
+  /**
+   * The mark the change was made from, as the screen read it, or null for
+   * none. Required: a change that does not say what it began from cannot be
+   * told from one that writes over another handler's.
+   */
+  replaces: z.strictObject(damageCaseFields).nullable(),
+});
 
 /** Who pays, or null to say nothing again (decision 26). Never an amount. */
 const costResponsibilitySchema = z.strictObject({
@@ -583,7 +616,7 @@ export class IssueQueueController {
   async listTypes(
     @Req() request: RequestWithPrincipal,
   ): Promise<IssueTypeView[]> {
-    return this.issues.handledTypes(actingPersonId(request));
+    return this.issues.handledTypes(actingPersonId(request), "show");
   }
 
   /**
@@ -947,6 +980,36 @@ export class IssueQueueController {
       costResponsibilitySchema.parse(body).costResponsibility,
       actingPersonId(request),
     );
+  }
+
+  /** Marks the issue as a damage case, or changes the mark (decision 28). */
+  @Put(":id/damage-case")
+  async markDamageCase(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    const { replaces, ...mark } = damageCaseSchema.parse(body);
+    return this.issues.markDamageCase(
+      id,
+      mark,
+      replaces,
+      actingPersonId(request),
+    );
+  }
+
+  /**
+   * Takes the damage-case mark off; the legal hold it placed stays. The body
+   * names the mark taken off, which is refused when it is another by then.
+   */
+  @Delete(":id/damage-case")
+  async removeDamageCase(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    const { replaces } = removeDamageCaseSchema.parse(body);
+    return this.issues.removeDamageCase(id, replaces, actingPersonId(request));
   }
 
   @Post(":id/status")

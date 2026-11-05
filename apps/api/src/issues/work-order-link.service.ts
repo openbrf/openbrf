@@ -269,8 +269,8 @@ export class WorkOrderLinkService {
    * before or after it, and under the household protection's lock, so a
    * protection is too. Refused on a ring-fenced or closed issue, for a work
    * order declined or done, without its text or its recipient, and while a
-   * person with protected personal data reported the issue or lives in its
-   * apartment.
+   * person with protected personal data reported the issue or lives or is to
+   * live in its apartment.
    */
   async issue(
     handlerPersonId: string,
@@ -500,16 +500,12 @@ export class WorkOrderLinkService {
         // and is not counted: the access report names recipients that were
         // given a photograph, and states nothing else (GDPR art. 15(1)(c)).
         // The test is the lookup's own, on the database's clock.
-        const standing =
-          !(await showsProtectedHousehold(
-            tx,
-            issueId,
-            localDayOf(new Date()),
-          )) &&
-          (await liveWorkOrderLinksOfIssue(tx, issueId, this.enabled)).has(
-            workOrderId,
-          );
-        if (standing) {
+        const { live } = await liveWorkOrderLinksOfIssue(
+          tx,
+          issueId,
+          this.enabled,
+        );
+        if (live.has(workOrderId)) {
           await this.recordExposure(tx, workOrderId, wanted);
         }
       }
@@ -571,14 +567,11 @@ export class WorkOrderLinkService {
     protectedHousehold: boolean;
     views: Map<string, WorkOrderLinkRecordView>;
   }> {
-    const protectedHousehold = await showsProtectedHousehold(
+    const { protectedHousehold, live } = await liveWorkOrderLinksOfIssue(
       tx,
       issueId,
-      localDayOf(new Date()),
+      true,
     );
-    const live = protectedHousehold
-      ? new Map<string, Date>()
-      : await liveWorkOrderLinksOfIssue(tx, issueId, true);
     const ordered = await tx.workOrder.findMany({
       where: { id: { in: [...workOrderIds] }, issueId },
       select: {

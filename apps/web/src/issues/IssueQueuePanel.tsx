@@ -30,6 +30,7 @@ import {
 } from "./issue-labels";
 import { IssueHandlerName } from "./IssueHandlerName";
 import { IssueConversation } from "./IssueConversation";
+import { IssueDamageCaseSection } from "./IssueDamageCase";
 import { IssueDescription, IssueLocation } from "./IssueFreeText";
 import { IssueHandling } from "./IssueHandling";
 import { IssueLifecycle } from "./IssueLifecycle";
@@ -76,6 +77,21 @@ export interface IssueQueuePanelProps {
    */
   onRetryTypes?: () => void;
   /**
+   * Whether the notice that the types could not be read is announced. Set when
+   * the read that failed was one the reader set off from this screen - a retry,
+   * or the read after a change - so the failure is news; a first read that
+   * fails is there as the reader arrives, and stays quiet as `LoadFailure`
+   * explains.
+   */
+  announceTypesFailure?: boolean;
+  /**
+   * Whether the retry beside that notice takes the focus as it is put on
+   * screen. Set when the read that failed was the retry pressed on an earlier
+   * notice, which the caller takes away while the retry is out, so the button
+   * the reader pressed went with it (`LoadFailure`'s `focusRetry`).
+   */
+  focusTypesRetry?: boolean;
+  /**
    * What an empty list says: which view is empty, or that nothing matches
    * the filter. The queue as a whole, by default.
    */
@@ -86,12 +102,43 @@ export interface IssueQueuePanelProps {
    */
   canManageCharges?: boolean;
   /**
-   * Whether the queue is being read again. The rows on screen may not be the
-   * ones the new read returns, so their status forms and handling controls are
-   * off until it is back, rather than a change saved on an issue the view
-   * no longer holds.
+   * Whether the queue is being read again after a change to it: a status
+   * saved, an issue opened or handled. The rows on screen still show the issues
+   * as they stood before it, and a form whose draft the save carried would
+   * offer the same move twice, so the status forms and the handling controls
+   * are off until the read is back.
+   *
+   * Not set for a read that only follows the view, the filter or the search:
+   * the rows on screen are then as current as when they were read, and
+   * turning their controls off under each word typed would take the keyboard
+   * focus out of the row the handler is working in. The status forms stay on
+   * for that reason; the handling under a row does not (`reading`).
+   */
+  rereading?: boolean;
+  /**
+   * Whether the queue is being read for any reason, the view, the filter or
+   * the search included. Turns the handling under each row off, which a
+   * refusal of a handling action is shown in: a filtered answer that drops the
+   * row would take the refusal with it, and the handler would not learn the
+   * action was not made. A status form's refusal is shown above the rows, so
+   * it outlives its row and the form stays on.
    */
   reading?: boolean;
+  /**
+   * Whether the read of the queue failed, so the list on screen would answer
+   * nothing: an empty list says nothing is waiting, a claim the caller's
+   * notice would not undo. The panel stays mounted all the same, because the
+   * status save it owns may still be out when the read fails, and a refusal
+   * of it would go with the panel. It draws nothing until a save has been
+   * refused, and then only that refusal.
+   */
+  listWithheld?: boolean;
+  /**
+   * Whether the list is being read again. Marks the list, not the panel, as
+   * busy: the notices above it (a refused save) are announced, and an alert
+   * inside a busy region may be held back by assistive technology.
+   */
+  busy?: boolean;
 }
 
 /**
@@ -122,9 +169,14 @@ export function IssueQueuePanel({
   onChanged,
   queueRead = 0,
   onRetryTypes,
+  announceTypesFailure = false,
+  focusTypesRetry = false,
   emptyMessage,
   canManageCharges = false,
+  rereading = false,
   reading = false,
+  listWithheld = false,
+  busy = false,
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
   const move = useSaveAction(setIssueStatus, onChanged, (failure) => {
@@ -177,6 +229,10 @@ export function IssueQueuePanel({
   const saving = move.state.kind === "saving";
   const typeById = new Map((types ?? []).map((type) => [type.id, type]));
 
+  if (listWithheld && move.state.kind !== "failed") {
+    return <></>;
+  }
+
   return (
     <Panel
       title={t("issues.queue.title")}
@@ -199,25 +255,32 @@ export function IssueQueuePanel({
             form renders, so the retry here is the only way back to one.
           */}
           {types !== null ? null : onRetryTypes === undefined ? (
-            <Notice tone="danger" live>
+            <Notice tone="danger" live={announceTypesFailure}>
               {t("issues.queue.statusesUnavailable")}
             </Notice>
           ) : (
             <LoadFailure
               messageKey="issues.queue.statusesUnavailable"
               onRetry={onRetryTypes}
-              live
+              live={announceTypesFailure}
+              focusRetry={focusTypesRetry}
             />
           )}
         </>
       }
     >
-      {issues.length === 0 ? (
-        <p className="text-body text-ink-muted">
+      {listWithheld ? null : issues.length === 0 ? (
+        <p
+          aria-busy={busy}
+          className={`text-body text-ink-muted ${busy ? "opacity-60" : ""}`}
+        >
           {emptyMessage ?? t("issues.queue.empty")}
         </p>
       ) : (
-        <ul className="flex flex-col gap-3">
+        <ul
+          aria-busy={busy}
+          className={`flex flex-col gap-3 ${busy ? "opacity-60" : ""}`}
+        >
           {issues.map((issue) => {
             const type = typeById.get(issue.typeId);
             return (
@@ -352,7 +415,7 @@ export function IssueQueuePanel({
                     key={`${issue.status.id}:${issue.waitingReason ?? ""}`}
                     issue={issue}
                     type={type}
-                    disabled={saving || reading}
+                    disabled={saving || rereading}
                     saving={saving && actingOn === issue.id}
                     onRemedyNoticeShown={markRemedyNotice}
                     onDraftChanged={() => {
@@ -367,15 +430,23 @@ export function IssueQueuePanel({
                   />
                 )}
 
+                {/* Standing, as the reporter's warning is: what the board has to
+                    keep in mind about the issue whatever it does with it. */}
+                {issue.typeRingFenced ? (
+                  <Notice tone="info">
+                    {t("issues.ringFence.caseNotice")}
+                  </Notice>
+                ) : null}
+
                 <HandlingDisclosure
                   issue={issue}
                   type={type}
                   candidates={issues}
                   workOrdersSent={workOrdersSent[issue.id] ?? 0}
                   canManageCharges={canManageCharges}
+                  locked={reading || rereading}
                   remedyNoticeInForm={remedyNoticeInForm.has(issue.id)}
                   queueRead={queueRead}
-                  reading={reading}
                   onChanged={onChanged}
                 />
 
@@ -410,9 +481,9 @@ function HandlingDisclosure({
   candidates,
   workOrdersSent,
   canManageCharges,
+  locked,
   remedyNoticeInForm,
   queueRead,
-  reading,
   onChanged,
 }: {
   issue: QueuedIssue;
@@ -421,10 +492,10 @@ function HandlingDisclosure({
   candidates: readonly QueuedIssue[];
   workOrdersSent: number;
   canManageCharges: boolean;
+  locked: boolean;
   /** The status form above already says a reply is not a notice to remedy. */
   remedyNoticeInForm: boolean;
   queueRead: number;
-  reading: boolean;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -448,7 +519,7 @@ function HandlingDisclosure({
       </summary>
       {open ? (
         <fieldset
-          disabled={reading}
+          disabled={locked}
           className="m-0 flex min-w-0 flex-col gap-6 border-0 px-0 pt-2 pb-0"
         >
           <IssueHandling
@@ -460,6 +531,7 @@ function HandlingDisclosure({
             filesRevision={uploads + redaction.revision}
             onChanged={onChanged}
           />
+          <IssueDamageCaseSection issue={issue} onChanged={onChanged} />
           <IssueLifecycle
             issue={issue}
             candidates={candidates}

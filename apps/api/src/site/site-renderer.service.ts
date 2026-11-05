@@ -232,23 +232,25 @@ export class SiteRenderer {
     const offersIssueForm =
       page.publiclyReadable && hasBlock(page.content, "issueReportForm");
     /*
-     * The guide is asked while the types are, not after them: the two reads do
-     * not depend on one another, and the guide's own read is a transaction, so
-     * asked second it would add its round trips to the page's. It is used only
-     * where the form's fields will be shown, and is not cached: a board that
-     * withdraws its adoption means the guide to stop appearing on the next
-     * page, not on the next but one.
+     * Whether public reporting is on is asked first and alone: with it off the
+     * form is hidden and the guide is never read. Once it is on, the guide is
+     * asked while the types are, not after them: the two reads do not depend
+     * on one another, and the guide's own read is a transaction, so asked
+     * second it would add its round trips to every page that shows the form.
+     * It is not cached: a board that withdraws its adoption means the guide to
+     * stop appearing on the next page, not on the next but one.
      *
-     * Whether the fields will show is known only once the types are, so a page
-     * whose form is shut (reporting off, or no type to report under) reads the
-     * guide for nothing. That is the rare page; asking after the types instead
-     * would add the guide's round trips to every page that does show the form.
+     * Whether there is a type to report under is known only with the types, so
+     * a page whose reporting is on but whose types are all closed still reads
+     * the guide for nothing. That page is rare, and what is read is not shown.
      */
+    const reportingOn =
+      offersIssueForm && (await this.issueTypes.publicReportingEnabled());
     const reading =
-      offersIssueForm && submission.sent !== "issue"
+      reportingOn && submission.sent !== "issue"
         ? this.publicResponsibilityGuide()
         : null;
-    const issueTypes = offersIssueForm ? await this.publicIssueTypes() : null;
+    const issueTypes = reportingOn ? await this.reportableIssueTypes() : null;
     const formShown =
       issueTypes !== null &&
       issueTypes.length > 0 &&
@@ -291,11 +293,8 @@ export class SiteRenderer {
         }));
   }
 
-  /** The types a public report may be filed under, or null while it is shut. */
-  private async publicIssueTypes(): Promise<readonly SiteIssueType[] | null> {
-    if (!(await this.issueTypes.publicReportingEnabled())) {
-      return null;
-    }
+  /** The types a public report may be filed under. */
+  private async reportableIssueTypes(): Promise<readonly SiteIssueType[]> {
     const types = await this.issueTypes.listReportable(null);
     return types.map((type) => ({ id: type.id, name: type.name }));
   }

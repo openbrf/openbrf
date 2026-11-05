@@ -613,6 +613,10 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ISSUE_LEGAL_HOLD_RELEASED",
   ISSUE_RETENTION_RECORDED:
     "register.person.report.action.ISSUE_RETENTION_RECORDED",
+  ISSUE_DAMAGE_CASE_MARKED:
+    "register.person.report.action.ISSUE_DAMAGE_CASE_MARKED",
+  ISSUE_DAMAGE_CASE_REMOVED:
+    "register.person.report.action.ISSUE_DAMAGE_CASE_REMOVED",
   ISSUE_RESIDENTS_LISTED:
     "register.person.report.action.ISSUE_RESIDENTS_LISTED",
   ISSUE_WORK_ORDER_SENT: "register.person.report.action.ISSUE_WORK_ORDER_SENT",

@@ -41,6 +41,7 @@ import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import { usePoll } from "../ui/use-poll";
 import {
   ISSUE_COST_RESPONSIBILITY_LABEL,
+  ISSUE_DAMAGE_CAUSE_LABEL,
   ISSUE_MEANING_LABEL,
   ISSUE_OUTCOME_LABEL,
   ISSUE_PRIORITY_LABEL,
@@ -518,9 +519,8 @@ function useHandlerGuide(
  * the queue, so a charge made in another tab shows once the issue is saved or
  * the panel opened again; an answer for an earlier read is dropped. Charges are
  * withheld at once where the queue shows the reporter as protected, whatever
- * was read before. Making one
- * opens the charges screen with the form filled in from the issue, where the
- * amount is entered and where it lives.
+ * was read before. Making one opens the charges screen with the form filled in
+ * from the issue, where the amount is entered and where it lives.
  */
 function IssueCharges({ issue }: { issue: QueuedIssue }): ReactElement {
   const { t } = useTranslation();
@@ -534,6 +534,19 @@ function IssueCharges({ issue }: { issue: QueuedIssue }): ReactElement {
   const revision = issueRevision(issue);
   const issueId = issue.id;
   const reporterProtected = issue.reporter.kind === "protected";
+
+  /*
+   * An answer taken before the reporter was protected is dropped when they
+   * become so. It was taken for another person: it may be a withheld answer or
+   * a list from before, and the panel shows "reading" when the protection ends
+   * until the new answer arrives. Adjusted while rendering, not in the effect
+   * below, so that the dropped answer is never shown.
+   */
+  const [wasProtected, setWasProtected] = useState(reporterProtected);
+  if (wasProtected !== reporterProtected) {
+    setWasProtected(reporterProtected);
+    if (reporterProtected) setRead(null);
+  }
 
   useEffect(() => {
     // A protected reporter's charges are withheld at render, so no read is
@@ -559,7 +572,8 @@ function IssueCharges({ issue }: { issue: QueuedIssue }): ReactElement {
    * last answer stays while a newer revision is read, rather than flashing
    * back to "reading". A reporter who has become protected withholds them at
    * once, from the issue as the queue reads it now, whatever the last answer
-   * held, and one whose protection has ended is read again.
+   * held, and one whose protection has ended is read again, with "reading"
+   * shown meanwhile.
    */
   const charges = reporterProtected
     ? null
@@ -958,6 +972,18 @@ function TimelineSentence({
           {step.held
             ? t("issues.timeline.legalHoldPlaced")
             : t("issues.timeline.legalHoldReleased")}
+        </>
+      );
+    case "damageCase":
+      return (
+        <>
+          {!step.marked
+            ? t("issues.timeline.damageCaseRemoved")
+            : step.cause === null
+              ? t("issues.timeline.damageCaseMarkedUnknown")
+              : t("issues.timeline.damageCaseMarked", {
+                  cause: t(ISSUE_DAMAGE_CAUSE_LABEL[step.cause]),
+                })}
         </>
       );
     case "costResponsibility":

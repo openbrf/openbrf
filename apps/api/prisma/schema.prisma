@@ -1899,6 +1899,10 @@ enum AuditAction {
   ISSUE_LEGAL_HOLD_RELEASED
   /// The board set how many years after closing an issue's free text is kept. The entry names the number either side.
   ISSUE_RETENTION_RECORDED
+  /// A handler marked an issue as a damage case, or changed the mark (decision 28). The entry names the issue, the cause and the day of the damage; never the insurer or the claim number.
+  ISSUE_DAMAGE_CASE_MARKED
+  /// A handler took the damage-case mark off an issue. The legal hold the mark placed stays until a handler releases it.
+  ISSUE_DAMAGE_CASE_REMOVED
   /// A person was moved into an apartment.
   MOVE_IN_RECORDED
   /// A residency was given its move-out date.
@@ -4455,15 +4459,22 @@ model IssueType {
   /// access report answers for it in `issueAssignments` (ADR 0057).
   defaultAssigneePersonId String?
 
-  /// Whether its issues are ring-fenced (decision 32 of the issue module's
-  /// plan): nothing about them reaches a contractor, whoever handles them. A
-  /// work order on such an issue is refused inside `WorkOrderService`, its
-  /// preview included (ADR 0055).
+  /// Whether its issues are ring-fenced (avskärmad ärendetyp, decision 32 of the
+  /// issue module's plan): read by the board alone, and nothing about them
+  /// leaves it. Handled by the board only, which a CHECK holds it to, so the
+  /// property manager never reads one; no work order is written or previewed on
+  /// one (`WorkOrderService`, ADR 0055); no mail about one is sent to anybody;
+  /// it is left out of every read on `mcp` and `ai` (ADR 0056); it is offered on
+  /// no form but a signed-in one, with a warning; and its free text is removed
+  /// one year after closing (`RING_FENCED_ISSUE_TEXT_RETENTION_YEARS`), a clock
+  /// the board does not set.
   ///
-  /// Set by the board under issues:configure (`IssueTypeService.setRingFence`),
-  /// each change audited. Which types carry it by default is ADR 0054's open
-  /// question 5, answered with the rest of the ring-fence; until then a type
-  /// is ring-fenced when the board says so.
+  /// Any type may carry it: the Swedish set a new instance starts with has
+  /// Störningar ring-fenced, and the board ring-fences another type under
+  /// issues:configure (`IssueTypeService.setRingFence`), each change audited.
+  /// It is lifted only from a type nobody has reported under, so a board cannot
+  /// hand earlier reports to the property manager or the AI package, or give
+  /// them a longer clock, by lifting it (ADR 0054, question 5).
   ringFenced Boolean @default(false)
 
   /// Its statuses: at least one of each meaning, one of which is the default
@@ -4715,6 +4726,10 @@ model Issue {
 
   photos IssuePhoto[]
 
+  /// The insurance damage it is marked as, when a handler marked it (decision
+  /// 28).
+  damageCase IssueDamageCase?
+
   /// What the handlers sent contractors about it, oldest first.
   workOrders  WorkOrder[]
   /// The conversation with the reporter (svar), and the handlers' own notes
@@ -4787,6 +4802,64 @@ model Issue {
   @@index([placeId])
   @@index([closedAt])
   @@map("issue")
+}
+
+/// What caused an insurance damage, as a handler records it on a damage case.
+/// Spelled once for both applications in `@openbrf/shared`
+/// (issue-damage-case.ts).
+enum IssueDamageCause {
+  /// Vattenskada.
+  WATER
+  /// Brand.
+  FIRE
+  /// Inbrott.
+  BURGLARY
+  /// Skadegörelse.
+  VANDALISM
+  /// Storm eller annat väder.
+  WEATHER
+  /// Annat.
+  OTHER
+}
+
+/// An issue marked as an insurance damage (skadeärende, decision 28 of the
+/// issue module's plan): the insurer, the claim number, the day of the damage
+/// and its cause.
+///
+/// A mark on an issue rather than an issue type, so a water leak filed under
+/// Vattenläcka becomes a damage case when the board reports it to the insurer.
+/// Marking an issue places a legal hold on it (`Issue.legalHoldAt`, ADR 0057)
+/// where none stands, so its free text and photographs outlast its clock for as
+/// long as the claim may need them. Taking the mark off leaves the hold: it is
+/// one date with no reason beside it, and a handler releases it as its own act.
+///
+/// Part of the issue's building record, which the purge keeps: none of it is
+/// text about a person. The insurer is a firm and the claim number the
+/// insurer's label for the claim; both are refused when they hold a personal
+/// identity number. Not on any `mcp` or `ai` read (ADR 0056 adds no field by
+/// analogy).
+model IssueDamageCase {
+  id String @id @default(cuid())
+
+  /// Cascade: the mark is part of its issue.
+  issueId String @unique
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The insurance company, as the handler wrote it.
+  insurer String
+
+  /// The insurer's number for the claim (skadenummer).
+  claimNumber String
+
+  /// The day the damage happened, in the association's calendar.
+  occurredOn DateTime @db.Date
+
+  cause IssueDamageCause
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("issue_damage_case")
 }
 
 /// A photograph attached to an issue.

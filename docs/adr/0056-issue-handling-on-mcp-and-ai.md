@@ -126,7 +126,11 @@ the naming rules there.
   0040 makes for a protected reporter: not on any page of `issue_list`, not by
   `issue_get`, not counted, and never named by a cursor. The type itself is left
   out of `issue_type_list` as well, reading decision 32's "never to ... AI or
-  MCP" as it is written.
+  MCP" as it is written. The three reads ADR 0040 registered do this already:
+  `IssueService` leaves a ring-fenced type's issues and the type out of every
+  read it is asked for with `omit`, the argument the reads pass for a protected
+  reporter. The writes this record adds, once they are registered, answer a
+  ring-fenced case as not found by the same omission.
 - **An internal note**, read or written.
 - **The resident's permission to enter** (decision 29), **the common-area place**
   of a case (decision 30) and **the mark of an inspection finding with its

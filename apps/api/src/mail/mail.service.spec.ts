@@ -455,7 +455,7 @@ const SMTP_ENV = {
 
 function invitation(
   service: MailService,
-  extra: { replyTo?: string; messageId?: string } = {},
+  extra: { replyTo?: string; messageId?: string; signal?: AbortSignal } = {},
 ) {
   return service.send({
     to: "anna@exempel.se",
@@ -476,6 +476,29 @@ function lastAccepted() {
 }
 
 describe("the driver", () => {
+  it("is handed the caller's signal, which gets the send a socket the signal closes", async () => {
+    await invitation(serviceWith(SMTP_ENV, STORED, i18n), {
+      signal: new AbortController().signal,
+    });
+
+    expect(transport.createTransport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: "smtp.host.example",
+        getSocket: expect.any(Function),
+      }),
+    );
+    expect(transport.sendMail).toHaveBeenCalledTimes(1);
+  });
+
+  it("is handed nothing once the caller's signal is aborted", async () => {
+    const aborted = AbortSignal.abort();
+
+    await expect(
+      invitation(serviceWith(SMTP_ENV, STORED, i18n), { signal: aborted }),
+    ).rejects.toBe(aborted.reason);
+    expect(transport.sendMail).not.toHaveBeenCalled();
+  });
+
   it("is the board's own server while the environment chooses none", async () => {
     await invitation(serviceWith(TEST_ENV, STORED, i18n));
 

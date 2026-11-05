@@ -11,7 +11,7 @@ Smaller fixes to making a charge from an issue.
 - The charges screen reads the issue it was opened from without also reading the
   charges made from it, and reads the issue again when you leave it and come
   back, so the form is not filled in from the first visit.
-- A person's own access report names the issue they reported in a charge's
+- A person's own data subject access report names the issue they reported in a charge's
   entry, even when they have protected personal data. Other readers still do not
   see it.
 - An open issue panel reads the responsibility guide and the issue's charges

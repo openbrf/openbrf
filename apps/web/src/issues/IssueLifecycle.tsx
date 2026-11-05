@@ -38,6 +38,7 @@ const LIFECYCLE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "merge-already-duplicate": "issues.lifecycle.errors.mergeAlreadyDuplicate",
   "merge-into-closed": "issues.lifecycle.errors.mergeIntoClosed",
   "merge-limit": "issues.lifecycle.errors.mergeLimit",
+  "merge-ring-fenced": "issues.lifecycle.errors.mergeRingFenced",
   "personal-identity-number": "issues.lifecycle.errors.personalIdentityNumber",
   "invalid-body": "issues.lifecycle.errors.unknown",
 };
@@ -59,6 +60,7 @@ const STALE_REASONS: ReadonlySet<string> = new Set([
   "merge-already-duplicate",
   "merge-into-closed",
   "merge-limit",
+  "merge-ring-fenced",
   "known-fault-board-only",
 ]);
 
@@ -494,7 +496,9 @@ function MergeForm({
     (candidate) =>
       candidate.id !== issue.id &&
       candidate.outcome !== "DUPLICATE" &&
-      candidate.meaning !== "DONE",
+      candidate.meaning !== "DONE" &&
+      // Never across the ring-fence (`merge-ring-fenced`).
+      candidate.typeRingFenced === issue.typeRingFenced,
   );
   if (offered.length === 0) {
     return null;
