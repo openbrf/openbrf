@@ -2122,12 +2122,20 @@ describe("E. what a request may do", () => {
   });
 
   it("E6: an answer that ends the link is answered on the spot, with no address of the link that just ended", async () => {
+    // The page's own heading, in the visitor's language (the helper asks for
+    // Swedish), so an empty or unrelated 200 does not pass.
+    const headings = {
+      decline: "Du har tackat nej till arbetsordern",
+      done: "Du har markerat arbetsordern som klar",
+    } as const;
     for (const answer of ["decline", "done"] as const) {
       const ids = await linked();
       const ended = await act(ids.token, { act: answer });
       // A page, not a redirect: a redirect to the link would meet the refusal.
       expect(ended.statusCode, answer).toBe(200);
       expect(ended.headers.location, answer).toBeUndefined();
+      expect(ended.body, answer).toContain(headings[answer]);
+      expect(ended.body, answer).toContain("Länken fungerar inte längre.");
       expect(ended.body, answer).not.toContain(ids.token);
       expect(ended.body, answer).not.toContain("/arbetsorder/");
       expectLinkHeaders(ended.headers);
