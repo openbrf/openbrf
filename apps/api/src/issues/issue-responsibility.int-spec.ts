@@ -25,7 +25,7 @@ import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
-import { lockResponsibilityGuide } from "./issue-lock";
+import { lockIssueForHandling, lockResponsibilityGuide } from "./issue-lock";
 import {
   type ResponsibilityGuideItemView,
   ResponsibilityGuideService,
@@ -140,7 +140,12 @@ const manager = person("manager", "Frida", "Forvaltare");
 const resident = person("resident", "Rune", "Boende");
 /** Reports one issue, and is given protected personal data after it. */
 const shielded = person("shielded", "Siv", "Skyddad");
-const people = [board, manager, resident, shielded];
+/**
+ * Handles issues by a board seat alone, which the test that needs it gives and
+ * takes away: no administrator or property manager role stands in for it.
+ */
+const seated = person("seated", "Sture", "Ledamot");
+const people = [board, manager, resident, shielded, seated];
 const personIds = people.map((entry) => entry.personId);
 
 const addressId = `ir-address-${suffix}`;
@@ -508,6 +513,75 @@ describe("a charge made from an issue", () => {
     expect(entry.context).toMatchObject({ issueId });
   });
 
+  it("answers the basis alone to the board, as the issue read whole shows it, and refuses it to those who may not make a charge", async () => {
+    const issueId = await filed("basis-alone");
+    await chargeFrom(issueId, "321.00");
+
+    const whole = await inject({
+      method: "GET",
+      url: `/api/member-charges/issues/${issueId}`,
+      cookie: cookies[board.personId],
+    });
+    const basis = await inject({
+      method: "GET",
+      url: `/api/member-charges/issues/${issueId}/basis`,
+      cookie: cookies[board.personId],
+    });
+    expect(basis.statusCode).toBe(200);
+    expect(basis.json()).toEqual(whole.json<{ issue: unknown }>().issue);
+    // The basis says nothing of the charges made from the issue.
+    expect(basis.json()).not.toHaveProperty("charges");
+
+    for (const person of [manager, resident]) {
+      const refused = await inject({
+        method: "GET",
+        url: `/api/member-charges/issues/${issueId}/basis`,
+        cookie: cookies[person.personId],
+      });
+      expect(refused.statusCode).toBe(403);
+    }
+  });
+
+  it("masks the basis of an issue whose reporter has protected personal data, as the whole read does", async () => {
+    const was = await prisma.person.findUniqueOrThrow({
+      where: { id: shielded.personId },
+      select: { protectedPersonalData: true },
+    });
+    try {
+      const issueId = await filed("basis-shielded", shielded.personId);
+      await prisma.person.update({
+        where: { id: shielded.personId },
+        data: { protectedPersonalData: true },
+      });
+
+      const basis = await inject({
+        method: "GET",
+        url: `/api/member-charges/issues/${issueId}/basis`,
+        cookie: cookies[board.personId],
+      });
+      expect(basis.statusCode).toBe(200);
+      expect(basis.json()).toEqual({
+        issueId,
+        typeName: `Vattenläcka ${suffix}`,
+        costResponsibility: null,
+        reporterProtected: true,
+        party: null,
+      });
+      for (const withheld of [
+        shielded.personId,
+        shielded.lastName,
+        apartmentId,
+      ]) {
+        expect(basis.body).not.toContain(withheld);
+      }
+    } finally {
+      await prisma.person.update({
+        where: { id: shielded.personId },
+        data: { protectedPersonalData: was.protectedPersonalData },
+      });
+    }
+  });
+
   it("never shows the property manager an amount", async () => {
     const issueId = await filed("manager-blind");
     await chargeFrom(issueId, "987.65");
@@ -597,6 +671,140 @@ describe("a charge made from an issue", () => {
       cookie: cookies[board.personId],
     });
     expect(read.json<{ charges: unknown[] }>().charges).toEqual([]);
+  });
+
+  it("decides whether the actor handles the issue under the lock every write on an issue takes, so a charge waits for a change of who handles it", async () => {
+    /*
+     * An administrator changing the type's handlers or setting the issue
+     * board-only does it under `lockIssueForHandling`. A charge that read the
+     * scope without it could link to an issue its actor stopped handling in
+     * between. Held here as that change holds it, the charge has to wait
+     * behind the lock rather than answer first - which is what fails if the
+     * charge stops taking it.
+     */
+    const issueId = await filed("charge-waits-for-handling");
+    let reached: (pid: number) => void = () => undefined;
+    const holding = new Promise<number>((resolve) => {
+      reached = resolve;
+    });
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      const other = prisma.$transaction(
+        async (tx) => {
+          await lockIssueForHandling(tx, issueId);
+          reached(await backendPid(tx));
+          await gate;
+        },
+        { timeout: 30_000 },
+      );
+      const holder = await holding;
+
+      let answered = false;
+      const request = chargeFrom(issueId, "455.00").finally(() => {
+        answered = true;
+      });
+      let waited = false;
+      try {
+        await waitFor(
+          async () => answered || (await waitersBehind(prisma, holder)) > 0,
+        );
+        waited = !answered;
+      } finally {
+        release();
+        await other;
+      }
+      expect(waited, "the charge waits for the issue's handling lock").toBe(
+        true,
+      );
+      expect((await request).issueId).toBe(issueId);
+    } finally {
+      release();
+    }
+  });
+
+  it("reads who handles the issue after the lock, so a charge from an actor whose seat is taken away while it waits is refused", async () => {
+    /*
+     * The wait above only shows that the charge takes the lock. A handling read
+     * made before it would still see the seat, as the change that takes it
+     * away commits only once the lock is released, and the charge would link.
+     * The seat is the actor's only way to handle issues, so it is the read
+     * after the lock that refuses.
+     */
+    const issueId = await filed("charge-after-seat-removed");
+    const seat = await prisma.boardPosition.create({
+      data: {
+        personId: seated.personId,
+        position: "BOARD_MEMBER",
+        electedOn: new Date("2025-05-15"),
+      },
+    });
+    // The seat alone lets the actor handle the issue, so the refusal below
+    // is the read after the lock and not a scope that never held.
+    const before = await inject({
+      method: "GET",
+      url: `/api/member-charges/issues/${issueId}/basis`,
+      cookie: cookies[seated.personId],
+    });
+    expect(before.statusCode, "the seat lets the actor handle it").toBe(200);
+    let reached: (pid: number) => void = () => undefined;
+    const holding = new Promise<number>((resolve) => {
+      reached = resolve;
+    });
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      const other = prisma.$transaction(
+        async (tx) => {
+          await lockIssueForHandling(tx, issueId);
+          await tx.boardPosition.delete({ where: { id: seat.id } });
+          reached(await backendPid(tx));
+          await gate;
+        },
+        { timeout: 30_000 },
+      );
+      const holder = await holding;
+
+      let answered = false;
+      const request = inject({
+        method: "POST",
+        url: "/api/member-charges",
+        cookie: cookies[seated.personId],
+        payload: {
+          apartmentId,
+          chargedOn: today(),
+          amount: "88.00",
+          reason: "Ärende: Vattenläcka",
+          vatTreatment: "EXEMPT",
+          issueId,
+        },
+      }).finally(() => {
+        answered = true;
+      });
+      try {
+        await waitFor(
+          async () => answered || (await waitersBehind(prisma, holder)) > 0,
+        );
+      } finally {
+        release();
+        await other;
+      }
+      const response = await request;
+      expect(response.statusCode).toBe(404);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "issue-not-found",
+      );
+      expect(await prisma.memberCharge.count({ where: { issueId } })).toBe(0);
+    } finally {
+      release();
+      await prisma.boardPosition.deleteMany({
+        where: { personId: seated.personId },
+      });
+    }
   });
 
   it("withholds the link once the reporter has protected personal data, for a charge on the person and on the apartment, on both reads", async () => {
@@ -711,6 +919,20 @@ describe("a charge made from an issue", () => {
       });
     }
     expect(JSON.stringify(recorded)).not.toContain(issueId);
+
+    // The reporter's own access report is their copy of what the association
+    // holds about them, and the issue is theirs: it names the issue.
+    const own = await app
+      .get(DataSubjectReportService)
+      .portable(shielded.personId);
+    const recordedOnThem = own.auditEntries.filter(
+      (entry) =>
+        entry.action === "MEMBER_CHARGE_RECORDED" &&
+        entry.targetId === onPerson.chargeId,
+    );
+    expect(recordedOnThem).toHaveLength(1);
+    expect(recordedOnThem[0]?.context).toMatchObject({ issueId });
+    expect(recordedOnThem[0]?.context).not.toHaveProperty("issueWithheld");
   });
 
   it("withholds the charges when the protection lands between the issue's check and the charge read", async () => {

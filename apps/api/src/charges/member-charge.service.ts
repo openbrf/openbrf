@@ -25,6 +25,7 @@ import {
   issueReaderScope,
   issuesHandledWhere,
 } from "../issues/issue-handlers";
+import { lockIssueForHandling } from "../issues/issue-lock";
 import { issuesReportedByProtectedPersons } from "../issues/issue-reporter-protection";
 import { isResidencyHeldOn } from "../registers/held-on";
 import { financialYearStartMonthInForce } from "../retention/financial-year";
@@ -824,6 +825,13 @@ export class MemberChargeService {
     actorPersonId: string,
     now: Date,
   ): Promise<void> {
+    /*
+     * The lock every other write on an issue takes before it decides who
+     * handles it: an administrator changing the type's handlers, or setting the
+     * issue board-only, waits for this charge or is waited for, and the charge
+     * never links to an issue its actor stopped handling in between.
+     */
+    await lockIssueForHandling(tx, issueId);
     /*
      * Whether they handle issues at all first: the scope below answers the
      * narrower of its two for a person who handles none, which is still a

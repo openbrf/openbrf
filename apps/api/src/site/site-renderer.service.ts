@@ -231,6 +231,23 @@ export class SiteRenderer {
   ): Promise<SiteFormState> {
     const offersIssueForm =
       page.publiclyReadable && hasBlock(page.content, "issueReportForm");
+    /*
+     * The guide is asked while the types are, not after them: the two reads do
+     * not depend on one another, and the guide's own read is a transaction, so
+     * asked second it would add its round trips to the page's. It is used only
+     * where the form's fields will be shown, and is not cached: a board that
+     * withdraws its adoption means the guide to stop appearing on the next
+     * page, not on the next but one.
+     *
+     * Whether the fields will show is known only once the types are, so a page
+     * whose form is shut (reporting off, or no type to report under) reads the
+     * guide for nothing. That is the rare page; asking after the types instead
+     * would add the guide's round trips to every page that does show the form.
+     */
+    const reading =
+      offersIssueForm && submission.sent !== "issue"
+        ? this.publicResponsibilityGuide()
+        : null;
     const issueTypes = offersIssueForm ? await this.publicIssueTypes() : null;
     const formShown =
       issueTypes !== null &&
@@ -243,9 +260,7 @@ export class SiteRenderer {
       sent: submission.sent ?? null,
       refused: submission.refused ?? null,
       issueTypes,
-      responsibilityGuide: formShown
-        ? await this.publicResponsibilityGuide()
-        : null,
+      responsibilityGuide: formShown && reading !== null ? await reading : null,
     };
   }
 
