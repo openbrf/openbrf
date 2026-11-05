@@ -30,6 +30,7 @@ const PIN = `-c TimeZone=${SESSION_TIME_ZONE}`;
  * parsed with this host after the `@` and the host is taken out again.
  */
 const STAND_IN_HOST = "empty-host.invalid";
+const STAND_IN_AFTER = new RegExp(`(@|//)${STAND_IN_HOST.replace(".", "\\.")}`);
 const EMPTY_HOST = /^(postgres(?:ql)?:\/\/[^/?#]*@)(?=[/?#]|$)/i;
 
 /**
@@ -71,11 +72,13 @@ export function pinnedSessionConfig(
         fromUrl !== null && fromUrl.trim() !== "" ? fromUrl : fromEnvironment,
       ),
     );
-    // User information is percent-encoded, so this `@` is the one before the host.
+    // Serialization drops empty credentials together with their `@`, leaving
+    // the stand-in straight after `//`. User information is percent-encoded,
+    // so the first `@` or `//` before the stand-in is the one that precedes it.
     pinned =
       withHost === connectionString
         ? url.toString()
-        : url.toString().replace(`@${STAND_IN_HOST}`, "@");
+        : url.toString().replace(STAND_IN_AFTER, "$1");
   } catch {
     // Not a URL `pg` could read either; it reports the string itself.
   }

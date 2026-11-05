@@ -79,6 +79,20 @@ describe("pinnedSessionConfig", () => {
     expect(sent?.endsWith("-c TimeZone=UTC")).toBe(true);
   });
 
+  it("leaves the host to PGHOST when the empty credentials are dropped", () => {
+    vi.stubEnv("PGHOST", "/var/run/postgresql");
+    const { connectionString } = pinnedSessionConfig(
+      "postgres://@/openbrf?user=openbrf_app",
+    );
+    expect(connectionString).not.toContain("empty-host");
+    const parameters = new ConnectionParameters(
+      pinnedSessionConfig("postgres://@/openbrf?user=openbrf_app"),
+    );
+    expect(parameters.host).toBe("/var/run/postgresql");
+    expect(parameters.user).toBe("openbrf_app");
+    expect(parameters.options).toBe("-c TimeZone=UTC");
+  });
+
   it("keeps PGOPTIONS when the connection string's options are blank", () => {
     vi.stubEnv("PGOPTIONS", "-c statement_timeout=5s");
     expect(sentOptions("postgres://u:p@db/openbrf?options=")).toBe(
