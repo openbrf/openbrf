@@ -118,8 +118,10 @@ one that follows their report, and ends at the first of: 30 days after the issue
 is closed, 365 days after the issue's latest message (or the day the link was
 issued, if no message came), a handler revoking it, and the purge clearing the
 issue's contact details ([ADR 0057](0057-purging-issues-in-two-layers.md)),
-which also removes the link. In the 30 days after closing the page reads and takes no reply, until
-the reopening rule decides what such a reply does (ADR 0054). Both numbers are
+which also removes the link. In the 30 days after closing the page reads, and a reply
+through it reopens the issue as a signed-in reporter's does (ADR 0054): onto
+its type's default in-progress status, alerting its assignee. A report merged
+into another takes no reply. Both numbers are
 constants in code. This answers question 1 as the threat review of this record
 required (APT-9360, control B4): "until the contact details are purged" can be
 years, and a link is a bearer secret in a mailbox. A handler can revoke it, and

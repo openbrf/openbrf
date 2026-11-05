@@ -1688,6 +1688,7 @@ describe("the timeline", () => {
         toStatusId: plain.statusIds.WAITING,
         waitingReason: "PARTS",
         outcome: null,
+        byReporter: false,
       },
     ]);
     expect(response.body).not.toContain(shieldedBoard.lastName);

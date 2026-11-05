@@ -147,8 +147,9 @@ export async function requireHandledIssue<S extends Prisma.IssueSelect>(
   issueId: string,
   readerPersonId: string,
   select: S,
+  now: Date = new Date(),
 ): Promise<Prisma.IssueGetPayload<{ select: S }>> {
-  const scope = await issueReaderScope(db, readerPersonId, new Date());
+  const scope = await issueReaderScope(db, readerPersonId, now);
   const issue = await db.issue.findFirst({
     where: { id: issueId, ...issuesHandledWhere(scope) },
     select,

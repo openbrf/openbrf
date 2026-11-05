@@ -17,10 +17,14 @@ import { OwnIssueConversation } from "./OwnIssueConversation";
 
 export interface OwnIssuesPanelProps {
   issues: readonly OwnIssue[];
-  /** Told when a report turns out to be closed, so the list is read again. */
-  onClosed: () => void;
-  /** Told when an answer about entering the apartment changed. */
+  /**
+   * Told when a report changed under the reader - it turned out to be closed,
+   * a reply reopened it, or an answer about entering the apartment changed -
+   * so the list is read again.
+   */
   onChanged: () => void;
+  /** Told when the reporter asks for a new report following up a closed one. */
+  onFollowUp: (issue: OwnIssue, refusedReply: string) => void;
   /**
    * Told the answer about entering an issue holds after a save or a
    * withdrawal, as the save answered it, before `onChanged`.
@@ -38,8 +42,8 @@ export interface OwnIssuesPanelProps {
  */
 export function OwnIssuesPanel({
   issues,
-  onClosed,
   onChanged,
+  onFollowUp,
   onEntrySaved,
 }: OwnIssuesPanelProps): ReactElement {
   const { t } = useTranslation();
@@ -70,6 +74,15 @@ export function OwnIssuesPanel({
                   {localDayOfInstant(issue.createdAt)}
                 </span>
               </div>
+
+              {/* A duplicate's reporter follows the issue it was merged
+                  into, by where it stands and nothing else of it. */}
+              {issue.mergedIntoMeaning === null ? null : (
+                <p className="flex flex-wrap items-center gap-2 text-small">
+                  <span>{t("issues.mine.merged")}</span>
+                  <IssueStatusChip meaning={issue.mergedIntoMeaning} />
+                </p>
+              )}
 
               <IssueDescription issue={issue} />
 
@@ -147,7 +160,13 @@ export function OwnIssuesPanel({
                 </details>
               ) : null}
 
-              <OwnIssueConversation issue={issue} onClosed={onClosed} />
+              <OwnIssueConversation
+                issue={issue}
+                onChanged={onChanged}
+                onFollowUp={(refusedReply) => {
+                  onFollowUp(issue, refusedReply);
+                }}
+              />
             </li>
           ))}
         </ul>

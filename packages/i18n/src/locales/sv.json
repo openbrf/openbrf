@@ -898,6 +898,7 @@
           "ISSUE_TYPE_RING_FENCE_CHANGED": "En ärendetyp stängdes för entreprenörer, eller öppnades igen",
           "ISSUE_MESSAGE_SENT": "Ett meddelande skrevs i ett ärende",
           "ISSUE_NOTE_ADDED": "En intern anteckning skrevs i ett ärende",
+          "ISSUE_KNOWN_FAULT_CHANGED": "Ett känt fel publicerades, ändrades eller togs bort i ett ärende",
           "ISSUE_REDACTED": "Text, en bild eller en fil togs bort från ett ärende",
           "ISSUE_LEGAL_HOLD_PLACED": "Ett rättsligt bevarandekrav lades på ett ärende",
           "ISSUE_LEGAL_HOLD_RELEASED": "Det rättsliga bevarandekravet på ett ärende hävdes",
@@ -3756,6 +3757,7 @@
       "message": "Skriv till föreningen",
       "messageHint": "Skriv inga personnummer. Det går inte att bifoga filer här.",
       "send": "Skicka",
+      "reopensNotice": "Ärendet är avslutat. Skickar du ett meddelande nu öppnas det igen.",
       "closedNotice": "Ärendet är avslutat och tar inte emot fler meddelanden. Har du något nytt att anmäla gör du en ny anmälan på föreningens webbplats.",
       "private": "Länken är personlig, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats eller ett år efter det senaste meddelandet i det, det som inträffar först. Innan något meddelande har skrivits räknas året från den dag länken utfärdades.",
       "notFoundTitle": "Länken öppnar inget ärende",
@@ -3932,9 +3934,13 @@
         "postNotFound": "Inlägget finns inte, eller så kan du inte läsa det. Anmälan skickades inte.",
         "postNotReportable": "Bara den som skrev inlägget och styrelsen kan göra en felanmälan från det. Anmälan skickades inte.",
         "postAlreadyReported": "Någon har redan gjort en felanmälan från det här inlägget. Anmälan skickades inte.",
+        "followUpNotFound": "Anmälan du följer upp finns inte längre. Skriv en fristående anmälan i stället.",
+        "followUpOfOpenIssue": "Anmälan du följer upp är öppen igen. Svara i den i stället.",
         "placeNotFound": "Det gemensamma utrymmet erbjuds inte längre. Välj ett annat eller inget.",
         "placeWithApartment": "Ett gemensamt utrymme väljs bara när anmälan inte gäller en lägenhet. Välj det ena eller det andra."
       },
+      "followUp": "Den här anmälan följer upp din tidigare anmälan om {{type}}.",
+      "followUpCancel": "Skriv en fristående anmälan i stället",
       "place": "Gemensamt utrymme",
       "placeNone": "Inget särskilt",
       "placeHint": "Välj ett om problemet finns i ett gemensamt utrymme. Beskriv exakt var i fältet nedan."
@@ -3960,6 +3966,7 @@
       "noApartment": "Anmälan gäller ingen lägenhet.",
       "noPlace": "Ingen plats i huset angavs.",
       "enteredByHandler": "Upplagt av den som hanterar ärenden.",
+      "merged": "Sammanslagen med en annan anmälan om samma fel, som nu är:",
       "commonArea": "Gemensamt utrymme:"
     },
     "queue": {
@@ -4076,6 +4083,9 @@
       "targetDateRemoved": "Senast klart borttaget",
       "boardOnly": "Stängt för alla utom styrelsen",
       "everyHandler": "Öppnat igen för alla som hanterar typen",
+      "byReporterReply": "efter ett svar från anmälaren",
+      "knownFaultPublished": "Publicerade eller ändrade det kända felet",
+      "knownFaultWithdrawn": "Tog bort det kända felet",
       "redacted": {
         "description": "Tog bort beskrivningen",
         "location": "Tog bort platsen",
@@ -4366,7 +4376,10 @@
         "noReporter": "Ingen kan läsa ett svar på det här ärendet.",
         "personalIdentityNumber": "Texten innehåller ett personnummer. Ta bort det och skicka igen.",
         "unknown": "Det gick inte att skicka just nu. Försök igen."
-      }
+      },
+      "mergedOwn": "Anmälan har slagits samman med en annan anmälan om samma fel och hanteras där. Meddelandena kan du fortfarande läsa här.",
+      "followUp": "Gör en ny anmälan om detta",
+      "reopensHint": "Anmälan är avslutad. Skriver du här öppnas den igen och går tillbaka till den som hanterar den. Inga personnummer, tack."
     },
     "notes": {
       "title": "Interna anteckningar",
@@ -4389,6 +4402,61 @@
         "tooLarge": "Filen är större än vad som tillåts.",
         "unsupported": "Bara en bild (PNG, JPEG, WebP, GIF) eller en pdf kan bifogas.",
         "unknown": "Filen gick inte att bifoga just nu. Försök igen."
+      }
+    },
+    "knownFault": {
+      "label": "Känt fel",
+      "listTitle": "Kända fel",
+      "listHint": "Det här känner de som hanterar ärenden redan till. Du behöver inte anmäla det igen."
+    },
+    "lifecycle": {
+      "readFailed": "Ärendets kopplingar kunde inte läsas just nu. Stäng och öppna ärendet igen.",
+      "toDuplicatesTitle": "Anmälarna till de sammanslagna anmälningarna",
+      "toDuplicates": "Meddelande till alla som anmälde de sammanslagna anmälningarna",
+      "toDuplicatesNamed": "{{type}}: meddelande till anmälarna till de sammanslagna anmälningarna",
+      "toDuplicatesHint_one": "Går till den som anmälde den {{count}} sammanslagna anmälan, i deras egen anmälan, undertecknat som styrelsen eller förvaltaren. Bara en anmälare med konto får det. Det når inte det här ärendets egen anmälare.",
+      "toDuplicatesHint_other": "Går till dem som anmälde de {{count}} sammanslagna anmälningarna, var och en i sin egen anmälan, undertecknat som styrelsen eller förvaltaren. Ingen av dem ser någon annans anmälan. Bara anmälare med konto får det, och det når inte det här ärendets egen anmälare.",
+      "toDuplicatesSent_one": "Skickat till {{count}} anmälare.",
+      "toDuplicatesSent_other": "Skickat till {{count}} anmälare.",
+      "toDuplicatesSkipped_one": "{{count}} sammanslagen anmälan nåddes inte, eftersom den saknar anmälare med konto.",
+      "toDuplicatesSkipped_other": "{{count}} sammanslagna anmälningar nåddes inte, eftersom de saknar anmälare med konto.",
+      "knownFaultBoardOnly": "Ett ärende som bara styrelsen hanterar kan inte ha något känt fel.",
+      "knownFaultField": "Meddelande till huset",
+      "knownFaultNamed": "{{type}}: känt fel",
+      "knownFaultHint": "Visas för inloggade boende, på deras felanmälningsformulär och på inlägget ärendet kom från, aldrig på den publika webbplatsen. Undertecknas som styrelsen eller förvaltaren. Skriv det själv: inget kopieras från anmälan, och inga personnummer. Det försvinner när ärendet avslutas.",
+      "knownFaultPublish": "Publicera känt fel",
+      "knownFaultRewrite": "Spara ändringen",
+      "knownFaultPublishing": "Publicerar...",
+      "knownFaultWithdraw": "Ta bort",
+      "linksTitle": "Kopplade ärenden",
+      "mergedInto": "Sammanslagen med",
+      "duplicate": "Sammanslagen hit",
+      "follows": "Följer upp",
+      "followUp": "Följs upp av",
+      "followUpsMore_one": "Visar de första {{shown}} av {{count}} uppföljning.",
+      "followUpsMore_other": "Visar de första {{shown}} av {{count}} uppföljningar.",
+      "hidden": "ett ärende du inte hanterar",
+      "mergeTitle": "Dublett",
+      "mergeInto": "Slå samman med",
+      "mergeIntoNamed": "{{type}}: slå samman med ett annat ärende",
+      "mergePick": "Välj ärendet det är en dublett av...",
+      "mergeHint": "Det här ärendet avslutas som dublett. Anmälaren behåller sin anmälan och ser hur det andra ärendet går, och ingen av anmälarna ser den andras anmälan.",
+      "merge": "Slå samman som dublett",
+      "mergeConfirm": "Ja, avsluta som dublett",
+      "mergeKeep": "Behåll det öppet",
+      "errors": {
+        "issueNotFound": "Ärendet finns inte längre, eller är inte längre ditt att hantera. Kön har lästs om.",
+        "issueClosed": "Ärendet avslutades under tiden och kan inte ha något känt fel. Kön har lästs om.",
+        "knownFaultBoardOnly": "Styrelsen hanterar ärendet själv, så det kan inte ha något känt fel. Kön har lästs om.",
+        "mergeIntoItself": "Ett ärende kan inte slås samman med sig självt.",
+        "mergeIntoDuplicate": "Det ärendet är självt en dublett. Slå samman med ärendet det slogs samman med. Kön har lästs om.",
+        "mergeLimit": "Det ärendet har redan så många dubletter som det får ha. Slå samman med ett annat ärende, eller svara anmälarna med ett känt fel. Kön har lästs om.",
+        "mergeIntoClosed": "Det ärendet är avslutat. Öppna det igen först, eller slå samman med ett som fortfarande hanteras. Kön har lästs om.",
+        "mergeHasDuplicates": "Andra ärenden har slagits samman med det här. Slå i stället samman det andra ärendet med det här. Kön har lästs om.",
+        "mergeAlreadyDuplicate": "Det ärendet är redan en dublett av ett annat. Öppna det igen för att slå samman det med något annat. Kön har lästs om.",
+        "personalIdentityNumber": "Texten innehåller ett personnummer. Ta bort det och försök igen.",
+        "noDuplicateReporter": "Ingen kan läsa ett svar i de sammanslagna anmälningarna: anmälarna har inget konto att läsa det i.",
+        "unknown": "Det gick inte att spara just nu. Försök igen."
       }
     },
     "seededPlaces": {

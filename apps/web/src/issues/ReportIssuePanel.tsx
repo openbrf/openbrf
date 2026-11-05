@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import {
   attachIssuePhoto,
   type IssueApartment,
+  type KnownFault,
+  type OwnIssue,
   type IssuePlaceChoice,
   type ReportableIssueType,
   reportIssue,
@@ -24,6 +26,7 @@ import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { KnownFaultsList } from "./KnownFaultNotice";
 import type { PostPrefill } from "./post-prefill";
 import { ResponsibilityGuideTable } from "./ResponsibilityGuideTable";
 
@@ -45,6 +48,8 @@ const REPORT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "post-not-found": "issues.report.errors.postNotFound",
   "post-not-reportable": "issues.report.errors.postNotReportable",
   "post-already-reported": "issues.report.errors.postAlreadyReported",
+  "issue-not-found": "issues.report.errors.followUpNotFound",
+  "follow-up-of-open-issue": "issues.report.errors.followUpOfOpenIssue",
   "place-not-found": "issues.report.errors.placeNotFound",
   "place-with-apartment": "issues.report.errors.placeWithApartment",
   "invalid-body": "issues.report.errors.unknown",
@@ -71,6 +76,23 @@ export interface ReportIssuePanelProps {
    * linked to. The caller mounts the form again when this changes.
    */
   prefill?: PostPrefill;
+  /**
+   * One's own closed issue this report follows up, chosen from its reply
+   * field once a reply no longer reopens it (ADR 0054). The form opens on its
+   * type when that is still offered. The caller mounts the form again when
+   * this changes.
+   */
+  followUp?: Pick<OwnIssue, "id" | "typeId" | "typeName">;
+  /**
+   * What the reporter had written as a reply the server then refused as
+   * closed, which the report starts from so they do not retype it, in place
+   * of a post's text when there is one. Read once, when the form is mounted.
+   */
+  followUpDraft?: string;
+  /** Called when the reporter drops the follow-up and writes a plain report. */
+  onFollowUpCancelled?: () => void;
+  /** The known faults the house is told of, shown before the form. */
+  knownFaults?: readonly KnownFault[];
   /**
    * The responsibility guide the board has adopted, shown before the fields,
    * or null where there is none to show. The server hands a reporter only an
@@ -122,15 +144,30 @@ export function ReportIssuePanel({
   apartments,
   places = [],
   prefill,
+  followUp,
+  followUpDraft = "",
+  onFollowUpCancelled,
+  knownFaults = [],
   guide = null,
   onReported,
 }: ReportIssuePanelProps): ReactElement {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(
-    prefill === undefined
-      ? EMPTY
-      : { ...EMPTY, description: prefill.description },
-  );
+  const [draft, setDraft] = useState({
+    ...EMPTY,
+    // The earlier report's type, while it is still one this account may
+    // report under. A report made from a post may follow one up too.
+    typeId:
+      followUp !== undefined &&
+      types.some((type) => type.id === followUp.typeId)
+        ? followUp.typeId
+        : "",
+    // The reporter's own refused reply before a post's text: it is what they
+    // wrote about this fault.
+    description:
+      followUpDraft !== "" || prefill === undefined
+        ? followUpDraft
+        : prefill.description,
+  });
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const [photos, setPhotos] = useState<readonly File[]>(
     prefill?.photos.slice(0, MAX_PHOTOS) ?? [],
@@ -166,6 +203,7 @@ export function ReportIssuePanel({
       description: string;
       photos: readonly File[];
       postId: string | null;
+      followsIssueId: string | null;
     }) => {
       const filed = await reportIssue({
         typeId: input.typeId,
@@ -174,6 +212,9 @@ export function ReportIssuePanel({
         location: input.location,
         description: input.description,
         ...(input.postId === null ? {} : { postId: input.postId }),
+        ...(input.followsIssueId === null
+          ? {}
+          : { followsIssueId: input.followsIssueId }),
       });
       if (!filed.ok) {
         return filed;
@@ -197,7 +238,8 @@ export function ReportIssuePanel({
       setDraft(EMPTY);
       setPhotos([]);
       setFromPostId(null);
-      onReported(fromPostId);
+      // The post the report was sent with: none for a follow-up.
+      onReported(followUp === undefined ? fromPostId : null);
     },
   );
 
@@ -223,7 +265,11 @@ export function ReportIssuePanel({
       location: draft.location.trim() === "" ? null : draft.location.trim(),
       description: draft.description.trim(),
       photos,
-      postId: fromPostId,
+      // A follow-up is not linked to the post it was started from: the post
+      // may already name the report being followed up, and the server refuses
+      // a second report on a post that names one. The post keeps its link.
+      postId: followUp === undefined ? fromPostId : null,
+      followsIssueId: followUp?.id ?? null,
     });
   };
 
@@ -281,6 +327,23 @@ export function ReportIssuePanel({
         ) : null
       }
     >
+      <KnownFaultsList faults={knownFaults} />
+
+      {followUp === undefined ? null : (
+        <Notice tone="info">
+          {t("issues.report.followUp", { type: followUp.typeName })}{" "}
+          {onFollowUpCancelled === undefined ? null : (
+            <button
+              type="button"
+              className={QUIET_BUTTON}
+              onClick={onFollowUpCancelled}
+            >
+              {t("issues.report.followUpCancel")}
+            </button>
+          )}
+        </Notice>
+      )}
+
       <LockedForm
         locked={submit.state.kind === "saving"}
         focusFallback={descriptionRef}
