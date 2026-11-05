@@ -463,7 +463,11 @@ function expectLinkHeaders(headers: Record<string, unknown>): void {
   expect(policy).toContain("default-src 'none'");
   expect(policy).toContain("form-action 'self'");
   expect(policy).toContain("frame-ancestors 'none'");
-  // F4, E3.
+  expectNoValidatorOrGrant(headers);
+}
+
+/** The answers' lack of a validator, a cross-origin grant and a cookie (F4, E3). */
+function expectNoValidatorOrGrant(headers: Record<string, unknown>): void {
   expect(headers.etag).toBeUndefined();
   expect(headers["last-modified"]).toBeUndefined();
   expect(headers["access-control-allow-origin"]).toBeUndefined();
@@ -688,7 +692,6 @@ describe("a contractor with a link", () => {
       `Kommer på torsdag ${suffix}`,
     ]);
     expect(order.contractorLink.files).toHaveLength(1);
-    // G11: handlers read it through the media route, never inline.
     expect(order.contractorLink.files[0]?.url).toMatch(/^\/api\/media\//);
     const served = await inject({
       method: "GET",
@@ -698,7 +701,6 @@ describe("a contractor with a link", () => {
     expect(served.statusCode).toBe(200);
 
     const done = await act(ids.token, { act: "done" });
-    // E6: answered on the spot, with no address of the link that just ended.
     expect(done.statusCode).toBe(200);
     expect(done.body).not.toContain(ids.token);
     expect(done.body).not.toContain("/arbetsorder/");
@@ -913,6 +915,30 @@ describe("A. the token", () => {
       actions.filter((a) => a === "ISSUE_WORK_ORDER_LINK_ISSUED"),
     ).toHaveLength(2);
     expect(actions).toContain("ISSUE_WORK_ORDER_LINK_REVOKED");
+  });
+  it("K1: issuing answers the address and its end once, and the instance mails and queues nothing that carries it", async () => {
+    const ids = await arrange();
+    const mailBefore = sent.length;
+    const response = await inject({
+      method: "POST",
+      url: linkUrl(ids.issueId, ids.workOrderId),
+      cookie: as(board),
+    });
+    expect(response.statusCode).toBe(201);
+    // The address and its end: nothing of the work order, issue or reporter.
+    expect(Object.keys(response.json<object>()).sort()).toEqual([
+      "expiresAt",
+      "url",
+    ]);
+    const { url } = response.json<{ url: string }>();
+    const token = url.slice(url.lastIndexOf("/") + 1);
+    expect(sent.slice(mailBefore)).toEqual([]);
+    const jobs = await prisma.$queryRaw<{ data: unknown }[]>`
+      SELECT data FROM pgboss.job WHERE data->>'issueId' = ${ids.issueId}`;
+    expect(JSON.stringify(jobs)).not.toContain(token);
+    expect(JSON.stringify(sent)).not.toContain(token);
+    // The handlers' listing never gives it back; it is shown the once.
+    expect(JSON.stringify(await listed(ids.issueId))).not.toContain(token);
   });
 });
 
@@ -1973,7 +1999,7 @@ describe("C. no enumeration", () => {
 });
 
 describe("D. rate limits and abuse", () => {
-  it("D2, D3: the 31st read from one address is refused, alike for a live token and an unknown one", async () => {
+  it("D1, D2, D3: the 31st read from one address is refused, alike for a live token and an unknown one", async () => {
     const ids = await linked();
     const refusals = [];
     for (const [token, address] of [
@@ -2095,6 +2121,20 @@ describe("E. what a request may do", () => {
     expect(entry?.actorPersonId).toBeNull();
   });
 
+  it("E6: an answer that ends the link is answered on the spot, with no address of the link that just ended", async () => {
+    for (const answer of ["decline", "done"] as const) {
+      const ids = await linked();
+      const ended = await act(ids.token, { act: answer });
+      // A page, not a redirect: a redirect to the link would meet the refusal.
+      expect(ended.statusCode, answer).toBe(200);
+      expect(ended.headers.location, answer).toBeUndefined();
+      expect(ended.body, answer).not.toContain(ids.token);
+      expect(ended.body, answer).not.toContain("/arbetsorder/");
+      expectLinkHeaders(ended.headers);
+      expect((await page(ids.token)).statusCode, answer).toBe(404);
+    }
+  });
+
   it("E5: a post from another origin, or of another type, is refused and stores nothing", async () => {
     const ids = await linked();
     const before = await snapshot(ids.issueId, ids.workOrderId);
@@ -2151,6 +2191,30 @@ describe("F. response headers", () => {
     const failed = await page(ids.token);
     expect(failed.statusCode).toBe(500);
     expectLinkHeaders(failed.headers);
+  });
+
+  it("F4: no answer carries a validator, a cross-origin grant or a cookie, the photograph's and a refusal's included", async () => {
+    const ids = await linked();
+    const answers = [
+      await page(ids.token),
+      await inject({
+        method: "GET",
+        url: `/arbetsorder/${ids.token}/foto/${ids.chosenFileId}`,
+      }),
+      await act(ids.token, { act: "accept" }),
+      await page(unknownToken()),
+      await inject({
+        method: "GET",
+        url: `/arbetsorder/${ids.token}`,
+        headers: { origin: "https://elsewhere.test" },
+      }),
+    ];
+    expect(answers.map((answer) => answer.statusCode)).toEqual([
+      200, 200, 303, 404, 200,
+    ]);
+    for (const answer of answers) {
+      expectNoValidatorOrGrant(answer.headers);
+    }
   });
 
   it("F2, F3: the page loads nothing from another origin, and its title says nothing", async () => {
@@ -2466,6 +2530,19 @@ describe("G. the contractor's photographs", () => {
     expect(
       (await inject({ method: "GET", url, cookie: as(manager) })).statusCode,
     ).toBe(404);
+  });
+
+  it("G11: a photograph the contractor sent is listed by a media address and read through it, never inline", async () => {
+    const ids = await linked();
+    await upload(ids.token, jpegBytes(8, 8));
+    const order = await listedOrder(ids.issueId, ids.workOrderId);
+    const url = order.contractorLink.files[0]?.url ?? "";
+    expect(url).toMatch(/^\/api\/media\//);
+    // The listing carries the address and no bytes of the photograph.
+    expect(JSON.stringify(order.contractorLink)).not.toContain("data:");
+    const served = await inject({ method: "GET", url, cookie: as(board) });
+    expect(served.statusCode).toBe(200);
+    expect(served.rawPayload.length).toBeGreaterThan(0);
   });
 
   it("G12: a handler removing a contractor's photograph or note removes it, the object from storage", async () => {
