@@ -199,6 +199,7 @@ describe("news mailing copies recorded as not sent before the driver could tell"
         failureReason: "recipient-objected",
       },
       { channel: "EMAIL", status: "SENT", failureReason: null },
+      { channel: "EMAIL", status: "SENT", failureReason: "send-failed" },
       { channel: "EMAIL", status: "PENDING", failureReason: null },
     ] as const;
 
@@ -224,6 +225,7 @@ describe("notice copies recorded as not sent before the driver could tell", () =
       { status: "FAILED", failureReason: "no-email-address" },
       { status: "FAILED", failureReason: "notice-sending-interrupted" },
       { status: "SENT", failureReason: null },
+      { status: "SENT", failureReason: "send-failed" },
       { status: "PENDING", failureReason: null },
     ];
 
