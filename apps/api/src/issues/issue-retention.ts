@@ -31,7 +31,7 @@
  */
 
 import type { Prisma } from "../generated/prisma/client";
-import { ISSUE_FREE_TEXT_STANDING } from "./issue-free-text";
+import { ISSUE_FREE_TEXT_STANDING_UNREDACTED } from "./issue-free-text";
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -61,21 +61,23 @@ export const ISSUE_RETENTION_DAYS = 365;
  * day the issue was closed. The row stays, with whom it went to and when,
  * which is the record GDPR art. 15(1)(c) and 19 ask for.
  *
- * Ten years, the longest the text has a purpose for (ADR 0055). The owner
- * asked for the work order to be kept as long as the law allows, so the
- * association can see what it asked of whom (2026-11-03). What it said is the
- * association's evidence of what it ordered, and a claim about the work, the
- * association's against the contractor or the contractor's for payment,
- * becomes time-barred ten years after it arose (preskriptionslagen (1981:130)
- * 2 §). The work is done before the issue is closed, so ten years from the
- * closing covers the claim. Bookkeeping asks for less: räkenskapsinformation is
- * kept to the end of the seventh year after the financial year
- * (bokföringslagen (1999:1078) 7 kap. 2 §). Past ten years nothing in law
- * needs the text, and storage limitation (GDPR art. 5(1)(e)) ends it. A demand
- * that interrupts the limitation (5 §) starts ten years again, and this clock
- * does not see it: only a legal hold on the issue itself, or a legal hold or a
- * restriction against the issue's reporter, stops the purge
- * (`IssuePurgeService`).
+ * Ten years, the ordinary window chosen for it (ADR 0055); no law sets this
+ * period for the text. The owner asked for the work order to be kept as long as
+ * the law allows, so the association can see what it asked of whom
+ * (2026-11-03). What it said is the association's evidence of what it ordered,
+ * and the general limitation period for a claim about the work, the
+ * association's against the contractor or the contractor's for payment, is ten
+ * years (preskriptionslagen (1981:130) 2 §). The clock runs from the closing,
+ * and the system knows neither when the work was done nor when a claim arose,
+ * so the window is sized to a claim made in the ordinary course and promises no
+ * more. Bookkeeping asks for less: räkenskapsinformation is kept to the end of
+ * the seventh year after the financial year (bokföringslagen (1999:1078) 7
+ * kap. 2 §). Storage limitation (GDPR art. 5(1)(e)) asks for a purpose, not a
+ * number of years; the purpose here is that evidence, and the window is the
+ * association's answer for the ordinary case. A demand that interrupts the
+ * limitation starts a new period (5-7 §§), and this clock does not see it:
+ * only a legal hold on the issue itself, or a legal hold or a restriction
+ * against the issue's reporter, stops the purge (`IssuePurgeService`).
  *
  * Counted in days as every clock here is, 3,653 of them: ten years of 365 and
  * the three leap days ten years can hold, so the text never goes before the
@@ -90,7 +92,7 @@ export const WORK_ORDER_BODY_RETENTION_DAYS = 3653;
  * An issue on which a work order's text still stands.
  *
  * While it does, the issue keeps what ties it to its reporter (ADR 0057: no
- * case whose text stands may lose its selector): the person purge leaves
+ * issue whose text stands may lose its selector): the person purge leaves
  * `reporterPersonId` and the public-form purge leaves the address index, so a
  * legal hold or a restriction placed later on that person still reaches the
  * text. Read from the rows rather than from a flag, so a text erased by any
@@ -110,9 +112,11 @@ export const WORK_ORDER_TEXT_STANDING = {
  * issue's lock. The person purge detaches a reporter only from an issue on
  * which neither text stands, and no run selects a person after their request
  * is executed, so the job that removes the last text is the one left to clear
- * the link. While either text stands the link stays (ADR 0057: no case whose
+ * the link. While either text stands the link stays (ADR 0057: no issue whose
  * text stands may lose its selector): a hold or a restriction placed later on
- * the person reaches that text only through it.
+ * the person reaches that text only through it. A contractor's note a handler
+ * has redacted holds no text and does not stand, though its blank row waits
+ * for the clock.
  *
  * The columns the person purge clears when it detaches, all four of them.
  */
@@ -138,7 +142,7 @@ export async function detachErasedReporter(
     where: {
       id: issueId,
       reporterPersonId,
-      NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
+      NOT: [ISSUE_FREE_TEXT_STANDING_UNREDACTED, WORK_ORDER_TEXT_STANDING],
     },
     data: {
       reporterPersonId: null,

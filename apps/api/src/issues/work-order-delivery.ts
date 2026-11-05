@@ -17,9 +17,11 @@ export const WORK_ORDER_DELIVERY_FAILURES = {
   mailNotConfigured: "mail-not-configured",
 
   /**
-   * The mail send ended in an error other than a missing mail server. The
-   * driver does not say whether the error came before or after the server took
-   * the message, so this is unconfirmed, like `unconfirmed`, and is shown so.
+   * The mail send ended in an error the mail driver places before the message
+   * was handed over: the mail server could not be reached, or refused the
+   * sign-in, the address or the message (`MailHandover`). Nothing left this
+   * instance. An error after which the server may hold the message is
+   * `unconfirmed` instead.
    */
   sendErrored: "send-failed",
 
@@ -27,17 +29,21 @@ export const WORK_ORDER_DELIVERY_FAILURES = {
   interrupted: "sending-interrupted",
 
   /**
-   * The sending was given up on after an attempt had claimed this work order,
-   * somewhere between the claim and the record of its outcome. The handler is
-   * told nobody knows whether it went out, rather than that it did not: a
-   * handler told the latter sends the contractor the same job twice.
+   * Nobody knows whether the work order went out. Either the mail send ended in
+   * an error after which the mail server may hold the message - a connection
+   * that broke or went quiet once the message was on its way - or the sending
+   * was given up on after an attempt had claimed this work order, somewhere
+   * between the claim and the record of its outcome. The handler is told so,
+   * rather than that it did not go out: a handler told the latter sends the
+   * contractor the same job twice.
    */
   unconfirmed: "delivery-unconfirmed",
 
   /**
    * The recipient's address could not be read back from its encrypted copy,
    * which happens before any mail is composed. Nothing was handed to a mail
-   * server, so unlike `send-failed` this is known not to have gone out.
+   * server, and none was asked: its own code, because `send-failed` names the
+   * mail server as the reason.
    */
   recipientUnreadable: "recipient-unreadable",
 
@@ -67,21 +73,31 @@ export type WorkOrderDeliveryFailure =
   (typeof WORK_ORDER_DELIVERY_FAILURES)[keyof typeof WORK_ORDER_DELIVERY_FAILURES];
 
 /**
- * The failures after which nothing left this instance: no mail server, a
- * sending given up before any attempt, a recipient or text erased, a type
- * ring-fenced, an address that could not be read back. `send-failed` is not
- * among them: the mail driver says nothing
- * of whether the error came before or after the server took the message, so
- * it stays open like `delivery-unconfirmed`.
+ * Whether each failure is one after which nothing left this instance: no mail
+ * server, a mail send the driver places before the handover, a sending given up
+ * before any attempt, a recipient or text erased, a type ring-fenced, an
+ * address that could not be read back. Only `delivery-unconfirmed` is not.
+ *
+ * A record over every code, so a new failure code does not compile until it is
+ * decided here, and does not silently count as unconfirmed.
  */
-const NEVER_LEFT: ReadonlySet<string> = new Set([
-  WORK_ORDER_DELIVERY_FAILURES.mailNotConfigured,
-  WORK_ORDER_DELIVERY_FAILURES.interrupted,
-  WORK_ORDER_DELIVERY_FAILURES.recipientRemoved,
-  WORK_ORDER_DELIVERY_FAILURES.recipientUnreadable,
-  WORK_ORDER_DELIVERY_FAILURES.textErased,
-  WORK_ORDER_DELIVERY_FAILURES.ringFenced,
-]);
+const NEVER_LEFT_BY_FAILURE: Record<WorkOrderDeliveryFailure, boolean> = {
+  [WORK_ORDER_DELIVERY_FAILURES.mailNotConfigured]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.sendErrored]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.interrupted]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.recipientRemoved]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.recipientUnreadable]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.textErased]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.ringFenced]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.unconfirmed]: false,
+};
+
+/** The failure codes after which nothing left this instance. */
+export const WORK_ORDER_NEVER_LEFT: readonly WorkOrderDeliveryFailure[] = (
+  Object.keys(NEVER_LEFT_BY_FAILURE) as WorkOrderDeliveryFailure[]
+).filter((failure) => NEVER_LEFT_BY_FAILURE[failure]);
+
+const NEVER_LEFT: ReadonlySet<string> = new Set(WORK_ORDER_NEVER_LEFT);
 
 /**
  * Whether a failed work order is known not to have gone out, as against one

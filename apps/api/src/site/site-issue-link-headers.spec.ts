@@ -2,10 +2,7 @@ import type { FastifyRequest } from "fastify";
 import { describe, expect, it } from "vite-plus/test";
 
 import { REPORTER_LINK_TOKEN_PATTERN } from "../issues/issue-reporter-link-token";
-import {
-  isReporterLinkPath,
-  isReporterLinkRequest,
-} from "./site-issue-link-headers";
+import { isLinkPath, isLinkRequest } from "./site-issue-link-headers";
 
 /**
  * Which requests carry the reporter's link headers (ADR 0055): decided by the
@@ -15,6 +12,7 @@ import {
  */
 
 const TOKEN = `obrf_rl_${"A".repeat(43)}`;
+const WORK_ORDER_TOKEN = `obrf_wo_${"A".repeat(43)}`;
 const TOKEN_ROUTE = `/arende/:token(^${REPORTER_LINK_TOKEN_PATTERN}$)`;
 
 function request(url: string, matched?: string): FastifyRequest {
@@ -24,7 +22,7 @@ function request(url: string, matched?: string): FastifyRequest {
   } as unknown as FastifyRequest;
 }
 
-describe("isReporterLinkRequest", () => {
+describe("isLinkRequest", () => {
   const cases: {
     name: string;
     url: string;
@@ -165,24 +163,34 @@ describe("isReporterLinkRequest", () => {
   ];
 
   it.each(cases)("$name", ({ url, matched, expected }) => {
-    expect(isReporterLinkRequest(request(url, matched))).toBe(expected);
+    expect(isLinkRequest(request(url, matched))).toBe(expected);
   });
 
-  it("reads a malformed escape as written, as the router refuses it first", () => {
-    expect(isReporterLinkRequest(request("/arende/%E0%A4%A", undefined))).toBe(
-      true,
-    );
-    expect(isReporterLinkRequest(request("/om-oss/%E0%A4%A", undefined))).toBe(
+  it("reads a contractor's token address as on the link, whichever route matched", () => {
+    expect(
+      isLinkRequest(request(`/arbetsorder%2F${WORK_ORDER_TOKEN}`, "/:slug")),
+    ).toBe(true);
+    expect(
+      isLinkRequest(request(`/arende%2F${WORK_ORDER_TOKEN}`, "/:slug")),
+    ).toBe(false);
+    expect(isLinkRequest(request(`/arbetsorder%2F${TOKEN}`, "/:slug"))).toBe(
       false,
     );
   });
+
+  it("reads a malformed escape as written, as the router refuses it first", () => {
+    expect(isLinkRequest(request("/arende/%E0%A4%A", undefined))).toBe(true);
+    expect(isLinkRequest(request("/om-oss/%E0%A4%A", undefined))).toBe(false);
+  });
 });
 
-describe("isReporterLinkPath", () => {
+describe("isLinkPath", () => {
   it("is the link's path and what is below it, and nothing that only starts alike", () => {
-    expect(isReporterLinkPath("/arende")).toBe(true);
-    expect(isReporterLinkPath("/arende/x?y=1")).toBe(true);
-    expect(isReporterLinkPath("/arendeX")).toBe(false);
-    expect(isReporterLinkPath("/")).toBe(false);
+    expect(isLinkPath("/arende")).toBe(true);
+    expect(isLinkPath("/arende/x?y=1")).toBe(true);
+    expect(isLinkPath("/arendeX")).toBe(false);
+    expect(isLinkPath("/arbetsorder/x")).toBe(true);
+    expect(isLinkPath("/arbetsorderX")).toBe(false);
+    expect(isLinkPath("/")).toBe(false);
   });
 });

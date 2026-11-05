@@ -1879,6 +1879,18 @@ enum AuditAction {
   ISSUE_REPORTER_LINK_ISSUED
   /// A handler withdrew the private link of an issue's reporter (ADR 0055). The entry names the issue, the link and the handler as its actor.
   ISSUE_REPORTER_LINK_REVOKED
+  /// A handler gave the contractor of a work order a link to it (ADR 0055). The entry names the issue, the work order and the link, and the handler as its actor; never the token.
+  ISSUE_WORK_ORDER_LINK_ISSUED
+  /// A handler withdrew the link of a work order, or issued a new one in its place (ADR 0055). The entry names the issue, the work order and the link, and the handler as its actor.
+  ISSUE_WORK_ORDER_LINK_REVOKED
+  /// The contractor answered a work order through its link: accepted, declined or done (ADR 0055). The entry names the issue, the work order, the link and the answer, on the link's channel with no actor.
+  ISSUE_WORK_ORDER_ANSWERED
+  /// The contractor wrote a note on a work order through its link. The entry names the issue, the work order, the link and the note, never the text.
+  ISSUE_WORK_ORDER_NOTE_ADDED
+  /// The contractor added a photograph to a work order through its link. The entry names the issue, the work order, the link and the file, never its name.
+  ISSUE_WORK_ORDER_PHOTO_ADDED
+  /// A handler chose which of an issue's photographs the contractor of a work order sees through its link. The entry names the issue, the work order and how many were chosen, and the handler as its actor.
+  ISSUE_WORK_ORDER_PHOTOS_CHOSEN
   /// A handler redacted a text on an issue or removed one of its files (ADR 0057). The entry names the issue, what was reached and the row's identifier, never the text or the file's name.
   ISSUE_REDACTED
   /// A legal hold was placed on an issue, so its free text outlasts its purge clock (ADR 0057).
@@ -4033,6 +4045,9 @@ model MediaFile {
   associationLogoDark     Association[]            @relation("AssociationLogoDark")
   issuePhotos             IssuePhoto[]
   issueAttachment         IssueAttachment?
+  workOrderPhotos         WorkOrderPhoto[]
+  workOrderExposures      WorkOrderPhotoExposure[]
+  workOrderFile           WorkOrderFile?
   document                Document?                @relation("DocumentFile")
   apartmentDocument       ApartmentDocument?       @relation("ApartmentDocumentFile")
   boardMailboxAttachments BoardMailboxAttachment[]
@@ -4620,7 +4635,7 @@ model Issue {
   /// to another date and processing its reminder must not forget the first.
   /// Grows by one for each reminder sent. Written with the claim that queues the
   /// mail, under the issue's lock. Not personal data.
-  overdueRemindedFor DateTime[] @db.Date @default([])
+  overdueRemindedFor DateTime[] @default([]) @db.Date
 
   /// Closed to every handler but the board, whatever its type allows (decision
   /// 13). A handler tightens an issue; only the board loosens it again, and
@@ -4683,9 +4698,11 @@ model Issue {
 
   /// When the nightly purge removed the issue's free-text layer, on its clock
   /// or on its reporter's granted erasure request (ADR 0057). The board's
-  /// screen says so with the date rather than showing an empty issue. Not a
-  /// selector: what the purge reaches is whatever free text still stands, so
-  /// text written after a reopening is reached on the next closing's clock.
+  /// screen says so with the date rather than showing an empty issue. Written
+  /// when the text goes, also while a file attached during the run stands,
+  /// and again by the run that takes that file. Not a selector: what the
+  /// purge reaches is whatever free text still stands, so text written after
+  /// a reopening is reached on the next closing's clock.
   freeTextRemovedAt DateTime?
 
   /// Since when a legal hold stands on the issue, or null when none does
@@ -4928,11 +4945,170 @@ model WorkOrder {
   /// When the handler sent it: the date the record answers with.
   createdAt DateTime @default(now())
 
+  /// What the contractor answered through the work order's link (ADR 0055),
+  /// or null while they have not. A fact about the work, not free text, so it
+  /// stays with the building record when the purge removes the words.
+  answer     WorkOrderAnswer?
+  /// When the answer was given.
+  answeredAt DateTime?
+
+  links        WorkOrderLink[]
+  chosenPhotos WorkOrderPhoto[]
+  exposures    WorkOrderPhotoExposure[]
+  notes        WorkOrderNote[]
+  files        WorkOrderFile[]
+
   @@index([issueId, createdAt])
   @@index([contractorId])
   /// The sender's own work orders in the last hour, for the sending budget.
   @@index([sentByPersonId, createdAt])
   @@map("work_order")
+}
+
+/// What a contractor answered a work order through its link (ADR 0055).
+enum WorkOrderAnswer {
+  /// They take the job. The link stays open for notes, photographs and done.
+  ACCEPTED
+  /// They do not. The link ends.
+  DECLINED
+  /// They finished it. The link ends.
+  DONE
+}
+
+/// A contractor's link (arbetsorderlänk) to one work order (decision 24 of the
+/// issue module plan, ADR 0055): whoever holds it sees that work order's text
+/// and the photographs the board chose for it, answers it, and adds notes and
+/// photographs of their own. Never the report, the reporter or the
+/// conversation.
+///
+/// Built behind a switch that is off until the legal review clears it
+/// (decision 25, `OPENBRF_CONTRACTOR_LINKS_ENABLED`). While it is off nothing
+/// is issued and no token opens anything.
+///
+/// The token is never stored. `tokenDigest` is its SHA-256 digest
+/// (`hashOpaqueToken`), unique, and the link is looked up by it alone, with
+/// whether it still opens anything read in the same query on the database's
+/// clock (`work-order-link.ts`). A work order has one live link at most:
+/// issuing a new one revokes the one before, which a partial unique index in
+/// the migration holds.
+///
+/// No column names the handler who issued it. The audit entry does, and a
+/// person column here would be one more for the person purge to reach.
+model WorkOrderLink {
+  id String @id @default(cuid())
+
+  /// Cascade: a link to a work order that is gone opens nothing.
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  /// The token's SHA-256 digest, base64url.
+  tokenDigest String @unique
+
+  issuedAt  DateTime  @default(now())
+  /// Thirty days after it was issued, on the database's clock, and never moved
+  /// (`WORK_ORDER_LINK_DAYS`). A new link is the only way to more time.
+  expiresAt DateTime
+  /// When a handler withdrew it, a new link replaced it, or something it opens
+  /// stopped being one a contractor may see. A revoked link stays revoked.
+  revokedAt DateTime?
+
+  @@index([workOrderId])
+  @@map("work_order_link")
+}
+
+/// A photograph of an issue that a handler chose for the contractor of a work
+/// order to see through its link (decision 24).
+///
+/// The one way a contractor reads a file of the issue: the link serves a file
+/// only when it is chosen here for its own work order and is still on that
+/// issue. A file removed from the issue takes the row with it by its cascade,
+/// so a photograph redacted or purged stops answering on the next request.
+model WorkOrderPhoto {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  fileId String
+  file   MediaFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  @@unique([workOrderId, fileId])
+  @@index([fileId])
+  @@map("work_order_photo")
+}
+
+/// One photograph of an issue that a work order's link has shown a contractor,
+/// kept so the data subject access report can state how many were disclosed
+/// (GDPR art. 15(1)(c)) after the choice is changed or a file is removed.
+///
+/// Written by the handler's acts, never by a read of the link (ADR 0055: reads
+/// write nothing): when a link is issued, for the photographs already chosen,
+/// and when a photograph is chosen while a link stands. One row per photograph
+/// per work order, so choosing it again counts it once. The file reference is
+/// cleared, not the row, when the file is removed: the count outlives the file.
+model WorkOrderPhotoExposure {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  fileId String?
+  file   MediaFile? @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  exposedAt DateTime @default(now())
+
+  @@unique([workOrderId, fileId])
+  @@index([fileId])
+  @@map("work_order_photo_exposure")
+}
+
+/// A note a contractor wrote on a work order through its link.
+///
+/// The contractor's own words, and free text: part of the issue's free-text
+/// layer, removed with it on the board's clock (ADR 0057), and redacted by a
+/// handler like any other text there. Never shown to the reporter.
+model WorkOrderNote {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  body       String
+  /// When a handler redacted it (ADR 0057). The body is empty then.
+  redactedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([workOrderId, createdAt])
+  @@map("work_order_note")
+}
+
+/// A photograph a contractor added to a work order through its link: the
+/// first upload in the product that no account stands behind (ADR 0055).
+///
+/// Its own join, never `IssuePhoto`, which the reporter reads: the file is
+/// `INTERNAL` under `issues:handle` and read by the handlers the issue lets in
+/// (`issueFileAccess`), and by the link of its own work order. Part of the
+/// issue's free-text layer, as every photograph on an issue is.
+model WorkOrderFile {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  /// Cascade, for the reason `IssuePhoto.fileId` gives. Unique: a file is on
+  /// one work order and decided by it alone.
+  fileId String    @unique
+  file   MediaFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([workOrderId, sortOrder])
+  @@map("work_order_file")
 }
 
 /// The association's responsibility guide (ansvarsfördelning) as a whole:
@@ -5046,6 +5222,9 @@ model IssueMessage {
 
   @@index([issueId, createdAt])
   @@index([authorPersonId])
+  // The queue's search (`IssueService.searchWhere`) matches a word anywhere in
+  // the text, which a B-tree cannot answer and a trigram index can (`pg_trgm`).
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin, map: "issue_message_body_trgm_idx")
   @@map("issue_message")
 }
 
@@ -5081,6 +5260,8 @@ model IssueNote {
 
   @@index([issueId, createdAt])
   @@index([authorPersonId])
+  // For the queue's search, as on an issue message.
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin, map: "issue_note_body_trgm_idx")
   @@map("issue_note")
 }
 
@@ -5240,7 +5421,7 @@ model IssueFinding {
   /// The day of the inspection the protocol is dated.
   inspectedOn DateTime @db.Date
 
-  protocolAttachmentId String?                @unique
+  protocolAttachmentId String?          @unique
   protocolAttachment   IssueAttachment? @relation(fields: [protocolAttachmentId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())

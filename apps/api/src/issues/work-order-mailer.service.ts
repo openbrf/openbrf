@@ -11,9 +11,11 @@ import {
 } from "../jobs/job-queue.service";
 import type { Prisma } from "../generated/prisma/client";
 import { failureName } from "../logging/failure";
+import { mayHaveBeenHandedOver } from "../mail/mail-driver";
 import type { RenderedMail } from "../mail/mail-template";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { workOrderMail, type WorkOrderMailProps } from "../mail/templates";
+import { associationDefaultLocale } from "../settings/default-locale";
 import { lockIssueType } from "./issue-lock";
 import { WORK_ORDER_DELIVERY_FAILURES } from "./work-order-delivery";
 
@@ -56,7 +58,7 @@ export const WORK_ORDER_ABANDONED_QUEUE = "issue-work-order-abandoned";
 const WORK_ORDER_JOB_OPTIONS = {
   // For the failures a second attempt can change: a database that went away, a
   // worker that was killed. A mail send that errors is recorded on the row
-  // instead, as unconfirmed, and the handler is shown it.
+  // instead, as not sent or as unconfirmed, and the handler is shown it.
   retryLimit: 5,
   retryDelay: 10,
   retryBackoff: true,
@@ -144,7 +146,7 @@ export class WorkOrderMailerService implements OnModuleInit {
    */
   async render(props: WorkOrderMailProps): Promise<RenderedMail> {
     return this.mail.renderMail(
-      this.workOrderMail(props, await this.defaultLocale()),
+      this.workOrderMail(props, await associationDefaultLocale(this.prisma)),
     );
   }
 
@@ -153,7 +155,7 @@ export class WorkOrderMailerService implements OnModuleInit {
     // Read before the claim: a read that fails here fails the job, which is
     // retried with the work order untouched. After the claim it would land in
     // the catch below and record a send error nobody made.
-    const locale = await this.defaultLocale();
+    const locale = await associationDefaultLocale(this.prisma);
     const order = await this.prisma.$transaction((tx) =>
       this.claim(tx, workOrderId),
     );
@@ -168,8 +170,8 @@ export class WorkOrderMailerService implements OnModuleInit {
     }
 
     // Apart from the send: an address that cannot be read back fails before
-    // any mail is composed, so nothing left this instance, which `send-failed`
-    // would not say.
+    // any mail is composed, and `send-failed` would name the mail server as
+    // the reason.
     let to: string;
     try {
       to = await this.encryption.decrypt(
@@ -198,11 +200,17 @@ export class WorkOrderMailerService implements OnModuleInit {
         ),
       });
     } catch (error) {
+      // Not sent only where the driver says the message never reached the
+      // mail server. A connection that broke after the message was on its way
+      // may have left it with the server, and a handler told it was not sent
+      // sends the contractor the same job twice.
       await this.fail(
         workOrderId,
         error instanceof MailNotConfiguredError
           ? WORK_ORDER_DELIVERY_FAILURES.mailNotConfigured
-          : WORK_ORDER_DELIVERY_FAILURES.sendErrored,
+          : mayHaveBeenHandedOver(error)
+            ? WORK_ORDER_DELIVERY_FAILURES.unconfirmed
+            : WORK_ORDER_DELIVERY_FAILURES.sendErrored,
       );
       // By the work order and the class of the failure, never the address and
       // never the mail server's own words, which quote it back.
@@ -358,20 +366,6 @@ export class WorkOrderMailerService implements OnModuleInit {
     props: WorkOrderMailProps;
   } {
     return { locale, template: workOrderMail, props };
-  }
-
-  /**
-   * The association's default language, which the mail is written in (see the
-   * note at the top of this file). Swedish where there is no association row,
-   * the mail service's own default; a null locale would be the same, but would
-   * ignore an association that chose English.
-   */
-  private async defaultLocale(): Promise<string> {
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-      select: { defaultLocale: true },
-    });
-    return association?.defaultLocale ?? "sv";
   }
 
   /**

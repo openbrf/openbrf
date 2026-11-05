@@ -1002,6 +1002,38 @@ describe("handling an issue", () => {
     expect(await screen.findByText(/7 kap\. 12 a §/)).toBeTruthy();
   });
 
+  it("says a reply is not a notice to remedy once for an issue, not in the status form and the handling panel both", async () => {
+    const session = userEvent.setup();
+    show(issue({ costResponsibility: "TENANT_OWNER" }));
+    await openHandling(session);
+    // The panel's, which stands while the cost is the tenant-owner's.
+    expect(await screen.findAllByText(/7 kap\. 12 a §/)).toHaveLength(1);
+
+    await session.selectOptions(statusSelect(), "s-done");
+    await session.selectOptions(
+      screen.getByLabelText("Vatten anmält 2026-08-20: utfall"),
+      "TENANT_OWNER_RESPONSIBILITY",
+    );
+    // The form's draft takes it over; the panel does not repeat it. Counted in
+    // the form too, so the one sentence cannot be the panel's.
+    const statusForm = screen
+      .getByLabelText("Vatten anmält 2026-08-20: utfall")
+      .closest("form") as HTMLElement;
+    await waitFor(() => {
+      expect(screen.getAllByText(/7 kap\. 12 a §/)).toHaveLength(1);
+      expect(within(statusForm).getAllByText(/7 kap\. 12 a §/)).toHaveLength(1);
+    });
+
+    await session.selectOptions(
+      screen.getByLabelText("Vatten anmält 2026-08-20: utfall"),
+      "FIXED",
+    );
+    await waitFor(() => {
+      expect(screen.getAllByText(/7 kap\. 12 a §/)).toHaveLength(1);
+      expect(within(statusForm).queryByText(/7 kap\. 12 a §/)).toBeNull();
+    });
+  });
+
   it("keeps saying a reply is not a notice to remedy on an issue closed as the tenant-owner's", async () => {
     const session = userEvent.setup();
     show(
@@ -1114,7 +1146,7 @@ describe("handling an issue", () => {
     ).toBeNull();
   });
 
-  it("reads the charges and the guide again when the queue brings the issue again, so an open panel does not keep an earlier answer", async () => {
+  it("reads the charges and the guide again when the queue brings a newer revision of the issue, so an open panel does not keep an earlier answer", async () => {
     const session = userEvent.setup();
     const view = render(
       <IssueQueuePanel
@@ -1152,7 +1184,7 @@ describe("handling an issue", () => {
     );
     view.rerender(
       <IssueQueuePanel
-        issues={[issue()]}
+        issues={[issue({ updatedAt: "2026-08-21T09:00:00.000Z" })]}
         types={TYPES}
         onChanged={() => undefined}
         canManageCharges
@@ -1173,6 +1205,100 @@ describe("handling an issue", () => {
     expect(fetchHandlerResponsibilityGuide.mock.calls.length).toBeGreaterThan(
       guides,
     );
+  });
+
+  it("withholds the charges already read as soon as the queue shows the reporter as protected, though the issue's revision is the same", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    const charges = fetchIssueCharges.mock.calls.length;
+
+    // Protecting a person changes the person, not the issue's revision.
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue({ reporter: { kind: "protected" }, apartment: null })]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    expect(screen.queryByText("1250.00")).toBeNull();
+    expect(
+      screen.getByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeTruthy();
+    expect(fetchIssueCharges.mock.calls.length).toBe(charges);
+  });
+
+  it("reads the charges again when the reporter stops being protected, though the issue's revision is the same", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue({ reporter: { kind: "protected" }, apartment: null })]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(
+      await screen.findByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeTruthy();
+    const charges = fetchIssueCharges.mock.calls.length;
+
+    // The protection ends: the person changes, the issue's revision does not.
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    expect(
+      screen.queryByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeNull();
+    expect(fetchIssueCharges.mock.calls.length).toBe(charges + 1);
+  });
+
+  it("does not read the charges or the guide again when the queue brings the same revision in a new object", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    const charges = fetchIssueCharges.mock.calls.length;
+    const guides = fetchHandlerResponsibilityGuide.mock.calls.length;
+
+    // A filter or a search reads the queue again; the issue is as it was.
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    expect(screen.getByText("1250.00")).toBeTruthy();
+    expect(fetchIssueCharges.mock.calls.length).toBe(charges);
+    expect(fetchHandlerResponsibilityGuide.mock.calls.length).toBe(guides);
   });
 
   it("offers no access switch on a type the board handles alone", async () => {
@@ -1287,6 +1413,102 @@ describe("handling an issue", () => {
       await vi.advanceTimersByTimeAsync(12_000);
     });
     expect(fetchIssueTimeline).toHaveBeenCalledTimes(settled);
+  });
+
+  it("drops a poll answer asked while the main read was pending, which that read then answered with newer steps", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reported = {
+      kind: "reported",
+      at: "2026-08-20T08:00:00.000Z",
+      actor: null,
+    };
+    const workOrder = {
+      kind: "workOrder",
+      at: "2026-08-21T10:00:00.000Z",
+      actor: null,
+    };
+    const onItsWay = {
+      ok: true,
+      value: [reported, { ...workOrder, delivery: "pending" }],
+    };
+    fetchIssueTimeline.mockResolvedValue(onItsWay);
+    const session = userEvent.setup({
+      advanceTimers: (ms) => vi.advanceTimersByTime(ms),
+    });
+    const queued = issue();
+    const view = render(
+      <IssueQueuePanel
+        issues={[queued]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await openHandling(session);
+    expect(
+      await screen.findByText("En arbetsorder är på väg till en entreprenör"),
+    ).toBeTruthy();
+
+    // A newer revision starts the main read, and it is held.
+    let answerMain: (value: unknown) => void = () => undefined;
+    fetchIssueTimeline.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerMain = resolve;
+      }),
+    );
+    view.rerender(
+      <IssueQueuePanel
+        issues={[{ ...queued, updatedAt: "2026-08-21T11:00:00.000Z" }]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      expect(fetchIssueTimeline).toHaveBeenCalledTimes(2);
+    });
+
+    // The poll asks under the same revision while that read is pending, and is
+    // held too.
+    let answerPoll: (value: unknown) => void = () => undefined;
+    fetchIssueTimeline.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerPoll = resolve;
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(fetchIssueTimeline).toHaveBeenCalledTimes(3);
+
+    // The main read answers with a step more, the mail still on its way, so
+    // the poll stays on; the poll's older answer, without that step, lands
+    // after it and is dropped.
+    await act(async () => {
+      answerMain({
+        ok: true,
+        value: [
+          reported,
+          { ...workOrder, delivery: "pending" },
+          {
+            kind: "status",
+            at: "2026-08-21T11:00:00.000Z",
+            actor: null,
+            fromMeaning: "NEW",
+            toMeaning: "IN_PROGRESS",
+            fromStatusId: "s-new",
+            toStatusId: "s-doing",
+            waitingReason: null,
+            outcome: null,
+          },
+        ],
+      });
+      await Promise.resolve();
+    });
+    expect(await screen.findByText(/Flyttat till Pågår/)).toBeTruthy();
+    await act(async () => {
+      answerPoll(onItsWay);
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/Flyttat till Pågår/)).toBeTruthy();
   });
 
   it("adds a status just saved to the timeline while it stays open", async () => {

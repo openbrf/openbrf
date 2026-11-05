@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -651,44 +652,63 @@ describe("a work order", () => {
     }
   });
 
-  it("records a failed mail send as a code on the work order, unconfirmed on the timeline", async () => {
-    const issueId = await filed(plain, "refused");
-    const sent = (
-      await previewAndSend(as(board), issueId, {
-        contractorId: plumber.id,
-        body: "Byt lampan i trapphuset.",
-      })
-    ).json<WorkOrderRow>();
+  it.each([
+    {
+      // The server refused the envelope: the driver says nothing was handed
+      // over, so the work order did not go out and the timeline says so.
+      handover: "not-handed-over",
+      failure: "send-failed",
+      delivery: "failed",
+    },
+    {
+      // The connection broke once the message was on its way: the server may
+      // hold it, so nobody can vouch for it either way.
+      handover: "may-have-been-handed-over",
+      failure: "delivery-unconfirmed",
+      delivery: "unconfirmed",
+    },
+  ] as const)(
+    "records a failed mail send the driver says was $handover as $failure, $delivery on the timeline",
+    async ({ handover, failure, delivery }) => {
+      const issueId = await filed(plain, `refused-${handover}`);
+      const sent = (
+        await previewAndSend(as(board), issueId, {
+          contractorId: plumber.id,
+          body: "Byt lampan i trapphuset.",
+        })
+      ).json<WorkOrderRow>();
 
-    const send = vi
-      .spyOn(mail, "send")
-      .mockRejectedValue(new Error(`550 no such user ${plumber.email ?? ""}`));
-    try {
-      expect(await mailer.send(sent.id)).toBe("failed");
-    } finally {
-      send.mockRestore();
-    }
-    expect(
-      await prisma.workOrder.findUniqueOrThrow({
-        where: { id: sent.id },
-        select: { deliveryStatus: true, deliveryFailure: true },
-      }),
-    ).toEqual({ deliveryStatus: "FAILED", deliveryFailure: "send-failed" });
+      // The driver's error as it reaches the sender: its words quote the
+      // address, and its handover is what decides the record.
+      const send = vi.spyOn(mail, "send").mockRejectedValue(
+        Object.assign(new Error(`550 no such user ${plumber.email ?? ""}`), {
+          handover,
+        }),
+      );
+      try {
+        expect(await mailer.send(sent.id)).toBe("failed");
+      } finally {
+        send.mockRestore();
+      }
+      expect(
+        await prisma.workOrder.findUniqueOrThrow({
+          where: { id: sent.id },
+          select: { deliveryStatus: true, deliveryFailure: true },
+        }),
+      ).toEqual({ deliveryStatus: "FAILED", deliveryFailure: failure });
 
-    // The timeline step says nobody can vouch for the mail, not that it was
-    // sent and not that it was not: the driver's error may have come after the
-    // server took the message.
-    const timeline = await inject({
-      method: "GET",
-      url: `/api/issue-queue/${issueId}/timeline`,
-      cookie: as(board),
-    });
-    expect(
-      timeline.json<{ kind: string; delivery?: string }[]>(),
-    ).toContainEqual(
-      expect.objectContaining({ kind: "workOrder", delivery: "unconfirmed" }),
-    );
-  });
+      const timeline = await inject({
+        method: "GET",
+        url: `/api/issue-queue/${issueId}/timeline`,
+        cookie: as(board),
+      });
+      expect(
+        timeline.json<{ kind: string; delivery?: string }[]>(),
+      ).toContainEqual(
+        expect.objectContaining({ kind: "workOrder", delivery }),
+      );
+    },
+  );
 
   it("is never offered, previewed or sent on a ring-fenced issue", async () => {
     const issueId = await filed(ringFenced, "ring");
@@ -985,6 +1005,73 @@ describe("what is sent is what was previewed", () => {
     expect(audited).toEqual([
       { context: { change: "changed", fields: ["email"] } },
     ]);
+  });
+
+  it("counts an earlier work order as a sending unless it is known not to have left", async () => {
+    const attempt = async (
+      label: string,
+      failure: string,
+      status: "FAILED" | "PENDING" = "FAILED",
+    ) => {
+      const issueId = await filed(plain, label);
+      const payload = {
+        contractorId: plumber.id,
+        body: `Sota imkanalen. ${label} ${suffix}`,
+      };
+      const preview = await workOrder(as(manager), issueId, payload, "preview");
+      const { previewToken } = preview.json<{ previewToken: string }>();
+      expect(
+        (await workOrder(as(manager), issueId, { ...payload, previewToken }))
+          .statusCode,
+      ).toBe(201);
+      await prisma.workOrder.updateMany({
+        where: { issueId },
+        data: {
+          deliveryStatus: status,
+          deliveryFailure: status === "FAILED" ? failure : null,
+        },
+      });
+      const again = await workOrder(as(manager), issueId, {
+        ...payload,
+        previewToken,
+      });
+      return {
+        again,
+        count: await prisma.workOrder.count({ where: { issueId } }),
+      };
+    };
+
+    // Told "write it again to send it", the handler is not refused for a
+    // sending that never happened. Three of the codes stand for the rest, which
+    // `work-order-delivery.spec.ts` keeps in step with the check. The property
+    // manager sends these: each costs two of a handler's twenty sendings an
+    // hour, which the board's own tests need.
+    for (const failure of [
+      "sending-interrupted",
+      "mail-not-configured",
+      "send-failed",
+    ]) {
+      const { again, count } = await attempt(`never-left-${failure}`, failure);
+      expect(again.statusCode, failure).toBe(201);
+      expect(count, failure).toBe(2);
+    }
+
+    // A mail that may have gone out, or is still on its way, is a sending.
+    for (const [failure, status] of [
+      ["delivery-unconfirmed", "FAILED"],
+      ["", "PENDING"],
+    ] as const) {
+      const { again, count } = await attempt(
+        `may-have-left-${failure || status}`,
+        failure,
+        status,
+      );
+      expect(again.statusCode, failure || status).toBe(409);
+      expect(again.json<{ reason: string }>().reason).toBe(
+        "work-order-duplicate",
+      );
+      expect(count, failure || status).toBe(1);
+    }
   });
 
   it("refuses the same work order sent twice in a moment, and a handler past the hourly budget", async () => {
@@ -1288,22 +1375,39 @@ describe("the sending", () => {
     const before = await inject({ method: "GET", url, cookie: as(board) });
     expect(before.statusCode).toBe(200);
 
+    const { recipientEmailCipher } = await prisma.workOrder.findUniqueOrThrow({
+      where: { id: first.id },
+      select: { recipientEmailCipher: true },
+    });
+    expect(recipientEmailCipher).not.toBeNull();
     const realDecrypt = encryption.decrypt.bind(encryption);
+    // A failure whose message quotes the address and the cipher it was reading,
+    // as a careless one would: the log line must carry neither.
     const decrypt = vi
       .spyOn(encryption, "decrypt")
       .mockImplementation(async (purpose, cipher, rowId) => {
         if (rowId === first.id) {
-          throw new Error("bad decrypt");
+          throw new Error(
+            `bad decrypt of ${plumber.email}: ${String(recipientEmailCipher)}`,
+          );
         }
         return realDecrypt(purpose, cipher, rowId);
       });
+    const warned = vi.spyOn(Logger.prototype, "warn");
     let listed;
+    let lines: string[];
     try {
       listed = await inject({ method: "GET", url, cookie: as(board) });
+      lines = warned.mock.calls.map((call) => String(call[0]));
     } finally {
       decrypt.mockRestore();
+      warned.mockRestore();
     }
     expect(listed.statusCode).toBe(200);
+    const line = lines.find((text) => text.includes(first.id));
+    expect(line).toContain("recipient address could not be read");
+    expect(line).not.toContain(plumber.email);
+    expect(line).not.toContain(String(recipientEmailCipher));
     const { workOrders } = listed.json<{ workOrders: WorkOrderRow[] }>();
     const unchanged = before.json<{ workOrders: WorkOrderRow[] }>().workOrders;
     expect(workOrders.find((row) => row.id === first.id)).toEqual({
@@ -1585,7 +1689,7 @@ describe("the sending", () => {
     });
   });
 
-  it("makes a sending wait for the lock on its sender, so an erasure of the handler cannot fall between the access check and the insert", async () => {
+  it("makes a sending wait for the lock on its sender", async () => {
     const issueId = await filed(plain, "sender-lock");
     const payload = {
       contractorId: plumber.id,
@@ -1621,8 +1725,12 @@ describe("the sending", () => {
       expect(await prisma.workOrder.count({ where: { issueId } })).toBe(0);
     } finally {
       holding.open();
-      await held;
+      await held.catch(() => undefined);
+      // A failure above stays the test's own: the queued sending is awaited
+      // here, not left to finish while the next test and `afterAll` run.
+      await sending?.catch(() => undefined);
     }
+    await held;
     expect((await sending)?.statusCode).toBe(201);
     expect(await prisma.workOrder.count({ where: { issueId } })).toBe(1);
   });

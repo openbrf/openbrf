@@ -15,10 +15,11 @@ import type { Prisma } from "../generated/prisma/client";
  *
  * The free-text layer is everything a person wrote or photographed: the
  * description, the free-text location, every issue message and internal note,
- * and every photograph and file a handler attached. It is removed on the
+ * every photograph and file a handler attached, and every note and photograph
+ * a contractor sent through a work order's link (ADR 0055). It is removed on the
  * board's clock after the issue closes, unless a legal hold stands on the issue
- * or on its reporter; on the reporter's granted erasure request; and, a piece
- * at a time, whenever a handler redacts it.
+ * or a legal hold or a restriction on its reporter; on the reporter's granted
+ * erasure request; and, a piece at a time, whenever a handler redacts it.
  *
  * The free-text location goes with the rest because decision 33 removes free
  * text, and "the bathroom in 1101, the neighbour's dog" is free text whatever
@@ -38,16 +39,45 @@ import type { Prisma } from "../generated/prisma/client";
  * An object to put under `AND`, never to spread: its `OR` would replace one
  * beside it.
  */
-export const ISSUE_FREE_TEXT_STANDING = {
-  OR: [
-    { description: { not: "" } },
-    { location: { not: null } },
-    { messages: { some: {} } },
-    { notes: { some: {} } },
-    { photos: { some: {} } },
-    { attachments: { some: {} } },
-  ],
-} as const satisfies Prisma.IssueWhereInput;
+export const ISSUE_FREE_TEXT_STANDING = standing({});
+
+/**
+ * The same, except that a contractor's note a handler has redacted does not
+ * count: its row stands for the clock to take, but nothing of what was written
+ * is left in it.
+ *
+ * What the detaching of a reporter whose erasure was carried out reads, so that
+ * a handler's redaction of the last contractor note frees the reporter at once
+ * instead of leaving them attached until the clock takes the blank row (ADR
+ * 0057). The clock still selects by `ISSUE_FREE_TEXT_STANDING`.
+ */
+export const ISSUE_FREE_TEXT_STANDING_UNREDACTED = standing({
+  redactedAt: null,
+});
+
+function standing(
+  contractorNote: Prisma.WorkOrderNoteWhereInput,
+): Prisma.IssueWhereInput {
+  return {
+    OR: [
+      { description: { not: "" } },
+      { location: { not: null } },
+      { messages: { some: {} } },
+      { notes: { some: {} } },
+      { photos: { some: {} } },
+      { attachments: { some: {} } },
+      // What a contractor wrote or photographed through a work order's link
+      // (ADR 0055). The work order's own text has a clock of its own.
+      {
+        workOrders: {
+          some: {
+            OR: [{ notes: { some: contractorNote } }, { files: { some: {} } }],
+          },
+        },
+      },
+    ],
+  };
+}
 
 /**
  * The number of days a clock of whole years counts.

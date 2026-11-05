@@ -31,8 +31,9 @@ describe("a reporter's link token", () => {
   it("is minted by the operating system's generator and by nothing else", () => {
     const source = (file: string) =>
       readFileSync(join(process.cwd(), "src", "issues", file), "utf8");
+    expect(source("link-token.ts")).toContain("randomBytes(LINK_TOKEN_BYTES)");
     expect(source("issue-reporter-link-token.ts")).toContain(
-      "randomBytes(REPORTER_LINK_TOKEN_BYTES)",
+      "mintLinkToken(REPORTER_LINK_TOKEN_PREFIX)",
     );
     const service = source("issue-reporter-link.service.ts");
     expect(service).toContain("mintReporterLinkToken()");

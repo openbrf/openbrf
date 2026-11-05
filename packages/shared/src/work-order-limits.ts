@@ -23,4 +23,11 @@ export const WORK_ORDER_LIMITS = {
    * a handler who quotes what a resident saw about a leak is never cut short.
    */
   body: 4000,
+  /**
+   * A note a contractor writes through a work order's link (ADR 0055): what
+   * they found or did, in a few lines. Shorter than the work order, because
+   * the link is the one place in the product a stranger writes free text into
+   * an issue.
+   */
+  note: 2000,
 } as const;

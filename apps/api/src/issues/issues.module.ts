@@ -7,6 +7,7 @@ import { IssueConversationService } from "./issue-conversation.service";
 import { IssueFitService } from "./issue-fit.service";
 import { IssuePlaceService } from "./issue-place.service";
 import { IssueErasureService } from "./issue-erasure.service";
+import { IssueFileSweepService } from "./issue-file-sweep.service";
 import { IssueFreeTextService } from "./issue-free-text.service";
 import { IssueMailer } from "./issue-mailer.service";
 import { IssuePurgeService } from "./issue-purge.service";
@@ -31,6 +32,7 @@ import {
   ResponsibilityGuideAdminController,
 } from "./issues.controller";
 import { ContractorService } from "./contractor.service";
+import { WorkOrderLinkService } from "./work-order-link.service";
 import { WorkOrderMailerService } from "./work-order-mailer.service";
 import { WorkOrderService } from "./work-order.service";
 import {
@@ -58,11 +60,14 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
  * The services are exported because the association's public website renders
  * the report form itself, in process, rather than calling this API over HTTP,
  * the saved replies because the setup wizard seeds them, and the reporter's
- * private link because its page is the website's too (ADR 0055).
+ * private link and the contractor's link because their pages are the
+ * website's too (ADR 0055).
  *
  * IssuePurgeService is a provider and not exported: it is a scheduled job with
  * nobody to call it, and the integration suite reaches it through the module
- * reference the way it reaches every other purge in the band.
+ * reference the way it reaches every other purge in the band. So is
+ * IssueFileSweepService, which removes the files an upload stored and never
+ * put on an issue or a work order.
  */
 @Module({
   imports: [ActionsModule, MediaModule],
@@ -91,6 +96,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueReporterLinkService,
     IssueFreeTextService,
     IssueTextPurgeService,
+    IssueFileSweepService,
     IssueErasureService,
     IssueRedactionService,
     IssueRetentionSettingService,
@@ -98,6 +104,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     ContractorService,
     WorkOrderService,
     WorkOrderMailerService,
+    WorkOrderLinkService,
     ResponsibilityGuideService,
   ],
   exports: [
@@ -106,6 +113,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueSavedReplyService,
     IssuePlaceService,
     IssueReporterLinkService,
+    WorkOrderLinkService,
     ResponsibilityGuideService,
   ],
 })

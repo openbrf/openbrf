@@ -19,8 +19,9 @@
  *
  * Two has no legal source. It matches motions, subletting applications and the
  * board mailbox, which keep their records two years after closing (decision
- * 33). Ten is where a claim about the work is time-barred (preskriptionslagen
- * 2 §), and a longer clock would be no clock at all.
+ * 33). Ten is the window chosen for a work order's text, sized to the general
+ * limitation period for a claim about the work (preskriptionslagen 2 §), and a
+ * longer clock would be no clock at all.
  */
 export const ISSUE_TEXT_RETENTION_YEARS = {
   min: 1,
@@ -35,7 +36,8 @@ export const ISSUE_TEXT_RETENTION_YEARS = {
  * The description and the location are the issue's own, so they are named
  * alone; the rest are rows of their own and are named with their identifier.
  * A work order's text is erased and the work order stays, with whom it went to
- * and when (ADR 0057).
+ * and when (ADR 0057). A note or a photograph a contractor sent through a work
+ * order's link (ADR 0055) is redacted like a handler's note or file.
  */
 export const ISSUE_REDACTION_TARGETS = [
   "description",
@@ -45,6 +47,8 @@ export const ISSUE_REDACTION_TARGETS = [
   "photo",
   "attachment",
   "workOrder",
+  "workOrderNote",
+  "workOrderFile",
 ] as const;
 
 export type IssueRedactionTarget = (typeof ISSUE_REDACTION_TARGETS)[number];

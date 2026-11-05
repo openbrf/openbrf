@@ -189,6 +189,11 @@
         "subject": "New message on issue {{number}}: {{type}}",
         "heading": "The reporter has replied",
         "body": "The reporter has written a new issue message on issue {{number}}, {{type}}. The message is in the issue queue, not in this email."
+      },
+      "contractor": {
+        "subject": "A contractor has answered on issue {{number}}: {{type}}",
+        "heading": "A contractor has answered a work order",
+        "body": "The contractor of a work order on issue {{number}}, {{type}}, has answered it, written a note or added a photograph through the contractor's link. The issue in the issue queue shows what is on it now; this email says nothing of what was sent."
       }
     },
     "issueReporterNotice": {
@@ -565,6 +570,8 @@
           "description": "Description",
           "photographs": "Photographs",
           "workOrders": "Work orders written to contractors",
+          "workOrderLinkGiven_one": "Link given to the contractor; {{count}} photograph shown",
+          "workOrderLinkGiven_other": "Link given to the contractor; {{count}} photographs shown",
           "documentTitle": "Title",
           "binder": "Binder",
           "entryKind": "Kind",
@@ -881,6 +888,12 @@
           "ISSUE_COST_RESPONSIBILITY_CHANGED": "Who pays for an issue was recorded",
           "ISSUE_RESIDENTS_LISTED": "A handler was shown who lives in an apartment, to open an issue",
           "ISSUE_WORK_ORDER_SENT": "A work order on an issue was written and queued for mailing to a contractor",
+          "ISSUE_WORK_ORDER_LINK_ISSUED": "A contractor was given a link to a work order on an issue",
+          "ISSUE_WORK_ORDER_LINK_REVOKED": "A contractor's link to a work order on an issue was withdrawn or replaced",
+          "ISSUE_WORK_ORDER_ANSWERED": "A contractor answered a work order on an issue through its link",
+          "ISSUE_WORK_ORDER_NOTE_ADDED": "A contractor wrote a note on a work order on an issue through its link",
+          "ISSUE_WORK_ORDER_PHOTO_ADDED": "A contractor added a photograph to a work order on an issue through its link",
+          "ISSUE_WORK_ORDER_PHOTOS_CHOSEN": "The photographs a contractor's link to a work order shows were chosen",
           "CONTRACTOR_LIST_CHANGED": "A contractor was added to, changed on or removed from the contractor list",
           "ISSUE_TYPE_RING_FENCE_CHANGED": "An issue type was ring-fenced from contractors, or its ring-fence was lifted",
           "ISSUE_MESSAGE_SENT": "A message was written on an issue",
@@ -970,7 +983,9 @@
             "note": "An internal note",
             "photo": "A photograph",
             "attachment": "A file",
-            "workOrder": "The text of a work order"
+            "workOrder": "The text of a work order",
+            "workOrderNote": "A contractor's note",
+            "workOrderFile": "A contractor's photograph"
           },
           "legalHoldSince": "The hold stood since {{date}}",
           "retentionChanged": "From {{from}} to {{to}} years after closing"
@@ -2070,7 +2085,7 @@
     },
     "issueRetention": {
       "title": "Retention of issues",
-      "description": "How many years after an issue closes its free text is kept. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, stay with the issue; the description, the location, the conversation, the internal notes and the photographs and files are removed that many years after it closes, unless a legal hold stands on it.",
+      "description": "How many years after an issue closes its free text is kept. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, stay with the issue; the description, the location, the conversation, the internal notes and the photographs and files are removed that many years after it closes, unless a legal hold stands on it or a legal hold or a restriction on the person who reported it.",
       "years": "Years after an issue closes",
       "yearsHint": "A whole number between 1 and 10. A new instance starts at 2.",
       "purgeJob": "The purge runs every night and reads this number when it runs, so a change moves every pending date at once. After a shorter setting, the nights that follow remove the free text of the issues already past it, at most 500 issues in each run.",
@@ -3755,6 +3770,54 @@
         "limited": "This issue takes no more messages right now. Try again later.",
         "full": "This issue has reached the most messages a link accepts. No further messages can be sent through it."
       }
+    },
+    "workOrderLink": {
+      "title": "Work order",
+      "to": "To",
+      "sent": "Sent",
+      "state": "Your answer",
+      "stateOpen": "Not answered yet",
+      "stateAccepted": "Accepted",
+      "until": "Link works until",
+      "text": "The work",
+      "photos": "Photographs from the association",
+      "photoAlt": "Photograph {{number}}",
+      "answer": "Answer",
+      "accept": "Accept the work order",
+      "done": "Mark as done",
+      "decline": "Decline",
+      "answerHint": "Once you decline or mark the work order as done, this link stops working. Write any note and add any photographs first.",
+      "notes": "Your notes",
+      "noNotes": "No notes yet.",
+      "removed": "The association has removed this note.",
+      "note": "Write to the association",
+      "noteHint": "For example what you found or did, or when you can come. Write no personal identity numbers.",
+      "addNote": "Send note",
+      "ownPhotos": "Your photographs",
+      "photo": "Add a photograph",
+      "photoHint": "A JPEG, PNG, WebP or GIF image. The location and camera details are removed before it is stored.",
+      "addPhoto": "Send photograph",
+      "private": "This link is meant for you, so do not share it. It stops working 30 days after it was given to you, when you decline or mark the work order as done, or when the association withdraws it.",
+      "notFoundTitle": "This link opens no work order",
+      "notFoundBody": "The link may have expired, been withdrawn or already been answered. Contact the association that sent it if you need it again.",
+      "ended": {
+        "declined": "You have declined the work order",
+        "done": "You have marked the work order as done",
+        "body": "The association has been told. The link no longer works."
+      },
+      "notice": {
+        "accepted": "You have accepted the work order. The association has been told.",
+        "noted": "Your note has been sent to the association.",
+        "refused": "That could not be read. Write a note of at most 2,000 characters and try again.",
+        "identity": "The note contains a personal identity number and was not sent. Remove it and try again.",
+        "note-limited": "The work order takes no more notes just now. Try again later.",
+        "note-full": "The work order has as many notes as a link takes. Contact the association by other means.",
+        "photo-added": "Your photograph has been sent to the association.",
+        "photo-refused": "The file is not a JPEG, PNG, WebP or GIF image that can be read to its end, and was not stored.",
+        "photo-too-large": "The photograph is too large and was not stored. Send a smaller one.",
+        "photo-limited": "The work order takes no more photographs just now. Try again later.",
+        "photo-full": "The work order has as many photographs as a link takes."
+      }
     }
   },
   "signup": {
@@ -4031,6 +4094,8 @@
         "photo": "Removed a photograph",
         "attachment": "Removed a file",
         "workOrder": "Removed the text of a work order",
+        "workOrderNote": "Removed a contractor's note",
+        "workOrderFile": "Removed a contractor's photograph",
         "unknown": "Removed text or a file"
       },
       "legalHoldPlaced": "Placed a legal hold",
@@ -4050,6 +4115,12 @@
         "sent": "A work order was sent to a contractor",
         "failed": "A work order to a contractor was not sent",
         "unconfirmed": "A work order to a contractor may not have gone out; nobody knows"
+      },
+      "workOrderAnswer": {
+        "accepted": "The contractor accepted a work order",
+        "declined": "The contractor declined a work order",
+        "done": "The contractor marked a work order done",
+        "unknown": "The contractor answered a work order"
       }
     },
     "workOrders": {
@@ -4065,7 +4136,7 @@
       "failed": "Not sent.",
       "failure": {
         "mailNotConfigured": "Not sent: this instance has no mail server set up.",
-        "sendFailed": "Unconfirmed: the mail server returned an error, and nobody knows whether it went out. Ask the contractor before sending it again.",
+        "sendFailed": "Not sent: the message could not be prepared, or the mail server could not be reached or refused it.",
         "sendingInterrupted": "Not sent: the sending stopped before it began. Write it again to send it.",
         "deliveryUnconfirmed": "Unconfirmed: the sending stopped, and nobody knows whether it went out. Ask the contractor before sending it again.",
         "recipientRemoved": "Not sent: the contractor was removed from the list before it went out.",
@@ -4097,7 +4168,7 @@
       "send": "Send to {{name}}",
       "sending": "Sending...",
       "edit": "Change it",
-      "sent": "The work order to {{name}} is recorded. The log below says whether the mail went out.",
+      "sent": "The work order to {{name}} is recorded. The list of work orders below says whether the mail went out.",
       "errors": {
         "issueNotFound": "That issue is gone, or no longer yours to handle.",
         "contractorNotFound": "That contractor is no longer on the list. The list has been read again.",
@@ -4108,11 +4179,85 @@
         "unknown": "The work order could not be prepared or sent just now. Please try again.",
         "previewStale": "The contractor's details or the text changed since the preview. Preview it again before sending.",
         "issueClosed": "This issue is closed. Reopen it before writing a work order.",
-        "duplicate": "This work order was sent to this contractor a short while ago. Check the record above before sending it again.",
+        "duplicate": "A work order to this contractor was written a short while ago and may have been sent. Check the list of work orders above before writing another; one whose text was removed holds back a new one until the half hour has passed.",
         "budgetSpent": "You have sent as many work orders as one person may in an hour. Try again later."
       },
       "recipientRemoved": "A contractor since removed from the list",
-      "bodyErased": "The text was erased when the issue's retention period ran out."
+      "addressUnreadable": "The address could not be read.",
+      "bodyErased": "The text was erased when the issue's retention period ran out.",
+      "link": {
+        "title": "Contractor's link",
+        "titleNamed": "Contractor's link: the work order to {{name}} of {{at}}",
+        "titleUnnamed": "Contractor's link: the work order of {{at}}",
+        "live": "The link opens the work order until <data>{{date}}</data>.",
+        "liveUndated": "The link opens the work order.",
+        "switchedOff": "Contractor's links are switched off on this instance, so the link opens nothing now. It would open the work order again if they were switched on before <data>{{date}}</data>. Withdraw it to end it for good.",
+        "ended": "The link no longer opens the work order: it was withdrawn, replaced or expired, the contractor declined it or marked it done, or the work order or its issue changed so that it may no longer reach a contractor.",
+        "none": "The contractor has not been given a link to this work order.",
+        "hint": "Through the link the contractor sees this work order and the photographs chosen below, and nothing else from the issue. They can accept or decline it, mark it done, and add notes and photographs.",
+        "answered": "The contractor has declined this work order or marked it done, so it is given no new link.",
+        "unavailable": "This work order is given no link: its text or its contractor is no longer on the record.",
+        "protected": "Somebody this issue concerns, its reporter or somebody living in its apartment, has protected personal data, so no work order on this issue is given a link and a link given before no longer opens it. Give the contractor what they need another way.",
+        "issue": "Give the contractor a link",
+        "issueNamed": "Give the contractor a link to the work order to {{name}} of {{at}}",
+        "issueAgain": "Give a new link",
+        "issueAgainNamed": "Give a new link to the work order to {{name}} of {{at}}",
+        "reissue": "Give a new link; the current one stops working",
+        "reissueNamed": "Give a new link; the current one stops working: the work order to {{name}} of {{at}}",
+        "issuing": "Making the link...",
+        "revoke": "Withdraw the link",
+        "revokeNamed": "Withdraw the link to the work order to {{name}} of {{at}}",
+        "revokeUnnamed": "Withdraw the link to the work order of {{at}}",
+        "revoking": "Withdrawing...",
+        "revoked": "The link is withdrawn. It no longer opens the work order.",
+        "shown": {
+          "once": "The link is shown only now. Copy it before you leave: it cannot be shown again, and giving a new link replaces this one.",
+          "expires": "It opens the work order until <data>{{date}}</data>, or until the work is marked done or the link is withdrawn.",
+          "send": "Open BRF does not send it. Send it to the contractor yourself, the way you choose: by SMS, or from your own email.",
+          "url": "Link",
+          "message": "Message to send",
+          "messageText": "Here is the link to the work order from {{association}}: {{url}}",
+          "messageTextUnnamed": "Here is the link to the work order: {{url}}",
+          "copyUrl": "Copy the link",
+          "copyMessage": "Copy the message",
+          "copied": "Copied.",
+          "copyFailed": "It could not be copied. Select it and copy it yourself."
+        },
+        "photos": {
+          "title": "Photographs the link shows",
+          "hint": "Choose only what the contractor needs for the job. A photograph may show people, or how somebody lives.",
+          "none": "The issue has no photographs to choose.",
+          "fromReport": "From the report",
+          "fromHandler": "Attached file",
+          "save": "Save the choice",
+          "saveNamed": "Save the choice of photographs for the work order to {{name}} of {{at}}",
+          "saveUnnamed": "Save the choice of photographs for the work order of {{at}}",
+          "saving": "Saving...",
+          "saved": "The link now shows the photographs chosen."
+        },
+        "errors": {
+          "issueClosed": "This issue is closed. Reopen it before giving a contractor a link.",
+          "linksOff": "Contractors' links are switched off on this instance.",
+          "workOrderNotFound": "That work order is no longer on the issue. The record has been read again.",
+          "answered": "The contractor has declined this work order or marked it done, so it is given no new link.",
+          "textErased": "The text of this work order is removed, so it is given no link.",
+          "recipientRemoved": "The contractor of this work order was removed from the list, so it is given no link.",
+          "protected": "Somebody this issue concerns has protected personal data, so no work order on it is given a link.",
+          "photoNotFound": "One of the photographs is no longer on the issue. The record has been read again; choose again.",
+          "unknown": "The link could not be given or withdrawn just now. Please try again.",
+          "photosUnknown": "The choice of photographs could not be saved just now. Please try again."
+        }
+      },
+      "answer": {
+        "title": "From the contractor",
+        "at": "{{answer}} <data>{{date}}</data>",
+        "ACCEPTED": "Accepted",
+        "DECLINED": "Declined",
+        "DONE": "Done",
+        "notes": "The contractor's notes",
+        "files": "The contractor's photographs",
+        "fileAlt": "Photograph from the contractor: {{name}}"
+      }
     },
     "open": {
       "__after__": "timeline",
@@ -4270,7 +4415,7 @@
       "toDuplicatesTitle": "Reporters of the merged reports",
       "toDuplicates": "Message to every reporter of the merged reports",
       "toDuplicatesNamed": "{{type}}: message to the reporters of the merged reports",
-      "toDuplicatesHint_one": "Goes to the reporter of the {{count}} merged report, on their own report, signed as the board or the property manager. Only a reporter with an account receives it. It does not reach this issue's own reporter.",
+      "toDuplicatesHint_one": "Goes to the reporter of the merged report, on their own report, signed as the board or the property manager. Only a reporter with an account receives it. It does not reach this issue's own reporter.",
       "toDuplicatesHint_other": "Goes to the reporters of the {{count}} merged reports, each on their own report, signed as the board or the property manager. None of them sees another's report. Only reporters with an account receive it, and it does not reach this issue's own reporter.",
       "toDuplicatesSent_one": "Sent to {{count}} reporter.",
       "toDuplicatesSent_other": "Sent to {{count}} reporters.",
@@ -4279,7 +4424,7 @@
       "knownFaultBoardOnly": "An issue the board keeps to itself carries no known fault.",
       "knownFaultField": "Notice for the house",
       "knownFaultNamed": "{{type}}: known fault",
-      "knownFaultHint": "Shown to signed-in residents, on their report form and on the post the issue came from, never on the public website. Signed as the board or the property manager. Write it yourself; nothing from the report is copied, and no personal identity numbers. It goes when the issue is closed.",
+      "knownFaultHint": "Shown to signed-in residents, on their report form and on the post the issue came from, never on the public website. Signed as the board or the property manager. Write it yourself; nothing from the report is copied, and no personal identity numbers. It is removed when the issue closes.",
       "knownFaultPublish": "Publish known fault",
       "knownFaultRewrite": "Save the change",
       "knownFaultPublishing": "Publishing...",
@@ -4309,7 +4454,7 @@
         "mergeLimit": "That issue already has as many duplicates as one may. Merge into another issue, or answer the reporters with a known fault. The queue has been read again.",
         "mergeIntoClosed": "That issue is done. Reopen it first, or merge into one that is still being handled. The queue has been read again.",
         "mergeHasDuplicates": "Other issues were merged into this one. Merge the other issue into this one instead. The queue has been read again.",
-        "mergeAlreadyDuplicate": "That issue is already a duplicate of another. Reopen it first to merge it elsewhere. The queue has been read again.",
+        "mergeAlreadyDuplicate": "This issue is already a duplicate of another. Reopen it first to merge it elsewhere. The queue has been read again.",
         "personalIdentityNumber": "The text carries a personal identity number. Remove it and try again.",
         "noDuplicateReporter": "Nobody can read an answer on the merged reports: their reporters have no account to read it in.",
         "unknown": "That could not be saved just now. Please try again."
@@ -4428,7 +4573,7 @@
       "purgedOn": "Free text removed on <data>{{date}}</data>",
       "freeTextRemoved": "The free text, the conversation and the photographs were removed on <data>{{date}}</data>. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, remain.",
       "title": "Free text and legal hold",
-      "intro": "Unless a legal hold stands on the issue itself, a handler can remove the description, the location, a message, an internal note, a photograph, a file or the text of a work order at any time, for instance when a person named in it has been granted erasure. What is removed is gone: nothing keeps the text, and nothing is written in its place.",
+      "intro": "Unless a legal hold stands on the issue itself, or a legal hold or a restriction on its reporter, a handler can remove the description, the location, a message, an internal note, a photograph, a file or the text of a work order at any time, for instance when a person named in it has been granted erasure. What is removed is gone: nothing keeps the text, and nothing is written in its place.",
       "remove": "Remove",
       "removeDescription": "{{type}}: remove the description",
       "removeLocation": "{{type}}: remove the location",
@@ -4438,6 +4583,8 @@
       "removeAttachment": "Remove the file {{name}}",
       "removeWorkOrder": "Remove the text of the work order of {{at}}",
       "removeWorkOrderTo": "Remove the text of the work order to {{name}} of {{at}}",
+      "removeWorkOrderNote": "Remove the contractor's note of {{at}}",
+      "removeWorkOrderFile": "Remove the contractor's photograph {{name}}",
       "description": "Description",
       "location": "Location",
       "photos": "The reporter's photographs",
@@ -4461,7 +4608,7 @@
         "saving": "Saving..."
       },
       "errors": {
-        "legalHold": "A legal hold stands on this issue, so nothing can be removed. The issue has been read again.",
+        "legalHold": "A legal hold stands on this issue, or a legal hold or a restriction on its reporter, so nothing can be removed. The issue has been read again.",
         "targetNotFound": "That is already gone. The issue has been read again.",
         "unknown": "Nothing could be changed just now. Please try again."
       }
@@ -4558,9 +4705,9 @@
       "pending": "The answer is queued and has not gone out yet.",
       "sent": "The answer was accepted by the mail server.",
       "mailNotConfigured": "The answer did not go out: this instance has no mail server set up.",
-      "refused": "The answer did not go out: the mail server refused it.",
+      "refused": "The answer did not go out: the answer could not be prepared, or the mail server could not be reached or refused it.",
       "interrupted": "The answer was given up on before it went out.",
-      "unconfirmed": "The sending stopped partway, so it is not known whether the answer went out. Check with the recipient before you send it again.",
+      "unconfirmed": "The sending stopped, so it is not known whether the answer went out. Check with the recipient before you send it again.",
       "unknown": "The answer did not go out."
     },
     "errors": {
@@ -6849,7 +6996,7 @@
           "name": "Issue reports",
           "purpose": "Receiving and dealing with problems in the building, including the work orders handlers send to contractors, and telling whoever handles an issue, and whoever reported it, by email. The emails about an issue carry the issue number, the issue type and a link, and those to whoever handles it the priority too, never what anybody wrote. A work order's email carries the text a handler wrote for the contractor and nothing else from the issue.",
           "legalBasisNote": "Legitimate interest: managing the property. A reporter may volunteer data about health (art. 9).",
-          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, when a claim about the work becomes time-barred (preskriptionslagen 2 §); when it was sent is kept, and whom it went to is kept while the contractor stays on the list. Removing a contractor from the list erases the name and email address on their work orders."
+          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, the ordinary retention window chosen for it, which follows the general ten-year limitation period for a claim about the work (preskriptionslagen 2 §); a claim's limitation period can be interrupted or renewed, and the erasure does not follow that, so a legal hold on the issue or a legal hold or a restriction on the reporter is what keeps the text longer; when it was sent is kept, and whom it went to is kept while the contractor stays on the list. Removing a contractor from the list erases the name and email address on their work orders."
         },
         "documents": {
           "name": "Document archive",

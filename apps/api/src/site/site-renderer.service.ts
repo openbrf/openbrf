@@ -9,6 +9,7 @@ import {
 } from "../documents/documents.service";
 import { I18nService } from "../i18n/i18n.service";
 import type { ReporterLinkPageView } from "../issues/issue-reporter-link.service";
+import type { WorkOrderLinkPageView } from "../issues/work-order-link.service";
 import { IssueTypeService } from "../issues/issue-type.service";
 import { ResponsibilityGuideService } from "../issues/responsibility-guide.service";
 import { mediaUrl } from "../media/media.service";
@@ -49,6 +50,12 @@ import {
   renderIssueLinkPage,
 } from "./site-issue-link";
 import { renderNewsArticle, renderNewsIndex } from "./site-news";
+import {
+  renderWorkOrderLinkEnded,
+  renderWorkOrderLinkNotFound,
+  renderWorkOrderLinkPage,
+  type WorkOrderLinkNotice,
+} from "./site-work-order-link";
 import {
   type SiteNewsArticle,
   type SiteNewsIndexPage,
@@ -224,6 +231,23 @@ export class SiteRenderer {
   ): Promise<SiteFormState> {
     const offersIssueForm =
       page.publiclyReadable && hasBlock(page.content, "issueReportForm");
+    /*
+     * The guide is asked while the types are, not after them: the two reads do
+     * not depend on one another, and the guide's own read is a transaction, so
+     * asked second it would add its round trips to the page's. It is used only
+     * where the form's fields will be shown, and is not cached: a board that
+     * withdraws its adoption means the guide to stop appearing on the next
+     * page, not on the next but one.
+     *
+     * Whether the fields will show is known only once the types are, so a page
+     * whose form is shut (reporting off, or no type to report under) reads the
+     * guide for nothing. That is the rare page; asking after the types instead
+     * would add the guide's round trips to every page that does show the form.
+     */
+    const reading =
+      offersIssueForm && submission.sent !== "issue"
+        ? this.publicResponsibilityGuide()
+        : null;
     const issueTypes = offersIssueForm ? await this.publicIssueTypes() : null;
     const formShown =
       issueTypes !== null &&
@@ -236,9 +260,7 @@ export class SiteRenderer {
       sent: submission.sent ?? null,
       refused: submission.refused ?? null,
       issueTypes,
-      responsibilityGuide: formShown
-        ? await this.publicResponsibilityGuide()
-        : null,
+      responsibilityGuide: formShown && reading !== null ? await reading : null,
     };
   }
 
@@ -396,6 +418,44 @@ export class SiteRenderer {
    */
   async issueLinkNotFound(acceptLanguage: string | undefined): Promise<string> {
     return renderIssueLinkNotFound(await this.issueLinkChrome(acceptLanguage));
+  }
+
+  /**
+   * The page a contractor's link opens (ADR 0055), with the reporter's link's
+   * chrome: no menu, so nothing on the page leaves this origin.
+   */
+  async workOrderLink(
+    acceptLanguage: string | undefined,
+    view: WorkOrderLinkPageView,
+    notice: WorkOrderLinkNotice | null,
+    pagePath: string,
+  ): Promise<string> {
+    return renderWorkOrderLinkPage(
+      await this.issueLinkChrome(acceptLanguage),
+      view,
+      notice,
+      pagePath,
+    );
+  }
+
+  /** The page that answers a decline or a done, with no address of the link. */
+  async workOrderLinkEnded(
+    acceptLanguage: string | undefined,
+    ended: "declined" | "done",
+  ): Promise<string> {
+    return renderWorkOrderLinkEnded(
+      await this.issueLinkChrome(acceptLanguage),
+      ended,
+    );
+  }
+
+  /** What every contractor's link that opens nothing gets, whatever the reason. */
+  async workOrderLinkNotFound(
+    acceptLanguage: string | undefined,
+  ): Promise<string> {
+    return renderWorkOrderLinkNotFound(
+      await this.issueLinkChrome(acceptLanguage),
+    );
   }
 
   private async issueLinkChrome(

@@ -49,6 +49,10 @@ import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
  *   the handlers when there is none, while the reporter's hourly budget for
  *   messages lasts; a handler's to a reporter who has an account. Nobody's
  *   words go with it (GLOSSARY.md, _svar_).
+ * - **Contractor.** The contractor of a work order answered it, wrote a note
+ *   or added a photograph through its link: mailed to the assignee, or to the
+ *   handlers when there is none, every answer, and a note or a photograph
+ *   once an hour at most (ADR 0055).
  *
  * The person whose act it was is never told of it. Every handler read is
  * `issueRecipientsWhere`, the handler rule of `issueHandlersWhere` with an
@@ -202,7 +206,7 @@ export const NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR = 10;
 const HOUR_MS = 60 * 60 * 1000;
 
 /** The length of the clock-hour slot within which one person is told of one assignment or reopening once. */
-const REPEATED_NOTICE_SECONDS = 60 * 60;
+export const REPEATED_NOTICE_SECONDS = 60 * 60;
 
 /**
  * How many times a delivery that found its notice owed again under the
@@ -216,11 +220,27 @@ const REPEATED_LOOKS = 2;
  * The throttle key of an assignment or reopening notice, or null for a notice
  * that is not throttled.
  */
-function throttleKeyOf(job: IssueNoticeJob): string | null {
-  return job.event === "assigned" || job.event === "reopened"
+function throttleKeyOf(
+  job: Pick<IssueNoticeJob, "issueId" | "personId" | "event" | "contractor">,
+): string | null {
+  if (job.event === "contractor" && job.contractor === "answer") {
+    // The answer that ends a link is never one a note in the same hour may
+    // stand in for, and a link takes two answers at most.
+    return null;
+  }
+  return job.event === "assigned" ||
+    job.event === "reopened" ||
+    job.event === "contractor"
     ? `${job.event}:${job.issueId}:${job.personId}`
     : null;
 }
+
+/**
+ * What a contractor did through a work order's link, as far as the notice
+ * about it is throttled: an answer (accept, decline, done) is told of every
+ * time; a note or a photograph (`activity`) once an hour.
+ */
+export type ContractorNoticeKind = "answer" | "activity";
 
 /** What a delivery tells of: a handler's event, or a reporter's new message. */
 export type IssueNoticeEvent = IssueHandlerNoticeEvent | "reporterMessage";
@@ -243,6 +263,12 @@ export interface IssueNoticeJob {
    * leaves it, sends nothing: the link would open an empty conversation.
    */
   messageId?: string;
+  /**
+   * For a `contractor` notice, whether it tells of an answer, which is not
+   * throttled, or of a note or photograph, which is. A job queued before the
+   * field existed has none, and is throttled as it was.
+   */
+  contractor?: ContractorNoticeKind;
   [key: string]: unknown;
 }
 
@@ -289,6 +315,18 @@ const ISSUE_SELECT = {
 } as const;
 
 type NoticeIssue = Prisma.IssueGetPayload<{ select: typeof ISSUE_SELECT }>;
+
+/** What a notice reads of the person it goes to. */
+const RECIPIENT_SELECT = {
+  firstName: true,
+  lastName: true,
+  emailCipher: true,
+  preferredLocale: true,
+} as const;
+
+type NoticeRecipient = Prisma.PersonGetPayload<{
+  select: typeof RECIPIENT_SELECT;
+}>;
 
 type Db = Prisma.TransactionClient | PrismaService;
 
@@ -581,7 +619,7 @@ export class IssueMailer implements OnModuleInit {
         issueId,
         await this.assigneeOrHandlers(tx, issue, "message", now),
         reporter,
-        author.messageId,
+        author.messageId === undefined ? {} : { messageId: author.messageId },
       );
     }
     const reporter = issue.reporterPersonId;
@@ -593,7 +631,42 @@ export class IssueMailer implements OnModuleInit {
       issueId,
       new Map([[reporter, "reporterMessage"]]),
       author.personId,
-      author.messageId,
+      author.messageId === undefined ? {} : { messageId: author.messageId },
+    );
+  }
+
+  /**
+   * Tells the issue's assignee, or its handlers when it has none, that the
+   * contractor of one of its work orders did something through the work
+   * order's link: answered it, wrote a note or added a photograph (ADR 0055,
+   * control H7 of its threat review). In the transaction of the act. Answers
+   * how many deliveries were queued.
+   *
+   * The mail says only that, with the issue's number and type, as every
+   * handler's notice does (decision 21): never the answer's note or a word a
+   * contractor wrote. A note or a photograph is throttled to one per person
+   * and issue in each clock hour, as an assignment is, so a link used for many
+   * notes in an hour mails each handler once. An answer is not: a decline or
+   * done after a note in the same hour is the act the handler most needs to
+   * hear of, and a link takes two answers at most. Nobody is left out as the
+   * actor: a contractor is nobody here.
+   */
+  async contractorInTransaction(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+    kind: ContractorNoticeKind,
+    now: Date = new Date(),
+  ): Promise<number> {
+    const issue = await this.readIssue(tx, issueId);
+    if (issue === null) {
+      return 0;
+    }
+    return this.queue(
+      tx,
+      issueId,
+      await this.assigneeOrHandlers(tx, issue, "contractor", now),
+      null,
+      { contractor: kind },
     );
   }
 
@@ -845,12 +918,7 @@ export class IssueMailer implements OnModuleInit {
     at: Date,
   ): Promise<{
     issue: NoticeIssue;
-    recipient: {
-      firstName: string;
-      lastName: string;
-      emailCipher: string | null;
-      preferredLocale: string | null;
-    } | null;
+    recipient: NoticeRecipient | null;
   } | null> {
     const issue = await this.readIssue(this.prisma, job.issueId);
     if (
@@ -862,12 +930,7 @@ export class IssueMailer implements OnModuleInit {
     }
     const recipient = await this.prisma.person.findFirst({
       where: recipientWhereOf(issue, job, at),
-      select: {
-        firstName: true,
-        lastName: true,
-        emailCipher: true,
-        preferredLocale: true,
-      },
+      select: RECIPIENT_SELECT,
     });
     return { issue, recipient };
   }
@@ -902,8 +965,18 @@ export class IssueMailer implements OnModuleInit {
     // that holds the lock.
     const handoffAt = new Date(Math.max(now.getTime(), Date.now()));
     const again = await this.lookUp(job, handoffAt);
-    // An address changed while it was decrypted is not the one decrypted.
-    if (again?.recipient?.emailCipher !== cipher) {
+    // Each way the notice can have stopped being owed since the first look,
+    // one at a time, so a change to what `lookUp` answers cannot turn one of
+    // them into a silent skip: no longer owed (`null`), nobody left to receive
+    // it, or an address changed while it was decrypted, which is not the one
+    // decrypted.
+    if (again === null) {
+      this.logger.log(
+        `Mail about issue ${job.issueId} (${job.event}) skipped: it is no longer owed.`,
+      );
+      return "notOwed";
+    }
+    if (again.recipient === null || again.recipient.emailCipher !== cipher) {
       this.logger.log(
         `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
       );
@@ -1091,15 +1164,14 @@ export class IssueMailer implements OnModuleInit {
     issueId: string,
     deliveries: ReadonlyMap<string, IssueNoticeEvent>,
     except: string | null,
-    messageId?: string,
+    about: Pick<IssueNoticeJob, "messageId" | "contractor"> = {},
   ): Promise<number> {
-    const about = messageId === undefined ? {} : { messageId };
     let queued = 0;
     for (const [personId, event] of deliveries) {
       if (personId === except) {
         continue;
       }
-      const key = throttleKeyOf({ issueId, personId, event });
+      const key = throttleKeyOf({ issueId, personId, event, ...about });
       let id: string | null;
       if (key === null) {
         id = await this.jobs.sendInTransaction<IssueNoticeJob>(
@@ -1270,5 +1342,7 @@ function stillSo(issue: NoticeIssue, job: IssueNoticeJob, now: Date): boolean {
       return issue.status.meaning !== "DONE" && issue.assigneePersonId === null;
     case "reopened":
       return issue.status.meaning !== "DONE" && routedTo(issue, job.personId);
+    case "contractor":
+      return routedTo(issue, job.personId);
   }
 }

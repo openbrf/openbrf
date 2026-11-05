@@ -56,13 +56,22 @@ export async function lockIssueType(
 
 /**
  * The lock a transaction takes before it counts what one handler has sent
- * contractors in the last hour and adds a work order to it.
+ * contractors in the last hour and adds a work order to it, and that the purge
+ * of the handler takes before it detaches their work orders.
  *
  * The sending budget (`WorkOrderService.send`) is a count followed by an
  * insert across every issue the handler sends from, so the issue's own lock
  * does not serialise it: two sendings from two issues at once would both pass
  * the count. Taken after the type's and the issue's, the order every sending
  * takes them in. An advisory lock for the reason `lockIssue` gives.
+ *
+ * The purge (`PurgeService`) takes it so that a sending which read the
+ * handler's access before a role was withdrawn cannot commit its
+ * `sentByPersonId` after the purge has detached the person's work orders. The
+ * two serialise only on the same key: advisory locks are taken by the hash of
+ * a string, so the purge calls this function rather than spelling the key
+ * again, and a second spelling would hash to another lock and wait for
+ * nothing.
  */
 export async function lockWorkOrderSender(
   tx: Prisma.TransactionClient,
@@ -153,6 +162,65 @@ export async function lockIssueForHandling(
   }
   await lockIssue(tx, issueId);
 }
+
+/**
+ * The lock a transaction takes before it decides whether a contractor's link
+ * may stand beside a person with protected personal data: issuing a link
+ * (`WorkOrderLinkService.issue`), and every write that makes a household
+ * protected (`revokeLinksOfProtectedHousehold`).
+ *
+ * Issuing asks whether the issue concerns a protected person and then inserts
+ * the link; a protection asks which links stand and then ends them. At READ
+ * COMMITTED the two could each read before the other committed, and the link
+ * would outlive the protection on its row, to open again once the protection
+ * was cleared. Under this lock whichever comes second sees the first: the
+ * protection finds the link and ends it, or the issuing finds the protection
+ * and is refused.
+ *
+ * One key for the instance, not one per person or apartment: a protection
+ * reaches issues through residencies that a move-in or an import is writing
+ * at the same moment, and an import holds many persons and apartments in one
+ * transaction, so per-row keys would be taken in no one order. Both writes are
+ * rare.
+ *
+ * The order, which every holder keeps so that none of them can wait on another
+ * while holding what that one waits for: taken after every other advisory key
+ * a transaction takes, and before the first write to a person or a residency.
+ * - Issuing takes it after the type's, the issue's and the work order's row.
+ * - `PersonService.setProtectedPersonalData` takes it before it writes the
+ *   person, so it never holds the person's row while it waits.
+ * - A move-in (`MoveService.enterResidency`) takes it after the apartment's and
+ *   the persons' transition locks, before the residency is written.
+ * - An import chunk with a residency takes it after the same locks, before its
+ *   first person is written. It holds it to the commit, so such a chunk holds
+ *   issuing a link, marking a person protected and every move-in back for as
+ *   long as the chunk runs. Each of those runs in a transaction given
+ *   {@link HOUSEHOLD_PROTECTION_TRANSACTION}, so it outlasts that wait.
+ * `revokeLinksOfProtectedHousehold` takes it too, which costs nothing when its
+ * caller already holds it: an advisory lock is taken again by the same
+ * transaction at no cost. An advisory lock for the reason `lockIssue` gives.
+ */
+export async function lockHouseholdProtection(
+  tx: Prisma.TransactionClient,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"work-order-link-protection"}))`;
+}
+
+/**
+ * The options for a transaction that takes {@link lockHouseholdProtection}
+ * outside an import chunk: issuing a link, marking a person protected, a
+ * move-in and a signup approved with its residency.
+ *
+ * An import chunk with a residency holds the lock for as long as it runs, up
+ * to `IMPORT_CHUNK_TRANSACTION_MS`, and Prisma ends an interactive
+ * transaction after five seconds unless told otherwise: one waiting for the
+ * lock would fail while it waits. Longer than the chunk's limit, so the waiter
+ * outlasts the chunk with time left for its own work; `issue-lock.spec.ts`
+ * holds the two apart.
+ */
+export const HOUSEHOLD_PROTECTION_TRANSACTION = {
+  timeout: 135_000,
+} as const;
 
 /**
  * `lockIssueForHandling` for a write that decides about several issues at

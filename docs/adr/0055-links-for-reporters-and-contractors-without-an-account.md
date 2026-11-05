@@ -107,10 +107,11 @@ application bundle, no cookie and no third-party request.
 
 ### Expiry and revocation
 
-A contractor's link ends at the first of: the work order marked done, 30 days
-after it was issued, and a handler revoking it (decision 24). Issuing a new link
-for the same work order revokes the old one, so a work order has one live link
-at most.
+A contractor's link ends at the first of: the contractor declining or marking
+the work order done, 30 days after it was issued, and a handler revoking it
+(decision 24; the other ends are listed under "When it ends" below). Issuing a
+new link for the same work order revokes the old one, so a work order has one
+live link at most.
 
 A reporter's link is issued with the first mail to the reporter's address, the
 one that follows their report, and ends at the first of: 30 days after the issue
@@ -176,6 +177,23 @@ closed, no mail settings, the address's three a day spent when a retry comes,
 or the retries spent) is deleted, so it no longer counts toward its address's
 three a day. A link whose mail is still being retried keeps its place in the
 count.
+
+The three a day count links issued, not mails sent. A link is issued in the
+transaction that counts, under a lock on the address, and mailed after that
+transaction commits. A count of mails would miss a link whose mail is on its
+way, so two reports from one address delivered at once could each find a slot
+free and a fourth mail go. Counted as issued, a link holds its slot from the
+moment it exists. Since a link that will not be mailed gives its slot back,
+the count holds the links that were mailed or are still being tried. The
+budget belongs to the address, not to whoever typed it: three reports filed
+with somebody else's address spend that address's day, and that is what keeps
+the form from filling a stranger's inbox.
+
+Whether the address is a restricted person's is asked of the people at that
+address only: the reporter's address is indexed as a person's address and the
+register is looked up by that index, so the check does not grow with the
+number of restricted people. A person whose index predates the current
+normalisation rules is read as well until the reindex rewrites it.
 
 ### The contractor's photographs
 
@@ -266,6 +284,15 @@ offer none of the three for any case
 board's own screen and for the token routes. It holds whatever marks a case as
 ring-fenced, which is open (ADR 0054, question 5).
 
+A closed issue is offered no work order until it is reopened. Previewing or
+sending one on an issue in the `DONE` meaning is refused as `issue-closed`,
+after the ring-fence is checked, and the work-order list says the issue is
+`closed`, so the screen offers none. The text's retention clock runs from the
+closing (ADR 0057), and reopening clears `closedAt`. This is a rule about when
+a handler may write, not about what may reach a contractor, as the ring-fence
+is: closing an issue does not recall a work order already written, and the
+retention rationale below does not rely on it.
+
 ### Audit
 
 Issuing a link, revoking it, and each answer a contractor gives (accepted,
@@ -283,6 +310,121 @@ with the preview and the stored recipient, date and contents, and the link is
 switched on afterwards. Neither way is open on a ring-fenced case (above). The
 reporter's link is not behind that gate.
 
+The switch is one setting of the instance, `OPENBRF_CONTRACTOR_LINKS_ENABLED`,
+off by default. It is read in the lookup that resolves every contractor's
+token, as a parameter of the same statement, so with it off every address
+under `/arbetsorder`, a `GET` or a `POST`, answers the one `404` every dead
+link gets, a link issued while it was on included, and the upload reads none
+of its body. The one exception is a text post over the 64 KiB bound
+(`LINK_TEXT_BODY_LIMIT`): the server refuses it with 413 before any handler
+runs, as it does with the switch on and for any token, so it tells a caller
+nothing about the switch or about a link. A handler cannot issue a link or
+choose photographs for one while it is off; withdrawing a link stays possible,
+because it only narrows. What came through a link before stays on the work
+order's record either way. Turning the switch off refuses every link but does
+not revoke them: a link that has not expired or ended opens again if the switch
+is turned back on. So the work order's record still lists such a link as live
+while the switch is off, saying that the switch holds it shut, and offers its
+withdrawal and nothing else.
+
+### The contractor's link as built
+
+Built to the controls of this record's threat review (APT-9360, A to K), each
+with a test that fails when the control is removed
+(`site-work-order-link.int-spec.ts`). Where the review asked for something the
+sections above leave open, this is what was decided:
+
+- **Delivery (question 2).** The link is issued on a work order that was
+  already written and mailed, and the handler's answer to issuing it is the
+  one time its address is shown. The handler passes it on by the way they
+  choose, a text message or their own mail, with a generic sentence the screen
+  offers and nothing of the work order, the issue or the reporter (control
+  K1). The instance mails no link: the token would then have to wait in a
+  job's payload or be minted by the worker, and a mailed work order stays the
+  one mail that carries a handler's text (decision 21). Issuing again revokes
+  the link before in the same transaction, and a partial unique index holds a
+  work order to one live link.
+- **When it ends.** At the first of: 30 days after it was issued
+  (`WORK_ORDER_LINK_DAYS`, never extended), a decline, done, a handler
+  withdrawing it, the work order's text redacted or purged, its contractor
+  removed from the list, its issue closed or ring-fenced, and a person with
+  protected personal data having reported the issue or living in its
+  apartment, a residency recorded ahead of its move-in date included. Every
+  one of them is read in the lookup on every request. A
+  redaction, a purge, a ring-fence, a contractor removed and the issue closed
+  (merged into another as a duplicate included) also revoke the link in their
+  own transaction, so lifting a ring-fence or
+  reopening the issue later brings no link back; the handler issues a new one
+  if the work goes on. So does protection: marking a person as protected, and
+  recording a protected person's residency (counted from the day it is
+  recorded, not the day it begins), revoke the links of the issues they
+  reported and of the issues about that apartment, in the same transaction and
+  audited on the channel of the write. Issuing a link and those writes take
+  one lock (`lockHouseholdProtection`), so a link issued while a protection is
+  written is either found by it and revoked, or finds it and is refused. Every
+  holder takes it after its other advisory locks and before it first writes a
+  person or a residency, so none waits on another while holding what that one
+  waits for; an import chunk with a residency holds it to the commit, and so
+  holds link issuing, marking a person protected and a move-in back for as
+  long as the chunk runs. Those three run in a transaction allowed longer than
+  an import chunk (`HOUSEHOLD_PROTECTION_TRANSACTION`), so they wait rather
+  than fail.
+  Clearing the protection restores nothing. A read still writes nothing. The
+  handlers' record reads the same conditions, the protected household
+  included, so it never says a link opens what the contractor is refused; the
+  switch alone it does not read, as the switch section above says. A decline and done are final: no new link is issued
+  for such a work order, and the handler writes a new one.
+- **Question 4, for the link.** The mailed work order is not refused for a
+  protected household (above), because nothing of the issue goes into it but
+  what the handler writes. The link shows the board's photographs, which may
+  show the home, so until the owner answers question 4 the link fails closed:
+  it is not issued, and one issued before stops answering when protection is
+  recorded (control H4).
+- **The photographs it shows.** The handler chooses them among the issue's
+  images, the reporter's photographs and those a handler attached, and the
+  screen says that a photograph may show people. A file is served through the
+  link only while it is chosen for that work order and still on that issue, or
+  was added through that work order's link; any other identifier beside the
+  token is answered with the refusal (control C3).
+- **What the contractor sends.** Notes of at most 2,000 characters, scanned for
+  personal identity numbers as the report form is, and photographs, identified
+  from their bytes, stripped of their metadata, at most 40 megapixels, named
+  by the server (`work-order-photo.<ext>`) and declared as showing people.
+  Every photograph read through the link, the board's as well, is served
+  under that server-made name, never under the name it was stored with. Both
+  are part of the issue's free-text layer
+  ([ADR 0057](0057-purging-issues-in-two-layers.md)): removed on the board's
+  clock with the rest, and redacted by a handler as a note or a file is. The
+  answer itself (accepted, declined, done, and when) is a fact about the work
+  and stays with the building record. Nothing a contractor sends reaches the
+  reporter's page or the reporter's own reads of their files.
+- **Numbers.** Per client address and minute: 30 page reads, 120 photograph
+  reads (a page shows up to thirty), 5 answers and notes, and 3 photographs.
+  Per work order, in the database: 10 notes an hour and 50 in all, and 5
+  photographs an hour, 10 in all and 30 MiB together, beside the per-file
+  `OPENBRF_MAX_UPLOAD_BYTES`. A text post is refused past 64 KiB before it is
+  read; the photograph is bounded by the multipart parser's per-file limit.
+- **Reads write nothing.** Opening the page or a photograph writes no row, no
+  audit entry and no timestamp, because mail scanners, chat unfurlers and link
+  previews open every link they see (control E1). The consequence below that
+  had the token's read audited against the work order is replaced by this.
+- **Answers that end the link** are answered with a page of their own in the
+  response, carrying no address of the link, because a redirect to the link
+  would meet the refusal (control E6).
+- **The handlers are told.** An answer, a note or a photograph queues the
+  handler notice of the issue mailer (decision 21: the issue's number and type,
+  never a word the contractor wrote), to the assignee or, with none, to the
+  type's handlers. A note or a photograph is mailed at most once an hour per
+  person and issue; an answer is mailed every time, because a decline or done
+  is the act a handler must not miss and a link takes two answers at most.
+  The answer is a
+  step on the issue's timeline. A reporter's data subject access report says,
+  under each work order, whether a link was given and how many of the issue's
+  photographs it showed, by number and never by file. The number comes from a
+  record the handler's acts leave (issuing a link, and choosing a photograph
+  while a link stands), one row per photograph, so a changed choice or a
+  removed file does not shorten it.
+
 ### The mailed work order
 
 The fallback is built first, because it is what a release ships with whatever
@@ -296,7 +438,7 @@ the owner, and is answered:
   one is listed and offered for no work order.
 - **Question 3, answered by the owner on 2026-11-03.** The mail is the work
   order: the handler's text, the contractor's name in the greeting and the
-  association's in the heading, and nothing else from the case; a text holding
+  association's in the heading, and nothing else from the issue; a text holding
   a personal identity number is refused. The issue module's plan says both that
   no mail carries free text, the reporter's or the handler's, so that nothing a
   person wrote passes through the mail provider (decision 21), and that a work
@@ -306,11 +448,11 @@ the owner, and is answered:
   order to a contractor is an exception to decision 21, and the only one. It is
   narrow by construction, and stays an exception only while it stays narrow: the
   server sends only what the handler previewed, the mail carries nothing else
-  from the case (no report, no reporter, no photographs, no link), and a text
+  from the issue (no report, no reporter, no photographs, no link), and a text
   with a personal identity number is refused. Every other mail about an issue
   keeps to decision 21.
-- **Question 4.** A work order on a case whose reporter has protected personal
-  data is not refused. Nothing of the case goes into it but what the handler
+- **Question 4.** A work order on an issue whose reporter has protected personal
+  data is not refused. Nothing of the issue goes into it but what the handler
   writes, and the form tells the handler to keep the reporter's name and home
   out of it and arrange access through the board.
 
@@ -322,7 +464,7 @@ not.
 
 Who receives the work order and what it says are what was previewed, and the
 server holds the sending to them. The preview returns a signature over the
-case, the handler, the contractor, the recipient's name and address and the
+issue, the handler, the contractor, the recipient's name and address and the
 text, valid for half an hour, and the sending is refused unless what it would
 send now matches it. The rest of the mail is not signed: its subject, its
 heading and its language are rendered when it is sent, from the association's
@@ -331,12 +473,16 @@ language in between shows in the mail and does not refuse it. The contractor's
 row is locked while the sending reads it, so a board member who changes the
 address at the same moment changes it either before the sending, which is then
 refused and previewed again, or after it. The same text to the same contractor
-on the same case within half an hour, as long as a preview lasts, is refused
-as a second press, also after a handler has redacted the text of the first (its
-words are gone, and sending again would mail them), and one
-handler may send twenty work orders an hour.
+on the same issue within half an hour, as long as a preview lasts, is refused
+as a second press. So is any text while an earlier work order to that
+contractor on that issue, created inside that half hour, has had its text
+redacted: its words are gone, so a repeat cannot be told from a new order, and
+a handler who redacts a mistaken order and writes a corrected one sends it when
+the half hour has passed. An earlier work order known not to have left the
+instance does not count: its handler is told to write it again. One handler
+may send twenty work orders an hour.
 
-The audit entry names the case, the work order, the contractor and the sender,
+The audit entry names the issue, the work order, the contractor and the sender,
 with the length of the text and none of its words. Each change to the
 contractor register is audited too, by the contractor's id and the fields it
 touched, because an address changed there changes who receives what a handler
@@ -348,26 +494,30 @@ contractor removed from the register is erased from them as well: the copy of
 the name and address on each is cleared, and the work order stays, saying that
 it went out, when and what it said. That is how a sole trader's erasure is
 honoured; the owner confirmed both on 2026-11-03. The text of a work order is
-erased 3,653 days after its case was closed, so never before the tenth
+erased 3,653 days after its issue was closed, so never before the tenth
 anniversary and up to a day after it, by the nightly purge, unless a
 handler redacts it before then ([ADR 0057](0057-purging-issues-in-two-layers.md#redaction)),
 which leaves the work order with whom it went to and when. The owner
 asked for it to be kept as long as the law allows, to keep the history of what
-was asked of whom, and ten years is that bound: the text is the association's
-evidence of what it ordered, a claim about the work becomes time-barred ten
-years after it arose (preskriptionslagen (1981:130) 2 §), and the work is done
-before the case is closed. Bookkeeping needs less, to the end of the seventh
-year after the financial year (bokföringslagen (1999:1078) 7 kap. 2 §), and
-past ten years storage limitation (GDPR art. 5(1)(e)) leaves the text no
-purpose. A legal hold or a restriction against the case's reporter keeps it
-longer, and so does a legal hold on the case itself, which a handler places at
-`POST /api/issue-queue/:id/legal-hold` (ADR 0057): the purge skips the text
+was asked of whom. Ten years is the ordinary retention window chosen for that,
+not a period the law sets for this text: the text is the association's evidence
+of what it ordered, and the general limitation period for a claim about the
+work is ten years (preskriptionslagen (1981:130) 2 §), so the window is sized
+to a claim made in the ordinary course. It runs from the closing of the issue,
+and the system knows neither when the work was done nor when a claim arose.
+Bookkeeping needs less, to the end of the seventh year after the financial year
+(bokföringslagen (1999:1078) 7 kap. 2 §). Storage limitation (GDPR art.
+5(1)(e)) asks for a purpose, not a number of years, and the purpose here is
+that evidence; the window is the association's answer for the ordinary case,
+and the exceptions below are where it does not hold. A legal hold or a
+restriction against the issue's reporter keeps it longer, and so does a legal
+hold on the issue itself, which a handler places at `POST /api/issue-queue/:id/legal-hold` (ADR 0057): the purge skips the text
 while it stands, and a redaction is refused. A dispute with the contractor that
-interrupts the limitation starts ten years again, and the clock does not see
-it: unless a handler places the hold on the case, the text is erased when its
-3,653 days have run, and a claim still open under preskriptionslagen (1981:130)
-2 § loses its evidence. Placing the hold is the handler's act, not the system's. A
-reporter's data subject access report lists, under each of their cases, the
+interrupts the limitation, which starts a new period (preskriptionslagen 5-7
+§§), is not seen by the clock: unless a handler places the hold on the issue,
+the text is erased when its 3,653 days have run, and a claim still open under
+preskriptionslagen loses its evidence. Placing the hold is the handler's act,
+not the system's. A reporter's data subject access report lists, under each of their issues, the
 work orders sent about it: to whom, when, and whether the mail went out, not
 the text, which may be about other people.
 
@@ -379,7 +529,7 @@ the work order is recorded as not sent, with the code for the contractor
 removed or for the text erased. An erasure that commits after the claim cannot
 recall a mail already being sent, which is the one case the claim leaves open.
 
-The claim also refuses a work order whose case is ring-fenced, and takes the
+The claim also refuses a work order whose issue is ring-fenced, and takes the
 issue type's lock before it does, the lock under which the board ring-fences a
 type. A ring-fence that commits while a work order waits on the queue is
 therefore read by its claim: the work order is not mailed, and is recorded as
@@ -421,15 +571,17 @@ wrote this record:
 
 - The issues module keeps no `@Public()` route in its application controllers,
   and the comment over `IssueReportController` names the two site-layer
-  controllers as the only ways in without a session.
+  controllers (`SiteIssueLinkController`, `SiteWorkOrderLinkController`) as the
+  only ways in without a session.
 - `@PublicRateLimit`'s comment gains the token reads as the exception to its rule
   on `GET`.
 - The work order's service refuses every act on a ring-fenced case, and the
   contractor's token lookup refuses a work order on one, each with a test that
   fails when the refusal is removed.
-- `MediaService` gains a read by a token's grant, which is audited against the
-  work order, and a join other than `IssuePhoto` for photographs the reporter
-  must not read.
+- `MediaService` gains a read by a token's grant
+  (`openForWorkOrderLink`), which writes nothing (control E1, above), and a
+  join other than `IssuePhoto` (`WorkOrderFile`) for photographs the reporter
+  must not read, which `issueFileAccess` opens to the issue's handlers alone.
 - The audit channels gain one for a link holder, with its row in the data subject
   access report's "Via" column.
 - The record of processing activities names a contractor as a recipient (art.

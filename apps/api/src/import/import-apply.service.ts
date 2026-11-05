@@ -16,6 +16,8 @@ import {
   type TransactionalSql,
 } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { lockHouseholdProtection } from "../issues/issue-lock";
+import { revokeLinksOfProtectedHousehold } from "../issues/work-order-link";
 import { endPluginAccesses } from "../plugin-access/plugin-access";
 import {
   appendOwedMembershipEvents,
@@ -610,6 +612,18 @@ export class ImportApplyService implements OnModuleInit {
         ];
         await lockResidencyTransitionsInOrder(tx, personsLocked);
 
+        // A chunk with a residency ends the links of a protected person's
+        // household as it writes it, and a person marked protected takes this
+        // lock before writing the person. So it is taken here, last of the
+        // advisory keys and before the chunk's first person write, not on the
+        // first residency: a chunk that held a person's row and then waited
+        // for it would close a cycle (see lockHouseholdProtection). It is
+        // held to the commit, so a chunk with residencies holds link issuing
+        // and protection back for as long as the chunk runs.
+        if (apartmentsLocked.length > 0) {
+          await lockHouseholdProtection(tx);
+        }
+
         // Then the plan again, through this transaction and under every lock.
         // The one above decided what to encrypt and what to lock; this one
         // decides what to write, against a register nobody else can be adding
@@ -1164,10 +1178,19 @@ export class ImportApplyService implements OnModuleInit {
     // the file included. Under the transition lock the chunk holds for every
     // person it writes to, which the grant takes as well. Attributed to the
     // board member who uploaded the file, in whose name the import writes.
+    const channel = uploadedById === null ? "SYSTEM" : "WEB";
     await endPluginAccesses(tx, this.audit, {
       personId,
       actorPersonId: uploadedById,
-      channel: uploadedById === null ? "SYSTEM" : "WEB",
+      channel,
+    });
+    // A protected person's household is not one a contractor's link may open
+    // an issue of, from the day it is recorded (ADR 0055).
+    await revokeLinksOfProtectedHousehold(tx, this.audit, {
+      personId,
+      apartmentId: residency.apartmentId,
+      actorPersonId: uploadedById,
+      channel,
     });
   }
 }

@@ -206,7 +206,9 @@ export interface IssueRow {
   locationRedactedAt: string | null;
   /**
    * When the nightly purge removed the free text, the conversation and the
-   * photographs after the issue closed, or null while they stand.
+   * photographs after the issue closed, or null while they stand. A
+   * photograph attached while the purge ran can stand after this is set, until
+   * the next run takes it and moves the date.
    */
   freeTextRemovedAt: string | null;
   createdAt: string;
@@ -431,6 +433,11 @@ export type IssueTimelineStep = {
       kind: "workOrder";
       delivery: "pending" | "sent" | "failed" | "unconfirmed" | null;
     }
+  /**
+   * The contractor answered a work order through its link (ADR 0055). No
+   * actor: whoever held the link answered.
+   */
+  | { kind: "workOrderAnswer"; answer: "ACCEPTED" | "DECLINED" | "DONE" | null }
   | {
       kind: "costResponsibility";
       from: IssueCostResponsibility | null;

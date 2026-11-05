@@ -1021,6 +1021,14 @@ with a message that names what is wrong:
   connection limit the script sets for the role has to be 1 or more; `-1`
   would mean no limit.
 
+The server also has to offer the `pg_trgm` extension, which the issue queue's
+search is indexed with. It ships with PostgreSQL's contrib modules, which the
+bundled database's image includes; on a server built from packages, install
+them. `pg_trgm` is a trusted extension, so the migrations create it as the
+schema owner, with no superuser; a managed server that has extensions allowed
+one by one has to allow it first. Without it the migration that creates it
+stops the deploy with PostgreSQL's own error.
+
 A new database grants `CONNECT` to every role on the server. Each deploy that
 constrains the runtime role revokes that grant on the instance's own database,
 and checks afterwards that it is gone, so no instance's runtime role can open
@@ -1172,6 +1180,29 @@ personal data.
 The same budget per client address that guards the forms guards these paths
 too, so `TRUSTED_PROXIES` matters here as well: thirty page reads and five
 messages a minute per address.
+
+### The contractor's link
+
+A handler can give the contractor of a work order a link of their own, at
+`/arbetsorder/obrf_wo_...` (ADR 0055), which opens that work order and the
+photographs the board chose for it, and through which the contractor answers
+it, writes notes and adds photographs without an account. It is switched off
+until the legal review of a contractor as a recipient of the association's
+data clears it: `OPENBRF_CONTRACTOR_LINKS_ENABLED=true` in the env file (the
+production Compose file passes it on to the application) switches it on, and
+turning it off again makes every link refuse at once, and a link that has not
+expired or ended opens again if it is switched back on. With it off, every
+address under `/arbetsorder/` answers the same 404 as a link that never
+existed, and a handler can still withdraw such a link from its work order.
+
+Treat these paths as you treat `/arende/`: leave them out of the proxy's access
+log or cut the path at `/arbetsorder/`. A proxy log that keeps the full path
+holds a working link until it ends, at the latest 30 days after it was issued.
+The contractor's photographs are uploaded on these paths, so the proxy's body
+limit must allow `OPENBRF_MAX_UPLOAD_BYTES` here as on the application's own
+upload routes, plus the multipart envelope around the file: the proxy counts
+the whole request body, and a limit of exactly `OPENBRF_MAX_UPLOAD_BYTES`
+refuses a photograph near that size that the application would accept.
 
 ## The data volume
 

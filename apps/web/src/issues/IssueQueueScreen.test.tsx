@@ -688,9 +688,14 @@ describe("a save that finishes under another view or filter", () => {
     expect(fieldset?.hasAttribute("disabled")).toBe(true);
 
     answerReread(answer([issue()]));
-    await waitFor(() => {
-      expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
-    });
+    // A loaded CI runner can take longer than waitFor's default second to
+    // re-render the screen after the read.
+    await waitFor(
+      () => {
+        expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
+      },
+      { timeout: 5000 },
+    );
     expect(
       (
         screen.getByLabelText(

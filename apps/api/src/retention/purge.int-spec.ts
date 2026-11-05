@@ -81,7 +81,8 @@ const issueId = `purge-issue-${suffix}`;
 /**
  * An open issue of the same person's that holds an entry permission and whose
  * text a handler has redacted: nothing of its free text stands, so the purge
- * detaches the person and takes the permission with them.
+ * detaches the person and takes the permission with them. Its work order holds
+ * only a contractor's note a handler redacted, which stands as a blank row.
  */
 const entryIssueId = `purge-entry-issue-${suffix}`;
 /**
@@ -507,6 +508,20 @@ beforeAll(async () => {
       entryPets: true,
       entryMasterKey: false,
       entryUntil: new Date("2027-12-31"),
+    },
+  });
+  // The same open issue's work order, whose text is gone and whose only note
+  // from the contractor a handler has redacted: a blank row the clock has yet
+  // to take, which does not keep the reporter attached.
+  await prisma.workOrder.create({
+    data: {
+      issueId: entryIssueId,
+      recipientName: null,
+      recipientEmailCipher: null,
+      body: null,
+      sentByPersonId: null,
+      deliveryStatus: "SENT",
+      notes: { create: { body: "", redactedAt: new Date() } },
     },
   });
   // An earlier issue of theirs that the clock has finished: nothing of its
@@ -2087,12 +2102,14 @@ describe("an issue a work order's text still stands on", () => {
   const freeTextFirstId = `purge-wo-issue-text-first-${suffix}`;
   const redactedId = `purge-wo-issue-redacted-${suffix}`;
   const fileRedactedId = `purge-wo-issue-file-${suffix}`;
+  const messageRedactedId = `purge-wo-issue-message-${suffix}`;
   const fileRedactedFileId = `purge-wo-file-${suffix}`;
   const laterIds = [
     workOrderFirstId,
     freeTextFirstId,
     redactedId,
     fileRedactedId,
+    messageRedactedId,
   ];
   const WORK_ORDER_TEXT = "Byt packningen i koket hos grannen i 1202.";
   let issuePurge: IssuePurgeService;
@@ -2432,6 +2449,71 @@ describe("an issue a work order's text still stands on", () => {
       target: "description",
       reporterDetached: true,
     });
+  });
+
+  it("keeps the reporter of an executed request after a redaction of a message or a note, whose rows still stand", async () => {
+    await requesterErased();
+    await reportedWithWorkOrder(messageRedactedId, requester);
+    await prisma.workOrder.updateMany({
+      where: { issueId: messageRedactedId },
+      data: { body: null },
+    });
+    const message = await prisma.issueMessage.create({
+      data: {
+        issueId: messageRedactedId,
+        side: "REPORTER",
+        body: "Det droppar fortfarande hos grannen i 1202.",
+      },
+    });
+    const note = await prisma.issueNote.create({
+      data: { issueId: messageRedactedId, body: "Grannen heter Karlsson." },
+    });
+    const redaction = app.get(IssueRedactionService);
+
+    // A redacted message or note is an empty row until the purge takes it, and
+    // the issue counts it as text standing, so the link stays after each.
+    await redaction.redact(people.board, messageRedactedId, {
+      target: "message",
+      id: message.id,
+    });
+    expect(await reporterOf(messageRedactedId)).toBe(requester);
+    await redaction.redact(people.board, messageRedactedId, {
+      target: "note",
+      id: note.id,
+    });
+    expect(await reporterOf(messageRedactedId)).toBe(requester);
+    await expect(
+      prisma.issueMessage.findUniqueOrThrow({
+        where: { id: message.id },
+        select: { body: true, redactedAt: true },
+      }),
+    ).resolves.toEqual({ body: "", redactedAt: expect.any(Date) });
+    await expect(
+      prisma.issueNote.findUniqueOrThrow({
+        where: { id: note.id },
+        select: { body: true, redactedAt: true },
+      }),
+    ).resolves.toEqual({ body: "", redactedAt: expect.any(Date) });
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: { action: "ISSUE_REDACTED", targetId: messageRedactedId },
+      select: { context: true },
+    });
+    expect(entries.map((entry) => entry.context)).toEqual(
+      expect.arrayContaining([
+        { target: "message", id: message.id },
+        { target: "note", id: note.id },
+      ]),
+    );
+    expect(JSON.stringify(entries)).not.toContain("reporterDetached");
+
+    // The purge of the free text takes the empty rows, the last text standing,
+    // and the link goes with them.
+    await pastTheTenYears(messageRedactedId);
+    await expect(
+      textPurge.purgeIssue(messageRedactedId, new Date(), 10),
+    ).resolves.toBe("removed");
+    expect(await reporterOf(messageRedactedId)).toBeNull();
   });
 
   it("clears the reporter of an executed request when a handler removes the last file", async () => {

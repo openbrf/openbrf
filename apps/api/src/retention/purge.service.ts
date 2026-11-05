@@ -8,11 +8,12 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { NO_ENTRY_PERMISSION } from "../issues/issue-fit-views";
-import { ISSUE_FREE_TEXT_STANDING } from "../issues/issue-free-text";
+import { ISSUE_FREE_TEXT_STANDING_UNREDACTED } from "../issues/issue-free-text";
 import { lockIssue, lockWorkOrderSender } from "../issues/issue-lock";
 import { WORK_ORDER_TEXT_STANDING } from "../issues/issue-retention";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { associationDefaultLocale } from "../settings/default-locale";
 import {
   sweepConnectedAppTokens,
   type ConnectedAppTokenSweepOutcome,
@@ -558,7 +559,7 @@ export class PurgeService implements OnModuleInit {
     maxPersons: number = MAX_PERSONS_PER_RUN,
   ): Promise<string[]> {
     const cutoff = purgeCutoff(now, retentionDays);
-    const defaultLocale = await this.defaultLocale();
+    const defaultLocale = await associationDefaultLocale(this.prisma);
 
     /*
      * People whose data is referenced from a row this job detaches. These are
@@ -675,12 +676,14 @@ export class PurgeService implements OnModuleInit {
     ] = await Promise.all([
       // Only where neither the free text nor a work order's text stands: an
       // issue on which either does keeps its reporter, so naming them here
-      // would select somebody this job then leaves as it found them.
+      // would select somebody this job then leaves as it found them. A
+      // contractor's note a handler redacted is blank and does not count, as it
+      // does not for the erasure (the clock still takes its row).
       this.prisma.issue.groupBy({
         by: ["reporterPersonId"],
         where: {
           reporterPersonId: { not: null },
-          NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
+          NOT: [ISSUE_FREE_TEXT_STANDING_UNREDACTED, WORK_ORDER_TEXT_STANDING],
         },
       }),
       this.prisma.issue.groupBy({
@@ -782,7 +785,7 @@ export class PurgeService implements OnModuleInit {
     const days =
       retentionDays ?? (await retentionDaysAfterMoveOut(this.prisma));
     const cutoff = purgeCutoff(now, days);
-    const defaultLocale = await this.defaultLocale();
+    const defaultLocale = await associationDefaultLocale(this.prisma);
 
     return this.prisma.$transaction(async (tx) => {
       /*
@@ -991,7 +994,7 @@ export class PurgeService implements OnModuleInit {
       const { count: issuesDetachedFromPerson } = await tx.issue.updateMany({
         where: {
           reporterPersonId: personId,
-          NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
+          NOT: [ISSUE_FREE_TEXT_STANDING_UNREDACTED, WORK_ORDER_TEXT_STANDING],
         },
         data: {
           reporterPersonId: null,
@@ -1030,10 +1033,13 @@ export class PurgeService implements OnModuleInit {
       /*
        * The handler who sent a work order: the order stays, and so does its
        * audit entry, but the row stops naming the person. Under the lock a
-       * sending takes before it checks the handler's access and inserts: one
-       * that read the access before this purge removed the role would
-       * otherwise commit its `sentByPersonId` after the detachment below, and
-       * nothing later counts that reference.
+       * sending takes before it checks the handler's access and inserts. The
+       * purge removes no role: it refuses a person who holds one
+       * (`lockErasureEligibility`) and then deletes the account. The race is a
+       * sending that read the handler's access, then a role withdrawn, then
+       * this purge starting on a person who holds none: without the lock that
+       * sending would commit its `sentByPersonId` after the detachment below,
+       * and nothing later counts that reference.
        */
       await lockWorkOrderSender(tx, personId);
       const { count: workOrdersNoLongerSentBy } = await tx.workOrder.updateMany(
@@ -1227,15 +1233,6 @@ export class PurgeService implements OnModuleInit {
         erasureRemainder: remainder,
       };
     });
-  }
-
-  /** The association's default language, or the schema's when unset. */
-  private async defaultLocale(): Promise<string> {
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-      select: { defaultLocale: true },
-    });
-    return association?.defaultLocale ?? "sv";
   }
 }
 

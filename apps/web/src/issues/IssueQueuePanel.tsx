@@ -5,7 +5,7 @@ import {
   type IssueClosingOutcome,
   type IssueWaitingReason,
 } from "@openbrf/shared";
-import { useState, type ReactElement } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -192,6 +192,31 @@ export function IssueQueuePanel({
    * in flight before the queue reloads.
    */
   const [actingOn, setActingOn] = useState<string | null>(null);
+  /*
+   * The issues whose status form is saying, from its draft, that a reply is
+   * not a notice to remedy. The sentence is on screen once for an issue: the
+   * form's while it has the draft, the handling panel's otherwise.
+   */
+  const [remedyNoticeInForm, setRemedyNoticeInForm] = useState<
+    ReadonlySet<string>
+  >(new Set());
+  const markRemedyNotice = useCallback(
+    (issueId: string, shown: boolean): void => {
+      setRemedyNoticeInForm((current) => {
+        if (current.has(issueId) === shown) {
+          return current;
+        }
+        const next = new Set(current);
+        if (shown) {
+          next.add(issueId);
+        } else {
+          next.delete(issueId);
+        }
+        return next;
+      });
+    },
+    [],
+  );
   /*
    * How many work orders each issue has sent while the queue is open. The
    * work orders and the timeline sit under two disclosures, and a sending in
@@ -391,6 +416,7 @@ export function IssueQueuePanel({
                     type={type}
                     disabled={saving || rereading}
                     saving={saving && actingOn === issue.id}
+                    onRemedyNoticeShown={markRemedyNotice}
                     onDraftChanged={() => {
                       if (move.state.kind === "failed") {
                         move.reset();
@@ -410,6 +436,7 @@ export function IssueQueuePanel({
                   workOrdersSent={workOrdersSent[issue.id] ?? 0}
                   canManageCharges={canManageCharges}
                   locked={reading || rereading}
+                  remedyNoticeInForm={remedyNoticeInForm.has(issue.id)}
                   queueRead={queueRead}
                   onChanged={onChanged}
                 />
@@ -446,6 +473,7 @@ function HandlingDisclosure({
   workOrdersSent,
   canManageCharges,
   locked,
+  remedyNoticeInForm,
   queueRead,
   onChanged,
 }: {
@@ -456,6 +484,8 @@ function HandlingDisclosure({
   workOrdersSent: number;
   canManageCharges: boolean;
   locked: boolean;
+  /** The status form above already says a reply is not a notice to remedy. */
+  remedyNoticeInForm: boolean;
   queueRead: number;
   onChanged: () => void;
 }): ReactElement {
@@ -488,6 +518,7 @@ function HandlingDisclosure({
             type={type}
             workOrdersSent={workOrdersSent}
             canManageCharges={canManageCharges}
+            remedyNoticeInForm={remedyNoticeInForm}
             filesRevision={uploads + redaction.revision}
             onChanged={onChanged}
           />
@@ -594,6 +625,7 @@ function StatusForm({
   disabled,
   saving,
   onDraftChanged,
+  onRemedyNoticeShown,
   onSave,
 }: {
   issue: QueuedIssue;
@@ -601,6 +633,8 @@ function StatusForm({
   disabled: boolean;
   saving: boolean;
   onDraftChanged: () => void;
+  /** Whether this form is showing the sentence that a reply is no notice to remedy. */
+  onRemedyNoticeShown: (issueId: string, shown: boolean) => void;
   onSave: (input: IssueStatusMoveInput) => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -628,6 +662,16 @@ function StatusForm({
 
   const day = localDayOfInstant(issue.createdAt);
   const named = { type: issue.typeName, day };
+
+  const issueId = issue.id;
+  const showsRemedyNotice =
+    asksOutcome && outcome === "TENANT_OWNER_RESPONSIBILITY";
+  useEffect(() => {
+    onRemedyNoticeShown(issueId, showsRemedyNotice);
+    return () => {
+      onRemedyNoticeShown(issueId, false);
+    };
+  }, [issueId, showsRemedyNotice, onRemedyNoticeShown]);
 
   return (
     <form
@@ -735,7 +779,7 @@ function StatusForm({
         step decision 27 names: a reply on the issue after it is not how the
         association asks for something to be put right under BRL 7 kap. 12 a §.
       */}
-      {asksOutcome && outcome === "TENANT_OWNER_RESPONSIBILITY" ? (
+      {showsRemedyNotice ? (
         <div className="basis-full">
           <Notice tone="info">{t("issues.handling.notANoticeToRemedy")}</Notice>
         </div>
