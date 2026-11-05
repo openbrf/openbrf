@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import { TOO_MANY_REQUESTS } from "../api/client";
 import { fetchSignupState, submitSignupRequest } from "../api/signup";
 import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, FIELD_DATA, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
@@ -105,6 +106,7 @@ const EMPTY = {
 const FAILURE_KEY: Readonly<Record<string, TranslationKey>> = {
   "invalid-body": "signup.errors.invalid",
   "invalid-email": "signup.errors.invalid",
+  [TOO_MANY_REQUESTS]: "app.tooManyRequests",
 };
 
 /**

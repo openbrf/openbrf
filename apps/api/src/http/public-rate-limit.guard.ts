@@ -40,7 +40,14 @@ const UNKNOWN_ADDRESS = "unknown";
  */
 const MAX_BUCKETS = 50_000;
 
-/** Too many requests from one client address in too little time. */
+/**
+ * Too many requests from one client address in too little time.
+ *
+ * An API route answers it as every domain error is answered, with the code
+ * below for a screen to translate. A website address has no script to do that,
+ * so it is answered with a translated page instead (site-rate-limit.filter.ts).
+ * The message is for the log and a developer either way, never for a visitor.
+ */
 export class TooManyRequestsError extends DomainError {
   readonly status = HttpStatus.TOO_MANY_REQUESTS;
   readonly reason = "too-many-requests";

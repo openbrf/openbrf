@@ -7,12 +7,16 @@ import {
   type DocumentView,
   DocumentsService,
 } from "../documents/documents.service";
-import { I18nService } from "../i18n/i18n.service";
+import {
+  I18nService,
+  type Locale,
+  SUPPORTED_LOCALES,
+} from "../i18n/i18n.service";
 import { IssueTypeService } from "../issues/issue-type.service";
 import { mediaUrl } from "../media/media.service";
-import { ThemeService } from "../themes/theme.service";
+import { type ThemeRendering, ThemeService } from "../themes/theme.service";
 import { AssociationFactsService } from "./association-facts.service";
-import { MenuService } from "./menu.service";
+import { MenuService, type SiteMenu } from "./menu.service";
 import { hasBlock, linkedPageIds, type PageContent } from "./page-content";
 import { type BrokerUpdateRequestState, renderBrokerPage } from "./site-broker";
 import { renderCalendarPage, renderEventPage } from "./site-calendar";
@@ -30,6 +34,7 @@ import {
   type NewsTeaser,
   renderNotFound,
   renderPage,
+  renderTooManyRequests,
   type SiteChrome,
   type SiteControllerContact,
   type SiteDocument,
@@ -99,6 +104,35 @@ export const SITE_HTML_HEADERS: Readonly<Record<string, string>> = {
   vary: "cookie, accept-language",
 };
 
+/**
+ * How long the website's rate-limit page is kept before it is drawn again.
+ *
+ * The refusal is the answer to a client already sending too much, so drawing
+ * it must not cost what the limit is there to bound: kept, it costs a header
+ * parse and a lookup, where drawn it would read the association, the theme,
+ * the privacy notice and the menu for every request turned away. A minute is
+ * how long a renamed association or a newly activated theme may take to reach
+ * that one page, and nothing else is served from it.
+ */
+export const REFUSAL_PAGE_TTL_MS = 60_000;
+
+/** What the chrome is drawn from, read once and before a language is chosen. */
+interface ChromeSource {
+  defaultLocale: string | null;
+  associationName: string;
+  logoFileId: string | null;
+  primaryColor: string | null;
+  rendering: ThemeRendering;
+  privacyNoticePath: string | null;
+  menu: SiteMenu;
+}
+
+/** The rate-limit page in every language this instance has. */
+interface RefusalPages {
+  defaultLocale: string | null;
+  html: ReadonlyMap<Locale, string>;
+}
+
 /** What the visitor has just done on the page being rendered, if anything. */
 export interface SiteSubmissionState {
   sent?: SiteFormKind | null;
@@ -134,6 +168,10 @@ export interface SiteVisit extends SiteSubmissionState {
 
 @Injectable()
 export class SiteRenderer {
+  /** The rate-limit page, while it is kept (refusalPages). */
+  private refusal: { until: number; pages: Promise<RefusalPages> } | null =
+    null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly themes: ThemeService,
@@ -310,6 +348,61 @@ export class SiteRenderer {
    */
   async notFound(acceptLanguage: string | undefined): Promise<string> {
     return renderNotFound(await this.chrome(acceptLanguage, false));
+  }
+
+  /**
+   * The refusal a website address answers when its public budget is spent.
+   *
+   * With the anonymous menu, in the visitor's language, for the reasons the
+   * not-found document above gives: the limit is checked before anything about
+   * the request is read, so the refusal must not vary with the address, the
+   * session or what the association has published. Kept for a minute rather
+   * than drawn per request (REFUSAL_PAGE_TTL_MS), since every request it
+   * answers is one the limit turned away.
+   */
+  async tooManyRequests(acceptLanguage: string | undefined): Promise<string> {
+    const pages = await this.refusalPages();
+    const locale = visitorLocale(acceptLanguage, pages.defaultLocale);
+    const html = pages.html.get(locale);
+    if (html === undefined) {
+      // Every supported locale was drawn, and visitorLocale returns only those.
+      throw new Error(`No rate-limit page was drawn in ${locale}.`);
+    }
+    return html;
+  }
+
+  /**
+   * The rate-limit page in each language, drawn at most once a TTL.
+   *
+   * One read serves every refusal until it expires, and the requests that
+   * arrive while it is in flight wait on the same one, so a burst of refused
+   * requests asks the database once whatever its size. A failed read is not
+   * kept: the requests already waiting on it share its failure, and the next
+   * one asks again.
+   */
+  private refusalPages(): Promise<RefusalPages> {
+    const now = Date.now();
+    if (this.refusal !== null && now < this.refusal.until) {
+      return this.refusal.pages;
+    }
+
+    const pages = this.chromeSource(false).then((source) => ({
+      defaultLocale: source.defaultLocale,
+      html: new Map(
+        SUPPORTED_LOCALES.map((locale) => [
+          locale,
+          renderTooManyRequests(this.chromeIn(source, locale)),
+        ]),
+      ),
+    }));
+    const entry = { until: now + REFUSAL_PAGE_TTL_MS, pages };
+    this.refusal = entry;
+    pages.catch(() => {
+      if (this.refusal === entry) {
+        this.refusal = null;
+      }
+    });
+    return pages;
   }
 
   /**
@@ -675,6 +768,16 @@ export class SiteRenderer {
     hasSession: boolean,
     language: "visitor" | "association" = "visitor",
   ): Promise<SiteChrome> {
+    const source = await this.chromeSource(hasSession);
+    const locale =
+      language === "association"
+        ? this.i18n.resolveLocale(source.defaultLocale)
+        : visitorLocale(acceptLanguage, source.defaultLocale);
+    return this.chromeIn(source, locale);
+  }
+
+  /** What chrome() reads, before a language is chosen for it. */
+  private async chromeSource(hasSession: boolean): Promise<ChromeSource> {
     const [association, rendering, privacyNoticePath] = await Promise.all([
       this.prisma.association.findUnique({
         where: { id: 1 },
@@ -698,25 +801,30 @@ export class SiteRenderer {
       selfSignupEnabled: association?.selfSignupEnabled ?? false,
     });
 
-    const locale =
-      language === "association"
-        ? this.i18n.resolveLocale(association?.defaultLocale)
-        : visitorLocale(acceptLanguage, association?.defaultLocale);
+    return {
+      defaultLocale: association?.defaultLocale ?? null,
+      associationName: association?.name ?? "",
+      logoFileId: association?.logoFileId ?? null,
+      primaryColor: association?.primaryColor ?? null,
+      rendering,
+      privacyNoticePath,
+      menu,
+    };
+  }
 
+  /** The chrome in one language, from what chromeSource() read. */
+  private chromeIn(source: ChromeSource, locale: Locale): SiteChrome {
     return {
       t: this.i18n.translatorFor(locale),
       locale,
-      associationName: association?.name ?? "",
+      associationName: source.associationName,
       // The mark is recorded PUBLIC when it is uploaded, and the media route
       // streams it from this instance. A visitor's browser therefore fetches it
       // from the origin it is already on, and from no one else.
-      logoUrl:
-        association?.logoFileId == null
-          ? null
-          : mediaUrl(association.logoFileId),
+      logoUrl: source.logoFileId == null ? null : mediaUrl(source.logoFileId),
       mediaUrl,
-      privacyNoticePath,
-      menu,
+      privacyNoticePath: source.privacyNoticePath,
+      menu: source.menu,
       // Filled in by withBlockData for a page that carries the block each one
       // belongs to. Empty everywhere else, the news documents and the not-found
       // document included: the refusal a visitor gets for a member-only address
@@ -730,8 +838,8 @@ export class SiteRenderer {
       pagePaths: new Map(),
       pluginBlocks: new Map(),
       css: buildSiteStylesheet({
-        rendering,
-        primaryColor: association?.primaryColor ?? null,
+        rendering: source.rendering,
+        primaryColor: source.primaryColor,
       }),
     };
   }

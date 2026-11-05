@@ -1184,7 +1184,8 @@
   "app": {
     "loading": "Loading",
     "retry": "Try again",
-    "housingCooperative": "Housing cooperative"
+    "housingCooperative": "Housing cooperative",
+    "tooManyRequests": "Too many attempts have come from this connection in the last minute. Wait a moment and try again."
   },
   "setup": {
     "title": "Set up Open BRF",
@@ -3256,6 +3257,10 @@
     "notFound": {
       "title": "The page does not exist",
       "body": "The address may have been written differently, or the page may have been taken down."
+    },
+    "tooManyRequests": {
+      "title": "Too many attempts",
+      "body": "Too many requests have come from this connection in the last minute. Wait a moment and try again. If you were sending a form, it did not arrive, so send it again."
     },
     "seed": {
       "home": {
