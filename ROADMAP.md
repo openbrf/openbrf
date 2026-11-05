@@ -969,7 +969,9 @@ Free, open source, and never moved behind a paywall.
       removes the free text of the issues the person reported on the night
       after the board grants it, once each such issue is closed and under no
       legal hold of its own; an open or held issue keeps the request open
-      until it closes or the hold is released. A handler may redact a text or
+      until it closes or the hold is released, and a legal hold or a
+      restriction on the reporter keeps the whole request open until it ends.
+      A handler may redact a text or
       remove a photograph at any time, which is how an art. 17 request naming
       an issue is carried out, except while a legal hold stands on the issue, or
       a legal hold or a restriction on its reporter. A report filed through
