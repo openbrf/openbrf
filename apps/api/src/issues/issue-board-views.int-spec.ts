@@ -50,7 +50,7 @@ import { IssueService } from "./issue.service";
  */
 
 // Refuses to run without a configured environment, before anything connects.
-loadEnvForIntegrationTests();
+const integrationEnv = loadEnvForIntegrationTests();
 
 let app: NestFastifyApplication;
 let prisma: PrismaService;
@@ -1491,35 +1491,47 @@ describe("the search", () => {
     // in a transaction that is rolled back, and reading a table whole is
     // switched off. What is left is the trigram index, unless a migration
     // dropped it or the search's condition is one it cannot answer.
-    for (const { query, params } of searches) {
-      let plan: unknown;
-      await prisma
-        .$transaction(async (tx) => {
-          const others = await tx.$queryRaw<{ name: string }[]>`
-            SELECT x.indexrelid::regclass::text AS name
-            FROM pg_index x
-            WHERE x.indrelid IN ('issue_message'::regclass, 'issue_note'::regclass)
-              AND NOT x.indisprimary
-              AND x.indexrelid::regclass::text NOT IN
-                ('issue_message_body_trgm_idx', 'issue_note_body_trgm_idx')`;
-          for (const { name } of others) {
-            await tx.$executeRawUnsafe(`DROP INDEX ${name}`);
-          }
-          await tx.$executeRawUnsafe("SET LOCAL enable_seqscan = off");
-          await tx.$executeRawUnsafe("SET LOCAL enable_indexscan = off");
-          await tx.$executeRawUnsafe("SET LOCAL enable_indexonlyscan = off");
-          plan = await tx.$queryRawUnsafe<{ "QUERY PLAN": unknown }[]>(
-            `EXPLAIN (FORMAT JSON) ${query}`,
-            ...(JSON.parse(params) as unknown[]),
-          );
-          throw rolledBack;
-        })
-        .catch((error: unknown) => {
-          if (error !== rolledBack) throw error;
-        });
-      const used = indexNamesOf(plan);
-      expect(used, query).toContain("issue_message_body_trgm_idx");
-      expect(used, query).toContain("issue_note_body_trgm_idx");
+    //
+    // The transaction runs on a connection as the schema owner: when the run
+    // sets DATABASE_URL_RUNTIME the application's client is the runtime role,
+    // which owns no index and cannot drop one (as runtime-role.int-spec.ts
+    // connects as the owner for what the role cannot do).
+    const owner = new PrismaClient({
+      adapter: new PrismaPg({ connectionString: integrationEnv.DATABASE_URL }),
+    });
+    try {
+      for (const { query, params } of searches) {
+        let plan: unknown;
+        await owner
+          .$transaction(async (tx) => {
+            const others = await tx.$queryRaw<{ name: string }[]>`
+              SELECT x.indexrelid::regclass::text AS name
+              FROM pg_index x
+              WHERE x.indrelid IN ('issue_message'::regclass, 'issue_note'::regclass)
+                AND NOT x.indisprimary
+                AND x.indexrelid::regclass::text NOT IN
+                  ('issue_message_body_trgm_idx', 'issue_note_body_trgm_idx')`;
+            for (const { name } of others) {
+              await tx.$executeRawUnsafe(`DROP INDEX ${name}`);
+            }
+            await tx.$executeRawUnsafe("SET LOCAL enable_seqscan = off");
+            await tx.$executeRawUnsafe("SET LOCAL enable_indexscan = off");
+            await tx.$executeRawUnsafe("SET LOCAL enable_indexonlyscan = off");
+            plan = await tx.$queryRawUnsafe<{ "QUERY PLAN": unknown }[]>(
+              `EXPLAIN (FORMAT JSON) ${query}`,
+              ...(JSON.parse(params) as unknown[]),
+            );
+            throw rolledBack;
+          })
+          .catch((error: unknown) => {
+            if (error !== rolledBack) throw error;
+          });
+        const used = indexNamesOf(plan);
+        expect(used, query).toContain("issue_message_body_trgm_idx");
+        expect(used, query).toContain("issue_note_body_trgm_idx");
+      }
+    } finally {
+      await owner.$disconnect();
     }
   });
 
