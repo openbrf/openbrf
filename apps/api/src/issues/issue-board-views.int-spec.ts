@@ -3,6 +3,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
+import { PrismaPg } from "@prisma/adapter-pg";
 import {
   addLocalDays,
   dateColumnOf,
@@ -23,9 +24,11 @@ import {
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
+import { ENV } from "../config/config.module";
+import { applicationDatabaseUrl, type Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
+import { type Prisma, PrismaClient } from "../generated/prisma/client";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   createIssueTypeFixture,
@@ -51,6 +54,29 @@ loadEnvForIntegrationTests();
 
 let app: NestFastifyApplication;
 let prisma: PrismaService;
+
+/** The statements the application sent while `capturing` was on. */
+const captured: { query: string; params: string }[] = [];
+let capturing = false;
+
+/**
+ * The application's database client, as `PrismaService` makes it, but logging
+ * each statement it sends, so a test can ask the database how it runs the
+ * search's (`EXPLAIN`).
+ */
+function capturingPrisma(env: Env) {
+  const client = new PrismaClient({
+    adapter: new PrismaPg({
+      connectionString: applicationDatabaseUrl(env),
+      max: env.OPENBRF_DATABASE_POOL_SIZE,
+    }),
+    log: [{ emit: "event", level: "query" }],
+  });
+  client.$on("query", (event) => {
+    if (capturing) captured.push({ query: event.query, params: event.params });
+  });
+  return client;
+}
 let encryption: FieldEncryptionService;
 
 const suffix = process.hrtime.bigint().toString(36);
@@ -90,6 +116,7 @@ const typeIds = {
   search: `bv-type-search-${suffix}`,
   snapshot: `bv-type-snapshot-${suffix}`,
   backslash: `bv-type-backslash-${suffix}`,
+  bodies: `bv-type-bodies-${suffix}`,
 };
 let water: IssueTypeFixture;
 let lift: IssueTypeFixture;
@@ -230,6 +257,20 @@ const byText = (first: string, second: string): number =>
 const ids = (rows: readonly { id: string }[]) =>
   rows.map((row) => row.id).toSorted(byText);
 
+/** Thrown to roll a transaction back that changed what it should not keep. */
+const rolledBack = new Error("rolled back");
+
+/** Every index a plan from `EXPLAIN (FORMAT JSON)` reads, at any depth. */
+function indexNamesOf(plan: unknown): string[] {
+  if (Array.isArray(plan)) return plan.flatMap(indexNamesOf);
+  if (typeof plan !== "object" || plan === null) return [];
+  return Object.entries(plan).flatMap(([key, value]) =>
+    key === "Index Name" && typeof value === "string"
+      ? [value]
+      : indexNamesOf(value),
+  );
+}
+
 /** An issue written directly, as the queue would hold it. */
 async function issue(
   type: IssueTypeFixture,
@@ -293,7 +334,10 @@ const filed = {} as Record<Filed, string>;
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
-  }).compile();
+  })
+    .overrideProvider(PrismaService)
+    .useFactory({ factory: capturingPrisma, inject: [ENV] })
+    .compile();
   app = moduleRef.createNestApplication<NestFastifyApplication>(
     new FastifyAdapter(),
   );
@@ -572,6 +616,8 @@ afterAll(async () => {
     await prisma.association.deleteMany({ where: { id: 1 } });
   }
   await app.close();
+  // The client stands in for PrismaService, whose shutdown hook would do this.
+  await prisma.$disconnect();
 });
 
 /** This run's water and lift types, which the views below are narrowed to. */
@@ -1318,6 +1364,44 @@ describe("the search", () => {
     }
   });
 
+  it("finds a message or a note that holds a backslash, a percent sign or an underscore when it is searched for", async () => {
+    // A type of its own, so no other test's set of issues changes. Neither
+    // issue's description holds these words, so only the message and the note
+    // can match them.
+    const type = await createIssueTypeFixture(prisma, {
+      id: typeIds.bodies,
+      name: `Meddelandetext ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    const messaged = await issue(type, "messaged");
+    const noted = await issue(type, "noted");
+    await prisma.issueMessage.create({
+      data: {
+        issueId: messaged,
+        side: "REPORTER",
+        authorPersonId: resident.personId,
+        body: `Filen ligger i C:\\mapp\\faktura${suffix} nu`,
+      },
+    });
+    await prisma.issueNote.create({
+      data: {
+        issueId: noted,
+        authorPersonId: board.personId,
+        body: `Avdrag 30% på faktura_nr${suffix} enligt avtal`,
+      },
+    });
+    const found = async (q: string) =>
+      ids(await list(board, { view: "ALL", typeId: type.id, q }));
+
+    expect(await found(`C:\\mapp\\faktura${suffix}`)).toEqual([messaged]);
+    expect(await found(`mapp\\faktura${suffix}`)).toEqual([messaged]);
+    expect(await found(`30% faktura_nr${suffix}`)).toEqual([noted]);
+    // As wildcards, the underscore would match the message's "a" before the
+    // suffix, and the percent sign the note's text between "30" and "nr".
+    expect(await found(`faktur_${suffix}`)).toEqual([]);
+    expect(await found(`30%nr${suffix}`)).toEqual([]);
+  });
+
   it("never finds for the property manager by a message or a note the board keeps to itself", async () => {
     const q = `dolt${suffix}`;
     // The board's own: by a note on an issue of a board-only type, and by a
@@ -1352,6 +1436,91 @@ describe("the search", () => {
     ]);
     expect(await list(manager, { view: "ALL", q: noted })).toEqual([]);
     expect((await counts(manager, { q: noted })).all).toBe(0);
+  });
+
+  it("reads the messages and the notes through their trigram indexes", async () => {
+    const indexes = await prisma.$queryRaw<
+      { name: string; table: string; method: string; opclass: string }[]
+    >`
+      SELECT i.relname AS name, t.relname AS "table", am.amname AS method,
+             oc.opcname AS opclass
+      FROM pg_index x
+      JOIN pg_class i ON i.oid = x.indexrelid
+      JOIN pg_class t ON t.oid = x.indrelid
+      JOIN pg_am am ON am.oid = i.relam
+      JOIN pg_opclass oc ON oc.oid = x.indclass[0]
+      WHERE i.relname IN ('issue_message_body_trgm_idx', 'issue_note_body_trgm_idx')
+      ORDER BY i.relname`;
+    expect(indexes).toEqual([
+      {
+        name: "issue_message_body_trgm_idx",
+        table: "issue_message",
+        method: "gin",
+        opclass: "gin_trgm_ops",
+      },
+      {
+        name: "issue_note_body_trgm_idx",
+        table: "issue_note",
+        method: "gin",
+        opclass: "gin_trgm_ops",
+      },
+    ]);
+
+    // The statements a search sends for a list and its counts.
+    captured.length = 0;
+    capturing = true;
+    try {
+      const q = `kranvatten${suffix} stupröret${suffix}`;
+      await list(board, { view: "ALL", typeId: searched.id, q });
+      await counts(board, { typeId: searched.id, q });
+    } finally {
+      capturing = false;
+    }
+    const searches = captured.filter(
+      ({ query }) =>
+        query.includes(`"issue_message"`) && query.includes(`"issue_note"`),
+    );
+    expect(searches.length).toBeGreaterThan(1);
+
+    // Each statement asks, for each word, whether an issue has a message or a
+    // note that holds it. The planner may answer that once for every issue,
+    // reading the trigram index, or issue by issue, through the index on
+    // `issueId`, which it rightly prefers when few issues are left to ask
+    // about, as in this suite (ADR 0054 has the plans at a realistic volume).
+    // Here the second way is taken away: the tables' other indexes are dropped
+    // in a transaction that is rolled back, and reading a table whole is
+    // switched off. What is left is the trigram index, unless a migration
+    // dropped it or the search's condition is one it cannot answer.
+    for (const { query, params } of searches) {
+      let plan: unknown;
+      await prisma
+        .$transaction(async (tx) => {
+          const others = await tx.$queryRaw<{ name: string }[]>`
+            SELECT x.indexrelid::regclass::text AS name
+            FROM pg_index x
+            WHERE x.indrelid IN ('issue_message'::regclass, 'issue_note'::regclass)
+              AND NOT x.indisprimary
+              AND x.indexrelid::regclass::text NOT IN
+                ('issue_message_body_trgm_idx', 'issue_note_body_trgm_idx')`;
+          for (const { name } of others) {
+            await tx.$executeRawUnsafe(`DROP INDEX ${name}`);
+          }
+          await tx.$executeRawUnsafe("SET LOCAL enable_seqscan = off");
+          await tx.$executeRawUnsafe("SET LOCAL enable_indexscan = off");
+          await tx.$executeRawUnsafe("SET LOCAL enable_indexonlyscan = off");
+          plan = await tx.$queryRawUnsafe<{ "QUERY PLAN": unknown }[]>(
+            `EXPLAIN (FORMAT JSON) ${query}`,
+            ...(JSON.parse(params) as unknown[]),
+          );
+          throw rolledBack;
+        })
+        .catch((error: unknown) => {
+          if (error !== rolledBack) throw error;
+        });
+      const used = indexNamesOf(plan);
+      expect(used, query).toContain("issue_message_body_trgm_idx");
+      expect(used, query).toContain("issue_note_body_trgm_idx");
+    }
   });
 
   it("is no search when blank", async () => {

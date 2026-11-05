@@ -228,6 +228,17 @@ against the word itself, so what a search matches is the same with the index
 as without it. A word shorter than three characters has no trigram, and for it
 the database still reads every message and note.
 
+Each word asks whether an issue has a message or a note that holds it, and the
+database chooses how to answer. With many issues left to ask about it reads the
+trigram index once and looks each issue up in what it found; with few, it reads
+each issue's messages and notes through the index on the issue instead. With
+20,000 issues, 100,000 messages and 40,000 notes on PostgreSQL 18, the plans of
+the statements a search of the whole queue sends showed the first for every
+list and count that had issues to ask about (a one-word list in 111 ms, a
+six-word one in 286 ms), and the second only where the other conditions had left
+no issue. A test holds the statements to a shape the indexes can answer
+(`issue-board-views.int-spec.ts`).
+
 The views and the search are the board's screen alone. No action reads a view or
 searches the queue, because a new read on `mcp` or `ai` needs a decision of its
 own (ADR 0040).
@@ -455,4 +466,4 @@ handling change had taken.
   ships with PostgreSQL's contrib modules, in the image the bundled database
   runs and on the common managed servers, and it is a trusted extension, so the
   schema owner creates it without being a superuser
-  ([docs/deployment.md](../deployment.md)).
+  ([docs/deployment.md](../deployment.md#the-searchs-extension)).

@@ -2576,8 +2576,10 @@ export class IssueService {
             // Every handler the issue lets in reads its whole conversation
             // and every note on it (`IssueConversationService`), so the
             // issues handled below are the boundary for these as well. Each
-            // is read through a trigram index on `body`, without which every
-            // word read every message and note in the database.
+            // has a trigram index on `body`, without which every word read
+            // every message and note in the database; the database reads it
+            // once when many issues are left to ask about, and each issue's
+            // own rows when few are (ADR 0054).
             { messages: { some: { body: matches } } },
             { notes: { some: { body: matches } } },
             { AND: [{ apartment: { number: matches } }, notProtected] },
