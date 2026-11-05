@@ -2887,6 +2887,20 @@ describe("what the document answers for", () => {
     const notice = within(
       sectionOf("Kallelser till föreningsstämma som skickats till dig"),
     ).getByText("2027-05-12");
+    /*
+     * The column that holds the reason must not be headed as if the copy were
+     * known not to have gone out.
+     */
+    for (const name of [
+      "Nyhetsutskick och smsutskick till dig",
+      "Kallelser till föreningsstämma som skickats till dig",
+    ]) {
+      const headings = within(sectionOf(name))
+        .getAllByRole("columnheader")
+        .map((heading) => heading.textContent);
+      expect(headings).toContain("Varför det inte bekräftades som skickat");
+      expect(headings).not.toContain("Varför det inte skickades");
+    }
     for (const row of [mailing.closest("tr"), notice.closest("tr")]) {
       expect(row?.textContent).toContain("Obekräftat");
       expect(row?.textContent).toContain(

@@ -675,7 +675,7 @@
           "accepted": "Accepterad",
           "deliveryChannel": "Skickad som",
           "queued": "Köad",
-          "notSentBecause": "Varför det inte skickades",
+          "notSentBecause": "Varför det inte bekräftades som skickat",
           "plugin": "Tillägg",
           "recordCollection": "Slag av uppgift",
           "recordKey": "Nyckel",

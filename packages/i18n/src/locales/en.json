@@ -675,7 +675,7 @@
           "accepted": "Accepted",
           "deliveryChannel": "Sent as",
           "queued": "Queued",
-          "notSentBecause": "Why it was not sent",
+          "notSentBecause": "Why it was not confirmed as sent",
           "plugin": "Plugin",
           "recordCollection": "Kind of record",
           "recordKey": "Key",
