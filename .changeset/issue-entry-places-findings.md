@@ -60,6 +60,6 @@ the common area it is about, and the mark of an inspection finding.
   the protocol is removed from the issue after that, the mark stays.
 
 The audit log records each of these acts with who acted and the facts, never the
-note or a file's name; of an entry permission only that an answer was given and
-which, since the rest is about somebody's home and the log outlives the issue's
-closing.
+note or a file's name; of an entry permission only that an answer was given, which answer, and whether
+the reporter gave it, since the rest is about somebody's home and the log
+outlives the issue's closing.
