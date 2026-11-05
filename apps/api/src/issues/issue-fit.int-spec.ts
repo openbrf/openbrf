@@ -1103,6 +1103,44 @@ describe("permission to enter", () => {
     expect(await stored(issueId)).toMatchObject({ entryAnswer: null });
   });
 
+  it("holds a handler's withdrawal behind the issue's lock, then records it once", async () => {
+    const issueId = await filed(plain);
+    await call(manager, "PUT", `/api/issue-queue/${issueId}/entry-permission`, {
+      answer: "YES",
+      note: "Nyckel hos grannen",
+    });
+
+    // Another writer of the issue holds its lock; the handler's withdrawal
+    // goes through the route, so it must queue behind that lock.
+    const holder = await heldOpen((tx) => lockIssue(tx, issueId));
+    let withdrawal: ReturnType<typeof call> | undefined;
+    try {
+      withdrawal = call(
+        manager,
+        "DELETE",
+        `/api/issue-queue/${issueId}/entry-permission`,
+      );
+      expect(await blockedBehind(holder.pid)).toBe(true);
+    } finally {
+      holder.release();
+      await holder.done.catch(() => undefined);
+      await withdrawal?.catch(() => undefined);
+    }
+    await holder.done;
+    expect((await withdrawal)?.statusCode).toBe(200);
+
+    expect(
+      await prisma.auditLogEntry.count({
+        where: {
+          targetKind: "issue",
+          targetId: issueId,
+          action: "ISSUE_ENTRY_PERMISSION_REMOVED",
+        },
+      }),
+    ).toBe(1);
+    expect((await stored(issueId)).entryAnswer).toBeNull();
+  });
+
   it("stays, with nothing recorded, when a key refuses the apartment's removal", async () => {
     const keptId = `if-apartment-kept-${suffix}`;
     const fileId = `if-apartment-kept-file-${suffix}`;
@@ -1870,7 +1908,19 @@ describe("an inspection finding", () => {
       where: { id: issueId },
       data: { legalHoldAt: null },
     });
-    await call(board, "PUT", url, { ...finding, targetDate: "2026-03-31" });
+    const edited = await call(board, "PUT", url, {
+      ...finding,
+      targetDate: "2026-03-31",
+    });
+    expect(edited.statusCode).toBeLessThan(300);
+    expect(
+      (
+        await prisma.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          select: { targetDate: true },
+        })
+      ).targetDate?.toISOString(),
+    ).toContain("2026-03-31");
     expect(await holdOf()).toBeNull();
 
     // A mark put on after the mark was taken off is a new finding, which the

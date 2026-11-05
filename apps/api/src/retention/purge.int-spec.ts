@@ -521,6 +521,9 @@ beforeAll(async () => {
       id: standingEntryIssueId,
       typeId: issueTypeId,
       reporterPersonId: people.referenced,
+      // About the apartment the answer is for, as a resident's own is: the
+      // purge must clear and keep entry answers whatever they hang on.
+      apartmentId: apartmentId(String(personIds.indexOf(people.referenced))),
       description: ISSUE_DESCRIPTION,
       statusId: issueType.statusIds.NEW,
       entryAnswer: "YES",
@@ -1443,6 +1446,8 @@ describe("issues, documents, binder entries and files the person left behind", (
           entryNote: true,
           entryPets: true,
           entryMasterKey: true,
+          entryUntil: true,
+          apartmentId: true,
         },
       }),
     ).toEqual({
@@ -1451,6 +1456,8 @@ describe("issues, documents, binder entries and files the person left behind", (
       entryNote: "Nyckel hos grannen",
       entryPets: false,
       entryMasterKey: true,
+      entryUntil: new Date("2027-12-31"),
+      apartmentId: apartmentId(String(personIds.indexOf(people.referenced))),
     });
     // Unassigned and no longer entered by anybody in particular, and the issue
     // still says that a handler entered it.

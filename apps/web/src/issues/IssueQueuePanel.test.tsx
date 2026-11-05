@@ -351,6 +351,7 @@ describe("who reported it", () => {
             reporter: { kind: "protected" },
             apartment: null,
             aboutApartment: false,
+            place: { id: "p1", name: "Cykelrummet" },
           }),
         ]}
         types={TYPES}
@@ -359,6 +360,7 @@ describe("who reported it", () => {
     );
 
     expect(screen.getByText(/gäller ingen lägenhet/i)).toBeTruthy();
+    expect(screen.getByText(/Cykelrummet/)).toBeTruthy();
     expect(
       screen.queryByText("Visas inte, skyddade personuppgifter."),
     ).toBeNull();
