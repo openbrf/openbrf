@@ -249,4 +249,56 @@ describe("opening an issue as a handler", () => {
       screen.queryByText(/Det gick inte att läsa vilka som bor i lägenheten/),
     ).toBeNull();
   });
+  it("does not send a type that was switched off after it was picked", async () => {
+    const session = userEvent.setup();
+    const ringFenced = {
+      ...TYPES[0],
+      id: "type-noise",
+      name: "Störningar",
+      ringFenced: true,
+    };
+    const { rerender } = render(
+      <OpenIssuePanel
+        types={[...TYPES, ringFenced]}
+        onOpened={() => undefined}
+      />,
+    );
+
+    await session.selectOptions(
+      screen.getByLabelText("Vad gäller det"),
+      "type-noise",
+    );
+    await session.type(screen.getByLabelText("Vad har hänt"), "Ljud i natt");
+    const submit = screen.getByRole("button", { name: "Lägg upp ärendet" });
+    expect((submit as HTMLButtonElement).disabled).toBe(false);
+
+    // The board switches the type off while the form is open.
+    rerender(
+      <OpenIssuePanel
+        types={[...TYPES, { ...ringFenced, active: false }]}
+        onOpened={() => undefined}
+      />,
+    );
+
+    // The select shows none chosen, so none is sent.
+    expect(
+      screen.getByLabelText<HTMLSelectElement>("Vad gäller det").value,
+    ).toBe("");
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+    expect(openIssue).not.toHaveBeenCalled();
+  });
+
+  it("ties the warning to the description field", async () => {
+    render(<OpenIssuePanel types={TYPES} onOpened={() => undefined} />);
+
+    expect(
+      screen.getByLabelText("Vad har hänt").getAttribute("aria-describedby"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("textbox", {
+        name: "Vad har hänt",
+        description: /extern förvaltare/i,
+      }),
+    ).toBeTruthy();
+  });
 });

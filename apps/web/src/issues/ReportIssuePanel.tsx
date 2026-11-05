@@ -1,5 +1,11 @@
 import { ISSUE_REPORT_LIMITS } from "@openbrf/shared";
-import { useRef, useState, type ChangeEvent, type ReactElement } from "react";
+import {
+  useId,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -133,6 +139,7 @@ export function ReportIssuePanel({
       : { ...EMPTY, description: prefill.description },
   );
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const warningId = useId();
   const [photos, setPhotos] = useState<readonly File[]>(
     prefill?.photos.slice(0, MAX_PHOTOS) ?? [],
   );
@@ -402,17 +409,20 @@ export function ReportIssuePanel({
             anything is typed, because it is what the reporter needs to know
             while they write. A ring-fenced type says who reads it instead,
             and what not to write (decision 32). */}
-        <Notice tone="warn">
-          {chosen?.ringFenced === true
-            ? t("issues.ringFence.formWarning")
-            : t("issues.report.sensitiveWarning")}
-        </Notice>
+        <div id={warningId}>
+          <Notice tone="warn">
+            {chosen?.ringFenced === true
+              ? t("issues.ringFence.formWarning")
+              : t("issues.report.sensitiveWarning")}
+          </Notice>
+        </div>
 
         <label className={LABEL}>
           {t("issues.report.descriptionLabel")}
           <textarea
             ref={descriptionRef}
             name="issueDescription"
+            aria-describedby={warningId}
             rows={5}
             maxLength={ISSUE_REPORT_LIMITS.description}
             value={draft.description}

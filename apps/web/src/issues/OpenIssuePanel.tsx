@@ -1,5 +1,5 @@
 import { ISSUE_REPORT_LIMITS } from "@openbrf/shared";
-import { useRef, useState, type ReactElement } from "react";
+import { useId, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { type IssueTypeView, openIssue } from "../api/issues";
@@ -65,7 +65,11 @@ export function OpenIssuePanel({
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [opened, setOpened] = useState(false);
   const typeRef = useRef<HTMLSelectElement>(null);
+  const warningId = useId();
   const offered = types.filter((type) => type.active);
+  // A type that was switched off after it was picked is no longer offered: the
+  // select shows none chosen, so none is sent and none is warned about.
+  const chosen = offered.find((type) => type.id === draft.typeId);
 
   const open = useSaveAction(openIssue, () => {
     setDraft(EMPTY);
@@ -81,7 +85,7 @@ export function OpenIssuePanel({
     }
   };
 
-  const complete = draft.typeId !== "" && draft.description.trim() !== "";
+  const complete = chosen !== undefined && draft.description.trim() !== "";
 
   return (
     <Panel
@@ -110,11 +114,11 @@ export function OpenIssuePanel({
         focusFallback={typeRef}
         className="flex flex-col gap-4"
         onSend={() => {
-          if (!complete) {
+          if (!complete || chosen === undefined) {
             return;
           }
           void open.submit({
-            typeId: draft.typeId,
+            typeId: chosen.id,
             ...(draft.resident.residencyId === ""
               ? {}
               : { residencyId: draft.resident.residencyId }),
@@ -131,7 +135,7 @@ export function OpenIssuePanel({
             <select
               ref={typeRef}
               required
-              value={draft.typeId}
+              value={chosen?.id ?? ""}
               onChange={(event) => {
                 change({ typeId: event.target.value });
               }}
@@ -170,16 +174,18 @@ export function OpenIssuePanel({
 
         {/* Above the description, so it is read before anything is written
             (decision 32). */}
-        {offered.find((type) => type.id === draft.typeId)?.ringFenced ===
-        true ? (
-          <Notice tone="warn">{t("issues.ringFence.formWarning")}</Notice>
-        ) : (
-          <p className={HINT}>{t("issues.report.sensitiveWarning")}</p>
-        )}
+        <div id={warningId}>
+          {chosen?.ringFenced === true ? (
+            <Notice tone="warn">{t("issues.ringFence.formWarning")}</Notice>
+          ) : (
+            <p className={HINT}>{t("issues.report.sensitiveWarning")}</p>
+          )}
+        </div>
         <label className={LABEL}>
           {t("issues.report.descriptionLabel")}
           <textarea
             required
+            aria-describedby={warningId}
             rows={4}
             maxLength={ISSUE_REPORT_LIMITS.description}
             value={draft.description}

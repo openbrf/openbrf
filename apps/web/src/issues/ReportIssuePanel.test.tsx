@@ -97,6 +97,17 @@ describe("the sensitive-data warning", () => {
     expect(screen.getByText(/extern förvaltare/i)).toBeTruthy();
   });
 
+  it("is the description field's own description, so direct navigation reads it", () => {
+    renderPanel();
+
+    expect(
+      screen.getByRole("textbox", {
+        name: /vad har hänt/i,
+        description: /extern förvaltare/i,
+      }),
+    ).toBeTruthy();
+  });
+
   it("says who reads a ring-fenced type, and what not to write, once it is chosen", async () => {
     const session = userEvent.setup();
     renderPanel({
