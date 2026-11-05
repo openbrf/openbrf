@@ -4630,12 +4630,12 @@
       }
     },
     "ringFence": {
-      "formWarning": "Det här läses bara av styrelsen, aldrig av förvaltaren, en entreprenör eller en ansluten app, och inget om det skickas med e-post. Texten tas bort ett år efter att ärendet stängts, om inte ett rättsligt bevarandekrav står på ärendet eller ett rättsligt bevarandekrav eller en begränsning gäller för den som anmälde det. Beskriv vad som hänt, var och när. Skriv inte vem du tror har gjort det, och inget om någons hälsa eller om brott. Formella steg enligt bostadsrättslagen tas inte här.",
+      "formWarning": "Det här läses bara av styrelsen, aldrig av förvaltaren, en entreprenör eller en ansluten app, och inget om det skickas med e-post. Texten tas bort ett år efter att ärendet stängts, om inte ett rättsligt bevarandekrav står på ärendet eller ett rättsligt bevarandekrav eller en begränsning gäller för dig. Beskriv vad som hänt, var och när. Skriv inte vem du tror har gjort det, och inget om någons hälsa eller om brott. Formella steg enligt bostadsrättslagen tas inte här.",
       "caseNotice": "Avskärmat ärende. Bara styrelsen läser det. Inget om det går till förvaltaren, en entreprenör, en ansluten app eller ut med e-post, och fritexten tas bort ett år efter att ärendet stängts, om inte ett rättsligt bevarandekrav står på det eller ett rättsligt bevarandekrav eller en begränsning gäller för den som anmälde det. Formella steg enligt bostadsrättslagen tas utanför Open BRF."
     },
     "damageCase": {
       "title": "Skadeärende",
-      "hint": "Markera ärendet som en försäkringsskada. Markeringen lägger ett rättsligt bevarandekrav på ärendet, så att texten och bilderna inte gallras medan skadan handläggs, inte heller i ett avskärmat ärende: kravet håller kvar texten längre än det år ett avskärmat ärende annars sparas. Kravet står kvar om markeringen tas bort, och tills en handläggare häver det: det hävs aldrig av sig självt.",
+      "hint": "Markera ärendet som en försäkringsskada. Markeringen lägger ett rättsligt bevarandekrav på ärendet, så att texten och bilderna inte gallras medan skadan handläggs, inte heller i ett avskärmat ärende: kravet håller kvar texten längre än det år ett avskärmat ärende annars sparas. Kravet står kvar om markeringen tas bort, och tills en handläggare häver det; inget häver det av sig självt.",
       "insurer": "Försäkringsbolag",
       "claimNumber": "Skadenummer",
       "occurredOn": "Skadedag",

@@ -51,6 +51,7 @@ function issue(overrides: Partial<QueuedIssue> = {}): QueuedIssue {
     closedAt: null,
     typeId: "type-lift",
     typeName: "Hiss",
+    typeRingFenced: false,
     location: "Port 14",
     description: "Hissen står still.",
     apartment: null,
@@ -207,6 +208,80 @@ describe("merging", () => {
       (option) => option.value,
     );
     expect(values).toEqual(["", "issue-2"]);
+  });
+
+  it("offers an ordinary issue no ring-fenced issue to merge into, and a ring-fenced one only ring-fenced ones", async () => {
+    const fenced = issue({
+      id: "issue-fenced",
+      typeId: "type-noise",
+      typeName: "Störningar",
+      typeRingFenced: true,
+      typeHandledBy: "BOARD",
+      boardOnly: true,
+    });
+    const options = async (): Promise<string[]> => {
+      const picker = await screen.findByLabelText(
+        /: slå samman med ett annat ärende/,
+      );
+      return [...picker.querySelectorAll("option")].map(
+        (option) => option.value,
+      );
+    };
+
+    const ordinary = render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER, fenced]}
+        onChanged={() => undefined}
+      />,
+    );
+    expect(await options()).toEqual(["", "issue-2"]);
+    ordinary.unmount();
+
+    render(
+      <IssueLifecycle
+        issue={fenced}
+        candidates={[
+          fenced,
+          issue({ ...fenced, id: "issue-fenced-2", location: "Port 3" }),
+          OTHER,
+        ]}
+        onChanged={() => undefined}
+      />,
+    );
+    expect(await options()).toEqual(["", "issue-fenced-2"]);
+  });
+
+  it("explains a merge refused across the ring-fence, and reads the queue again", async () => {
+    mergeIssue.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "merge-ring-fenced" },
+    });
+    const onChanged = vi.fn();
+    const session = userEvent.setup();
+    render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER]}
+        onChanged={onChanged}
+      />,
+    );
+
+    await session.selectOptions(
+      await screen.findByLabelText("Hiss: slå samman med ett annat ärende"),
+      "issue-2",
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Slå samman som dublett" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Ja, avsluta som dublett" }),
+    );
+
+    expect(
+      await screen.findByText(/ligger på andra sidan av avskärmningen/),
+    ).toBeTruthy();
+    expect(onChanged).toHaveBeenCalled();
   });
 
   it("reads the links again when the merge is refused because others were merged into this issue meanwhile", async () => {

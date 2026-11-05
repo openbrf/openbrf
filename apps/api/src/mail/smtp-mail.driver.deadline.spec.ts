@@ -42,6 +42,8 @@ let clear: string[] = [];
 /** How many connections were made, and how many the client closed. */
 let opened = 0;
 let closed = 0;
+/** When the server last saw the client close its connection. */
+let closedAt = 0;
 /** The verb the server goes quiet at, or null for one that answers it all. */
 let stallAt: string | null = null;
 /** Called when the server reaches the verb it goes quiet at. */
@@ -120,6 +122,7 @@ function accept(socket: Socket, mode: "plain" | "starttls" | "implicit"): void {
   opened += 1;
   socket.on("close", () => {
     closed += 1;
+    closedAt = Date.now();
   });
   if (stallAt === "GREETING") {
     socket.on("error", () => {
@@ -137,6 +140,8 @@ function accept(socket: Socket, mode: "plain" | "starttls" | "implicit"): void {
 /**
  * A certificate for the loopback address, made for this run and trusted by the
  * client for it: the TLS cases below need a server a send can complete with.
+ * It is made with the `openssl` command, which a host without it reports by
+ * name rather than as a bare `ENOENT`.
  */
 let tlsKey = "";
 let tlsCertificate = "";
@@ -147,29 +152,36 @@ let tlsPort: number;
 
 beforeAll(async () => {
   tlsDirectory = mkdtempSync(join(tmpdir(), "smtp-deadline-"));
-  execFileSync(
-    "openssl",
-    [
-      "req",
-      "-x509",
-      "-newkey",
-      "ec",
-      "-pkeyopt",
-      "ec_paramgen_curve:prime256v1",
-      "-nodes",
-      "-keyout",
-      join(tlsDirectory, "key.pem"),
-      "-out",
-      join(tlsDirectory, "cert.pem"),
-      "-days",
-      "2",
-      "-subj",
-      "/CN=127.0.0.1",
-      "-addext",
-      "subjectAltName=IP:127.0.0.1",
-    ],
-    { stdio: "ignore" },
-  );
+  try {
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "ec",
+        "-pkeyopt",
+        "ec_paramgen_curve:prime256v1",
+        "-nodes",
+        "-keyout",
+        join(tlsDirectory, "key.pem"),
+        "-out",
+        join(tlsDirectory, "cert.pem"),
+        "-days",
+        "2",
+        "-subj",
+        "/CN=127.0.0.1",
+        "-addext",
+        "subjectAltName=IP:127.0.0.1",
+      ],
+      { stdio: "ignore" },
+    );
+  } catch (error) {
+    throw new Error(
+      "This suite makes its TLS certificate with the `openssl` command, which could not be run: install OpenSSL and put it on the PATH.",
+      { cause: error },
+    );
+  }
   tlsKey = readFileSync(join(tlsDirectory, "key.pem"), "utf8");
   tlsCertificate = readFileSync(join(tlsDirectory, "cert.pem"), "utf8");
   trustedBefore = getCACertificates("default");
@@ -217,6 +229,7 @@ beforeEach(() => {
   clear = [];
   opened = 0;
   closed = 0;
+  closedAt = 0;
   stallAt = null;
   onStall = null;
 });
@@ -308,7 +321,9 @@ describe.each(["starttls", "implicit"] as const)(
     it("hands nothing more over once it is aborted mid-conversation", async () => {
       stallAt = "RCPT";
       const controller = new AbortController();
+      let abortedAt = 0;
       onStall = () => {
+        abortedAt = Date.now();
         controller.abort(new Error("deadline"));
       };
 
@@ -319,6 +334,10 @@ describe.each(["starttls", "implicit"] as const)(
       expect(failure).toBe(controller.signal.reason);
       await closedOn(1);
       expect(closed).toBe(1);
+      // The destroyed socket is what the server sees go, at once: a send that
+      // only gave up on its side, and left the connection to its own
+      // cleanup, would close it later or not at all.
+      expect(closedAt - abortedAt).toBeLessThan(500);
       expect(encrypted.some((line) => line.startsWith("RCPT"))).toBe(true);
       expect(received.some((line) => line === "DATA")).toBe(false);
       if (tls === "starttls") {

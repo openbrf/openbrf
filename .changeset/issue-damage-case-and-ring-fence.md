@@ -29,8 +29,10 @@ leaves it.
   is written on one, and nothing about one is mailed, to a handler or to the
   person who reported it; a mail that is being handed to the mail server when
   the board ring-fences the type is decided first, and the change waits for it.
-  A handoff that stalls is cut off at a deadline and retried later, so it never
-  finishes after the change. An issue is not merged as a duplicate across the
+  A handoff that stalls is cut off at a deadline and retried later: the
+  connection to the mail server is closed at the deadline and nothing more is
+  handed over after it, though a message the server had already taken stays
+  taken. An issue is not merged as a duplicate across the
   ring-fence, in either direction, so no reporter follows or is told of a
   report on the other side.
   A connected app and the AI package are offered
