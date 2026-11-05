@@ -799,6 +799,22 @@ describe("the board's switch for public reports", () => {
     });
   });
 
+  it("reads the responsibility guide only while the report form is on the page", async () => {
+    const guides = app.get(ResponsibilityGuideService);
+    const read = vi.spyOn(guides, "readForReporter");
+    try {
+      await withPublicReporting(false, async () => {
+        await inject({ method: "GET", url: `/${publicSlug}` });
+      });
+      expect(read).not.toHaveBeenCalled();
+
+      await inject({ method: "GET", url: `/${publicSlug}` });
+      expect(read).toHaveBeenCalledTimes(1);
+    } finally {
+      read.mockRestore();
+    }
+  });
+
   it("answers the endpoint exactly as it answers a page that was never written", async () => {
     await withPublicReporting(false, async () => {
       const missing = await inject({
