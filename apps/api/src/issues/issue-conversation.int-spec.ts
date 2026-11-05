@@ -511,8 +511,14 @@ describe("a resident and the handlers converse", () => {
     ).toBe(403);
   });
 
-  it("takes no message from the reporter on a closed issue, and still takes the handlers'", async () => {
+  it("takes no message from the reporter on an issue closed past the reopening window, and still takes the handlers'", async () => {
     const issueId = await filed(plain, { meaning: "DONE" });
+    // Closed 31 days ago: a reply no longer reopens it (ADR 0054), which
+    // `issue-lifecycle.int-spec.ts` tests at its edge.
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: { closedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000) },
+    });
 
     const refused = await write(
       resident,

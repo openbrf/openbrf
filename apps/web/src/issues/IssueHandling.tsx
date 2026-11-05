@@ -817,6 +817,7 @@ function TimelineSentence({
             : ` ${t("issues.queue.closedAs", {
                 outcome: t(ISSUE_OUTCOME_LABEL[step.outcome]),
               })}`}
+          {step.byReporter ? ` ${t("issues.timeline.byReporterReply")}` : null}
         </>
       );
     }
@@ -861,6 +862,14 @@ function TimelineSentence({
           {step.boardOnly
             ? t("issues.timeline.boardOnly")
             : t("issues.timeline.everyHandler")}
+        </>
+      );
+    case "knownFault":
+      return (
+        <>
+          {step.published
+            ? t("issues.timeline.knownFaultPublished")
+            : t("issues.timeline.knownFaultWithdrawn")}
         </>
       );
     case "place":

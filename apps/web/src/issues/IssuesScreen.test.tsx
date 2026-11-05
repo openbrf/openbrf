@@ -34,6 +34,7 @@ const attachIssuePhoto = vi.fn();
 const fetchOwnIssues = vi.fn();
 const fetchOwnIssueMessages = vi.fn();
 const sendOwnIssueMessage = vi.fn();
+const fetchKnownFaults = vi.fn();
 const fetchIssuePlaces = vi.fn();
 const fetchGuide = vi.fn();
 const answerOwnEntry = vi.fn();
@@ -53,6 +54,7 @@ vi.mock("../api/issues", async (importOriginal) => ({
   fetchIssuePlaces: () => fetchIssuePlaces(),
   fetchReporterResponsibilityGuide: () => fetchGuide(),
   fetchOwnIssues: () => fetchOwnIssues(),
+  fetchKnownFaults: () => fetchKnownFaults(),
   fetchOwnIssueMessages: (id: string) => fetchOwnIssueMessages(id),
   sendOwnIssueMessage: (input: unknown) => sendOwnIssueMessage(input),
   answerOwnEntry: (input: unknown) => answerOwnEntry(input),
@@ -97,9 +99,18 @@ const LIFT = post({
 
 const READER = viewer(["issues:report"]);
 
+/** jsdom lays nothing out and has no scrollIntoView; a follow-up calls it. */
+const scrollIntoView = vi.fn();
+const ownScrollIntoView = Object.getOwnPropertyDescriptor(
+  Element.prototype,
+  "scrollIntoView",
+);
+
 beforeEach(() => {
   vi.clearAllMocks();
+  Element.prototype.scrollIntoView = scrollIntoView;
   fetchOwnIssues.mockResolvedValue(ok([]));
+  fetchKnownFaults.mockResolvedValue(ok([]));
   fetchIssuePlaces.mockResolvedValue(ok([]));
   fetchGuide.mockResolvedValue(ok({ guide: null }));
   reportIssue.mockResolvedValue(ok({ id: "issue-1" }));
@@ -126,6 +137,15 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  if (ownScrollIntoView !== undefined) {
+    Object.defineProperty(
+      Element.prototype,
+      "scrollIntoView",
+      ownScrollIntoView,
+    );
+  } else {
+    Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+  }
 });
 
 describe("a report made from a post", () => {
@@ -335,6 +355,8 @@ describe("a report made from a post", () => {
       entry: null,
       photos: [],
       enteredByHandler: false,
+      replyMode: "MESSAGE" as const,
+      mergedIntoMeaning: null,
       createdAt: "2026-08-20T08:00:00.000Z",
       updatedAt: "2026-08-20T08:00:00.000Z",
     };
@@ -350,7 +372,9 @@ describe("a report made from a post", () => {
 
     // The re-read that a closed answer asks for.
     fetchGuide.mockResolvedValue(guideAfter);
-    fetchOwnIssues.mockResolvedValue(ok([{ ...report, meaning: "DONE" }]));
+    fetchOwnIssues.mockResolvedValue(
+      ok([{ ...report, meaning: "DONE", replyMode: "NEW_REPORT" }]),
+    );
     await session.click(screen.getByText("Meddelanden om Hiss"));
     await session.type(
       await screen.findByLabelText("Hiss: ditt meddelande"),
@@ -394,6 +418,8 @@ describe("a report made from a post", () => {
       entry: null,
       photos: [],
       enteredByHandler: false,
+      replyMode: "MESSAGE" as const,
+      mergedIntoMeaning: null,
       descriptionRedactedAt: null,
       locationRedactedAt: null,
       freeTextRemovedAt: null,
@@ -407,7 +433,9 @@ describe("a report made from a post", () => {
     render(<IssuesScreen viewer={READER} />);
 
     expect(await screen.findByText("Hissen står still.")).toBeTruthy();
-    fetchOwnIssues.mockResolvedValue(ok([{ ...report, meaning: "DONE" }]));
+    fetchOwnIssues.mockResolvedValue(
+      ok([{ ...report, meaning: "DONE", replyMode: "NEW_REPORT" }]),
+    );
     await session.click(screen.getByText("Meddelanden om Hiss"));
     await session.type(
       await screen.findByLabelText("Hiss: ditt meddelande"),
@@ -422,5 +450,277 @@ describe("a report made from a post", () => {
       expect(screen.queryByLabelText("Hiss: ditt meddelande")).toBeNull();
     });
     expect(screen.getByText("Hissen står still.")).toBeTruthy();
+  });
+});
+
+describe("known faults and a report that follows up another", () => {
+  it("shows the known faults the house is told of before the form", async () => {
+    fetchKnownFaults.mockResolvedValue(
+      ok([
+        {
+          body: "Hissen i port 14 står still. Tekniker kommer torsdag.",
+          signature: "PROPERTY_MANAGER",
+          publishedAt: "2026-08-20T08:00:00.000Z",
+          typeName: "Hiss",
+        },
+      ]),
+    );
+    render(<IssuesScreen viewer={READER} />);
+
+    expect(
+      await screen.findByText(
+        "Hissen i port 14 står still. Tekniker kommer torsdag.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Kända fel")).toBeTruthy();
+    expect(screen.getByText("Förvaltaren")).toBeTruthy();
+  });
+
+  it("stops showing a known fault when the faults cannot be read again", async () => {
+    fetchKnownFaults.mockResolvedValueOnce(
+      ok([
+        {
+          body: "Hissen i port 14 står still. Tekniker kommer torsdag.",
+          signature: "PROPERTY_MANAGER",
+          publishedAt: "2026-08-20T08:00:00.000Z",
+          typeName: "Hiss",
+        },
+      ]),
+    );
+    const report = {
+      id: "issue-1",
+      meaning: "IN_PROGRESS" as const,
+      typeId: "type-lift",
+      typeName: "Hiss",
+      location: null,
+      place: null,
+      description: "Hissen står still.",
+      apartment: null,
+      entry: null,
+      photos: [],
+      enteredByHandler: false,
+      replyMode: "MESSAGE" as const,
+      mergedIntoMeaning: null,
+      createdAt: "2026-08-20T08:00:00.000Z",
+      updatedAt: "2026-08-20T08:00:00.000Z",
+    };
+    fetchOwnIssues.mockResolvedValueOnce(ok([report]));
+    fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    sendOwnIssueMessage.mockResolvedValue(refused(409, "issue-closed"));
+    const session = userEvent.setup();
+    render(<IssuesScreen viewer={READER} />);
+
+    expect(
+      await screen.findByText(
+        "Hissen i port 14 står still. Tekniker kommer torsdag.",
+      ),
+    ).toBeTruthy();
+    // The re-read that a closed answer asks for fails on the known faults.
+    fetchKnownFaults.mockResolvedValue(refused(500, "unknown"));
+    fetchOwnIssues.mockResolvedValue(
+      ok([{ ...report, meaning: "DONE", replyMode: "NEW_REPORT" }]),
+    );
+    await session.click(screen.getByText("Meddelanden om Hiss"));
+    await session.type(
+      await screen.findByLabelText("Hiss: ditt meddelande"),
+      "Hallå",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    await screen.findByText("Ärendena kunde inte läsas just nu.");
+    expect(
+      screen.queryByText(
+        "Hissen i port 14 står still. Tekniker kommer torsdag.",
+      ),
+    ).toBeNull();
+  });
+
+  it("files a new report linked to a closed one, on its type", async () => {
+    fetchOwnIssues.mockResolvedValue(
+      ok([
+        {
+          id: "issue-old",
+          meaning: "DONE",
+          typeId: "type-lift",
+          typeName: "Hiss",
+          location: null,
+          place: null,
+          description: "Hissen stod still i våras.",
+          apartment: null,
+          entry: null,
+          photos: [],
+          enteredByHandler: false,
+          replyMode: "NEW_REPORT",
+          mergedIntoMeaning: null,
+          createdAt: "2026-03-20T08:00:00.000Z",
+          updatedAt: "2026-04-20T08:00:00.000Z",
+        },
+      ]),
+    );
+    fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    const session = userEvent.setup();
+    render(<IssuesScreen viewer={READER} />);
+
+    await session.click(await screen.findByText("Meddelanden om Hiss"));
+    await session.click(
+      await screen.findByRole("button", { name: "Gör en ny anmälan om detta" }),
+    );
+    expect(
+      await screen.findByText(
+        "Den här anmälan följer upp din tidigare anmälan om Hiss.",
+      ),
+    ).toBeTruthy();
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+    expect(
+      (screen.getByLabelText("Vad gäller det") as HTMLSelectElement).value,
+    ).toBe("type-lift");
+
+    await session.type(
+      screen.getByLabelText("Vad har hänt"),
+      "Hissen står still igen.",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka anmälan" }));
+
+    await waitFor(() => {
+      expect(reportIssue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          typeId: "type-lift",
+          followsIssueId: "issue-old",
+        }),
+      );
+    });
+  });
+
+  it("files a follow-up chosen while the form is open from a post, and starts from the text it was refused", async () => {
+    fetchPost.mockResolvedValue(ok(LIFT));
+    const report = {
+      id: "issue-old",
+      meaning: "IN_PROGRESS" as const,
+      typeId: "type-lift",
+      typeName: "Hiss",
+      location: null,
+      place: null,
+      description: "Hissen stod still i våras.",
+      apartment: null,
+      entry: null,
+      photos: [],
+      enteredByHandler: false,
+      replyMode: "MESSAGE" as const,
+      mergedIntoMeaning: null,
+      createdAt: "2026-03-20T08:00:00.000Z",
+      updatedAt: "2026-04-20T08:00:00.000Z",
+    };
+    fetchOwnIssues.mockResolvedValueOnce(ok([report]));
+    fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    sendOwnIssueMessage.mockResolvedValue(refused(409, "issue-closed"));
+    const session = userEvent.setup();
+    render(<IssuesScreen viewer={READER} fromPostId="post-1" />);
+
+    expect(
+      await screen.findByDisplayValue("Hissen i port 14 står still igen."),
+    ).toBeTruthy();
+    // The re-read that the closed answer asks for: the window has passed.
+    fetchOwnIssues.mockResolvedValue(
+      ok([{ ...report, meaning: "DONE", replyMode: "NEW_REPORT" }]),
+    );
+    await session.click(screen.getByText("Meddelanden om Hiss"));
+    await session.type(
+      await screen.findByLabelText("Hiss: ditt meddelande"),
+      "Det står still igen sedan i morse.",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+    await session.click(
+      await screen.findByRole("button", { name: "Gör en ny anmälan om detta" }),
+    );
+    expect(
+      await screen.findByText(
+        "Den här anmälan följer upp din tidigare anmälan om Hiss.",
+      ),
+    ).toBeTruthy();
+    // The reporter's own refused reply, not the post's text.
+    expect(
+      (screen.getByLabelText("Vad har hänt") as HTMLTextAreaElement).value,
+    ).toBe("Det står still igen sedan i morse.");
+    const readsBefore = fetchOwnIssues.mock.calls.length;
+    await session.click(screen.getByRole("button", { name: "Skicka anmälan" }));
+
+    await waitFor(() => {
+      expect(reportIssue).toHaveBeenCalledWith(
+        expect.objectContaining({
+          followsIssueId: "issue-old",
+          description: "Det står still igen sedan i morse.",
+        }),
+      );
+    });
+    // The post may already name the report followed up, which the server
+    // refuses to name a second one: a follow-up carries no post.
+    expect(reportIssue.mock.calls.at(-1)?.[0]).not.toHaveProperty("postId");
+    // Nor does the screen say the report is tied to a post it was not sent
+    // with. The own reports are read again once the report is filed, which is
+    // after the screen has taken in where it came from.
+    await waitFor(() => {
+      expect(fetchOwnIssues.mock.calls.length).toBeGreaterThan(readsBefore);
+    });
+    expect(screen.queryByText("Tillbaka till inlägget")).toBeNull();
+  });
+
+  it("keeps the notice and the failed-photograph warning after a follow-up is filed", async () => {
+    fetchOwnIssues.mockResolvedValue(
+      ok([
+        {
+          id: "issue-old",
+          meaning: "DONE",
+          typeId: "type-lift",
+          typeName: "Hiss",
+          location: null,
+          place: null,
+          description: "Hissen stod still i våras.",
+          apartment: null,
+          entry: null,
+          photos: [],
+          enteredByHandler: false,
+          replyMode: "NEW_REPORT",
+          mergedIntoMeaning: null,
+          createdAt: "2026-03-20T08:00:00.000Z",
+          updatedAt: "2026-04-20T08:00:00.000Z",
+        },
+      ]),
+    );
+    fetchOwnIssueMessages.mockResolvedValue(ok([]));
+    attachIssuePhoto.mockResolvedValue({
+      ok: false,
+      failure: { status: 413, reason: "too-large" },
+    });
+    const session = userEvent.setup();
+    render(<IssuesScreen viewer={READER} />);
+
+    await session.click(await screen.findByText("Meddelanden om Hiss"));
+    await session.click(
+      await screen.findByRole("button", { name: "Gör en ny anmälan om detta" }),
+    );
+    await session.type(
+      screen.getByLabelText("Vad har hänt"),
+      "Hissen står still igen.",
+    );
+    await session.upload(
+      screen.getByLabelText(/lägg till foto/i),
+      new File(["bytes"], "hiss.png", { type: "image/png" }),
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka anmälan" }));
+
+    // The form is not mounted again by the follow-up being cleared, so both
+    // notices outlive the screen reading its lists again.
+    expect(await screen.findByText(/ligger nu i kön/i)).toBeTruthy();
+    expect(await screen.findByText(/kunde inte läggas till/i)).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchOwnIssues.mock.calls.length).toBeGreaterThan(1);
+    });
+    expect(screen.getByText(/ligger nu i kön/i)).toBeTruthy();
+    expect(screen.getByText(/kunde inte läggas till/i)).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Den här anmälan följer upp din tidigare anmälan om Hiss.",
+      ),
+    ).toBeNull();
   });
 });

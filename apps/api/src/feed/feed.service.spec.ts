@@ -609,6 +609,9 @@ function build(options: {
 
   const prisma = {
     mediaFile: { count: mediaFileCount },
+    // The known faults on a page's issues (`readKnownFaults`): none here; the
+    // issue module's own suites publish them.
+    issue: { findMany: vi.fn(async () => []) },
     postImage: { createMany: postImageCreateMany },
     audience: {
       findFirst: vi.fn(
