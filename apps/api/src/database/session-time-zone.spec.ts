@@ -60,6 +60,25 @@ describe("pinnedSessionConfig", () => {
     ).toBe("-c statement_timeout=5s -c TimeZone=UTC");
   });
 
+  it("asks for UTC when the connection string has user information and no host", () => {
+    const sent = sentOptions(
+      "postgres://u:p@/openbrf?host=/var/run/postgresql&options=-c%20TimeZone%3DAsia/Tokyo",
+    );
+    expect(sent?.endsWith("-c TimeZone=UTC")).toBe(true);
+    const { connectionString } = pinnedSessionConfig(
+      "postgres://u:p%40q@/openbrf?host=/var/run/postgresql",
+    );
+    expect(connectionString).toContain("postgres://u:p%40q@/openbrf?");
+    expect(connectionString).not.toContain("empty-host");
+  });
+
+  it("asks for UTC when the connection string has no host and no user information", () => {
+    const sent = sentOptions(
+      "postgres:///openbrf?host=/tmp&options=-c%20TimeZone%3DAsia/Tokyo",
+    );
+    expect(sent?.endsWith("-c TimeZone=UTC")).toBe(true);
+  });
+
   it("keeps PGOPTIONS when the connection string's options are blank", () => {
     vi.stubEnv("PGOPTIONS", "-c statement_timeout=5s");
     expect(sentOptions("postgres://u:p@db/openbrf?options=")).toBe(

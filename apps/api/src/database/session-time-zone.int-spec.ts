@@ -68,13 +68,19 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await service?.onModuleDestroy();
-  await unpinned?.$disconnect();
-  await owner?.$executeRawUnsafe(`
-    DO $$ BEGIN
-      EXECUTE format('ALTER DATABASE %I RESET TimeZone', current_database());
-    END $$`);
-  await owner?.$disconnect();
+  try {
+    await service?.onModuleDestroy();
+    await unpinned?.$disconnect();
+  } finally {
+    try {
+      await owner?.$executeRawUnsafe(`
+        DO $$ BEGIN
+          EXECUTE format('ALTER DATABASE %I RESET TimeZone', current_database());
+        END $$`);
+    } finally {
+      await owner?.$disconnect();
+    }
+  }
 });
 
 describe("the database session time zone", () => {

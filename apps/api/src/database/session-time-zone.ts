@@ -24,6 +24,15 @@ export const SESSION_TIME_ZONE = "UTC";
 const PIN = `-c TimeZone=${SESSION_TIME_ZONE}`;
 
 /**
+ * A host to stand in for a missing one. `new URL` refuses
+ * `postgres://user@/db?host=/var/run/postgresql`, a form `pg` reads (user
+ * information, no host, the socket directory in `host`), so the string is
+ * parsed with this host after the `@` and the host is taken out again.
+ */
+const STAND_IN_HOST = "empty-host.invalid";
+const EMPTY_HOST = /^(postgres(?:ql)?:\/\/[^/?#]*@)(?=[/?#]|$)/i;
+
+/**
  * The `options` start-up parameter that pins the session time zone, after any
  * `options` the operator's connection string already carries. PostgreSQL
  * applies the last `-c` for a setting, so the pin wins over one of their own.
@@ -51,7 +60,8 @@ export function pinnedSessionConfig(
   const fromEnvironment = process.env.PGOPTIONS ?? null;
   let pinned = connectionString;
   try {
-    const url = new URL(connectionString);
+    const withHost = connectionString.replace(EMPTY_HOST, `$1${STAND_IN_HOST}`);
+    const url = new URL(withHost);
     // `pg` takes the last of several `options` parameters, and `set` below
     // drops the others, so the last is the one to keep.
     const fromUrl = url.searchParams.getAll("options").at(-1) ?? null;
@@ -61,7 +71,11 @@ export function pinnedSessionConfig(
         fromUrl !== null && fromUrl.trim() !== "" ? fromUrl : fromEnvironment,
       ),
     );
-    pinned = url.toString();
+    // User information is percent-encoded, so this `@` is the one before the host.
+    pinned =
+      withHost === connectionString
+        ? url.toString()
+        : url.toString().replace(`@${STAND_IN_HOST}`, "@");
   } catch {
     // Not a URL `pg` could read either; it reports the string itself.
   }
