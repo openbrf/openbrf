@@ -1,7 +1,9 @@
+import { type AddressInfo, createServer } from "node:net";
+
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { HttpApiMailDriver, MailApiError } from "./http-api-mail.driver";
-import type { OutgoingMail } from "./mail-driver";
+import { type OutgoingMail, mayHaveBeenHandedOver } from "./mail-driver";
 import {
   startMailApiTestServer,
   type MailApiTestServer,
@@ -258,5 +260,81 @@ describe("a refusal", () => {
     await expect(
       driver({ url: "http://127.0.0.1:1/v1" }).send(MAIL),
     ).rejects.toBeInstanceOf(MailApiError);
+  });
+});
+
+/**
+ * How far a failed request had got, as the driver states it on its error.
+ *
+ * A service that declined the request did not take the message. One that
+ * failed after reading it, a gateway in front of it, a key another request is
+ * still being handled under, and a request that ran out of time may have.
+ */
+describe("a failed request", () => {
+  it.each([302, 400, 401, 422, 429])(
+    "says an answer of HTTP %i was not handed over",
+    async (status) => {
+      api.answerNextWith(status, "");
+
+      const failure = await driver()
+        .send(MAIL)
+        .catch((error: unknown) => error);
+
+      expect(failure).toMatchObject({ status, handover: "not-handed-over" });
+      expect(mayHaveBeenHandedOver(failure)).toBe(false);
+    },
+  );
+
+  it.each([409, 500, 502, 503, 504])(
+    "says an answer of HTTP %i may have been handed over",
+    async (status) => {
+      api.answerNextWith(status, "");
+
+      const failure = await driver()
+        .send(MAIL)
+        .catch((error: unknown) => error);
+
+      expect(failure).toMatchObject({
+        status,
+        handover: "may-have-been-handed-over",
+      });
+      expect(mayHaveBeenHandedOver(failure)).toBe(true);
+    },
+  );
+
+  it("says a request that ran out of time may have been handed over", async () => {
+    api.silenceNext();
+
+    const failure = await driver({ requestTimeoutMs: 200 })
+      .send(MAIL)
+      .catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      status: null,
+      handover: "may-have-been-handed-over",
+    });
+  });
+
+  it("says a connection refused was not handed over", async () => {
+    // A port that was free a moment ago, so nothing answers on it. Not port 1,
+    // which fetch refuses itself without a code that says why.
+    const port = await new Promise<number>((resolve) => {
+      const probe = createServer().listen(0, "127.0.0.1", () => {
+        const { port: free } = probe.address() as AddressInfo;
+        probe.close(() => {
+          resolve(free);
+        });
+      });
+    });
+
+    const failure = await driver({ url: `http://127.0.0.1:${String(port)}/v1` })
+      .send(MAIL)
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(MailApiError);
+    expect(failure).toMatchObject({
+      status: null,
+      handover: "not-handed-over",
+    });
   });
 });

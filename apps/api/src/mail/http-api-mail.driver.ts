@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 
-import type { MailDriver, OutgoingMail, SentMail } from "./mail-driver";
+import {
+  type MailDriver,
+  type MailHandover,
+  type MailHandoverFailure,
+  NEVER_CONNECTED_SYSTEM_CODES,
+  type OutgoingMail,
+  type SentMail,
+} from "./mail-driver";
 
 /**
  * Sending through an HTTP mail API set where the instance runs (ADR 0024).
@@ -39,6 +46,9 @@ import type { MailDriver, OutgoingMail, SentMail } from "./mail-driver";
  * remembers the key. Any 2xx means the service accepted the message; one with no
  * id reports no identifier. Every other answer is a failure carrying its status
  * and never its body, which quotes the recipient back - the SMS gateway's rule.
+ * The failure says whether the service may have taken the message all the same
+ * (`MailHandover`): a 5xx, a 409 and a request that ran out of time may have
+ * gone; a 3xx, any other 4xx and a connection never made did not.
  */
 
 /**
@@ -68,8 +78,49 @@ export interface MailApiConfig {
   requestTimeoutMs?: number;
 }
 
+/**
+ * The system codes, on the cause of a request that got no answer, that only a
+ * connection never made can raise: refused, a name that did not resolve, no
+ * route, a certificate not accepted, or the connect running out of time. The request was never sent. Not a reset, or
+ * the deadline below, which can come after the service read the request.
+ */
+const NEVER_CONNECTED_CODES: ReadonlySet<string> = new Set([
+  ...NEVER_CONNECTED_SYSTEM_CODES,
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+
+/**
+ * How far a request that got an answer other than 2xx had got.
+ *
+ * A 3xx or a 4xx is the service declining the request, so it did not take the
+ * message, except a 409: a service of this shape answers it to a request whose
+ * idempotency key another is still being handled under, and that other one may
+ * send the message. A 5xx may come from the service failing after it took the
+ * message, or from a gateway in front of it that lost the service's answer.
+ */
+function answeredHandover(status: number): MailHandover {
+  return status >= 500 || status === 409
+    ? "may-have-been-handed-over"
+    : "not-handed-over";
+}
+
+/** How far a request that got no answer had got, from its cause's code. */
+function unansweredHandover(cause: unknown): MailHandover {
+  const inner =
+    typeof cause === "object" && cause !== null && "cause" in cause
+      ? cause.cause
+      : undefined;
+  const code =
+    typeof inner === "object" && inner !== null && "code" in inner
+      ? inner.code
+      : undefined;
+  return typeof code === "string" && NEVER_CONNECTED_CODES.has(code)
+    ? "not-handed-over"
+    : "may-have-been-handed-over";
+}
+
 /** The mail API refused the message, or never answered. */
-export class MailApiError extends Error {
+export class MailApiError extends Error implements MailHandoverFailure {
   /** A code a log line can carry, which names nothing but the status. */
   readonly code: string;
 
@@ -77,6 +128,8 @@ export class MailApiError extends Error {
     message: string,
     /** The HTTP status, or null when there was no answer. */
     readonly status: number | null,
+    /** How far the request had got (`MailHandover`). */
+    readonly handover: MailHandover,
     options?: { cause?: unknown },
   ) {
     super(message, options);
@@ -117,6 +170,7 @@ export class HttpApiMailDriver implements MailDriver {
         throw new MailApiError(
           `The mail API refused the message (HTTP ${String(response.status)}).`,
           response.status,
+          answeredHandover(response.status),
         );
       }
 
@@ -142,6 +196,11 @@ export class HttpApiMailDriver implements MailDriver {
           ? "The mail API did not answer in time."
           : "The mail API could not be reached.",
         null,
+        // The deadline may run out after the service read the request, so an
+        // abort is one that may have gone, whatever its cause says.
+        controller.signal.aborted
+          ? "may-have-been-handed-over"
+          : unansweredHandover(cause),
         { cause },
       );
     } finally {

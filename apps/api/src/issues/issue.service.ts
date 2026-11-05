@@ -2220,9 +2220,10 @@ export class IssueService {
           : order.deliveryStatus === "PENDING"
             ? ("pending" as const)
             : // Only a failure after which nothing left this instance reads
-              // "not sent"; a mail driver's error (`send-failed`) and a sending
-              // that may have gone out are unconfirmed, as on the work order
-              // list and in the data subject report.
+              // "not sent"; a sending that may have gone out, including a mail
+              // error after the message may have reached the mail server, is
+              // unconfirmed, as on the work order list and in the data subject
+              // report.
               workOrderKnownNotSent(order.deliveryFailure)
               ? ("failed" as const)
               : ("unconfirmed" as const),
