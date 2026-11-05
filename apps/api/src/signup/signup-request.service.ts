@@ -11,6 +11,7 @@ import {
   InvitationError,
   InvitationService,
 } from "../invitations/invitation.service";
+import { HOUSEHOLD_PROTECTION_TRANSACTION } from "../issues/issue-lock";
 import { failureFrames, failureName } from "../logging/failure";
 import { isDeliveryFailure } from "../mail/delivery-failure";
 import { MoveService } from "../moves/move.service";
@@ -467,7 +468,7 @@ export class SignupRequestService {
       );
 
       return id;
-    });
+    }, HOUSEHOLD_PROTECTION_TRANSACTION);
 
     let invitationSent = false;
     try {

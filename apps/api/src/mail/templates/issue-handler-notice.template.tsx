@@ -17,9 +17,17 @@ import { MAIL_COLORS, MailAction, MailLayout } from "./layout";
  * - `overdue`: the recipient's issue is past its target date and not closed.
  * - `reopened`: a closed issue was opened again.
  * - `message`: the reporter wrote a new issue message.
+ * - `contractor`: the contractor of a work order on the issue answered it,
+ *   wrote a note or added a photograph through its link (ADR 0055).
  */
 export type IssueHandlerNoticeEvent =
-  "assigned" | "filed" | "urgent" | "overdue" | "reopened" | "message";
+  | "assigned"
+  | "filed"
+  | "urgent"
+  | "overdue"
+  | "reopened"
+  | "message"
+  | "contractor";
 
 export interface IssueHandlerNoticeMailProps {
   /** The handler being told, by their own name. */

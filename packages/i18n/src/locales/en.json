@@ -189,6 +189,11 @@
         "subject": "New message on issue {{number}}: {{type}}",
         "heading": "The reporter has replied",
         "body": "The reporter has written a new issue message on issue {{number}}, {{type}}. The message is in the issue queue, not in this email."
+      },
+      "contractor": {
+        "subject": "A contractor has answered on issue {{number}}: {{type}}",
+        "heading": "A contractor has answered a work order",
+        "body": "The contractor of a work order on issue {{number}}, {{type}}, has answered it, written a note or added a photograph through the contractor's link. The issue in the issue queue shows what is on it now; this email says nothing of what was sent."
       }
     },
     "issueReporterNotice": {
@@ -565,6 +570,8 @@
           "description": "Description",
           "photographs": "Photographs",
           "workOrders": "Work orders written to contractors",
+          "workOrderLinkGiven_one": "Link given to the contractor; {{count}} photograph shown",
+          "workOrderLinkGiven_other": "Link given to the contractor; {{count}} photographs shown",
           "documentTitle": "Title",
           "binder": "Binder",
           "entryKind": "Kind",
@@ -881,6 +888,12 @@
           "ISSUE_COST_RESPONSIBILITY_CHANGED": "Who pays for an issue was recorded",
           "ISSUE_RESIDENTS_LISTED": "A handler was shown who lives in an apartment, to open an issue",
           "ISSUE_WORK_ORDER_SENT": "A work order on an issue was written and queued for mailing to a contractor",
+          "ISSUE_WORK_ORDER_LINK_ISSUED": "A contractor was given a link to a work order on an issue",
+          "ISSUE_WORK_ORDER_LINK_REVOKED": "A contractor's link to a work order on an issue was withdrawn or replaced",
+          "ISSUE_WORK_ORDER_ANSWERED": "A contractor answered a work order on an issue through its link",
+          "ISSUE_WORK_ORDER_NOTE_ADDED": "A contractor wrote a note on a work order on an issue through its link",
+          "ISSUE_WORK_ORDER_PHOTO_ADDED": "A contractor added a photograph to a work order on an issue through its link",
+          "ISSUE_WORK_ORDER_PHOTOS_CHOSEN": "The photographs a contractor's link to a work order shows were chosen",
           "CONTRACTOR_LIST_CHANGED": "A contractor was added to, changed on or removed from the contractor list",
           "ISSUE_TYPE_RING_FENCE_CHANGED": "An issue type was ring-fenced from contractors, or its ring-fence was lifted",
           "ISSUE_MESSAGE_SENT": "A message was written on an issue",
@@ -970,7 +983,9 @@
             "note": "An internal note",
             "photo": "A photograph",
             "attachment": "A file",
-            "workOrder": "The text of a work order"
+            "workOrder": "The text of a work order",
+            "workOrderNote": "A contractor's note",
+            "workOrderFile": "A contractor's photograph"
           },
           "legalHoldSince": "The hold stood since {{date}}",
           "retentionChanged": "From {{from}} to {{to}} years after closing"
@@ -3755,6 +3770,54 @@
         "limited": "This issue takes no more messages right now. Try again later.",
         "full": "This issue has reached the most messages a link accepts. No further messages can be sent through it."
       }
+    },
+    "workOrderLink": {
+      "title": "Work order",
+      "to": "To",
+      "sent": "Sent",
+      "state": "Your answer",
+      "stateOpen": "Not answered yet",
+      "stateAccepted": "Accepted",
+      "until": "Link works until",
+      "text": "The work",
+      "photos": "Photographs from the association",
+      "photoAlt": "Photograph {{number}}",
+      "answer": "Answer",
+      "accept": "Accept the work order",
+      "done": "Mark as done",
+      "decline": "Decline",
+      "answerHint": "Once you decline or mark the work order as done, this link stops working. Write any note and add any photographs first.",
+      "notes": "Your notes",
+      "noNotes": "No notes yet.",
+      "removed": "The association has removed this note.",
+      "note": "Write to the association",
+      "noteHint": "For example what you found or did, or when you can come. Write no personal identity numbers.",
+      "addNote": "Send note",
+      "ownPhotos": "Your photographs",
+      "photo": "Add a photograph",
+      "photoHint": "A JPEG, PNG, WebP or GIF image. The location and camera details are removed before it is stored.",
+      "addPhoto": "Send photograph",
+      "private": "This link is meant for you, so do not share it. It stops working 30 days after it was given to you, when you decline or mark the work order as done, or when the association withdraws it.",
+      "notFoundTitle": "This link opens no work order",
+      "notFoundBody": "The link may have expired, been withdrawn or already been answered. Contact the association that sent it if you need it again.",
+      "ended": {
+        "declined": "You have declined the work order",
+        "done": "You have marked the work order as done",
+        "body": "The association has been told. The link no longer works."
+      },
+      "notice": {
+        "accepted": "You have accepted the work order. The association has been told.",
+        "noted": "Your note has been sent to the association.",
+        "refused": "That could not be read. Write a note of at most 2,000 characters and try again.",
+        "identity": "The note contains a personal identity number and was not sent. Remove it and try again.",
+        "note-limited": "The work order takes no more notes just now. Try again later.",
+        "note-full": "The work order has as many notes as a link takes. Contact the association by other means.",
+        "photo-added": "Your photograph has been sent to the association.",
+        "photo-refused": "The file is not a JPEG, PNG, WebP or GIF image that can be read to its end, and was not stored.",
+        "photo-too-large": "The photograph is too large and was not stored. Send a smaller one.",
+        "photo-limited": "The work order takes no more photographs just now. Try again later.",
+        "photo-full": "The work order has as many photographs as a link takes."
+      }
     }
   },
   "signup": {
@@ -4031,6 +4094,8 @@
         "photo": "Removed a photograph",
         "attachment": "Removed a file",
         "workOrder": "Removed the text of a work order",
+        "workOrderNote": "Removed a contractor's note",
+        "workOrderFile": "Removed a contractor's photograph",
         "unknown": "Removed text or a file"
       },
       "legalHoldPlaced": "Placed a legal hold",
@@ -4050,6 +4115,12 @@
         "sent": "A work order was sent to a contractor",
         "failed": "A work order to a contractor was not sent",
         "unconfirmed": "A work order to a contractor may not have gone out; nobody knows"
+      },
+      "workOrderAnswer": {
+        "accepted": "The contractor accepted a work order",
+        "declined": "The contractor declined a work order",
+        "done": "The contractor marked a work order done",
+        "unknown": "The contractor answered a work order"
       }
     },
     "workOrders": {
@@ -4113,7 +4184,80 @@
       },
       "recipientRemoved": "A contractor since removed from the list",
       "addressUnreadable": "The address could not be read.",
-      "bodyErased": "The text was erased when the issue's retention period ran out."
+      "bodyErased": "The text was erased when the issue's retention period ran out.",
+      "link": {
+        "title": "Contractor's link",
+        "titleNamed": "Contractor's link: the work order to {{name}} of {{at}}",
+        "titleUnnamed": "Contractor's link: the work order of {{at}}",
+        "live": "The link opens the work order until <data>{{date}}</data>.",
+        "liveUndated": "The link opens the work order.",
+        "switchedOff": "Contractor's links are switched off on this instance, so the link opens nothing now. It would open the work order again if they were switched on before <data>{{date}}</data>. Withdraw it to end it for good.",
+        "ended": "The link no longer opens the work order: it was withdrawn, replaced or expired, the contractor declined it or marked it done, or the work order or its issue changed so that it may no longer reach a contractor.",
+        "none": "The contractor has not been given a link to this work order.",
+        "hint": "Through the link the contractor sees this work order and the photographs chosen below, and nothing else from the issue. They can accept or decline it, mark it done, and add notes and photographs.",
+        "answered": "The contractor has declined this work order or marked it done, so it is given no new link.",
+        "unavailable": "This work order is given no link: its text or its contractor is no longer on the record.",
+        "protected": "Somebody this issue concerns, its reporter or somebody living in its apartment, has protected personal data, so no work order on this issue is given a link and a link given before no longer opens it. Give the contractor what they need another way.",
+        "issue": "Give the contractor a link",
+        "issueNamed": "Give the contractor a link to the work order to {{name}} of {{at}}",
+        "issueAgain": "Give a new link",
+        "issueAgainNamed": "Give a new link to the work order to {{name}} of {{at}}",
+        "reissue": "Give a new link; the current one stops working",
+        "reissueNamed": "Give a new link; the current one stops working: the work order to {{name}} of {{at}}",
+        "issuing": "Making the link...",
+        "revoke": "Withdraw the link",
+        "revokeNamed": "Withdraw the link to the work order to {{name}} of {{at}}",
+        "revokeUnnamed": "Withdraw the link to the work order of {{at}}",
+        "revoking": "Withdrawing...",
+        "revoked": "The link is withdrawn. It no longer opens the work order.",
+        "shown": {
+          "once": "The link is shown only now. Copy it before you leave: it cannot be shown again, and giving a new link replaces this one.",
+          "expires": "It opens the work order until <data>{{date}}</data>, or until the work is marked done or the link is withdrawn.",
+          "send": "Open BRF does not send it. Send it to the contractor yourself, the way you choose: by SMS, or from your own email.",
+          "url": "Link",
+          "message": "Message to send",
+          "messageText": "Here is the link to the work order from {{association}}: {{url}}",
+          "messageTextUnnamed": "Here is the link to the work order: {{url}}",
+          "copyUrl": "Copy the link",
+          "copyMessage": "Copy the message",
+          "copied": "Copied.",
+          "copyFailed": "It could not be copied. Select it and copy it yourself."
+        },
+        "photos": {
+          "title": "Photographs the link shows",
+          "hint": "Choose only what the contractor needs for the job. A photograph may show people, or how somebody lives.",
+          "none": "The issue has no photographs to choose.",
+          "fromReport": "From the report",
+          "fromHandler": "Attached file",
+          "save": "Save the choice",
+          "saveNamed": "Save the choice of photographs for the work order to {{name}} of {{at}}",
+          "saveUnnamed": "Save the choice of photographs for the work order of {{at}}",
+          "saving": "Saving...",
+          "saved": "The link now shows the photographs chosen."
+        },
+        "errors": {
+          "issueClosed": "This issue is closed. Reopen it before giving a contractor a link.",
+          "linksOff": "Contractors' links are switched off on this instance.",
+          "workOrderNotFound": "That work order is no longer on the issue. The record has been read again.",
+          "answered": "The contractor has declined this work order or marked it done, so it is given no new link.",
+          "textErased": "The text of this work order is removed, so it is given no link.",
+          "recipientRemoved": "The contractor of this work order was removed from the list, so it is given no link.",
+          "protected": "Somebody this issue concerns has protected personal data, so no work order on it is given a link.",
+          "photoNotFound": "One of the photographs is no longer on the issue. The record has been read again; choose again.",
+          "unknown": "The link could not be given or withdrawn just now. Please try again.",
+          "photosUnknown": "The choice of photographs could not be saved just now. Please try again."
+        }
+      },
+      "answer": {
+        "title": "From the contractor",
+        "at": "{{answer}} <data>{{date}}</data>",
+        "ACCEPTED": "Accepted",
+        "DECLINED": "Declined",
+        "DONE": "Done",
+        "notes": "The contractor's notes",
+        "files": "The contractor's photographs",
+        "fileAlt": "Photograph from the contractor: {{name}}"
+      }
     },
     "open": {
       "__after__": "timeline",
@@ -4439,6 +4583,8 @@
       "removeAttachment": "Remove the file {{name}}",
       "removeWorkOrder": "Remove the text of the work order of {{at}}",
       "removeWorkOrderTo": "Remove the text of the work order to {{name}} of {{at}}",
+      "removeWorkOrderNote": "Remove the contractor's note of {{at}}",
+      "removeWorkOrderFile": "Remove the contractor's photograph {{name}}",
       "description": "Description",
       "location": "Location",
       "photos": "The reporter's photographs",

@@ -23,7 +23,7 @@ const ISSUE_ACCESS_SELECT = {
  * `undefined` when the file is on no issue, which leaves it to the file's own
  * capability.
  *
- * A file is on an issue in one of two ways, and they are read by different
+ * A file is on an issue in one of three ways, and they are read by different
  * people.
  *
  * - **A photograph** (`IssuePhoto`), which the reporter attached: read by
@@ -31,6 +31,11 @@ const ISSUE_ACCESS_SELECT = {
  * - **A handler's file** (`IssueAttachment`): read by whoever handles the
  *   issue and by nobody else. Its reporter is refused it as a stranger is,
  *   which is why it is a join of its own (decision 18).
+ * - **A contractor's photograph** (`WorkOrderFile`), added through the link of
+ *   a work order on the issue: read here by whoever handles the issue and by
+ *   nobody else, and by its own link through the link's route (ADR 0055). Its
+ *   reporter is refused it, so nothing a contractor sends reaches the
+ *   reporter.
  *
  * "Whoever handles the issue" is `issues:handle` narrowed by the board-only
  * rule (ADR 0054), asked on every request. The queue leaving a hidden issue's
@@ -50,7 +55,7 @@ export async function issueFileAccess(
   viewer: Principal,
   now: Date,
 ): Promise<IssueFileAccess | undefined> {
-  const [photos, attachment] = await Promise.all([
+  const [photos, attachment, contractorFile] = await Promise.all([
     db.issuePhoto.findMany({
       where: { fileId },
       select: { issue: { select: ISSUE_ACCESS_SELECT } },
@@ -59,10 +64,18 @@ export async function issueFileAccess(
       where: { fileId },
       select: { issue: { select: ISSUE_ACCESS_SELECT } },
     }),
+    db.workOrderFile.findUnique({
+      where: { fileId },
+      select: {
+        workOrder: { select: { issue: { select: ISSUE_ACCESS_SELECT } } },
+      },
+    }),
   ]);
-  const issues = [...photos, ...(attachment === null ? [] : [attachment])].map(
-    (row) => row.issue,
-  );
+  const handlersOnly = [
+    ...(attachment === null ? [] : [attachment.issue]),
+    ...(contractorFile === null ? [] : [contractorFile.workOrder.issue]),
+  ];
+  const issues = [...photos.map((row) => row.issue), ...handlersOnly];
   if (issues.length === 0) {
     return undefined;
   }
@@ -76,8 +89,9 @@ export async function issueFileAccess(
       return "handler";
     }
   }
-  // A handler's file is never the reporter's to read, whoever reported.
-  return attachment === null &&
+  // A handler's file, or a contractor's, is never the reporter's to read,
+  // whoever reported.
+  return handlersOnly.length === 0 &&
     issues.every((issue) => issue.reporterPersonId === viewer.personId)
     ? "reporter"
     : null;

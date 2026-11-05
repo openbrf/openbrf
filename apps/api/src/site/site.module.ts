@@ -29,6 +29,7 @@ import { SiteCalendarController } from "./site-calendar.controller";
 import { SiteEventsService } from "./site-events.service";
 import { SiteFormsController } from "./site-forms.controller";
 import { SiteIssueLinkController } from "./site-issue-link.controller";
+import { SiteWorkOrderLinkController } from "./site-work-order-link.controller";
 import { SiteNewsController } from "./site-news.controller";
 import { SiteNewsService } from "./site-news.service";
 import { SiteRenderer } from "./site-renderer.service";
@@ -98,8 +99,10 @@ import { SiteRenderer } from "./site-renderer.service";
     SiteCalendarController,
     SiteController,
     SiteFormsController,
-    // The page a reporter's private link opens (ADR 0055).
+    // The pages a reporter's private link and a contractor's link open
+    // (ADR 0055).
     SiteIssueLinkController,
+    SiteWorkOrderLinkController,
     PagesAdminController,
     SiteImagesController,
     SiteBlocksAdminController,

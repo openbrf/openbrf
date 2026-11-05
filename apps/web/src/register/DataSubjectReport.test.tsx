@@ -1998,18 +1998,24 @@ describe("what the document prints", () => {
               writtenAt: "2026-01-06T09:00:00.000Z",
               deliveryStatus: "SENT",
               notSent: false,
+              linkGiven: true,
+              photosShared: 2,
             },
             {
               recipientName: null,
               writtenAt: "2026-01-07T09:00:00.000Z",
               deliveryStatus: "FAILED",
               notSent: false,
+              linkGiven: false,
+              photosShared: 0,
             },
             {
               recipientName: "Elektriker Ab",
               writtenAt: "2026-01-08T09:00:00.000Z",
               deliveryStatus: "FAILED",
               notSent: true,
+              linkGiven: false,
+              photosShared: 0,
             },
           ],
         },
@@ -2030,6 +2036,14 @@ describe("what the document prints", () => {
     expect(cell.getByText(/2026-01-07/)).toBeTruthy();
     // A failure known not to have gone out is said to be that.
     expect(cell.getByText(/Elektriker Ab · Inte skickad/)).toBeTruthy();
+    // A link given to the contractor is said, with how many photographs it
+    // showed, and only where one was given.
+    expect(
+      cell.getByText(
+        /Rörmokare Ab · Skickad · Länk given till entreprenören; 2 foton visas/,
+      ),
+    ).toBeTruthy();
+    expect(cell.getAllByText(/Länk given/)).toHaveLength(1);
   });
 
   it("says an issue's text was removed instead of printing it blank", async () => {

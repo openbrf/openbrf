@@ -754,6 +754,13 @@ const WORK_ORDER_STEP_LABELS = {
   unconfirmed: "issues.timeline.workOrder.unconfirmed",
 } as const;
 
+/** What a contractor's answer through a work order's link says. */
+const WORK_ORDER_ANSWER_STEP_LABELS = {
+  ACCEPTED: "issues.timeline.workOrderAnswer.accepted",
+  DECLINED: "issues.timeline.workOrderAnswer.declined",
+  DONE: "issues.timeline.workOrderAnswer.done",
+} as const;
+
 /** What one step of the timeline says happened. */
 function TimelineSentence({
   step,
@@ -892,6 +899,16 @@ function TimelineSentence({
       );
     case "workOrder":
       return <>{t(WORK_ORDER_STEP_LABELS[step.delivery ?? "written"])}</>;
+    case "workOrderAnswer":
+      return (
+        <>
+          {t(
+            step.answer === null
+              ? "issues.timeline.workOrderAnswer.unknown"
+              : WORK_ORDER_ANSWER_STEP_LABELS[step.answer],
+          )}
+        </>
+      );
     case "redacted":
       return (
         <>
@@ -932,4 +949,6 @@ const REDACTED_STEP: Readonly<Record<IssueRedactionTarget, TranslationKey>> = {
   photo: "issues.timeline.redacted.photo",
   attachment: "issues.timeline.redacted.attachment",
   workOrder: "issues.timeline.redacted.workOrder",
+  workOrderNote: "issues.timeline.redacted.workOrderNote",
+  workOrderFile: "issues.timeline.redacted.workOrderFile",
 };

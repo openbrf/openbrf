@@ -717,6 +717,11 @@ export class DataSubjectReportService {
             createdAt: true,
             deliveryStatus: true,
             deliveryFailure: true,
+            // Whether the contractor was given a link, and how many of the
+            // issue's photographs it showed them (ADR 0055): from the record
+            // the handler's acts leave, which a changed choice or a removed
+            // file does not shorten.
+            _count: { select: { links: true, exposures: true } },
           },
         },
       },
@@ -1784,6 +1789,8 @@ export class DataSubjectReportService {
           notSent:
             order.deliveryStatus === "FAILED" &&
             workOrderKnownNotSent(order.deliveryFailure),
+          linkGiven: order._count.links > 0,
+          photosShared: order._count.exposures,
         })),
       })),
       issueAssignments: [
