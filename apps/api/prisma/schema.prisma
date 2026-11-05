@@ -5047,6 +5047,9 @@ model IssueMessage {
 
   @@index([issueId, createdAt])
   @@index([authorPersonId])
+  // The queue's search (`IssueService.searchWhere`) matches a word anywhere in
+  // the text, which a B-tree cannot answer and a trigram index can (`pg_trgm`).
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin, map: "issue_message_body_trgm_idx")
   @@map("issue_message")
 }
 
@@ -5082,6 +5085,8 @@ model IssueNote {
 
   @@index([issueId, createdAt])
   @@index([authorPersonId])
+  // For the queue's search, as on an issue message.
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin, map: "issue_note_body_trgm_idx")
   @@map("issue_note")
 }
 
