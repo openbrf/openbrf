@@ -91,9 +91,10 @@ one, is part of question 4 below.
 The text of a work order has a clock of its own too: ten years after closing
 (3,653 days, so never before the tenth anniversary and up to a day after it),
 whatever the board's setting. The owner asked on 2026-11-03 for it to be kept as
-long as the law allows, and ten years is where the general limitation period
-for a claim about the work ends (preskriptionslagen (1981:130) 2 §); the reasons
-are in [ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md#the-mailed-work-order).
+long as the law allows. Ten years is the ordinary window chosen for that, sized
+to the general limitation period for a claim about the work
+(preskriptionslagen (1981:130) 2 §); it is not a period the law sets for the
+text, and a legal hold keeps a text the window would end too early (below). The reasons are in [ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md#the-mailed-work-order).
 The nightly issue purge already erases it on that clock (`WORK_ORDER_BODY_RETENTION_DAYS`),
 and a handler may redact it sooner ([Redaction](#redaction)).
 A report from the website's form is tied to its reporter only by the address
@@ -101,12 +102,12 @@ index, so the purge that removes its contact details after 365 days keeps that
 index while a work order's text stands, and the transaction that erases the last
 text clears it: a hold or a restriction placed later on the person who wrote in
 still reaches the text (see [Erasure and the closing job](#erasure-and-the-closing-job):
-no case whose text stands may lose its selector). A case reported by a person
+no issue whose text stands may lose its selector). An issue reported by a person
 in the register keeps its reporter column the same way: the person purge does
 not detach it while a work order's text stands, and detaches it on a later run
 once the text is gone. For a person whose erasure request has been executed,
 whom no later run selects, the transaction that removes the last text on the
-case clears it: the work-order text purge once the free-text layer is gone too,
+issue clears it: the work-order text purge once the free-text layer is gone too,
 or the removal of the free-text layer (by the clock, the issue erasure job or a
 handler's redaction) once no work order's text stands.
 
@@ -139,7 +140,7 @@ location, an issue message, an internal note or a work order, and remove a
 photograph or an uploaded file. Redacting replaces the text with a mark saying
 it was redacted and when; nothing keeps the earlier text, so a redaction is not
 an edit with a history. Removing a file removes it from storage. A work order
-whose text is redacted stays on the case with whom it went to and when, which is
+whose text is redacted stays on the issue with whom it went to and when, which is
 the record of the disclosure (the recipient's name and address go if the
 contractor is later removed from the list, [ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md#the-mailed-work-order)); one whose mail has not gone out yet is not sent,
 and is recorded as not sent.
@@ -158,6 +159,21 @@ A redaction is refused while a legal hold stands on the case. The hold records
 that the association needs what the case holds for a claim (art. 17(3)(e)), and a
 redaction would remove it as surely as the clock the hold stops; the hold is
 released first, which is its own entry in the log.
+
+A redaction is refused as well while the case's reporter is under a legal hold or
+a restriction under art. 18, read as the clock reads it: a signed-in reporter by
+their person, a public-form reporter by the address on the report. The reason is
+the one the clock stops for: the reporter's text is what that hold or restriction
+keeps, and a handler's redaction would remove it as the clock would. The refusal
+is the one a hold on the case gets: it does not say whether the reporter's is a
+hold or a restriction, nor why, because a handler may not read a person's holds
+and restrictions. A handler who sees no hold on the case can still tell that the
+reporter has one or the other. Any refusal tells them that much, and the only
+answers that would not are to remove the text regardless or to report a removal
+that did not happen. It is also what a handler needs to know: art. 18 limits the
+processing they would carry out, and a restriction is the marking of the data so
+that whoever processes it can see that it is limited (art. 4(3), recital 67).
+The reporter's hold is released, or the restriction lifted, where it was placed.
 
 ### Erasure and the closing job
 

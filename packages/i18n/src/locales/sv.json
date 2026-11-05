@@ -2078,7 +2078,7 @@
     },
     "issueRetention": {
       "title": "Gallring av ärenden",
-      "description": "Hur många år efter att ett ärende stängts dess fritext sparas. Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, finns kvar i ärendet; beskrivningen, platsen, svaren, de interna anteckningarna och bilderna och filerna gallras så många år efter att det stängts, om inte ett rättsligt bevarandekrav gäller.",
+      "description": "Hur många år efter att ett ärende stängts dess fritext sparas. Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, finns kvar i ärendet; beskrivningen, platsen, svaren, de interna anteckningarna och bilderna och filerna gallras så många år efter att det stängts, om inte ett rättsligt bevarandekrav gäller för ärendet eller ett rättsligt bevarandekrav eller en begränsning för den som anmälde det.",
       "years": "År efter att ett ärende stängts",
       "yearsHint": "Ett heltal mellan 1 och 10. En ny instans börjar på 2.",
       "purgeJob": "Gallringen körs varje natt och läser talet när den körs, så en ändring flyttar alla kommande datum på en gång. Efter en kortare inställning gallras fritexten i de ärenden som redan passerat den under nätterna som följer, högst 500 ärenden vid varje körning.",
@@ -4112,7 +4112,7 @@
       "send": "Skicka till {{name}}",
       "sending": "Skickar...",
       "edit": "Ändra",
-      "sent": "Arbetsordern till {{name}} är sparad. Loggen nedan visar om mejlet gick iväg.",
+      "sent": "Arbetsordern till {{name}} är sparad. Listan med arbetsorder nedan visar om mejlet gick iväg.",
       "errors": {
         "issueNotFound": "Ärendet finns inte längre, eller är inte längre ditt att hantera.",
         "contractorNotFound": "Entreprenören finns inte längre på listan. Listan har lästs om.",
@@ -4123,10 +4123,11 @@
         "unknown": "Arbetsordern gick inte att förbereda eller skicka just nu. Försök igen.",
         "previewStale": "Entreprenörens uppgifter eller texten har ändrats sedan förhandsvisningen. Förhandsvisa den igen innan du skickar.",
         "issueClosed": "Ärendet är avslutat. Öppna det igen innan du skriver en arbetsorder.",
-        "duplicate": "Den här arbetsordern skickades till entreprenören för en stund sedan. Titta i listan ovan innan du skickar den igen.",
+        "duplicate": "En arbetsorder till entreprenören skrevs för en stund sedan och kan ha skickats. Titta i listan ovan innan du skriver en ny; en vars text har tagits bort håller tillbaka en ny tills halvtimmen har gått.",
         "budgetSpent": "Du har skickat så många arbetsorder som en person får skicka på en timme. Försök igen senare."
       },
       "recipientRemoved": "En entreprenör som sedan tagits bort från listan",
+      "addressUnreadable": "Adressen kunde inte läsas.",
       "bodyErased": "Texten raderades när ärendets lagringstid gick ut."
     },
     "open": {
@@ -4444,7 +4445,7 @@
       "purgedOn": "Fritexten togs bort <data>{{date}}</data>",
       "freeTextRemoved": "Fritexten, svaren och bilderna togs bort <data>{{date}}</data>. Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, finns kvar.",
       "title": "Fritext och rättsligt bevarandekrav",
-      "intro": "Så länge inget rättsligt bevarandekrav gäller för själva ärendet kan en handläggare när som helst ta bort beskrivningen, platsen, ett svar, en intern anteckning, en bild, en fil eller texten i en arbetsorder, till exempel när en person som nämns där har fått radering beviljad. Det som tas bort är borta: ingenting sparar texten, och ingenting skrivs i dess ställe.",
+      "intro": "Så länge inget rättsligt bevarandekrav gäller för själva ärendet, och varken ett rättsligt bevarandekrav eller en begränsning gäller för den som anmälde det, kan en handläggare när som helst ta bort beskrivningen, platsen, ett svar, en intern anteckning, en bild, en fil eller texten i en arbetsorder, till exempel när en person som nämns där har fått radering beviljad. Det som tas bort är borta: ingenting sparar texten, och ingenting skrivs i dess ställe.",
       "remove": "Ta bort",
       "removeDescription": "{{type}}: ta bort beskrivningen",
       "removeLocation": "{{type}}: ta bort platsen",
@@ -4477,7 +4478,7 @@
         "saving": "Sparar..."
       },
       "errors": {
-        "legalHold": "Ärendet har ett rättsligt bevarandekrav, så ingenting kan tas bort. Ärendet har lästs om.",
+        "legalHold": "Ett rättsligt bevarandekrav gäller för ärendet, eller ett rättsligt bevarandekrav eller en begränsning för den som anmälde det, så ingenting kan tas bort. Ärendet har lästs om.",
         "targetNotFound": "Det är redan borta. Ärendet har lästs om.",
         "unknown": "Ingenting kunde ändras just nu. Försök igen."
       }
@@ -6905,7 +6906,7 @@
           "name": "Felanmälningar",
           "purpose": "Ta emot och åtgärda fel i huset, med de arbetsorder som skickas till entreprenörer, och meddela den som handlägger ett ärende och den som anmälde det med e-post. Mejlen om ett ärende innehåller ärendenummer, ärendetyp och en länk, och de till den som handlägger det också prioritet, aldrig vad någon har skrivit. Mejlet med en arbetsorder innehåller den text en handläggare skrev till entreprenören och inget annat från ärendet. Ett ärende av en avskärmad ärendetyp, som Störningar, läses bara av styrelsen och mejlas aldrig om, till någon.",
           "legalBasisNote": "Berättigat intresse: att förvalta fastigheten. Den som anmäler kan självmant skriva uppgifter om hälsa (art. 9).",
-          "retention": "Vad ärendet gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, behålls. Beskrivningen, platsen, svaren, de interna anteckningarna och bilderna gallras det antal år efter avslut som styrelsen bestämmer (1 till 10, 2 som standard) om inte ett rättsligt bevarandekrav gäller, eller tidigare när anmälarens begäran om radering beviljas. Kopplingen till anmälaren tas bort när anmälarens egna personuppgifter gallras, när den texten är borta och ingen arbetsorders text finns kvar, så att ett rättsligt bevarandekrav eller en begränsning som läggs på personen senare fortfarande behåller texten. Kontaktuppgifterna i en anmälan från det öppna formuläret gallras 365 dagar efter avslut; har en arbetsorder skickats om anmälan sparas e-postadressen i en kodad form som inte går att läsa tillbaka tills arbetsorderns text raderas, så att ett rättsligt bevarandekrav eller en begränsning för den som anmälde fortfarande behåller texten. Texten i en arbetsorder till en entreprenör raderas tio år efter att ärendet avslutats, när ett anspråk om arbetet preskriberas (preskriptionslagen 2 §); när den skickades sparas, och vem den gick till sparas så länge entreprenören finns kvar i registret. Att ta bort en entreprenör från registret raderar namn och e-postadress på dess arbetsorder. Fritexten i ett ärende av en avskärmad ärendetyp, som Störningar, gallras ett år efter avslut, vad styrelsen än har bestämt för andra ärenden, om inte ett rättsligt bevarandekrav står på ärendet. Ett skadeärende lägger ett rättsligt bevarandekrav på ärendet, som står kvar tills en handläggare häver det, och ett rättsligt bevarandekrav håller kvar texten i ett avskärmat ärende längre än det året."
+          "retention": "Vad ärendet gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, behålls. Beskrivningen, platsen, svaren, de interna anteckningarna och bilderna gallras det antal år efter avslut som styrelsen bestämmer (1 till 10, 2 som standard) om inte ett rättsligt bevarandekrav gäller för ärendet eller ett rättsligt bevarandekrav eller en begränsning för den som anmälde det, eller tidigare när anmälarens begäran om radering beviljas. Kopplingen till anmälaren tas bort när anmälarens egna personuppgifter gallras, när den texten är borta och ingen arbetsorders text finns kvar, så att ett rättsligt bevarandekrav eller en begränsning som läggs på personen senare fortfarande behåller texten. Kontaktuppgifterna i en anmälan från det öppna formuläret gallras 365 dagar efter avslut; har en arbetsorder skickats om anmälan sparas e-postadressen i en kodad form som inte går att läsa tillbaka tills arbetsorderns text raderas, så att ett rättsligt bevarandekrav eller en begränsning för den som anmälde fortfarande behåller texten. Texten i en arbetsorder till en entreprenör raderas tio år efter att ärendet avslutats, det vanliga gallringsfönster som valts för den och som följer den allmänna tioåriga preskriptionstiden för ett anspråk om arbetet (preskriptionslagen 2 §); preskriptionen av ett anspråk kan avbrytas eller börja om, och raderingen följer inte det, så ett rättsligt bevarandekrav för ärendet eller ett rättsligt bevarandekrav eller en begränsning för anmälaren är det som behåller texten längre; när den skickades sparas, och vem den gick till sparas så länge entreprenören finns kvar i registret. Att ta bort en entreprenör från registret raderar namn och e-postadress på dess arbetsorder. Fritexten i ett ärende av en avskärmad ärendetyp, som Störningar, gallras ett år efter avslut, vad styrelsen än har bestämt för andra ärenden, om inte ett rättsligt bevarandekrav står på ärendet. Ett skadeärende lägger ett rättsligt bevarandekrav på ärendet, som står kvar tills en handläggare häver det, och ett rättsligt bevarandekrav håller kvar texten i ett avskärmat ärende längre än det året."
         },
         "documents": {
           "name": "Dokumentarkiv",

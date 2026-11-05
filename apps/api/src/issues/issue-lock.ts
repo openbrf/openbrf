@@ -123,13 +123,22 @@ export async function holdIssueTypeRingFence(
 
 /**
  * The lock a transaction takes before it counts what one handler has sent
- * contractors in the last hour and adds a work order to it.
+ * contractors in the last hour and adds a work order to it, and that the purge
+ * of the handler takes before it detaches their work orders.
  *
  * The sending budget (`WorkOrderService.send`) is a count followed by an
  * insert across every issue the handler sends from, so the issue's own lock
  * does not serialise it: two sendings from two issues at once would both pass
  * the count. Taken after the type's and the issue's, the order every sending
  * takes them in. An advisory lock for the reason `lockIssue` gives.
+ *
+ * The purge (`PurgeService`) takes it so that a sending which read the
+ * handler's access before a role was withdrawn cannot commit its
+ * `sentByPersonId` after the purge has detached the person's work orders. The
+ * two serialise only on the same key: advisory locks are taken by the hash of
+ * a string, so the purge calls this function rather than spelling the key
+ * again, and a second spelling would hash to another lock and wait for
+ * nothing.
  */
 export async function lockWorkOrderSender(
   tx: Prisma.TransactionClient,

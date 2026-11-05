@@ -1283,6 +1283,102 @@ describe("handling an issue", () => {
     expect(fetchIssueTimeline).toHaveBeenCalledTimes(settled);
   });
 
+  it("drops a poll answer asked while the main read was pending, which that read then answered with newer steps", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reported = {
+      kind: "reported",
+      at: "2026-08-20T08:00:00.000Z",
+      actor: null,
+    };
+    const workOrder = {
+      kind: "workOrder",
+      at: "2026-08-21T10:00:00.000Z",
+      actor: null,
+    };
+    const onItsWay = {
+      ok: true,
+      value: [reported, { ...workOrder, delivery: "pending" }],
+    };
+    fetchIssueTimeline.mockResolvedValue(onItsWay);
+    const session = userEvent.setup({
+      advanceTimers: (ms) => vi.advanceTimersByTime(ms),
+    });
+    const queued = issue();
+    const view = render(
+      <IssueQueuePanel
+        issues={[queued]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await openHandling(session);
+    expect(
+      await screen.findByText("En arbetsorder är på väg till en entreprenör"),
+    ).toBeTruthy();
+
+    // A newer revision starts the main read, and it is held.
+    let answerMain: (value: unknown) => void = () => undefined;
+    fetchIssueTimeline.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerMain = resolve;
+      }),
+    );
+    view.rerender(
+      <IssueQueuePanel
+        issues={[{ ...queued, updatedAt: "2026-08-21T11:00:00.000Z" }]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      expect(fetchIssueTimeline).toHaveBeenCalledTimes(2);
+    });
+
+    // The poll asks under the same revision while that read is pending, and is
+    // held too.
+    let answerPoll: (value: unknown) => void = () => undefined;
+    fetchIssueTimeline.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerPoll = resolve;
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(fetchIssueTimeline).toHaveBeenCalledTimes(3);
+
+    // The main read answers with a step more, the mail still on its way, so
+    // the poll stays on; the poll's older answer, without that step, lands
+    // after it and is dropped.
+    await act(async () => {
+      answerMain({
+        ok: true,
+        value: [
+          reported,
+          { ...workOrder, delivery: "pending" },
+          {
+            kind: "status",
+            at: "2026-08-21T11:00:00.000Z",
+            actor: null,
+            fromMeaning: "NEW",
+            toMeaning: "IN_PROGRESS",
+            fromStatusId: "s-new",
+            toStatusId: "s-doing",
+            waitingReason: null,
+            outcome: null,
+          },
+        ],
+      });
+      await Promise.resolve();
+    });
+    expect(await screen.findByText(/Flyttat till Pågår/)).toBeTruthy();
+    await act(async () => {
+      answerPoll(onItsWay);
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/Flyttat till Pågår/)).toBeTruthy();
+  });
+
   it("adds a status just saved to the timeline while it stays open", async () => {
     const reported = {
       kind: "reported",

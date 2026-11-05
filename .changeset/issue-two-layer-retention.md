@@ -21,7 +21,7 @@ An issue now has two layers, and only one of them is kept for good.
 - **Legal hold on an issue.** A handler can place a legal hold on an issue, and
   release it again. While it stands, the issue keeps its free text past its
   clock and nobody can redact it. A legal hold or a restriction on the reporter
-  keeps their issues in the same way.
+  keeps their issues, and refuses a redaction of them, in the same way.
 - **Redaction.** A handler can redact the description, the location, a message
   or a note, and remove a photograph or a file, at any time. The text is
   emptied and the issue shows that it was removed and when; nothing keeps the

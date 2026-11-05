@@ -2914,7 +2914,9 @@ export class IssueService {
             { type: { name: matches } },
             // Every handler the issue lets in reads its whole conversation
             // and every note on it (`IssueConversationService`), so the
-            // issues handled below are the boundary for these as well.
+            // issues handled below are the boundary for these as well. Each
+            // is read through a trigram index on `body`, without which every
+            // word read every message and note in the database.
             { messages: { some: { body: matches } } },
             { notes: { some: { body: matches } } },
             { AND: [{ apartment: { number: matches } }, notProtected] },
