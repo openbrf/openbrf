@@ -177,6 +177,23 @@ or the retries spent) is deleted, so it no longer counts toward its address's
 three a day. A link whose mail is still being retried keeps its place in the
 count.
 
+The three a day count links issued, not mails sent. A link is issued in the
+transaction that counts, under a lock on the address, and mailed after that
+transaction commits. A count of mails would miss a link whose mail is on its
+way, so two reports from one address delivered at once could each find a slot
+free and a fourth mail go. Counted as issued, a link holds its slot from the
+moment it exists. Since a link that will not be mailed gives its slot back,
+the count holds the links that were mailed or are still being tried. The
+budget belongs to the address, not to whoever typed it: three reports filed
+with somebody else's address spend that address's day, and that is what keeps
+the form from filling a stranger's inbox.
+
+Whether the address is a restricted person's is asked of the people at that
+address only: the reporter's address is indexed as a person's address and the
+register is looked up by that index, so the check does not grow with the
+number of restricted people. A person whose index predates the current
+normalisation rules is read as well until the reindex rewrites it.
+
 ### The contractor's photographs
 
 The first anonymous upload, and bounded accordingly:
