@@ -202,7 +202,7 @@ export const NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR = 10;
 const HOUR_MS = 60 * 60 * 1000;
 
 /** The length of the clock-hour slot within which one person is told of one assignment or reopening once. */
-const REPEATED_NOTICE_SECONDS = 60 * 60;
+export const REPEATED_NOTICE_SECONDS = 60 * 60;
 
 /**
  * How many times a delivery that found its notice owed again under the

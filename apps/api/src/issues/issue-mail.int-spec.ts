@@ -16,6 +16,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
@@ -30,7 +31,7 @@ import {
 } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import { JobQueueService } from "../jobs/job-queue.service";
+import { JOB_SCHEMA, JobQueueService } from "../jobs/job-queue.service";
 import {
   MailNotConfiguredError,
   MailService,
@@ -51,6 +52,7 @@ import {
   NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR,
   NOTIFIED_PUBLIC_REPORTS_PER_HOUR,
   NOTIFIED_REPORTS_PER_REPORTER_PER_HOUR,
+  REPEATED_NOTICE_SECONDS,
 } from "./issue-mailer.service";
 import { IssueService } from "./issue.service";
 
@@ -231,6 +233,47 @@ async function holdsSlot(job: IssueNoticeJob): Promise<boolean> {
   );
   expect(row).toBeDefined();
   return row?.holds === true;
+}
+
+/**
+ * How long one test may run, the integration config's `testTimeout`. A test
+ * still running past it has failed.
+ */
+const TEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Slack kept above {@link TEST_TIMEOUT_MS} when the slot is checked: the
+ * test's own timer starts only after the hook returns, and the clock is read
+ * before that, so a test needs more than its timeout of the slot left.
+ */
+const SLOT_MARGIN_MS = 1_000;
+
+/**
+ * Waits for the queue's throttle slot to turn when less than
+ * {@link TEST_TIMEOUT_MS} plus {@link SLOT_MARGIN_MS} of it is left.
+ *
+ * The queue cuts the database's clock into slots of
+ * {@link REPEATED_NOTICE_SECONDS}, each starting on the hour, and a repeated
+ * assignment or reopening notice is dropped only within the slot of the first.
+ * A test that queues a notice and then a repeat expects both in one slot, and
+ * one started a second before the hour turns would see the repeat queued. A
+ * test that starts with a timeout's worth of its slot left, and a margin, and
+ * passes, cannot cross the turn.
+ */
+async function clearOfTheSlotTurn(): Promise<void> {
+  const slotMs = REPEATED_NOTICE_SECONDS * 1000;
+  for (;;) {
+    // The clock the queue reads when it cuts the slot.
+    const [row] = await prisma.$queryRawUnsafe<{ nowMs: number }[]>(
+      `SELECT (date_part('epoch', ${JOB_SCHEMA}.job_now()) * 1000)::float8 AS "nowMs"`,
+    );
+    expect(row).toBeDefined();
+    const leftMs = slotMs - ((row?.nowMs ?? 0) % slotMs);
+    if (leftMs >= TEST_TIMEOUT_MS + SLOT_MARGIN_MS) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, leftMs + 100));
+  }
 }
 
 /** The notice last queued for one issue, which a test expects there to be. */
@@ -924,7 +967,44 @@ describe("a report is filed", () => {
   });
 });
 
+describe("the slot-turn guard", () => {
+  it("waits for the slot to turn when too little of it is left", async () => {
+    const slotMs = REPEATED_NOTICE_SECONDS * 1000;
+    const waitMs = 1_000;
+    // Only the clock read is stubbed, so the wait itself still runs.
+    const query = vi
+      .spyOn(prisma, "$queryRawUnsafe")
+      .mockResolvedValueOnce([{ nowMs: slotMs - waitMs }])
+      .mockResolvedValueOnce([{ nowMs: slotMs }]);
+    const startedAt = Date.now();
+
+    await clearOfTheSlotTurn();
+
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(waitMs);
+  });
+
+  it("starts at once when a test's worth of the slot is left", async () => {
+    const slotMs = REPEATED_NOTICE_SECONDS * 1000;
+    const query = vi
+      .spyOn(prisma, "$queryRawUnsafe")
+      .mockResolvedValueOnce([
+        { nowMs: slotMs - TEST_TIMEOUT_MS - SLOT_MARGIN_MS },
+      ]);
+
+    await clearOfTheSlotTurn();
+
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("a handler acts on an issue", () => {
+  // Several tests here count on a notice and its repeat sharing a slot.
+  beforeEach(async () => {
+    await mailer.ensureQueues();
+    await clearOfTheSlotTurn();
+  }, TEST_TIMEOUT_MS + 15_000);
+
   it("mails a new assignee, and nobody who assigns an issue to themselves", async () => {
     const issueId = await report(unassignedType);
     const before = (await notices(issueId)).length;
