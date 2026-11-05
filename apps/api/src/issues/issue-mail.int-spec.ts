@@ -1892,7 +1892,9 @@ describe("the overdue reminder", () => {
     await issues.assign(issueId, manager.personId, board.personId);
 
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
-    expect(await mailer.remindOverdue(job)).toBe(true);
+    expect(
+      await mailer.remindOverdue(await lastOverdueJob(issueId, yesterday)),
+    ).toBe(true);
     // Given on to somebody else: the date is claimed, so no second reminder.
     await issues.assign(issueId, admin.personId, board.personId);
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
