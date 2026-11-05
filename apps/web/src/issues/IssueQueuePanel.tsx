@@ -132,6 +132,12 @@ export interface IssueQueuePanelProps {
    * refused, and then only that refusal.
    */
   listWithheld?: boolean;
+  /**
+   * Whether the list is being read again. Marks the list, not the panel, as
+   * busy: the notices above it (a refused save) are announced, and an alert
+   * inside a busy region may be held back by assistive technology.
+   */
+  busy?: boolean;
 }
 
 /**
@@ -169,6 +175,7 @@ export function IssueQueuePanel({
   rereading = false,
   reading = false,
   listWithheld = false,
+  busy = false,
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
   const move = useSaveAction(setIssueStatus, onChanged, (failure) => {
@@ -237,11 +244,17 @@ export function IssueQueuePanel({
       }
     >
       {listWithheld ? null : issues.length === 0 ? (
-        <p className="text-body text-ink-muted">
+        <p
+          aria-busy={busy}
+          className={`text-body text-ink-muted ${busy ? "opacity-60" : ""}`}
+        >
           {emptyMessage ?? t("issues.queue.empty")}
         </p>
       ) : (
-        <ul className="flex flex-col gap-3">
+        <ul
+          aria-busy={busy}
+          className={`flex flex-col gap-3 ${busy ? "opacity-60" : ""}`}
+        >
           {issues.map((issue) => {
             const type = typeById.get(issue.typeId);
             return (

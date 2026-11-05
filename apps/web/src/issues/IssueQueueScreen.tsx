@@ -510,32 +510,32 @@ export function IssueQueueScreen({
        * is waiting, which is a claim the notice above would not undo. The
        * panel stays mounted (`listWithheld`), because the status save it owns
        * may still be out, and its refusal is shown there. While a newer read
-       * is out the earlier list stays, marked busy, rather than the page
-       * jumping empty under each word typed into the search.
+       * is out the earlier list stays, marked busy (the list, not the notices
+       * above it), rather than the page jumping empty under each word typed
+       * into the search.
        */}
       {ready ? (
-        <div aria-busy={reading} className={reading ? "opacity-60" : ""}>
-          <IssueQueuePanel
-            emptyMessage={
-              narrowed ? t("issues.views.noMatch") : t(VIEW_EMPTY[view])
-            }
-            issues={queue}
-            // No forms yet while the types are still on their way, and no
-            // notice that they failed either.
-            types={types === undefined ? [] : types}
-            onChanged={reload}
-            queueRead={loaded.readCount}
-            onRetryTypes={retryTypes}
-            announceTypesFailure={typesRead.by !== "arrival"}
-            focusTypesRetry={typesRead.by === "retry"}
-            rereading={rereading}
-            reading={reading}
-            listWithheld={loadFailed}
-            canManageCharges={viewer.capabilities.includes(
-              "memberCharges:manage",
-            )}
-          />
-        </div>
+        <IssueQueuePanel
+          emptyMessage={
+            narrowed ? t("issues.views.noMatch") : t(VIEW_EMPTY[view])
+          }
+          issues={queue}
+          // No forms yet while the types are still on their way, and no
+          // notice that they failed either.
+          types={types === undefined ? [] : types}
+          onChanged={reload}
+          queueRead={loaded.readCount}
+          onRetryTypes={retryTypes}
+          announceTypesFailure={typesRead.by !== "arrival"}
+          focusTypesRetry={typesRead.by === "retry"}
+          rereading={rereading}
+          reading={reading}
+          listWithheld={loadFailed}
+          busy={reading}
+          canManageCharges={viewer.capabilities.includes(
+            "memberCharges:manage",
+          )}
+        />
       ) : null}
     </BoardPage>
   );
