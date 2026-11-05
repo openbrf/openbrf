@@ -179,6 +179,8 @@ const issue = (overrides: Partial<OwnIssue>): OwnIssue => ({
   entry: null,
   photos: [],
   enteredByHandler: false,
+  replyMode: "MESSAGE",
+  mergedIntoMeaning: null,
   descriptionRedactedAt: null,
   locationRedactedAt: null,
   freeTextRemovedAt: null,
