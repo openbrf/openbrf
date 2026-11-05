@@ -586,7 +586,10 @@ describe("a charge made from an issue", () => {
         await expect(
           issues.chargeBasis(manager.personId, kept),
           "answered as an issue that does not exist",
-        ).rejects.toMatchObject({ reason: "issue-not-found" });
+        ).rejects.toMatchObject({
+          reason: "issue-not-found",
+          message: "No such issue.",
+        });
         // The board reads the same issue.
         await expect(
           issues.chargeBasis(board.personId, kept),
