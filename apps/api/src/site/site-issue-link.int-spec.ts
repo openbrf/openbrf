@@ -326,6 +326,7 @@ afterAll(async () => {
     board.personId,
     `rl-restricted-${suffix}`,
     `rl-restricted-late-${suffix}`,
+    `rl-retry-restricted-${suffix}`,
   ];
   // The notices a reopening queued, for this run's issues only.
   const issueIds = (

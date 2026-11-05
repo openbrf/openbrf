@@ -29,7 +29,11 @@ import {
   issueHandlerNoticeMail,
   issueReporterNoticeMail,
 } from "../mail/templates";
-import { issueHandledBy, issueRecipientsWhere } from "./issue-handlers";
+import {
+  issueHandledBy,
+  issueMailReachableWhere,
+  issueRecipientsWhere,
+} from "./issue-handlers";
 import {
   holdIssueTypeRingFence,
   lockFilingBudget,
@@ -130,8 +134,14 @@ import {
  * A claim is kept only while its mail may still go out. A delivery that sends
  * nothing, because the assignee changed, the mail settings are missing or the
  * person is out of reach, and a delivery given up on after its retries, give
- * the date back, under the same lock. When the issue has meanwhile been handed
- * to somebody else, the reminder is queued again for them.
+ * the date back, under the same lock. While the date is still past, the
+ * reminder is then queued again: for the new assignee when the issue has been
+ * handed to somebody else, and for the same one when what kept the mail back
+ * was the person - their address changed while it was decrypted, or they were
+ * out of reach for a moment. Not for the same assignee after a delivery
+ * without mail settings or one given up on, which would only fail again: that
+ * reminder goes out once the issue is assigned again, opened again or given a
+ * new target date.
  *
  * A job that finds the issue without an assignee this channel reaches claims
  * nothing, so the reminder is still owed. Nothing queues the job again on its
@@ -771,8 +781,9 @@ export class IssueMailer implements OnModuleInit {
     if (delivery === "sent") {
       return true;
     }
-    // A reminder that goes nowhere gives the date it claimed back.
-    await this.releaseOverdueClaim(job, now);
+    // A reminder that goes nowhere gives the date it claimed back, and is
+    // looked at again for its assignee unless the mail settings kept it back.
+    await this.releaseOverdueClaim(job, now, delivery === "notOwed");
     for (let looks = 0; delivery === "notOwed"; looks += 1) {
       if (!(await this.keepNoticeSlotIfOwed(job, now))) {
         return false;
@@ -864,14 +875,22 @@ export class IssueMailer implements OnModuleInit {
    * lock, because the notice was never sent. Nothing for any other notice, or
    * for a date not claimed.
    *
-   * When the issue is handed to somebody else and the date is still past, the
-   * reminder is queued again, since nothing else would: the assignment found
-   * the date claimed. Not for the same assignee, who a new job would find
-   * unreachable all the same.
+   * While the date is still past, the reminder is queued again, since nothing
+   * else would: an assignment in between found the date claimed. For the new
+   * assignee when the issue is handed to somebody else, and for the same one
+   * only when `againForSameAssignee` says the delivery found nothing to send:
+   * the person changed between the claim and the mail - their address, or
+   * whether they are reached at all. The new job claims nothing while they are
+   * still out of reach, and reads the new address when there is one, so each
+   * round needs another such change and none repeats on its own. Not after a
+   * delivery without mail settings, or one given up on after its retries,
+   * which a new job for the same person would only repeat; that reminder is
+   * sent once the issue is assigned again, opened again or given a new date.
    */
   async releaseOverdueClaim(
     job: IssueNoticeJob,
     now: Date = new Date(),
+    againForSameAssignee = false,
   ): Promise<void> {
     const targetDate = job.targetDate;
     if (job.event !== "overdue" || targetDate === undefined) {
@@ -898,9 +917,10 @@ export class IssueMailer implements OnModuleInit {
           },
         },
       });
+      const assignee = issue.assigneePersonId;
       if (
-        issue.assigneePersonId !== null &&
-        issue.assigneePersonId !== job.personId &&
+        assignee !== null &&
+        (assignee !== job.personId || againForSameAssignee) &&
         overdueFor(issue, targetDate, now)
       ) {
         await this.scheduleOverdue(tx, job.issueId, day, now);
@@ -1119,11 +1139,7 @@ export class IssueMailer implements OnModuleInit {
   /** Whether a reporter with an account may be mailed. */
   private async reachableReporter(db: Db, personId: string): Promise<boolean> {
     const person = await db.person.findFirst({
-      where: {
-        id: personId,
-        emailCipher: { not: null },
-        processingRestrictedAt: null,
-      },
+      where: { id: personId, ...issueMailReachableWhere },
       select: { id: true },
     });
     return person !== null;
@@ -1338,11 +1354,7 @@ function recipientWhereOf(
   now: Date,
 ): Prisma.PersonWhereInput {
   return job.event === "reporterMessage"
-    ? {
-        id: job.personId,
-        emailCipher: { not: null },
-        processingRestrictedAt: null,
-      }
+    ? { id: job.personId, ...issueMailReachableWhere }
     : {
         AND: [
           { id: job.personId },
