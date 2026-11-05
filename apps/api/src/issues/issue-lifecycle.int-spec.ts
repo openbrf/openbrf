@@ -510,9 +510,9 @@ describe("a reply on a closed issue", () => {
         for (const text of forbidden) {
           expect(part).not.toContain(text);
         }
+        expect(part).toContain(String(report.number));
+        expect(part).toContain(`Hiss ${suffix}`);
       }
-      expect(notice.parts[0]).toContain(String(report.number));
-      expect(notice.parts[0]).toContain(`Hiss ${suffix}`);
     }
 
     // The timeline says the reporter reopened it, and names nobody.
