@@ -507,8 +507,21 @@ the application writes with SQL of its own. This holds for a managed database
 and for one you installed yourself, and needs nothing set in the database. An
 `options` parameter in `DATABASE_URL` or `DATABASE_URL_RUNTIME` is kept, or the
 `PGOPTIONS` environment variable when the URL has none, with the request for UTC
-after it. The migrations, the deploy steps' own sessions and
-the job queue's connections use the server's setting. The shipped PostgreSQL
+after it. These connections use the server's setting instead:
+
+- the migrations and the deploy steps' own sessions;
+- the job queue's connections;
+- the person re-index lock's session and the plugin and theme install lock's
+  session, each opened on its own to hold a database lock. Neither reads or
+  writes a time: they run only `pg_try_advisory_lock`, `pg_advisory_lock` and
+  `set_config('lock_timeout', ...)`, and a `SELECT 1` to tell a dropped session
+  from a live one;
+- the startup check that the runtime role is the constrained one. It runs one
+  `SELECT` on the role's attributes and ownership, writes nothing and reads no
+  time.
+
+Only the migrations, the deploy steps and the job queue can therefore write a
+time that a database in another zone shifts. The shipped PostgreSQL
 image is UTC; a database of your own whose zone is not should be set to UTC with
 `ALTER DATABASE ... SET TimeZone TO 'UTC'`, which the schema owner check above
 accepts.
