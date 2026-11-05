@@ -11,7 +11,13 @@ import { I18nService } from "../i18n/i18n.service";
 import { mediaUrl } from "../media/media.service";
 import { MAX_DISPLAY_NAME, oneLine } from "./header-text";
 import { HttpApiMailDriver } from "./http-api-mail.driver";
-import type { MailDriver, SentMail } from "./mail-driver";
+import {
+  type MailDriver,
+  type MailHandoverFailure,
+  type OutgoingMail,
+  type SentMail,
+  withHandover,
+} from "./mail-driver";
 import {
   type EffectiveMail,
   MailSettingsResolver,
@@ -28,7 +34,13 @@ import { SmtpMailDriver } from "./smtp-mail.driver";
 /** Accent used when the association has not chosen a primary colour. */
 const DEFAULT_PRIMARY_COLOR = "#8A6D28";
 
-export class MailNotConfiguredError extends Error {
+export class MailNotConfiguredError
+  extends Error
+  implements MailHandoverFailure
+{
+  /** Thrown before any driver is chosen, so nothing was handed over. */
+  readonly handover = "not-handed-over";
+
   constructor() {
     super(
       "SMTP is not configured for this instance. Invitations and sign-in links " +
@@ -153,53 +165,66 @@ export class MailService {
   async send<Props>(
     input: SendMailInput<Props>,
   ): Promise<SentMail & { suppressed?: true }> {
-    input.signal?.throwIfAborted();
-    const association = await this.loadAssociation();
-    const rendered = await this.renderWith(input, this.brandOf(association));
-    const mail = await this.mailSettings.currentFrom(association);
+    let driver: MailDriver;
+    let outgoing: OutgoingMail;
+    try {
+      input.signal?.throwIfAborted();
+      const association = await this.loadAssociation();
+      const rendered = await this.renderWith(input, this.brandOf(association));
+      const mail = await this.mailSettings.currentFrom(association);
 
-    if (mail === null) {
-      if (this.env.NODE_ENV === "production") {
-        throw new MailNotConfiguredError();
-      }
-      if (this.env.OPENBRF_MAIL_LOG_BODY) {
-        // A developer's own machine without mail, asked for by name: enough
-        // to follow the link rather than failing a flow that otherwise works.
-        // Never on by default, because the body carries the sign-in or
-        // invitation credential in full.
+      if (mail === null) {
+        if (this.env.NODE_ENV === "production") {
+          throw new MailNotConfiguredError();
+        }
+        if (this.env.OPENBRF_MAIL_LOG_BODY) {
+          // A developer's own machine without mail, asked for by name: enough
+          // to follow the link rather than failing a flow that otherwise works.
+          // Never on by default, because the body carries the sign-in or
+          // invitation credential in full.
+          this.logger.warn(
+            `No mail configured. Would send "${input.template.id}" to ${input.to}:\n${rendered.text}`,
+          );
+          return { messageId: null, suppressed: true };
+        }
+
+        // The template and nothing else. A subject names people and apartments
+        // (ADR 0007), and a body carries a credential; CI logs are public.
         this.logger.warn(
-          `No mail configured. Would send "${input.template.id}" to ${input.to}:\n${rendered.text}`,
+          `No mail configured. Suppressed a "${input.template.id}" message; ` +
+            "set OPENBRF_MAIL_LOG_BODY=true on a development machine to print it.",
         );
         return { messageId: null, suppressed: true };
       }
 
-      // The template and nothing else. A subject names people and apartments
-      // (ADR 0007), and a body carries a credential; CI logs are public.
-      this.logger.warn(
-        `No mail configured. Suppressed a "${input.template.id}" message; ` +
-          "set OPENBRF_MAIL_LOG_BODY=true on a development machine to print it.",
-      );
-      return { messageId: null, suppressed: true };
-    }
-
-    const sender = this.senderFor(mail, association);
-    input.signal?.throwIfAborted();
-    return this.driverFor(mail).send(
-      {
+      const sender = this.senderFor(mail, association);
+      driver = this.driverFor(mail);
+      outgoing = {
         from: sender.from,
         to: input.to,
-        // One line whichever driver sends it. A subject can quote one an outside
-        // sender wrote - a board mailbox answer is "Re:" and theirs - and a line
-        // break in it must not reach a service that writes the header as given.
+        // One line whichever driver sends it. A subject can quote one an
+        // outside sender wrote - a board mailbox answer is "Re:" and theirs -
+        // and a line break in it must not reach a service that writes the
+        // header as given.
         subject: oneLine(rendered.subject),
         html: rendered.html,
         text: rendered.text,
         replyTo: input.replyTo ?? sender.replyTo,
         messageId: input.messageId ?? null,
         inReplyTo: input.inReplyTo ?? null,
-      },
-      input.signal,
-    );
+      };
+      input.signal?.throwIfAborted();
+    } catch (error) {
+      // Everything above runs before a driver is called: the association and
+      // the settings are read, a stored password decrypted, the message
+      // rendered. A failure there composed and sent nothing, so it is not
+      // unconfirmed, and one that persists (a password that can no longer be
+      // decrypted) must not read as "ask the recipient" on every send. The
+      // driver's own errors, below, state it for themselves.
+      throw withHandover(error, "not-handed-over");
+    }
+
+    return driver.send(outgoing, input.signal);
   }
 
   /**

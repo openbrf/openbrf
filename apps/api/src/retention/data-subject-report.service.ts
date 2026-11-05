@@ -1488,13 +1488,15 @@ export class DataSubjectReportService {
      * The issues among those the entries name by identifier (a charge made from
      * an issue records which) whose reporter has protected personal data. The
      * charge list withholds that link, so an entry's context must not hand it
-     * back: see `subjectScopedContext`.
+     * back: see `subjectScopedContext`. Not the issues this person reported
+     * themselves: their own copy states their own report.
      */
     const withheldIssueIds = await issuesReportedByProtectedPersons(
       tx,
       auditEntries
         .map((entry) => asContext(entry.context)?.[ISSUE_KEY])
         .filter((id): id is string => typeof id === "string"),
+      personId,
     );
 
     /*
@@ -3003,7 +3005,8 @@ function subjectScopedContext(
 
   /*
    * The issue a charge was made from, while its reporter has protected personal
-   * data. The charge list withholds the same link, because an issue identifier
+   * data, and is somebody else (the caller leaves this person's own reports out
+   * of the set). The charge list withholds the same link, because an issue identifier
    * beside the charged person or apartment pairs the report with the identity
    * the queue withholds. The fact that the charge came from an issue stays.
    */

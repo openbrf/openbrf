@@ -11,6 +11,7 @@ describe("workOrderKnownNotSent", () => {
     expect([...WORK_ORDER_NEVER_LEFT].sort()).toEqual(
       [
         WORK_ORDER_DELIVERY_FAILURES.mailNotConfigured,
+        WORK_ORDER_DELIVERY_FAILURES.sendErrored,
         WORK_ORDER_DELIVERY_FAILURES.interrupted,
         WORK_ORDER_DELIVERY_FAILURES.recipientRemoved,
         WORK_ORDER_DELIVERY_FAILURES.recipientUnreadable,
@@ -25,8 +26,11 @@ describe("workOrderKnownNotSent", () => {
     }
   });
 
+  it("says not sent for a mail send the driver places before the handover", () => {
+    expect(workOrderKnownNotSent("send-failed")).toBe(true);
+  });
+
   it("leaves a mail that may have gone out unconfirmed", () => {
-    expect(workOrderKnownNotSent("send-failed")).toBe(false);
     expect(workOrderKnownNotSent("delivery-unconfirmed")).toBe(false);
     expect(workOrderKnownNotSent(null)).toBe(false);
     expect(workOrderKnownNotSent("a code from a later version")).toBe(false);

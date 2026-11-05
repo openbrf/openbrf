@@ -4,8 +4,12 @@ import type {
   ResolveAddresses,
   ResolvedAddress,
 } from "../network/outbound-address";
-import type { OutgoingMail } from "./mail-driver";
-import { MailServerNotPublicError, SmtpMailDriver } from "./smtp-mail.driver";
+import { type OutgoingMail, mayHaveBeenHandedOver } from "./mail-driver";
+import {
+  MailServerNotPublicError,
+  MailTlsUnavailableError,
+  SmtpMailDriver,
+} from "./smtp-mail.driver";
 
 /**
  * What a send is allowed to cost when the far end goes quiet.
@@ -303,5 +307,123 @@ describe("a server the board entered", () => {
       MailServerNotPublicError,
     );
     expect(transport.sendMail).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * How far a failed send had got, as the driver states it on what it throws.
+ *
+ * From the fields nodemailer gives its errors and never their wording. A
+ * failure nodemailer places before the message was sent did not go out; a
+ * socket that broke or went quiet is reported with the same code whatever the
+ * conversation had reached, the end of the message included, so it may have.
+ */
+describe("a failed send", () => {
+  /** An error shaped as nodemailer gives it. */
+  function nodemailerError(fields: Record<string, unknown>): Error {
+    return Object.assign(new Error("Mail command failed"), fields);
+  }
+
+  it.each([
+    ["no address for the name", { code: "EDNS", command: "CONN" }],
+    ["a refused sign-in", { code: "EAUTH", command: "AUTH PLAIN" }],
+    ["a refused recipient", { code: "EENVELOPE", command: "RCPT TO" }],
+    ["a refused DATA command", { code: "EENVELOPE", command: "DATA" }],
+    ["the message refused at its end", { code: "EMESSAGE", command: "DATA" }],
+    ["STARTTLS required and not offered", { code: "EREQUIRETLS" }],
+    [
+      "the connect running out of time",
+      { code: "ETIMEDOUT", timeoutType: "CONNECT_TIMEOUT", command: "CONN" },
+    ],
+    [
+      "no greeting in time",
+      { code: "ETIMEDOUT", timeoutType: "GREETING_TIMEOUT", command: "CONN" },
+    ],
+    [
+      "a greeting that refuses the connection",
+      { code: "EPROTOCOL", command: "CONN", responseCode: 554 },
+    ],
+    [
+      "a connection refused",
+      { code: "ESOCKET", originalCode: "ECONNREFUSED", command: "CONN" },
+    ],
+    [
+      "no route to the server",
+      { code: "ESOCKET", originalCode: "EHOSTUNREACH", command: "CONN" },
+    ],
+    [
+      "an expired certificate",
+      { code: "ESOCKET", originalCode: "CERT_HAS_EXPIRED", command: "CONN" },
+    ],
+    [
+      "a certificate with no chain to a trusted root",
+      {
+        code: "ESOCKET",
+        originalCode: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+        command: "CONN",
+      },
+    ],
+    [
+      "a certificate issued for another name",
+      {
+        code: "ESOCKET",
+        originalCode: "ERR_TLS_CERT_ALTNAME_INVALID",
+        command: "CONN",
+      },
+    ],
+  ])("says %s was not handed over", async (_what, fields) => {
+    transport.sendMail.mockRejectedValue(nodemailerError(fields));
+
+    const failure = await new SmtpMailDriver(SERVER)
+      .send(MAIL)
+      .catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ handover: "not-handed-over", ...fields });
+    expect(mayHaveBeenHandedOver(failure)).toBe(false);
+  });
+
+  it.each([
+    [
+      "a socket gone quiet",
+      { code: "ETIMEDOUT", timeoutType: "SOCKET_TIMEOUT", command: "CONN" },
+    ],
+    [
+      "a connection reset",
+      { code: "ESOCKET", originalCode: "ECONNRESET", command: "CONN" },
+    ],
+    ["a connection closed", { code: "ECONNECTION", command: "CONN" }],
+    ["an unexpected answer", { code: "EPROTOCOL", command: "CONN" }],
+    ["an error without a code", {}],
+  ])("says %s may have been handed over", async (_what, fields) => {
+    transport.sendMail.mockRejectedValue(nodemailerError(fields));
+
+    const failure = await new SmtpMailDriver(SERVER)
+      .send(MAIL)
+      .catch((error: unknown) => error);
+
+    // The same error, so its class and code stay what the log reads.
+    expect(failure).toMatchObject({
+      handover: "may-have-been-handed-over",
+      ...fields,
+    });
+    expect(mayHaveBeenHandedOver(failure)).toBe(true);
+  });
+
+  it("says a refused TLS upgrade and a private server were not handed over", async () => {
+    transport.sendMail.mockRejectedValue(nodemailerError({ code: "ETLS" }));
+    const tls = await new SmtpMailDriver(SERVER)
+      .send(MAIL)
+      .catch((error: unknown) => error);
+    expect(tls).toBeInstanceOf(MailTlsUnavailableError);
+    expect(mayHaveBeenHandedOver(tls)).toBe(false);
+
+    const notPublic = await new SmtpMailDriver(
+      { ...SERVER, allowPrivateHosts: false },
+      () => Promise.resolve([{ address: "10.0.0.5", family: 4 }]),
+    )
+      .send(MAIL)
+      .catch((error: unknown) => error);
+    expect(notPublic).toBeInstanceOf(MailServerNotPublicError);
+    expect(mayHaveBeenHandedOver(notPublic)).toBe(false);
   });
 });

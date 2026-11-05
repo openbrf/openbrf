@@ -315,7 +315,9 @@ describe("IssueWorkOrders", () => {
     expect(screen.queryByLabelText("Vatten: arbetsorder")).toBeNull();
     // The record says it did not go out, and why, in words.
     expect(
-      screen.getByText(/^Obekräftad: e-postservern svarade med ett fel/),
+      screen.getByText(
+        /^Inte skickad: meddelandet kunde inte förberedas, eller e-postservern gick inte att nå/,
+      ),
     ).toBeTruthy();
   });
 

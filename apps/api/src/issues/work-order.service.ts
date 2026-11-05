@@ -440,8 +440,8 @@ export class WorkOrderService {
           {
             // An order known not to have left this instance is not an earlier
             // sending: its handler is told to write it again, and a refusal
-            // that says it was sent would be false. One that failed with
-            // `send-failed` or is unconfirmed may have gone out, and counts.
+            // that says it was sent would be false. One that is unconfirmed
+            // may have gone out, and counts.
             OR: [
               { deliveryStatus: { not: "FAILED" } },
               { deliveryFailure: null },

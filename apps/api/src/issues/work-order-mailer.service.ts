@@ -11,6 +11,7 @@ import {
 } from "../jobs/job-queue.service";
 import type { Prisma } from "../generated/prisma/client";
 import { failureName } from "../logging/failure";
+import { mayHaveBeenHandedOver } from "../mail/mail-driver";
 import type { RenderedMail } from "../mail/mail-template";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { workOrderMail, type WorkOrderMailProps } from "../mail/templates";
@@ -57,7 +58,7 @@ export const WORK_ORDER_ABANDONED_QUEUE = "issue-work-order-abandoned";
 const WORK_ORDER_JOB_OPTIONS = {
   // For the failures a second attempt can change: a database that went away, a
   // worker that was killed. A mail send that errors is recorded on the row
-  // instead, as unconfirmed, and the handler is shown it.
+  // instead, as not sent or as unconfirmed, and the handler is shown it.
   retryLimit: 5,
   retryDelay: 10,
   retryBackoff: true,
@@ -169,8 +170,8 @@ export class WorkOrderMailerService implements OnModuleInit {
     }
 
     // Apart from the send: an address that cannot be read back fails before
-    // any mail is composed, so nothing left this instance, which `send-failed`
-    // would not say.
+    // any mail is composed, and `send-failed` would name the mail server as
+    // the reason.
     let to: string;
     try {
       to = await this.encryption.decrypt(
@@ -199,11 +200,17 @@ export class WorkOrderMailerService implements OnModuleInit {
         ),
       });
     } catch (error) {
+      // Not sent only where the driver says the message never reached the
+      // mail server. A connection that broke after the message was on its way
+      // may have left it with the server, and a handler told it was not sent
+      // sends the contractor the same job twice.
       await this.fail(
         workOrderId,
         error instanceof MailNotConfiguredError
           ? WORK_ORDER_DELIVERY_FAILURES.mailNotConfigured
-          : WORK_ORDER_DELIVERY_FAILURES.sendErrored,
+          : mayHaveBeenHandedOver(error)
+            ? WORK_ORDER_DELIVERY_FAILURES.unconfirmed
+            : WORK_ORDER_DELIVERY_FAILURES.sendErrored,
       );
       // By the work order and the class of the failure, never the address and
       // never the mail server's own words, which quote it back.

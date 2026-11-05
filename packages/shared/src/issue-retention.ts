@@ -19,8 +19,9 @@
  *
  * Two has no legal source. It matches motions, subletting applications and the
  * board mailbox, which keep their records two years after closing (decision
- * 33). Ten is the ordinary limitation period for a claim about the work
- * (preskriptionslagen 2 §), and a longer clock would be no clock at all.
+ * 33). Ten is the window chosen for a work order's text, sized to the general
+ * limitation period for a claim about the work (preskriptionslagen 2 §), and a
+ * longer clock would be no clock at all.
  */
 export const ISSUE_TEXT_RETENTION_YEARS = {
   min: 1,
