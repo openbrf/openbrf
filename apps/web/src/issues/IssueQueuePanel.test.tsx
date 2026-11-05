@@ -1242,6 +1242,82 @@ describe("handling an issue", () => {
     expect(fetchIssueCharges.mock.calls.length).toBe(charges + 1);
   });
 
+  it("shows the charges as being read, not as withheld, when the reporter stops being protected after a read that was withheld", async () => {
+    // The first read was taken while the API withheld the charges.
+    fetchIssueCharges.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        issue: {
+          issueId: "issue-1",
+          typeName: "Vatten",
+          costResponsibility: "TENANT_OWNER",
+          party: null,
+        },
+        charges: null,
+      },
+    });
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(
+      await screen.findByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeTruthy();
+
+    // The queue shows the reporter as protected, then as not protected again.
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue({ reporter: { kind: "protected" }, apartment: null })]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    // Held, so that the window while the new read is pending is seen.
+    let release: () => void = () => undefined;
+    fetchIssueCharges.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = () => {
+          resolve({
+            ok: true,
+            value: {
+              issue: {
+                issueId: "issue-1",
+                typeName: "Vatten",
+                costResponsibility: "TENANT_OWNER",
+                party: null,
+              },
+              charges: [],
+            },
+          });
+        };
+      }),
+    );
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    expect(screen.getByText("Läser debiteringarna...")).toBeTruthy();
+    expect(
+      screen.queryByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeNull();
+    release();
+    expect(
+      await screen.findByText("Ingen debitering har gjorts från ärendet."),
+    ).toBeTruthy();
+  });
+
   it("does not read the charges or the guide again when the queue brings the same revision in a new object", async () => {
     const session = userEvent.setup();
     const view = render(
