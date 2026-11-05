@@ -903,6 +903,8 @@
           "ISSUE_LEGAL_HOLD_PLACED": "A legal hold was placed on an issue",
           "ISSUE_LEGAL_HOLD_RELEASED": "The legal hold on an issue was released",
           "ISSUE_RETENTION_RECORDED": "How long the free text of closed issues is kept was changed",
+          "ISSUE_DAMAGE_CASE_MARKED": "A handler marked an issue as a damage case, or changed the mark",
+          "ISSUE_DAMAGE_CASE_REMOVED": "A handler took the damage-case mark off an issue",
           "MOVE_IN_RECORDED": "A move-in was recorded",
           "MOVE_OUT_RECORDED": "A move-out was recorded",
           "PLUGIN_ENABLED": "A plugin was switched on",
@@ -1801,7 +1803,10 @@
         "statusNotFound": "That status is gone. The list has been read again.",
         "defaultStatusRequired": "The default status of a meaning stays offered. Make another status the default first.",
         "tooManyStatuses": "This type already has as many statuses as it may.",
-        "assigneeNotAHandler": "That person does not handle issues of this type. Choose someone who does."
+        "assigneeNotAHandler": "That person does not handle issues of this type. Choose someone who does.",
+        "ringFenceInUse": "Issues have been reported under this type, so the ring-fence stays. Switch the type off instead.",
+        "ringFencedBoardOnly": "A ring-fenced type is handled by the board only.",
+        "ringFencedPublic": "A ring-fenced type is not offered on the website's form."
       },
       "handledBy": "Who handles it",
       "handledByNamed": "{{name}}: who handles it",
@@ -1812,8 +1817,11 @@
       "noDefaultAssignee": "Nobody: tell every handler",
       "handledByBoardHint": "The board and an administrator handle these issues, an administrator without a seat on the board included. The property manager does not see them. Making a type the board's unassigns the property manager from its issues.",
       "handledByEveryHandlerHint": "Every handler sees these issues, the property manager included. An issue with no assignee is told to all of them.",
-      "ringFenced": "Ring-fenced: nothing reaches a contractor",
-      "ringFencedNamed": "{{name}}: ring-fenced, nothing reaches a contractor"
+      "ringFenced": "Ring-fenced: the board's alone, and nothing leaves it",
+      "ringFencedNamed": "{{name}}: ring-fenced, the board's alone and nothing leaves it",
+      "ringFencedHint": "A ring-fenced type, such as one for disturbances between neighbours, is handled by the board only. Nothing about its issues goes to the property manager, a contractor, a connected app or out by email, it is not offered on the website's form, and its free text is removed one year after the issue closes, whatever the board chose for other issues, unless a legal hold stands on the issue, or a legal hold or a restriction on the person who reported it. The ring-fence cannot be lifted once anything has been reported under the type.",
+      "ringFencedLocked": "Issues have been reported under this type, so it stays ring-fenced. Switch the type off and add a new one if it is needed without the ring-fence.",
+      "ringFencedPublic": "Take the website's form off the type before ring-fencing it."
     },
     "contractors": {
       "title": "Contractors",
@@ -2094,7 +2102,8 @@
       "errors": {
         "range": "Choose a whole number of years between 1 and 10.",
         "unknown": "The setting could not be saved just now. Please try again."
-      }
+      },
+      "ringFenced": "A ring-fenced issue type, such as one for disturbances between neighbours, has a clock of its own: its free text is removed one year after the issue closes, whatever is chosen here, unless a legal hold stands on the issue, or a legal hold or a restriction on the person who reported it. The board does not set it."
     },
     "responsibilityGuide": {
       "title": "Responsibility guide",
@@ -3900,7 +3909,8 @@
       "outdoorAreas": "Outdoor areas",
       "pests": "Pests",
       "other": "Other",
-      "insurance": "Insurance"
+      "insurance": "Insurance",
+      "disturbances": "Disturbances"
     },
     "seededSavedReplies": {
       "received": {
@@ -3918,6 +3928,7 @@
       "type": "What is it about",
       "typePlaceholder": "Choose a type",
       "noTypes": "The board has not set up any issue types yet, so there is nothing to report under. Ask them to add one under Settings.",
+      "noTypesFromPost": "A report made from a post cannot be filed under any of the types you may report. Open the form for reporting an issue and write it there instead.",
       "apartment": "Apartment",
       "apartmentNone": "Not in an apartment",
       "location": "Where in the building",
@@ -3937,7 +3948,8 @@
         "followUpNotFound": "The report you are following up is gone. Write a separate report instead.",
         "followUpOfOpenIssue": "The report you are following up is open again. Reply on it instead.",
         "placeNotFound": "That common area is no longer offered. Choose another or none.",
-        "placeWithApartment": "A common area is chosen only when the report is not about an apartment. Choose one or the other."
+        "placeWithApartment": "A common area is chosen only when the report is not about an apartment. Choose one or the other.",
+        "ringFencedPost": "A report of this type is not made from a post. Report it from the form instead."
       },
       "followUp": "This report follows up your earlier report about {{type}}.",
       "followUpCancel": "Write a separate report instead",
@@ -4116,6 +4128,9 @@
         "failed": "A work order to a contractor was not sent",
         "unconfirmed": "A work order to a contractor may not have gone out; nobody knows"
       },
+      "damageCaseMarked": "Marked as a damage case: {{cause}}",
+      "damageCaseMarkedUnknown": "Marked as a damage case",
+      "damageCaseRemoved": "Took the damage-case mark off",
       "workOrderAnswer": {
         "accepted": "The contractor accepted a work order",
         "declined": "The contractor declined a work order",
@@ -4452,6 +4467,7 @@
         "mergeIntoItself": "An issue cannot be merged into itself.",
         "mergeIntoDuplicate": "That issue is itself a duplicate. Merge into the issue it was merged into. The queue has been read again.",
         "mergeLimit": "That issue already has as many duplicates as one may. Merge into another issue, or answer the reporters with a known fault. The queue has been read again.",
+        "mergeRingFenced": "That issue is on the other side of the ring-fence, so the two cannot be merged. Merge into an issue of a type that is ring-fenced alike. The queue has been read again.",
         "mergeIntoClosed": "That issue is done. Reopen it first, or merge into one that is still being handled. The queue has been read again.",
         "mergeHasDuplicates": "Other issues were merged into this one. Merge the other issue into this one instead. The queue has been read again.",
         "mergeAlreadyDuplicate": "This issue is already a duplicate of another. Reopen it first to merge it elsewhere. The queue has been read again.",
@@ -4612,6 +4628,46 @@
         "targetNotFound": "That is already gone. The issue has been read again.",
         "unknown": "Nothing could be changed just now. Please try again."
       }
+    },
+    "ringFence": {
+      "formWarning": "Only the board reads this - never the property manager, a contractor or a connected app - and nothing about it is sent by email. Its text is removed one year after the issue is closed, unless a legal hold stands on the issue, or a legal hold or a restriction on the person who reported it. Describe what happened, where and when. Do not write who you think did it, or anything about anybody's health or about a crime. Formal steps under the Tenant-Ownership Act are not taken here.",
+      "caseNotice": "Ring-fenced issue. Only the board reads it. Nothing about it goes to the property manager, a contractor, a connected app or out by email, and its free text is removed one year after it is closed, unless a legal hold stands on it, or a legal hold or a restriction on the person who reported it. Formal steps under the Tenant-Ownership Act are taken outside Open BRF."
+    },
+    "damageCase": {
+      "title": "Damage case",
+      "hint": "Mark the issue as an insurance damage. The mark places a legal hold on the issue, so its text and photographs are not purged while the claim is handled, on a ring-fenced issue too: the hold keeps its text past the one year a ring-fenced issue is otherwise kept. The hold stays if the mark is taken off, and until a handler releases it: it is never released by itself.",
+      "insurer": "Insurer",
+      "claimNumber": "Claim number",
+      "occurredOn": "Day of the damage",
+      "cause": "Cause",
+      "causes": {
+        "WATER": "Water damage",
+        "FIRE": "Fire",
+        "BURGLARY": "Burglary",
+        "VANDALISM": "Vandalism",
+        "WEATHER": "Storm or other weather",
+        "OTHER": "Other"
+      },
+      "mark": "Mark as a damage case",
+      "save": "Save the change",
+      "saving": "Saving...",
+      "remove": "Take the mark off",
+      "removing": "Taking it off...",
+      "saved": "The damage case is saved.",
+      "removed": "The mark is off. The legal hold stays until somebody releases it.",
+      "changedMeanwhile": "The mark changed while you were editing. Your draft is not saved, and saving is off until you take the current mark.",
+      "takeCurrent": "Take the current mark",
+      "errors": {
+        "incomplete": "Fill in the insurer and the claim number.",
+        "identityNumber": "A personal identity number has no place in a damage case. Take it out and try again; a reference that is shaped like one has to be written another way.",
+        "dateInvalid": "The day of the damage has to be a day that has come.",
+        "changed": "The damage case was changed by somebody else after you opened it. Take the current mark and make your change again.",
+        "notFound": "The issue is no longer there, or you do not handle it. Reload the page.",
+        "unknown": "The damage case could not be saved just now. Please try again."
+      },
+      "markNamed": "Mark issue {{number}} as a damage case",
+      "saveNamed": "Save the damage case of issue {{number}}",
+      "removeNamed": "Take the damage-case mark off issue {{number}}"
     }
   },
   "boardMailbox": {
@@ -6994,9 +7050,9 @@
         },
         "issues": {
           "name": "Issue reports",
-          "purpose": "Receiving and dealing with problems in the building, including the work orders handlers send to contractors, and telling whoever handles an issue, and whoever reported it, by email. The emails about an issue carry the issue number, the issue type and a link, and those to whoever handles it the priority too, never what anybody wrote. A work order's email carries the text a handler wrote for the contractor and nothing else from the issue.",
+          "purpose": "Receiving and dealing with problems in the building, including the work orders handlers send to contractors, and telling whoever handles an issue, and whoever reported it, by email. The emails about an issue carry the issue number, the issue type and a link, and those to whoever handles it the priority too, never what anybody wrote. A work order's email carries the text a handler wrote for the contractor and nothing else from the issue. An issue of a ring-fenced issue type, such as one for disturbances between neighbours, is read by the board alone and never mailed about, to anybody.",
           "legalBasisNote": "Legitimate interest: managing the property. A reporter may volunteer data about health (art. 9).",
-          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, the ordinary retention window chosen for it, which follows the general ten-year limitation period for a claim about the work (preskriptionslagen 2 §); a claim's limitation period can be interrupted or renewed, and the erasure does not follow that, so a legal hold on the issue or a legal hold or a restriction on the reporter is what keeps the text longer; when it was sent is kept, and whom it went to is kept while the contractor stays on the list. Removing a contractor from the list erases the name and email address on their work orders."
+          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, the ordinary retention window chosen for it, which follows the general ten-year limitation period for a claim about the work (preskriptionslagen 2 §); a claim's limitation period can be interrupted or renewed, and the erasure does not follow that, so a legal hold on the issue or a legal hold or a restriction on the reporter is what keeps the text longer; when it was sent is kept, and whom it went to is kept while the contractor stays on the list. Removing a contractor from the list erases the name and email address on their work orders. The free text of an issue of a ring-fenced issue type, such as one for disturbances between neighbours, is purged one year after closing, whatever the board set for other issues, unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it. A damage case places a legal hold on the issue, which stands until a handler releases it, and a legal hold keeps the text of a ring-fenced issue past that year as well."
         },
         "documents": {
           "name": "Document archive",

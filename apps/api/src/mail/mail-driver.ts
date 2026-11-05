@@ -163,9 +163,16 @@ export interface MailDriver {
    * Resolves when the transport has accepted it, which is not a claim that it
    * was delivered. Throws for everything else, and never with the far end's own
    * words: a refusal quotes the envelope back, and the envelope is an address.
+   *
+   * `signal`, when given, ends the send where it stands once it is aborted:
+   * the connection is closed, so nothing more of the message reaches the far
+   * end, and the send rejects with the signal's reason. For a caller that holds
+   * a lock across the handoff and must not hand anything over after the lock
+   * is gone. A message the far end took before the abort stays taken.
+   *
    * What it throws says how far the send had got (`MailHandover`).
    */
-  send(mail: OutgoingMail): Promise<SentMail>;
+  send(mail: OutgoingMail, signal?: AbortSignal): Promise<SentMail>;
 
   /** Releases whatever the driver holds open. */
   close(): void;

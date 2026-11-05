@@ -84,8 +84,8 @@ describe("the issue types a new instance starts with", () => {
     // A water leak files at Akut (decision 11).
     expect(types[0]).toMatchObject({ defaultPriority: "URGENT" });
     // The one type kept for the handlers is the board's own, handled by the
-    // board only (decision 13); every other type is offered to a reporter and
-    // handled by every handler.
+    // board only (decision 13); every other type but Störningar is offered to
+    // a reporter and handled by every handler.
     const internal = types.filter((type) =>
       type.reporters.includes("HANDLERS"),
     );
@@ -96,8 +96,25 @@ describe("the issue types a new instance starts with", () => {
         handledBy: "BOARD",
       }),
     ]);
-    for (const type of types.filter((entry) => !internal.includes(entry))) {
+    // Störningar is ring-fenced (decision 32): the board's alone, offered to
+    // residents and never on the website's form, whose reporter is answered
+    // by mail, which a ring-fenced issue never is.
+    const fenced = types.filter(
+      (type) => (type as { ringFenced?: boolean }).ringFenced === true,
+    );
+    expect(fenced).toEqual([
+      expect.objectContaining({
+        name: "[issues.seededTypes.disturbances]",
+        reporters: ["RESIDENTS"],
+        handledBy: "BOARD",
+        ringFenced: true,
+      }),
+    ]);
+    for (const type of types.filter(
+      (entry) => !internal.includes(entry) && !fenced.includes(entry),
+    )) {
       expect(type).not.toHaveProperty("handledBy");
+      expect(type).not.toHaveProperty("ringFenced");
     }
     // The website's form has something to offer from the first day.
     expect(types.some((type) => type.reporters.includes("PUBLIC"))).toBe(true);

@@ -92,6 +92,23 @@ import { DomainError } from "../http/domain-error";
  * are the bounds in `ISSUE_CONVERSATION_LIMITS`, and `saved-reply-not-found` a
  * saved reply that is not there.
  *
+ * The ring-fence's reasons (decision 32). `ring-fence-in-use` is lifting the
+ * ring-fence of a type issues have been reported under, which would hand them
+ * to whoever the ring-fence keeps out. `ring-fenced-board-only` is opening a
+ * ring-fenced type to every handler, and `ring-fenced-public` offering one on
+ * the website's form, or ring-fencing a type the form offers: its reporter is
+ * reached by mail alone, and nothing about a ring-fenced issue is mailed.
+ * `ring-fenced-post` is reporting from a post under a ring-fenced type, which
+ * would tie the report to something the house reads.
+ *
+ * The damage case's reasons (decision 28). `damage-case-incomplete` is an
+ * insurer or a claim number that is nothing once the invisible characters are
+ * taken out, and `damage-date-invalid` a day of the damage that is not a day,
+ * or one that has not come yet in the association's calendar.
+ * `damage-case-changed` is a change made from a mark another handler has
+ * changed or taken off since, which would write over theirs unseen: the claim
+ * number and the insurer are what a claim is made on.
+ *
  * The lifecycle's reasons (decisions 8 and 22). `merge-into-itself` is an
  * issue merged into itself; `merge-into-duplicate` one merged into an issue
  * that is itself a duplicate, which would make a chain its reporter follows
@@ -108,6 +125,9 @@ import { DomainError } from "../http/domain-error";
  * itself, which never reaches the house. `follow-up-of-open-issue` is a new
  * report filed as the follow-up of one's own issue that is still open, which
  * takes a reply instead.
+ * `merge-ring-fenced` is an issue merged into one on the other side of the
+ * ring-fence, which would let a reporter follow, or be told of, a report the
+ * ring-fence keeps from them.
  *
  * The Swedish-fit reasons (decisions 29 to 31). `place-not-found` is a place
  * that is not on the list or is switched off, answered alike. `place-name-taken`
@@ -174,6 +194,7 @@ export type IssueReason =
   | "merge-already-duplicate"
   | "merge-into-closed"
   | "merge-limit"
+  | "merge-ring-fenced"
   | "known-fault-board-only"
   | "follow-up-of-open-issue"
   | "place-not-found"
@@ -192,7 +213,14 @@ export type IssueReason =
   | "date-invalid"
   | "no-reporter-link"
   | "redaction-target-not-found"
-  | "legal-hold";
+  | "legal-hold"
+  | "ring-fence-in-use"
+  | "ring-fenced-board-only"
+  | "ring-fenced-public"
+  | "ring-fenced-post"
+  | "damage-case-incomplete"
+  | "damage-date-invalid"
+  | "damage-case-changed";
 
 /**
  * Where in a message, a note or a saved reply a refused value sits: a part and
@@ -228,6 +256,7 @@ export class IssueError extends DomainError {
       reason === "merge-already-duplicate" ||
       reason === "merge-into-closed" ||
       reason === "merge-limit" ||
+      reason === "merge-ring-fenced" ||
       reason === "known-fault-board-only" ||
       reason === "place-name-taken" ||
       reason === "place-in-use" ||
@@ -240,7 +269,9 @@ export class IssueError extends DomainError {
       reason === "work-order-answered" ||
       reason === "work-order-text-erased" ||
       reason === "work-order-recipient-removed" ||
-      reason === "legal-hold"
+      reason === "legal-hold" ||
+      reason === "ring-fence-in-use" ||
+      reason === "damage-case-changed"
         ? HttpStatus.CONFLICT
         : reason === "work-order-budget-spent"
           ? HttpStatus.TOO_MANY_REQUESTS
@@ -266,6 +297,11 @@ export class IssueError extends DomainError {
                 reason === "work-order-empty" ||
                 reason === "work-order-ring-fenced" ||
                 reason === "work-order-identity-number" ||
+                reason === "ring-fenced-board-only" ||
+                reason === "ring-fenced-public" ||
+                reason === "ring-fenced-post" ||
+                reason === "damage-case-incomplete" ||
+                reason === "damage-date-invalid" ||
                 reason === "work-order-protected" ||
                 reason === "work-order-photo-not-found"
               ? HttpStatus.UNPROCESSABLE_ENTITY

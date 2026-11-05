@@ -30,6 +30,7 @@ import {
 } from "./issue-labels";
 import { IssueHandlerName } from "./IssueHandlerName";
 import { IssueConversation } from "./IssueConversation";
+import { IssueDamageCaseSection } from "./IssueDamageCase";
 import { IssueDescription, IssueLocation } from "./IssueFreeText";
 import { IssueHandling } from "./IssueHandling";
 import { IssueLifecycle } from "./IssueLifecycle";
@@ -429,6 +430,14 @@ export function IssueQueuePanel({
                   />
                 )}
 
+                {/* Standing, as the reporter's warning is: what the board has to
+                    keep in mind about the issue whatever it does with it. */}
+                {issue.typeRingFenced ? (
+                  <Notice tone="info">
+                    {t("issues.ringFence.caseNotice")}
+                  </Notice>
+                ) : null}
+
                 <HandlingDisclosure
                   issue={issue}
                   type={type}
@@ -522,6 +531,7 @@ function HandlingDisclosure({
             filesRevision={uploads + redaction.revision}
             onChanged={onChanged}
           />
+          <IssueDamageCaseSection issue={issue} onChanged={onChanged} />
           <IssueLifecycle
             issue={issue}
             candidates={candidates}

@@ -1249,9 +1249,12 @@ describe("the ring-fence", () => {
     });
     expect(listed.json<{ ringFenced: boolean }>().ringFenced).toBe(true);
 
-    expect((await fence(as(board), { ringFenced: false })).statusCode).toBe(
-      200,
-    );
+    // An issue has been reported under the type, so the ring-fence stays
+    // (ADR 0054, question 5): lifting it would hand that report to whoever it
+    // keeps out. `ring-fence.int-spec.ts` covers the rest of the rule.
+    const lifted = await fence(as(board), { ringFenced: false });
+    expect(lifted.statusCode).toBe(409);
+    expect(lifted.json<{ reason: string }>().reason).toBe("ring-fence-in-use");
     expect(
       await prisma.auditLogEntry.findMany({
         where: { targetKind: "issueType", targetId: type.id },
@@ -1263,11 +1266,6 @@ describe("the ring-fence", () => {
         action: "ISSUE_TYPE_RING_FENCE_CHANGED",
         actorPersonId: board.personId,
         context: { ringFenced: true },
-      },
-      {
-        action: "ISSUE_TYPE_RING_FENCE_CHANGED",
-        actorPersonId: board.personId,
-        context: { ringFenced: false },
       },
     ]);
   });
@@ -1570,7 +1568,7 @@ describe("the sending", () => {
     });
   });
 
-  it("sends nothing of a work order whose type the board ring-fenced after it was written, then or after the ring-fence is lifted", async () => {
+  it("sends nothing of a work order whose type the board ring-fenced after it was written, then or once the ring-fence is gone", async () => {
     const type = await createIssueTypeFixture(prisma, {
       id: `wo-type-fenced-late-${suffix}`,
       name: `Grannar sent ${suffix}`,
@@ -1593,9 +1591,13 @@ describe("the sending", () => {
       expect(await mailer.send(sent.id)).toBe("failed");
       expect(send).not.toHaveBeenCalled();
 
-      // Settled: a retry of the job, even once the ring-fence is lifted,
-      // sends nothing either.
-      expect((await setRingFence(type.id, false)).statusCode).toBe(200);
+      // Settled: a retry of the job sends nothing either, even with the
+      // ring-fence gone. The board cannot lift it from a type with issues, so
+      // the column is cleared directly: the settled record is what refuses.
+      await prisma.issueType.update({
+        where: { id: type.id },
+        data: { ringFenced: false },
+      });
       expect(await mailer.send(sent.id)).toBe("skipped");
       expect(send).not.toHaveBeenCalled();
     } finally {

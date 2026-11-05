@@ -44,6 +44,7 @@ const TYPES: IssueTypeView[] = [
     sortOrder: 0,
     handledBy: "EVERY_HANDLER",
     defaultPriority: "URGENT",
+    ringFenced: false,
     reportCount: 0,
     statuses: [],
   },
@@ -55,6 +56,7 @@ const TYPES: IssueTypeView[] = [
     sortOrder: 1,
     handledBy: "EVERY_HANDLER",
     defaultPriority: "NORMAL",
+    ringFenced: false,
     reportCount: 3,
     statuses: [],
   },
@@ -246,5 +248,101 @@ describe("opening an issue as a handler", () => {
     expect(
       screen.queryByText(/Det gick inte att läsa vilka som bor i lägenheten/),
     ).toBeNull();
+  });
+
+  it("does not send a type that was switched off after it was picked", async () => {
+    const session = userEvent.setup();
+    const ringFenced: IssueTypeView = {
+      ...TYPES[0]!,
+      id: "type-noise",
+      name: "Störningar",
+      ringFenced: true,
+    };
+    const { rerender } = render(
+      <OpenIssuePanel
+        types={[...TYPES, ringFenced]}
+        onOpened={() => undefined}
+      />,
+    );
+
+    await session.selectOptions(
+      screen.getByLabelText("Vad gäller det"),
+      "type-noise",
+    );
+    await session.type(screen.getByLabelText("Vad har hänt"), "Ljud i natt");
+    const submit = screen.getByRole("button", { name: "Lägg upp ärendet" });
+    expect((submit as HTMLButtonElement).disabled).toBe(false);
+
+    // The board switches the type off while the form is open.
+    rerender(
+      <OpenIssuePanel
+        types={[...TYPES, { ...ringFenced, active: false }]}
+        onOpened={() => undefined}
+      />,
+    );
+
+    // The select shows none chosen, so none is sent.
+    expect(
+      screen.getByLabelText<HTMLSelectElement>("Vad gäller det").value,
+    ).toBe("");
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+    expect(openIssue).not.toHaveBeenCalled();
+  });
+
+  it("ties the warning to the description field", async () => {
+    render(<OpenIssuePanel types={TYPES} onOpened={() => undefined} />);
+
+    expect(
+      screen.getByLabelText("Vad har hänt").getAttribute("aria-describedby"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("textbox", {
+        name: "Vad har hänt",
+        description: /extern förvaltare/i,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("describes the description field with the ring-fence warning for a ring-fenced type", async () => {
+    const session = userEvent.setup();
+    const ringFenced: IssueTypeView = {
+      ...TYPES[0]!,
+      id: "type-noise",
+      name: "Störningar",
+      ringFenced: true,
+    };
+    render(
+      <OpenIssuePanel
+        types={[...TYPES, ringFenced]}
+        onOpened={() => undefined}
+      />,
+    );
+
+    await session.selectOptions(
+      screen.getByLabelText("Vad gäller det"),
+      "type-noise",
+    );
+
+    const textarea = screen.getByRole("textbox", {
+      name: "Vad har hänt",
+      description: /läses bara av styrelsen, aldrig av förvaltaren/,
+    });
+    // The ordinary warning gives way to the ring-fence one.
+    expect(
+      screen.queryByRole("textbox", {
+        name: "Vad har hänt",
+        description: /extern förvaltare/i,
+      }),
+    ).toBeNull();
+
+    const describedBy = textarea.getAttribute("aria-describedby");
+    if (describedBy === null) throw new Error("Missing warning reference");
+    const warning = document.getElementById(describedBy);
+    if (warning === null) throw new Error("Missing warning element");
+    // The warning stands above the field, so it is read before writing.
+    expect(
+      warning.compareDocumentPosition(textarea) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });

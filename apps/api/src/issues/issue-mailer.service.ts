@@ -34,7 +34,14 @@ import {
   issueMailReachableWhere,
   issueRecipientsWhere,
 } from "./issue-handlers";
-import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
+import {
+  holdIssueTypeRingFence,
+  lockFilingBudget,
+  lockIssue,
+  lockMessageBudget,
+  MAIL_TRANSACTION_MS,
+  mailHandoffDeadline,
+} from "./issue-lock";
 
 /**
  * The mail about issues (decisions 10, 12 and 21 of the issue module plan):
@@ -62,6 +69,14 @@ import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
  * `issueRecipientsWhere`, the handler rule of `issueHandlersWhere` with an
  * address and no restriction under GDPR art. 18, for the issue's own scope, so
  * a board-only issue never reaches the property manager by mail either.
+ *
+ * ## Not a ring-fenced issue
+ *
+ * Nothing about an issue of a ring-fenced type is mailed, to a handler or to
+ * its reporter (decision 32): the board reads it on its own screen and the
+ * reporter on theirs, and the mail provider is never told that one was made.
+ * Every decision here reads the issue through `readIssue`, which does not find
+ * one, so none is queued and one queued before the ring-fence sends nothing.
  *
  * ## No free text
  *
@@ -320,6 +335,7 @@ const ISSUE_SELECT = {
   enteredByPersonId: true,
   enteredByHandler: true,
   boardOnly: true,
+  typeId: true,
   status: { select: { meaning: true } },
   type: { select: { name: true, handledBy: true } },
 } as const;
@@ -916,11 +932,14 @@ export class IssueMailer implements OnModuleInit {
    * Whether the message a notice tells of still exists. A notice that names no
    * message stands. A message is erased with the free text of a closed issue.
    */
-  private async messageStands(job: IssueNoticeJob): Promise<boolean> {
+  private async messageStands(
+    job: IssueNoticeJob,
+    db: Db = this.prisma,
+  ): Promise<boolean> {
     if (job.messageId === undefined) {
       return true;
     }
-    const found = await this.prisma.issueMessage.findFirst({
+    const found = await db.issueMessage.findFirst({
       where: { id: job.messageId, issueId: job.issueId },
       select: { id: true },
     });
@@ -936,19 +955,20 @@ export class IssueMailer implements OnModuleInit {
   private async lookUp(
     job: IssueNoticeJob,
     at: Date,
+    db: Db = this.prisma,
   ): Promise<{
     issue: NoticeIssue;
     recipient: NoticeRecipient | null;
   } | null> {
-    const issue = await this.readIssue(this.prisma, job.issueId);
+    const issue = await this.readIssue(db, job.issueId);
     if (
       issue === null ||
       !stillSo(issue, job, at) ||
-      !(await this.messageStands(job))
+      !(await this.messageStands(job, db))
     ) {
       return null;
     }
-    const recipient = await this.prisma.person.findFirst({
+    const recipient = await db.person.findFirst({
       where: recipientWhereOf(issue, job, at),
       select: RECIPIENT_SELECT,
     });
@@ -974,83 +994,111 @@ export class IssueMailer implements OnModuleInit {
     // Decrypting took time, and a restriction, a board-only change or the end
     // of a board seat can have come since the read above: read the issue again
     // and ask again, by the time it is now, as close to the handoff as the code
-    // can. A clock handed in that is ahead of the real one is kept. This
-    // narrows the window and does not close it: the issue lock is not held
-    // here, because it would stay held across the mail service's rendering,
-    // sender lookup and the driver's network call. A restriction, board-only
-    // change or ended seat committed in that last stretch is not seen, and a
-    // mail with the number and type (and the priority, to a handler) and no
-    // free text can still go out. That is the accepted residual window;
-    // closing it would need the mail to be handed over inside a transaction
-    // that holds the lock.
+    // can. A clock handed in that is ahead of the real one is kept.
+    //
+    // The ring-fence is held as it is from that read until the mail server has
+    // taken the message: the board's change of it waits for the handoff, so a
+    // type ring-fenced meanwhile is decided either before the mail, which is
+    // then not sent, or after it. Shared, and under a key of its own, so that
+    // mails do not wait for each other and a filing or a handler's write does
+    // not wait for the mail server. A restriction, board-only change or ended
+    // seat committed in the last stretch is not seen, and a mail with the
+    // number and type (and the priority, to a handler) and no free text can
+    // still go out; the issue's lock is not held, because it would stay held
+    // across the mail service's rendering, sender lookup and network call.
+    //
+    // The send is ended before the transaction's limit can end the
+    // transaction and let the ring-fence go with the mail still on its way
+    // (`MAIL_HANDOFF_MS`): one deadline, started before the transaction is
+    // asked for, so the waits for a connection and for the lock spend it too.
+    const deadline = mailHandoffDeadline();
     const handoffAt = new Date(Math.max(now.getTime(), Date.now()));
-    const again = await this.lookUp(job, handoffAt);
-    // Each way the notice can have stopped being owed since the first look,
-    // one at a time, so a change to what `lookUp` answers cannot turn one of
-    // them into a silent skip: no longer owed (`null`), nobody left to receive
-    // it, or an address changed while it was decrypted, which is not the one
-    // decrypted.
-    if (again === null) {
-      this.logger.log(
-        `Mail about issue ${job.issueId} (${job.event}) skipped: it is no longer owed.`,
-      );
-      return "notOwed";
-    }
-    if (again.recipient === null || again.recipient.emailCipher !== cipher) {
-      this.logger.log(
-        `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
-      );
-      return "notOwed";
-    }
-    const current = again.issue;
-    const recipientName = `${recipient.firstName} ${recipient.lastName}`.trim();
-    try {
-      if (job.event === "reporterMessage") {
-        await this.mail.send({
-          to,
-          locale: recipient.preferredLocale,
-          template: issueReporterNoticeMail,
-          props: {
-            recipientName,
-            number: current.number,
-            typeName: current.type.name,
-          },
-        });
-      } else {
-        await this.mail.send({
-          to,
-          locale: recipient.preferredLocale,
-          template: issueHandlerNoticeMail,
-          props: {
-            recipientName,
-            event: job.event,
-            number: current.number,
-            typeName: current.type.name,
-            priority: current.priority,
-            targetDate: job.event === "overdue" ? current.targetDate : null,
-          },
-        });
-      }
-    } catch (error) {
-      if (error instanceof MailNotConfiguredError) {
-        this.logger.warn(
-          `Issue ${job.issueId} is in the queue but was not mailed: this instance has no mail settings.`,
-        );
-        return "noMailSettings";
-      }
-      // By the class of the failure: a rejection quotes the address back.
-      this.logger.error(
-        `Mail about issue ${job.issueId} (${job.event}) failed for ${job.personId}: ${failureName(error)}`,
-      );
-      throw error;
-    }
-    return "sent";
+    return this.prisma.$transaction(
+      async (tx): Promise<Delivery> => {
+        await holdIssueTypeRingFence(tx, found.issue.typeId);
+        const again = await this.lookUp(job, handoffAt, tx);
+        // Each way the notice can have stopped being owed since the first
+        // look, one at a time, so a change to what `lookUp` answers cannot
+        // turn one of them into a silent skip: no longer owed (`null`),
+        // nobody left to receive it, or an address changed while it was
+        // decrypted, which is not the one decrypted.
+        if (again === null) {
+          this.logger.log(
+            `Mail about issue ${job.issueId} (${job.event}) skipped: it is no longer owed.`,
+          );
+          return "notOwed";
+        }
+        if (
+          again.recipient === null ||
+          again.recipient.emailCipher !== cipher
+        ) {
+          this.logger.log(
+            `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
+          );
+          return "notOwed";
+        }
+        const current = again.issue;
+        const recipientName =
+          `${recipient.firstName} ${recipient.lastName}`.trim();
+        try {
+          if (job.event === "reporterMessage") {
+            await this.mail.send({
+              to,
+              locale: recipient.preferredLocale,
+              template: issueReporterNoticeMail,
+              signal: deadline,
+              props: {
+                recipientName,
+                number: current.number,
+                typeName: current.type.name,
+              },
+            });
+          } else {
+            await this.mail.send({
+              to,
+              locale: recipient.preferredLocale,
+              template: issueHandlerNoticeMail,
+              signal: deadline,
+              props: {
+                recipientName,
+                event: job.event,
+                number: current.number,
+                typeName: current.type.name,
+                priority: current.priority,
+                targetDate: job.event === "overdue" ? current.targetDate : null,
+              },
+            });
+          }
+        } catch (error) {
+          if (error instanceof MailNotConfiguredError) {
+            this.logger.warn(
+              `Issue ${job.issueId} is in the queue but was not mailed: this instance has no mail settings.`,
+            );
+            return "noMailSettings";
+          }
+          // By the class of the failure: a rejection quotes the address back.
+          this.logger.error(
+            `Mail about issue ${job.issueId} (${job.event}) failed for ${job.personId}: ${failureName(error)}`,
+          );
+          throw error;
+        }
+        return "sent";
+      },
+      { timeout: MAIL_TRANSACTION_MS, maxWait: 20_000 },
+    );
   }
 
-  /** The issue as every decision here reads it, or null when it is gone. */
+  /**
+   * The issue as every decision here reads it, or null when it is gone or its
+   * type is ring-fenced.
+   *
+   * The one read every queueing and every delivery makes, so a ring-fenced
+   * issue is mailed about to nobody, and a notice queued before the board
+   * ring-fenced its type finds nothing owed when it comes due.
+   */
   private readIssue(db: Db, issueId: string): Promise<NoticeIssue | null> {
-    return db.issue.findUnique({
-      where: { id: issueId },
+    return db.issue.findFirst({
+      where: { id: issueId, type: { ringFenced: false } },
       select: ISSUE_SELECT,
     });
   }

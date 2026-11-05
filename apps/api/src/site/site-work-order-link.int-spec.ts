@@ -1060,8 +1060,21 @@ describe("B. lifetime and revocation", () => {
       expect((await choose(ids.issueId, ids.workOrderId, [])).statusCode).toBe(
         422,
       );
+
+      // The ring-fence is never lifted from a type issues were reported under
+      // (ADR 0054), so the API refuses it.
+      const lifted = await set(false);
+      expect(lifted.statusCode).toBe(409);
+      expect(lifted.json<{ reason: string }>().reason).toBe(
+        "ring-fence-in-use",
+      );
     } finally {
-      expect((await set(false)).statusCode).toBe(200);
+      // Lifted behind the service's back, to see that no link comes back with
+      // it and to leave the type as the other cases expect it.
+      await prisma.issueType.update({
+        where: { id: fenced.id },
+        data: { ringFenced: false },
+      });
     }
     expect((await page(ids.token)).statusCode).toBe(404);
   });

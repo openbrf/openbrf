@@ -74,7 +74,21 @@ the board's setting, counted from `closedAt`. The setting is a whole number of
 years from 1 to 10, 2 by default, and the board sets it. Two has no legal source: it matches motions, subletting and the
 board mailbox here (decision 33). A ring-fenced type has a clock of its own, one
 year after closing, which the board cannot change while the legal review of
-decision 32 is pending.
+decision 32 is pending. It is a named constant, `RING_FENCED_ISSUE_TEXT_RETENTION_YEARS`
+in `@openbrf/shared`, which the review changes and no setting does; the purge
+takes the shorter of it and the board's setting, and reads whether a type is
+ring-fenced on every run, so a type ring-fenced later brings its closed cases
+onto the shorter clock from the next night.
+
+A legal hold stands over the ring-fenced clock as it does over the board's: the
+purge skips a case under a hold, ring-fenced or not, until a handler releases
+it. That includes a damage case, which places a hold without a word to the
+handler who marks it. A legal hold or a restriction on the case's reporter
+stops the purge on either clock as well. A ring-fenced case under any of these
+therefore keeps its text past the year, and the texts that promise the year
+name both: a legal hold on the issue, or a legal hold or a restriction on the
+person who reported it. Whether a ring-fenced case may be held at all, or the mark refused on
+one, is part of question 4 below.
 
 The text of a work order has a clock of its own too: ten years after closing
 (3,653 days, so never before the tenth anniversary and up to a day after it),
@@ -306,7 +320,9 @@ review:
    15(4))_: a case about a person who did not report it, where that person asks
    for their data.
 4. **The ring-fenced clock** _(legal review)_: whether Störningar may be held this
-   way at all, for how long, and art. 10 on an allegation (decision 32).
+   way at all, for how long, whether a legal hold may stand on a ring-fenced
+   case (today it does, and keeps the text past the year), and art. 10 on an
+   allegation (decision 32).
 5. **The timeline** (decision 16): if it is a table of its own rather than read
    from the audit log, each person column on it needs its own answer here.
 6. **A contractor's own data**, a sole trader's name and telephone number in the

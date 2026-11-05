@@ -83,6 +83,14 @@ export interface SendMailInput<Props> {
    */
   messageId?: string | null;
   inReplyTo?: string | null;
+
+  /**
+   * Ends the send where it stands once aborted, for a caller that holds a lock
+   * across the handoff and must hand nothing over after the lock is gone
+   * (`MailDriver.send`). Checked again before the driver is given the message,
+   * since rendering it and reading the settings take time of their own.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -160,6 +168,7 @@ export class MailService {
     let driver: MailDriver;
     let outgoing: OutgoingMail;
     try {
+      input.signal?.throwIfAborted();
       const association = await this.loadAssociation();
       const rendered = await this.renderWith(input, this.brandOf(association));
       const mail = await this.mailSettings.currentFrom(association);
@@ -204,6 +213,7 @@ export class MailService {
         messageId: input.messageId ?? null,
         inReplyTo: input.inReplyTo ?? null,
       };
+      input.signal?.throwIfAborted();
     } catch (error) {
       // Everything above runs before a driver is called: the association and
       // the settings are read, a stored password decrypted, the message
@@ -214,7 +224,7 @@ export class MailService {
       throw withHandover(error, "not-handed-over");
     }
 
-    return driver.send(outgoing);
+    return driver.send(outgoing, input.signal);
   }
 
   /**

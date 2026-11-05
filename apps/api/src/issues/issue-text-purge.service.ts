@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { RING_FENCED_ISSUE_TEXT_RETENTION_YEARS } from "@openbrf/shared";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -81,7 +82,9 @@ export interface IssueTextPurgeRunSummary {
  *
  * Once an issue has been closed - in the `DONE` meaning, whatever the board
  * named its status - for as many years as the board set, from one to ten and
- * two by default, its free-text layer is removed: the description, the
+ * two by default, or for one year when its type is ring-fenced, whatever the
+ * board set (`RING_FENCED_ISSUE_TEXT_RETENTION_YEARS`), its free-text layer is
+ * removed: the description, the
  * free-text location, every issue message and internal note, and every
  * photograph and handler's file, from storage and not only from the issue. The
  * building record stays. `issue-free-text.ts` says which is which, and
@@ -319,9 +322,18 @@ export class IssueTextPurgeService implements OnModuleInit {
     now: Date,
     years: number,
   ): Promise<"removed" | "kept" | "unfinished"> {
+    /*
+     * The clock the entry names. Filled in by `stillDue` from the issue's type
+     * as it is read under the issue's lock, which is before the entry is
+     * written in the same transaction, so the entry names the clock the removal
+     * was judged by rather than the one the scan saw.
+     */
+    const context: Record<string, number | boolean> = {
+      retentionYearsAfterClosing: years,
+    };
     return this.freeText.remove(issueId, now, {
       targetPersonId: null,
-      context: { retentionYearsAfterClosing: years },
+      context,
       stillDue: async (tx) => {
         const reporter = await tx.issue.findUnique({
           where: { id: issueId },
@@ -342,10 +354,21 @@ export class IssueTextPurgeService implements OnModuleInit {
 
         const due = await tx.issue.findFirst({
           where: { id: issueId, ...pastClock(now, years) },
-          select: { reporterPersonId: true, reporterEmailIndex: true },
+          select: {
+            reporterPersonId: true,
+            reporterEmailIndex: true,
+            type: { select: { ringFenced: true } },
+          },
         });
         if (due === null) {
           return false;
+        }
+        if (due.type.ringFenced) {
+          context.retentionYearsAfterClosing = Math.min(
+            years,
+            RING_FENCED_ISSUE_TEXT_RETENTION_YEARS,
+          );
+          context.ringFenced = true;
         }
         if (
           due.reporterPersonId !== null &&
@@ -377,14 +400,30 @@ export class IssueTextPurgeService implements OnModuleInit {
  *
  * The `DONE` meaning, never a label: a status the board added under done
  * closes an issue for the clock as Klar does.
+ *
+ * Two clocks, by the issue's type as it stands now: the board's for an
+ * ordinary type, and for a ring-fenced one the shorter of that and
+ * {@link RING_FENCED_ISSUE_TEXT_RETENTION_YEARS}, which the board does not set
+ * (decision 32). Read off the type on every run rather than fixed at closing,
+ * so a type the board ring-fences brings its closed issues onto the shorter
+ * clock from the next night.
  */
 function pastClock(now: Date, years: number): Prisma.IssueWhereInput {
+  const closedBy = (clockYears: number) => ({
+    not: null,
+    lte: issuePurgeCutoff(now, issueTextRetentionDays(clockYears)),
+  });
   return {
     status: { meaning: "DONE" },
-    closedAt: {
-      not: null,
-      lte: issuePurgeCutoff(now, issueTextRetentionDays(years)),
-    },
     legalHoldAt: null,
+    OR: [
+      { type: { ringFenced: false }, closedAt: closedBy(years) },
+      {
+        type: { ringFenced: true },
+        closedAt: closedBy(
+          Math.min(years, RING_FENCED_ISSUE_TEXT_RETENTION_YEARS),
+        ),
+      },
+    ],
   };
 }
