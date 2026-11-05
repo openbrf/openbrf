@@ -24,6 +24,8 @@ meeting notice is shown as unconfirmed, with the reason that the sending stopped
 before the email server confirmed it. Before, it was shown as not sent. The
 reason given for a copy that was not sent now also covers a message that could
 not be prepared and a server that could not be reached.
+The column that holds the reason is now headed "Why it was not confirmed as
+sent", because it no longer holds only copies known not to have gone out.
 
 A migration records the earlier "not sent" code on email copies of news
 mailings and on meeting notice copies as unconfirmed, since nothing then told
