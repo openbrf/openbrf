@@ -91,6 +91,13 @@ export interface IssueQueuePanelProps {
    */
   focusTypesRetry?: boolean;
   /**
+   * Called once the render that was given `focusTypesRetry` has been
+   * committed, whether or not the notice was drawn in it, so the caller can
+   * withdraw the flag: it is for that render only, and a notice mounted again
+   * later is not to take a focus the reader has since put elsewhere.
+   */
+  onTypesRetryFocused?: () => void;
+  /**
    * What an empty list says: which view is empty, or that nothing matches
    * the filter. The queue as a whole, by default.
    */
@@ -111,7 +118,12 @@ export interface IssueQueuePanelProps {
    * the rows on screen are then as current as when they were read, and
    * turning their controls off under each word typed would take the keyboard
    * focus out of the row the handler is working in. The status forms stay on
-   * for that reason; the handling under a row does not (`reading`).
+   * for that reason. The handling under a row is the exception (`reading`): a
+   * refusal of a handling action is shown inside its row, which the filtered
+   * answer may drop, so it goes off for these reads too. The focus a handler
+   * had in a row's handling field is lost when it goes off - one who clicks
+   * into it within the search's delay loses it as the delayed read starts - and
+   * that is accepted; the draft stays.
    */
   rereading?: boolean;
   /**
@@ -119,8 +131,11 @@ export interface IssueQueuePanelProps {
    * the search included. Turns the handling under each row off, which a
    * refusal of a handling action is shown in: a filtered answer that drops the
    * row would take the refusal with it, and the handler would not learn the
-   * action was not made. A status form's refusal is shown above the rows, so
-   * it outlives its row and the form stays on.
+   * action was not made. This stops an action being started while a read is
+   * out and no more: one already in flight when the handler changes the filter
+   * still has its refusal shown inside a row the answer may then drop, so the
+   * handler may not learn of it. A status form's refusal is shown above the
+   * rows, so it outlives its row and the form stays on.
    */
   reading?: boolean;
   /**
@@ -170,6 +185,7 @@ export function IssueQueuePanel({
   onRetryTypes,
   announceTypesFailure = false,
   focusTypesRetry = false,
+  onTypesRetryFocused,
   emptyMessage,
   canManageCharges = false,
   rereading = false,
@@ -225,6 +241,12 @@ export function IssueQueuePanel({
   const [workOrdersSent, setWorkOrdersSent] = useState<
     Readonly<Record<string, number>>
   >({});
+  // After the children's layout effects, so after a notice has taken the focus.
+  useEffect(() => {
+    if (focusTypesRetry) {
+      onTypesRetryFocused?.();
+    }
+  }, [focusTypesRetry, onTypesRetryFocused]);
   const saving = move.state.kind === "saving";
   const typeById = new Map((types ?? []).map((type) => [type.id, type]));
 
