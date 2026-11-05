@@ -375,6 +375,8 @@ function captureSends(): SendMailInput<unknown>[] {
   return captured;
 }
 
+const storedMessageIds: string[] = [];
+
 /**
  * Stores a message on an issue, as the conversation does before it mails
  * about it, and answers its id for the notice to name. The resident writes a
@@ -383,8 +385,6 @@ function captureSends(): SendMailInput<unknown>[] {
  * A reporter's message spends the resident's hourly mail budget, so every
  * message stored here is deleted after the test, whether it passed or not.
  */
-const storedMessageIds: string[] = [];
-
 async function storeMessage(
   issueId: string,
   author:
