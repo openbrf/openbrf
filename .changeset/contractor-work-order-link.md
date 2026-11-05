@@ -38,8 +38,8 @@ the work order while the switch is off.
   contractor declines or marks the work done, or when a handler withdraws it.
   It also ends when the work order's text is removed, the contractor is removed
   from the list, the issue is closed or its type is ring-fenced, or a person
-  with protected personal data reported the issue or lives in its apartment,
-  from the day that is recorded; clearing the protection later does not bring
+  with protected personal data reported the issue or lives or is to live in
+  its apartment, from the day that is recorded; clearing the protection later does not bring
   the link back. Reopening a closed issue brings no link back: the handler gives a new one. A
   link that has ended shows the same page as one that never existed, and the
   work order's record says it has ended.

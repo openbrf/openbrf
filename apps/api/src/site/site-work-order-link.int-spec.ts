@@ -19,6 +19,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { registerMultipart } from "../http/multipart";
 import { IssueFreeTextService } from "../issues/issue-free-text.service";
+import { lockHouseholdProtection } from "../issues/issue-lock";
 import {
   type IssueNoticeJob,
   IssueMailer,
@@ -1390,6 +1391,65 @@ describe("H4. marking a person protected", () => {
     }
   });
 
+  it("outlasts Prisma's five seconds while an import chunk holds the lock: issuing a link and marking a person protected wait for it and then succeed", async () => {
+    const ids = await arrange();
+    const strangerId = `wl-stranger-${suffix}`;
+    await prisma.person.create({
+      data: { id: strangerId, firstName: "Siv", lastName: `Lås${suffix}` },
+    });
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const inside = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    try {
+      // An import chunk with a residency holds the lock to its commit, for up
+      // to its own limit; this one holds it past Prisma's default timeout.
+      const holding = prisma.$transaction(
+        async (tx) => {
+          await lockHouseholdProtection(tx);
+          entered();
+          await held;
+        },
+        { timeout: 20_000 },
+      );
+      await inside;
+      const waiting = Promise.allSettled([
+        Promise.resolve(
+          inject({
+            method: "POST",
+            url: linkUrl(ids.issueId, ids.workOrderId),
+            cookie: as(board),
+          }),
+        ),
+        app.get(PersonService).setProtectedPersonalData({
+          personId: strangerId,
+          protectedPersonalData: true,
+          actorPersonId: board.personId,
+        }),
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, 6_000));
+      release();
+      await holding;
+      const [issuing, protecting] = await waiting;
+
+      expect(issuing.status).toBe("fulfilled");
+      expect(
+        issuing.status === "fulfilled" ? issuing.value.statusCode : null,
+      ).toBe(201);
+      expect(protecting).toEqual({
+        status: "fulfilled",
+        value: { protectedPersonalData: true },
+      });
+    } finally {
+      release();
+      await prisma.person.deleteMany({ where: { id: strangerId } });
+    }
+  });
+
   it("is serialised with a move-in in the one order: a protection waits for the lock, not on the person's row, so a move-in that writes the person afterwards is never a deadlock victim", async () => {
     const addressId = `wl-addr3-${suffix}`;
     const apartmentId = `wl-apt3-${suffix}`;
@@ -1592,6 +1652,72 @@ describe("H4. a protected household", () => {
         after.workOrders.find((row) => row.id === ids.workOrderId)
           ?.contractorLink.link,
       ).toEqual({ state: "ended", expiresAt: null });
+    } finally {
+      await prisma.residency.deleteMany({ where: { personId: neighbourId } });
+      await prisma.person.deleteMany({ where: { id: neighbourId } });
+      await prisma.issue.update({
+        where: { id: ids.issueId },
+        data: { apartmentId: null },
+      });
+      await prisma.apartment.deleteMany({ where: { id: apartmentId } });
+      await prisma.address.deleteMany({ where: { id: addressId } });
+    }
+  });
+  it("counts a protected household recorded ahead of its move-in date: the link stops answering and no new one is issued", async () => {
+    const ids = await linked();
+    const addressId = `wl-address4-${suffix}`;
+    const apartmentId = `wl-apartment4-${suffix}`;
+    const neighbourId = `wl-neighbour4-${suffix}`;
+    await prisma.address.create({
+      data: {
+        id: addressId,
+        street: "Länkgatan",
+        number: `${suffix}d`,
+        postalCode: "11122",
+        city: "Stockholm",
+        sortOrder: 924,
+      },
+    });
+    await prisma.apartment.create({
+      data: { id: apartmentId, addressId, number: "1204", floor: 4 },
+    });
+    await prisma.issue.update({
+      where: { id: ids.issueId },
+      data: { apartmentId },
+    });
+    try {
+      expect((await page(ids.token)).statusCode).toBe(200);
+
+      // Recorded by a write that ends no link, so only the check on every
+      // request and on issuing stands between the household and the link.
+      await prisma.person.create({
+        data: {
+          id: neighbourId,
+          firstName: "Nora",
+          lastName: `Granne4${suffix}`,
+          protectedPersonalData: true,
+        },
+      });
+      await prisma.residency.create({
+        data: {
+          personId: neighbourId,
+          apartmentId,
+          role: "RESIDENT",
+          movedInOn: new Date("2999-01-01T00:00:00.000Z"),
+        },
+      });
+
+      expect((await page(ids.token)).statusCode).toBe(404);
+      expect((await listed(ids.issueId)).protectedHousehold).toBe(true);
+      const again = await inject({
+        method: "POST",
+        url: linkUrl(ids.issueId, ids.workOrderId),
+        cookie: as(board),
+      });
+      expect(again.statusCode).toBe(422);
+      expect(again.json<{ reason: string }>().reason).toBe(
+        "work-order-protected",
+      );
     } finally {
       await prisma.residency.deleteMany({ where: { personId: neighbourId } });
       await prisma.person.deleteMany({ where: { id: neighbourId } });

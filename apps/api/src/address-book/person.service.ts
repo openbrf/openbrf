@@ -31,7 +31,10 @@ import {
   erasureWaitingOn,
   type ErasureRequestStatus,
 } from "../retention/erasure-waiting-on";
-import { lockHouseholdProtection } from "../issues/issue-lock";
+import {
+  HOUSEHOLD_PROTECTION_TRANSACTION,
+  lockHouseholdProtection,
+} from "../issues/issue-lock";
 import { revokeLinksOfProtectedHousehold } from "../issues/work-order-link";
 import { computePersonPurgeDate } from "../retention/purge-date";
 import type { RequestPurgeRefusal } from "../retention/purge-refusal";
@@ -887,7 +890,7 @@ export class PersonService {
       );
 
       return { protectedPersonalData: input.protectedPersonalData };
-    });
+    }, HOUSEHOLD_PROTECTION_TRANSACTION);
   }
 }
 

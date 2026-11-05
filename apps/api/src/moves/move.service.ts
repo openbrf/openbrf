@@ -26,7 +26,10 @@ import {
   moveOutMail,
 } from "../mail/templates";
 import { DataSubjectRequestService } from "../data-protection/data-subject-request.service";
-import { lockHouseholdProtection } from "../issues/issue-lock";
+import {
+  HOUSEHOLD_PROTECTION_TRANSACTION,
+  lockHouseholdProtection,
+} from "../issues/issue-lock";
 import { revokeLinksOfProtectedHousehold } from "../issues/work-order-link";
 import { endPluginAccesses } from "../plugin-access/plugin-access";
 import { ApartmentRegisterService } from "../registers/apartment-register.service";
@@ -513,7 +516,7 @@ export class MoveService implements OnModuleInit {
         transferId,
         obligationId,
       };
-    });
+    }, HOUSEHOLD_PROTECTION_TRANSACTION);
 
     /*
      * After the commit, and best effort, for the reason the register screen's

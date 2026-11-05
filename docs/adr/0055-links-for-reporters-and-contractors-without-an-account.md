@@ -321,7 +321,8 @@ sections above leave open, this is what was decided:
   withdrawing it, the work order's text redacted or purged, its contractor
   removed from the list, its issue closed or ring-fenced, and a person with
   protected personal data having reported the issue or living in its
-  apartment. Every one of them is read in the lookup on every request. A
+  apartment, a residency recorded ahead of its move-in date included. Every
+  one of them is read in the lookup on every request. A
   redaction, a purge, a ring-fence, a contractor removed and the issue closed
   also revoke the link in their own transaction, so lifting a ring-fence or
   reopening the issue later brings no link back; the handler issues a new one
@@ -335,7 +336,10 @@ sections above leave open, this is what was decided:
   holder takes it after its other advisory locks and before it first writes a
   person or a residency, so none waits on another while holding what that one
   waits for; an import chunk with a residency holds it to the commit, and so
-  holds link issuing back for as long as the chunk runs.
+  holds link issuing, marking a person protected and a move-in back for as
+  long as the chunk runs. Those three run in a transaction allowed longer than
+  an import chunk (`HOUSEHOLD_PROTECTION_TRANSACTION`), so they wait rather
+  than fail.
   Clearing the protection restores nothing. A read still writes nothing. The
   handlers' record reads the same conditions, the protected household
   included, so it never says a link opens what the contractor is refused; the

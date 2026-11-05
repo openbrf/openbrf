@@ -22,6 +22,7 @@ import {
 } from "../media/media.service";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
 import {
+  HOUSEHOLD_PROTECTION_TRANSACTION,
   lockHouseholdProtection,
   lockIssue,
   lockIssueForHandling,
@@ -392,7 +393,7 @@ export class WorkOrderLinkService {
         tx,
       );
       return { linkId: link.id, expiresAt: ends.expiresAt };
-    });
+    }, HOUSEHOLD_PROTECTION_TRANSACTION);
 
     this.logger.log(
       `Work order ${workOrderId} on issue ${issueId} has a new link ${issued.linkId}`,

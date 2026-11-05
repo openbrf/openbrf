@@ -1,10 +1,10 @@
-import { dateColumnOf, type LocalDay, localDayOf } from "@openbrf/shared";
+import { type LocalDay, localDayOf } from "@openbrf/shared";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import type { AuditChannel } from "../generated/prisma/enums";
-import { residencyHeldOn } from "../registers/held-on";
+import { residencyNotEndedOn } from "../registers/held-on";
 import { lockHouseholdProtection } from "./issue-lock";
 import { issuesReportedByProtectedPersons } from "./issue-reporter-protection";
 
@@ -37,7 +37,7 @@ import { issuesReportedByProtectedPersons } from "./issue-reporter-protection";
  *
  * And one more, asked beside the query in the same transaction because it
  * reads the register: **nobody with protected personal data reported the
- * issue or lives in its apartment** (`showsProtectedHousehold`). The threat
+ * issue or lives or is to live in its apartment** (`showsProtectedHousehold`). The threat
  * review asked that such a work order fail closed until the owner answers
  * ADR 0055's question 4, since the photographs the board chose may show the
  * home.
@@ -140,10 +140,14 @@ export async function revokeWorkOrderLinks(
 
 /**
  * Whether a person with protected personal data reported the issue, or lives
- * today in the apartment it is about.
+ * in the apartment it is about or is to live there.
  *
  * Asked when a link is issued and on every request through one, so a
  * protection recorded after the link was issued ends it from the next request.
+ * A residency counts from the day it is recorded, not the day it begins, as
+ * `revokeLinksOfProtectedHousehold` counts it: a link issued for the apartment
+ * of a household recorded ahead of its move-in date would otherwise stand
+ * unrevoked, to open again once the protection was cleared.
  */
 export async function showsProtectedHousehold(
   db: Db,
@@ -163,7 +167,7 @@ export async function showsProtectedHousehold(
   const protectedResident = await db.residency.findFirst({
     where: {
       apartmentId: issue.apartmentId,
-      ...residencyHeldOn(today),
+      ...residencyNotEndedOn(today),
       person: { protectedPersonalData: true },
     },
     select: { id: true },
@@ -232,10 +236,7 @@ export async function revokeLinksOfProtectedHousehold(
           await tx.residency.findMany({
             where: {
               personId: input.personId,
-              OR: [
-                { movedOutOn: null },
-                { movedOutOn: { gt: dateColumnOf(localDayOf(new Date())) } },
-              ],
+              ...residencyNotEndedOn(localDayOf(new Date())),
             },
             select: { apartmentId: true },
           })

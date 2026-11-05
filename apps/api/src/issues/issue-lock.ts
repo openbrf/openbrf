@@ -184,8 +184,9 @@ export async function lockIssueForHandling(
  *   the persons' transition locks, before the residency is written.
  * - An import chunk with a residency takes it after the same locks, before its
  *   first person is written. It holds it to the commit, so such a chunk holds
- *   issuing a link and marking a person protected back for as long as the
- *   chunk runs.
+ *   issuing a link, marking a person protected and every move-in back for as
+ *   long as the chunk runs. Each of those runs in a transaction given
+ *   {@link HOUSEHOLD_PROTECTION_TRANSACTION}, so it outlasts that wait.
  * `revokeLinksOfProtectedHousehold` takes it too, which costs nothing when its
  * caller already holds it: an advisory lock is taken again by the same
  * transaction at no cost. An advisory lock for the reason `lockIssue` gives.
@@ -195,6 +196,22 @@ export async function lockHouseholdProtection(
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"work-order-link-protection"}))`;
 }
+
+/**
+ * The options for a transaction that takes {@link lockHouseholdProtection}
+ * outside an import chunk: issuing a link, marking a person protected, a
+ * move-in and a signup approved with its residency.
+ *
+ * An import chunk with a residency holds the lock for as long as it runs, up
+ * to `IMPORT_CHUNK_TRANSACTION_MS`, and Prisma ends an interactive
+ * transaction after five seconds unless told otherwise: one waiting for the
+ * lock would fail while it waits. Longer than the chunk's limit, so the waiter
+ * outlasts the chunk with time left for its own work; `issue-lock.spec.ts`
+ * holds the two apart.
+ */
+export const HOUSEHOLD_PROTECTION_TRANSACTION = {
+  timeout: 135_000,
+} as const;
 
 /**
  * The lock a transaction takes before it adds to the association's saved
