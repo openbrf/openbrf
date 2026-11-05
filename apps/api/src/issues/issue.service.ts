@@ -1923,6 +1923,11 @@ export class IssueService {
         data: { updatedAt: new Date() },
       });
 
+      // A merge is a closing, and ends every contractor's link to the
+      // duplicate's work orders as `changeStatus` does (ADR 0055): reopening
+      // the duplicate later brings none back.
+      await revokeWorkOrderLinks(tx, { issueId });
+
       return tx.issue.update({
         where: { id: issueId },
         data: {

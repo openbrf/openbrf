@@ -1148,6 +1148,38 @@ describe("B. lifetime and revocation", () => {
     ).toBe("ended");
   });
 
+  it("B1, B5: merging the issue into another as a duplicate revokes its links, and reopening it brings none back", async () => {
+    const ids = await linked();
+    const into = await arrange();
+
+    const merged = await inject({
+      method: "POST",
+      url: `/api/issue-queue/${ids.issueId}/merge`,
+      payload: { intoIssueId: into.issueId },
+      cookie: as(board),
+    });
+    expect(merged.statusCode).toBe(201);
+    expect((await page(ids.token)).statusCode).toBe(404);
+    const rows = await prisma.workOrderLink.findMany({
+      where: { workOrderId: ids.workOrderId },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows.every((row) => row.revokedAt !== null)).toBe(true);
+
+    const reopened = await inject({
+      method: "POST",
+      url: `/api/issue-queue/${ids.issueId}/status`,
+      payload: { statusId: plain.statusIds.IN_PROGRESS },
+      cookie: as(board),
+    });
+    expect(reopened.statusCode).toBe(201);
+    expect((await page(ids.token)).statusCode).toBe(404);
+    expect(
+      (await listedOrder(ids.issueId, ids.workOrderId)).contractorLink.link
+        .state,
+    ).toBe("ended");
+  });
+
   it("B1: a closed issue, a removed contractor and a recipient erased each end the link", async () => {
     const closed = await linked();
     // Closed under the handlers' feet, with no revocation: the lookup refuses

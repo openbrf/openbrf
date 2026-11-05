@@ -326,7 +326,8 @@ sections above leave open, this is what was decided:
   apartment, a residency recorded ahead of its move-in date included. Every
   one of them is read in the lookup on every request. A
   redaction, a purge, a ring-fence, a contractor removed and the issue closed
-  also revoke the link in their own transaction, so lifting a ring-fence or
+  (merged into another as a duplicate included) also revoke the link in their
+  own transaction, so lifting a ring-fence or
   reopening the issue later brings no link back; the handler issues a new one
   if the work goes on. So does protection: marking a person as protected, and
   recording a protected person's residency (counted from the day it is
