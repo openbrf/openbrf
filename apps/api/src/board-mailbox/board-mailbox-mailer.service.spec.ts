@@ -363,4 +363,19 @@ describe("an answer the mail did not confirm", () => {
     expect(prisma.boardMailboxMessage.updateMany).not.toHaveBeenCalled();
     expect(mail.send).not.toHaveBeenCalled();
   });
+
+  it("claims nothing when the mailbox settings cannot be read", async () => {
+    // Same reason: a claim followed by a failed read would leave the reply
+    // claimed, and every retry would be refused as an unsettled claim.
+    const { mailer, mail, prisma } = build({ messageId: null });
+    prisma.association.findUnique.mockRejectedValueOnce(
+      new Error("connection lost"),
+    );
+
+    await expect(mailer.sendReply("reply-1")).rejects.toThrow(
+      "connection lost",
+    );
+    expect(prisma.boardMailboxMessage.updateMany).not.toHaveBeenCalled();
+    expect(mail.send).not.toHaveBeenCalled();
+  });
 });

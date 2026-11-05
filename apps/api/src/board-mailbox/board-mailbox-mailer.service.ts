@@ -217,6 +217,13 @@ export class BoardMailboxMailerService implements OnModuleInit {
       "boardMailboxThread.correspondentEmail",
       message.thread.correspondentEmailCipher,
     );
+    // Read before the claim for the same reason: settings that cannot be read
+    // fail the job with the reply untouched, to be retried, not claimed and
+    // then refused as a send that may have gone.
+    const settings = await loadBoardMailboxSettings(
+      this.prisma,
+      this.encryption,
+    );
 
     /*
      * The claim, and everything this file promises rests on it running before
@@ -247,10 +254,6 @@ export class BoardMailboxMailerService implements OnModuleInit {
       return "skipped";
     }
 
-    const settings = await loadBoardMailboxSettings(
-      this.prisma,
-      this.encryption,
-    );
     if (settings === null) {
       // The mailbox was unconfigured between the board pressing send and this
       // run. Recorded rather than sent from an address a correspondent could not

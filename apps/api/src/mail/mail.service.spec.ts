@@ -791,7 +791,10 @@ describe("a failure before the driver is called", () => {
       Object.assign(new Error("Connection closed"), { code: "ECONNECTION" }),
     );
 
-    const thrown = await invitation(serviceWith(TEST_ENV, STORED, i18n)).catch(
+    const thrown = await invitation(serviceWith(TEST_ENV, STORED, i18n)).then(
+      () => {
+        throw new Error("send resolved instead of rejecting");
+      },
       (error: unknown) => error,
     );
 
