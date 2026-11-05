@@ -15,9 +15,14 @@ import { AuthService } from "../auth/auth.service";
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { NORMALIZATION_VERSION } from "../crypto/personal-data";
 import { registerMultipart } from "../http/multipart";
 import { PrismaService } from "../database/prisma.service";
 import { IssueConversationService } from "../issues/issue-conversation.service";
+import {
+  ISSUE_NOTICE_QUEUE,
+  ISSUE_OVERDUE_QUEUE,
+} from "../issues/issue-mailer.service";
 import { IssuePurgeService } from "../issues/issue-purge.service";
 import {
   REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY,
@@ -320,6 +325,21 @@ afterAll(async () => {
     `rl-restricted-${suffix}`,
     `rl-restricted-late-${suffix}`,
   ];
+  // The notices a reopening queued, for this run's issues only.
+  const issueIds = (
+    await prisma.issue.findMany({
+      where: { typeId: publicType.id },
+      select: { id: true },
+    })
+  ).map((issue) => issue.id);
+  if (issueIds.length > 0) {
+    await prisma.$executeRawUnsafe(
+      "DELETE FROM pgboss.job WHERE name IN ($1, $2) AND data->>'issueId' = ANY($3::text[])",
+      ISSUE_NOTICE_QUEUE,
+      ISSUE_OVERDUE_QUEUE,
+      issueIds,
+    );
+  }
   await prisma.issue.deleteMany({ where: { typeId: publicType.id } });
   await prisma.issueType.deleteMany({ where: { id: publicType.id } });
   await prisma.session.deleteMany({
@@ -393,7 +413,9 @@ describe("a reporter without an account", () => {
     ).toBe(0);
     await expect(
       conversation.replyAsHandler(board.personId, id, "Hej"),
-    ).rejects.toMatchObject({ reason: "no-reporter" });
+    ).rejects.toMatchObject({
+      reason: "no-reporter",
+    });
     // And nothing was queued to mail anybody.
     const jobs = await prisma.$queryRaw<{ count: bigint }[]>`
       SELECT count(*) AS "count" FROM pgboss.job
@@ -638,7 +660,7 @@ describe("B. lifetime and revocation", () => {
     expect((await page(token)).statusCode).toBe(404);
   });
 
-  it("B4: reads, without a field to write in, for 30 days after closing, and nothing after", async () => {
+  it("B4: a message within 30 days of closing reopens the issue and alerts its assignee, and the link ends after", async () => {
     const { issueId, token } = await reported();
     await prisma.issue.update({
       where: { id: issueId },
@@ -646,21 +668,108 @@ describe("B. lifetime and revocation", () => {
         statusId: publicType.statusIds.DONE,
         outcome: "FIXED",
         closedAt: new Date(Date.now() - 29 * 24 * 60 * 60 * 1000),
+        assigneePersonId: board.personId,
       },
     });
     const closed = await page(token);
     expect(closed.statusCode).toBe(200);
+    // The field is offered, and the page says that writing reopens the issue.
+    expect(closed.body).toContain("<textarea");
+    expect(closed.body).toContain("öppnas det igen");
+
+    const sentReply = await post(token, "En sak till");
+    expect(sentReply.headers.location).toBe(`/arende/${token}?svar=sent`);
+
+    const reopened = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: {
+        statusId: true,
+        outcome: true,
+        closedAt: true,
+        assigneePersonId: true,
+        messages: { select: { body: true, side: true, authorPersonId: true } },
+      },
+    });
+    expect(reopened).toEqual({
+      statusId: publicType.statusIds.IN_PROGRESS,
+      outcome: null,
+      closedAt: null,
+      assigneePersonId: board.personId,
+      messages: [
+        { body: "En sak till", side: "REPORTER", authorPersonId: null },
+      ],
+    });
+    // On the link's channel, naming the link and no person, and never the text.
+    const reopening = (await auditFor(issueId)).find(
+      (entry) => entry.action === "ISSUE_STATUS_CHANGED",
+    );
+    expect(reopening).toMatchObject({
+      channel: "LINK",
+      actorPersonId: null,
+      context: {
+        from: "DONE",
+        to: "IN_PROGRESS",
+        byReporter: true,
+      },
+    });
+    expect(JSON.stringify(reopening?.context)).not.toContain("En sak till");
+    // The assignee is told that it is open again.
+    const notices = await prisma.$queryRawUnsafe<
+      { data: { personId: string; event: string } }[]
+    >(
+      "SELECT data FROM pgboss.job WHERE name = $1 AND data->>'issueId' = $2",
+      ISSUE_NOTICE_QUEUE,
+      issueId,
+    );
+    expect(notices.map((notice) => notice.data)).toContainEqual(
+      expect.objectContaining({
+        personId: board.personId,
+        event: "reopened",
+      }),
+    );
+
+    // Closed again 31 days ago, the link opens nothing.
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
+      },
+    });
+    expect((await page(token)).statusCode).toBe(404);
+    expect((await post(token, "För sent")).statusCode).toBe(404);
+  });
+
+  it("B4: a message on an issue merged into another is refused as closed, and the page offers no field", async () => {
+    const duplicate = await reported();
+    const target = await reported();
+    await prisma.issue.update({
+      where: { id: duplicate.issueId },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "DUPLICATE",
+        closedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+        mergedIntoIssueId: target.issueId,
+      },
+    });
+    const closed = await page(duplicate.token);
+    expect(closed.statusCode).toBe(200);
     expect(closed.body).not.toContain("<textarea");
     expect(closed.body).toContain("Ärendet är avslutat");
 
-    const refused = await post(token, "En sak till");
-    expect(refused.headers.location).toBe(`/arende/${token}?svar=closed`);
-
-    await prisma.issue.update({
-      where: { id: issueId },
-      data: { closedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000) },
+    const refused = await post(duplicate.token, "En sak till");
+    expect(refused.headers.location).toBe(
+      `/arende/${duplicate.token}?svar=closed`,
+    );
+    const still = await prisma.issue.findUniqueOrThrow({
+      where: { id: duplicate.issueId },
+      select: { statusId: true, messages: { select: { id: true } } },
     });
-    expect((await page(token)).statusCode).toBe(404);
+    expect(still).toEqual({
+      statusId: publicType.statusIds.DONE,
+      messages: [],
+    });
   });
 
   it("B4: an issue that stays open keeps the link a year after its latest message, and no longer", async () => {
@@ -826,6 +935,23 @@ describe("the link's path, as the router reads it", () => {
     }
   });
 
+  it("carries the link's headers on an escaped slash before a token, and leaves a kept slug's form to the website", async () => {
+    const { token } = await reported();
+
+    // The router reads `arende%2F<token>` as one segment and matches the
+    // website's /:slug route, whose 404 still answers a URL with a live token.
+    for (const url of [`/arende%2F${token}`, `/arende%2f${token}`]) {
+      const refused = await inject({ method: "GET", url });
+      expect(refused.statusCode).toBe(404);
+      expectLinkHeaders(refused.headers);
+    }
+
+    const website = await inject({ method: "GET", url: "/arende%2Fkontakt" });
+    expect(website.statusCode).toBe(404);
+    expect(website.headers["cache-control"]).not.toBe("no-store");
+    expect(website.headers["x-robots-tag"]).not.toBe("noindex, nofollow");
+  });
+
   it("F1: a post below the path that is not a token's carries the link's headers", async () => {
     const refused = await post("not-a-token", "Hej");
     expect(refused.statusCode).toBe(404);
@@ -945,6 +1071,8 @@ describe("D. rate limits and abuse", () => {
 
   it("D4: a link that has written all it may is told so, and not to try later", async () => {
     const { issueId, token } = await reported();
+    // An hour's worth of them in the last hour too, so the link is past both
+    // limits and the answer shows which one is asked first.
     await prisma.issueMessage.createMany({
       data: Array.from(
         { length: REPORTER_LINK_MESSAGES_PER_ISSUE },
@@ -953,7 +1081,12 @@ describe("D. rate limits and abuse", () => {
           side: "REPORTER" as const,
           authorPersonId: null,
           body: `Meddelande ${String(n)}`,
-          createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+          createdAt: new Date(
+            Date.now() -
+              (n < REPORTER_LINK_MESSAGES_PER_HOUR
+                ? 10 * 60 * 1000
+                : 2 * 60 * 60 * 1000),
+          ),
         }),
       ),
     });
@@ -1046,6 +1179,76 @@ describe("D. rate limits and abuse", () => {
         where: { id: personId },
         data: { processingRestrictedAt: null },
       });
+    }
+  });
+
+  it("D6: a restricted person is found when the report gives their address in other letters' case", async () => {
+    const email = `rl-restricted-case-${suffix}@exempel.se`;
+    const sealed = await encryption.encrypt("person.email", email);
+    const personId = `rl-restricted-case-${suffix}`;
+    await prisma.person.create({
+      data: {
+        id: personId,
+        firstName: "Rakel",
+        lastName: `Versal${suffix}`,
+        emailCipher: sealed.cipher,
+        emailIndex: sealed.index,
+        processingRestrictedAt: new Date(),
+      },
+    });
+    try {
+      const { id } = await issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Begränsad, med versaler",
+        reporterName: null,
+        reporterEmail: email.toUpperCase(),
+      });
+      const before = sent.length;
+      expect(await links.deliver(id)).toBe(false);
+      expect(sent.length).toBe(before);
+      expect(
+        await prisma.issueReporterLink.count({ where: { issueId: id } }),
+      ).toBe(0);
+    } finally {
+      await prisma.person.delete({ where: { id: personId } });
+    }
+  });
+
+  it("D6: a restricted person whose index predates the normalisation rules is still not mailed", async () => {
+    const email = `rl-restricted-stale-${suffix}@exempel.se`;
+    const sealed = await encryption.encrypt("person.email", email);
+    const personId = `rl-restricted-stale-${suffix}`;
+    // An index that matches no address, as one computed under older rules
+    // would until the reindex rewrites it.
+    await prisma.person.create({
+      data: {
+        id: personId,
+        firstName: "Rut",
+        lastName: `Gammal${suffix}`,
+        emailCipher: sealed.cipher,
+        emailIndex: `stale-${suffix}`,
+        blindIndexVersion: NORMALIZATION_VERSION - 1,
+        processingRestrictedAt: new Date(),
+      },
+    });
+    try {
+      const { id } = await issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Begränsad, gammalt index",
+        reporterName: null,
+        reporterEmail: email,
+      });
+      const before = sent.length;
+      expect(await links.deliver(id)).toBe(false);
+      expect(sent.length).toBe(before);
+      expect(
+        await prisma.issueReporterLink.count({ where: { issueId: id } }),
+      ).toBe(0);
+    } finally {
+      // Deleted rather than lifted: its index matches nothing.
+      await prisma.person.delete({ where: { id: personId } });
     }
   });
 
@@ -1222,6 +1425,97 @@ describe("D. rate limits and abuse", () => {
     expect(sent.length).toBe(before + 1);
   });
 
+  it("D6: a retry that will not mail gives back the slot the earlier attempt took", async () => {
+    // A report whose first mail failed, so its link is issued and unmailed.
+    const failedOnce = async (email: string) => {
+      const { id } = await issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Första försöket misslyckades",
+        reporterName: null,
+        reporterEmail: email,
+      });
+      vi.spyOn(mail, "send").mockRejectedValueOnce(
+        new Error("connection reset"),
+      );
+      await expect(links.deliver(id)).rejects.toThrow("connection reset");
+      expect(
+        await prisma.issueReporterLink.count({
+          where: { issueId: id, mailedAt: null },
+        }),
+      ).toBe(1);
+      return id;
+    };
+    const before = sent.length;
+
+    // Closed before the retry.
+    const closed = await failedOnce(`rl-retry-closed-${suffix}@exempel.se`);
+    await prisma.issue.update({
+      where: { id: closed },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(),
+      },
+    });
+    expect(await links.deliver(closed)).toBe(false);
+    expect(
+      await prisma.issueReporterLink.count({ where: { issueId: closed } }),
+    ).toBe(0);
+
+    // Restricted before the retry.
+    const restrictedEmail = `rl-retry-restricted-${suffix}@exempel.se`;
+    const sealed = await encryption.encrypt("person.email", restrictedEmail);
+    const personId = `rl-retry-restricted-${suffix}`;
+    await prisma.person.create({
+      data: {
+        id: personId,
+        firstName: "Rut",
+        lastName: `Omförsök${suffix}`,
+        emailCipher: sealed.cipher,
+        emailIndex: sealed.index,
+      },
+    });
+    try {
+      const restricted = await failedOnce(restrictedEmail);
+      await prisma.person.update({
+        where: { id: personId },
+        data: { processingRestrictedAt: new Date() },
+      });
+      expect(await links.deliver(restricted)).toBe(false);
+      expect(
+        await prisma.issueReporterLink.count({
+          where: { issueId: restricted },
+        }),
+      ).toBe(0);
+    } finally {
+      await prisma.person.update({
+        where: { id: personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+
+    // The address's three a day spent before the retry: the failed link was
+    // issued more than a day ago, so the three after it went.
+    const fullEmail = `rl-retry-full-${suffix}@exempel.se`;
+    const full = await failedOnce(fullEmail);
+    await prisma.$executeRaw`
+      UPDATE "issue_reporter_link" SET "issuedAt" = now() - interval '25 hours'
+      WHERE "issueId" = ${full}`;
+    for (let n = 0; n < REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY; n += 1) {
+      await reported({ email: fullEmail });
+    }
+    const beforeRetry = sent.length;
+    expect(await links.deliver(full)).toBe(false);
+    expect(sent.length).toBe(beforeRetry);
+    expect(
+      await prisma.issueReporterLink.count({ where: { issueId: full } }),
+    ).toBe(0);
+
+    // Nothing went to the closed or the restricted report.
+    expect(sent.length).toBe(before + REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY);
+  });
+
   it("B1: a retried mail runs the link's year from the mail that went", async () => {
     const { id } = await issues.reportPublicly({
       typeId: publicType.id,
@@ -1312,6 +1606,9 @@ describe("D. rate limits and abuse", () => {
         .finally(() => {
           closeSettled = true;
         });
+      // Awaited below; this keeps a failed close from surfacing as an
+      // unhandled rejection when an expectation before that throws first.
+      closing.catch(() => undefined);
       // Neither of the two awaits the other here: the delivery holds the
       // issue's lock until the send is released, so awaiting the close first
       // would never return. The close is seen queued on that lock, which a
@@ -1349,7 +1646,10 @@ describe("D. rate limits and abuse", () => {
         { timeout: 30_000 },
       );
       try {
-        await holderHasRow;
+        // A holder that fails before it has the row (an exhausted pool, a
+        // failed lock, a timeout) rejects here with its own error instead of
+        // leaving the test to run into its timeout.
+        await Promise.race([holderHasRow, holder]);
         release();
         // The stamp is queued behind the holder.
         await waitFor(async () => {
@@ -1368,11 +1668,16 @@ describe("D. rate limits and abuse", () => {
         ).toEqual({ mailedAt: null });
       } finally {
         letStampGo();
-        await holder;
+        // A failure of the holder is raised below; here it must not replace
+        // the error that brought the test to this point.
+        await holder.catch(() => undefined);
       }
+      await holder;
 
       expect(await delivering).toBe(true);
       await closing;
+      // The close went through once the stamp had landed: one mail, a link
+      // that records it, and a closed issue.
       expect(sent.length).toBe(before + 1);
       expect(
         await prisma.issueReporterLink.findUnique({
@@ -1380,6 +1685,12 @@ describe("D. rate limits and abuse", () => {
           select: { mailedAt: true },
         }),
       ).toEqual({ mailedAt: expect.any(Date) });
+      expect(
+        await prisma.issue.findUniqueOrThrow({
+          where: { id },
+          select: { closedAt: true },
+        }),
+      ).toEqual({ closedAt: expect.any(Date) });
     } finally {
       release();
     }

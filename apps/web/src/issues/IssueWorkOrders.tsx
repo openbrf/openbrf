@@ -573,9 +573,15 @@ function WorkOrderLog({
               ) : (
                 <span>
                   {order.recipientName}{" "}
-                  <span className="font-data text-data">
-                    {order.recipientEmail}
-                  </span>
+                  {order.recipientEmail === null ? (
+                    <span className="text-ink-muted">
+                      {t("issues.workOrders.addressUnreadable")}
+                    </span>
+                  ) : (
+                    <span className="font-data text-data">
+                      {order.recipientEmail}
+                    </span>
+                  )}
                 </span>
               )}
               {order.sentBy === null ? null : (

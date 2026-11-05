@@ -42,6 +42,7 @@ const setIssueBoardOnly = vi.fn();
 const setIssueCostResponsibility = vi.fn();
 const fetchHandlerResponsibilityGuide = vi.fn();
 const fetchIssueCharges = vi.fn();
+const removeIssueFinding = vi.fn();
 /** The conversation beside the handling, read when an issue is opened. */
 const conversationReads = {
   fetchIssueMessages: vi.fn(),
@@ -59,11 +60,27 @@ vi.mock("../api/issues", async (importOriginal) => ({
   setIssuePriority: (input: unknown) => setIssuePriority(input),
   setIssueTargetDate: (input: unknown) => setIssueTargetDate(input),
   setIssueBoardOnly: (input: unknown) => setIssueBoardOnly(input),
+  fetchIssuePlaceCounts: () => Promise.resolve({ ok: true, value: [] }),
+  removeIssueFinding: (id: string) => removeIssueFinding(id),
   fetchIssueMessages: (id: string) => conversationReads.fetchIssueMessages(id),
   fetchIssueNotes: (id: string) => conversationReads.fetchIssueNotes(id),
   fetchIssueAttachments: (id: string) =>
     conversationReads.fetchIssueAttachments(id),
   fetchIssueSavedReplies: () => conversationReads.fetchIssueSavedReplies(),
+  // The links beside the handling: none here; `IssueLifecycle.test.tsx`
+  // covers them.
+  fetchIssueLinks: () =>
+    Promise.resolve({
+      ok: true,
+      value: {
+        mergedInto: null,
+        duplicates: [],
+        duplicateCount: 0,
+        follows: null,
+        followUps: [],
+        followUpCount: 0,
+      },
+    }),
   setIssueCostResponsibility: (input: unknown) =>
     setIssueCostResponsibility(input),
   fetchHandlerResponsibilityGuide: () => fetchHandlerResponsibilityGuide(),
@@ -165,8 +182,12 @@ function issue(
     typeId: "type-water",
     typeName: "Vatten",
     location: null,
+    place: null,
     description: "Det droppar i taket.",
     apartment: { id: "a-1", number: "1401", address: "Storgatan 12" },
+    aboutApartment: true,
+    entry: null,
+    finding: null,
     photos: [],
     reporter: { kind: "resident", personId: "p-1", name: "Rune Boende" },
     createdAt: "2026-08-20T08:00:00.000Z",
@@ -182,6 +203,7 @@ function issue(
     assignee: null,
     enteredBy: null,
     boardOnly: false,
+    knownFault: null,
     legalHoldAt: null,
     costResponsibility: null,
     ...overrides,
@@ -259,6 +281,7 @@ beforeEach(() => {
     setIssueTargetDate,
     setIssueBoardOnly,
     setIssueCostResponsibility,
+    removeIssueFinding,
   ]) {
     write.mockReset().mockResolvedValue({ ok: true, value: issue() });
   }
@@ -670,6 +693,56 @@ describe("handling an issue", () => {
     expect(screen.getByText("Bea Styrelse")).toBeTruthy();
   });
 
+  it("draws the permission to enter on an open issue about an apartment", async () => {
+    const session = userEvent.setup();
+    show();
+    await openHandling(session);
+
+    expect(await screen.findByText("Tillträde")).toBeTruthy();
+  });
+
+  it("fills the permission to enter with the answer the issue holds", async () => {
+    const session = userEvent.setup();
+    show(
+      issue({
+        entry: {
+          answer: "YES",
+          note: "Ring på hos grannen",
+          pets: true,
+          masterKey: false,
+          until: "2027-03-01",
+          expired: false,
+        },
+      }),
+    );
+    await openHandling(session);
+
+    expect(await screen.findByText("Tillträde")).toBeTruthy();
+    expect((screen.getByLabelText("Ja") as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect((screen.getByLabelText("Nej") as HTMLInputElement).checked).toBe(
+      false,
+    );
+    expect(
+      (screen.getByLabelText(/husdjur/i) as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText("Hur man kommer in") as HTMLTextAreaElement).value,
+    ).toBe("Ring på hos grannen");
+  });
+
+  it("draws no permission to enter on an issue about the building", async () => {
+    const session = userEvent.setup();
+    show(issue({ apartment: null, aboutApartment: false }));
+    await openHandling(session);
+
+    await waitFor(() => {
+      expect(fetchIssueHandlers).toHaveBeenCalled();
+    });
+    expect(screen.queryByText("Tillträde")).toBeNull();
+  });
+
   it("sets an overdue issue's row apart by its edge as well as its words", () => {
     show(issue({ targetDate: "2026-08-25", overdue: true }));
     expect(screen.getByRole("listitem").className).toContain("border-l-danger");
@@ -786,6 +859,62 @@ describe("handling an issue", () => {
     });
   });
 
+  it.each([
+    {
+      change: "clears",
+      typed: "",
+      reason: "finding-needs-target-date",
+      message: "En anmärkning behöver ett senast klart-datum.",
+    },
+    {
+      change: "moves",
+      typed: "2026-12-01",
+      reason: "finding-target-date-too-late",
+      message:
+        "Kvarstående fel på en hiss ska åtgärdas inom en månad från besiktningen. Välj ett tidigare datum.",
+    },
+  ])(
+    "says why a finding's target date was refused when a handler $change it",
+    async ({ typed, reason, message }) => {
+      setIssueTargetDate.mockResolvedValue({
+        ok: false,
+        failure: { status: 422, reason },
+      });
+      const session = userEvent.setup();
+      show(
+        issue({
+          targetDate: "2026-04-10",
+          finding: {
+            kind: "LIFT",
+            inspectedOn: "2026-03-15",
+            protocol: { attachmentId: "att-1", fileName: "hiss.pdf" },
+          },
+        }),
+      );
+      await openHandling(session);
+
+      const date = await screen.findByLabelText("Vatten: senast klart");
+      await session.clear(date);
+      if (typed !== "") {
+        await session.type(date, typed);
+      }
+      await session.click(
+        screen.getAllByRole("button", { name: "Spara" })[2] as HTMLElement,
+      );
+
+      await waitFor(() => {
+        expect(setIssueTargetDate).toHaveBeenCalledWith({
+          issueId: "issue-1",
+          targetDate: typed === "" ? null : typed,
+        });
+      });
+      expect(await screen.findByText(message)).toBeTruthy();
+      expect(
+        screen.queryByText("Ärendet gick inte att ändra just nu. Försök igen."),
+      ).toBeNull();
+    },
+  );
+
   it("closes an issue to the board", async () => {
     const session = userEvent.setup();
     show();
@@ -823,7 +952,9 @@ describe("handling an issue", () => {
 
     await session.selectOptions(select, "TENANT_OWNER");
     await session.click(
-      screen.getAllByRole("button", { name: "Spara" })[3] as HTMLElement,
+      within(select.closest("form") as HTMLElement).getByRole("button", {
+        name: "Spara",
+      }),
     );
     await waitFor(() => {
       expect(setIssueCostResponsibility).toHaveBeenCalledWith({
@@ -1129,6 +1260,102 @@ describe("handling an issue", () => {
     expect(fetchIssueTimeline).toHaveBeenCalledTimes(settled);
   });
 
+  it("drops a poll answer asked while the main read was pending, which that read then answered with newer steps", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reported = {
+      kind: "reported",
+      at: "2026-08-20T08:00:00.000Z",
+      actor: null,
+    };
+    const workOrder = {
+      kind: "workOrder",
+      at: "2026-08-21T10:00:00.000Z",
+      actor: null,
+    };
+    const onItsWay = {
+      ok: true,
+      value: [reported, { ...workOrder, delivery: "pending" }],
+    };
+    fetchIssueTimeline.mockResolvedValue(onItsWay);
+    const session = userEvent.setup({
+      advanceTimers: (ms) => vi.advanceTimersByTime(ms),
+    });
+    const queued = issue();
+    const view = render(
+      <IssueQueuePanel
+        issues={[queued]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await openHandling(session);
+    expect(
+      await screen.findByText("En arbetsorder är på väg till en entreprenör"),
+    ).toBeTruthy();
+
+    // A newer revision starts the main read, and it is held.
+    let answerMain: (value: unknown) => void = () => undefined;
+    fetchIssueTimeline.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerMain = resolve;
+      }),
+    );
+    view.rerender(
+      <IssueQueuePanel
+        issues={[{ ...queued, updatedAt: "2026-08-21T11:00:00.000Z" }]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      expect(fetchIssueTimeline).toHaveBeenCalledTimes(2);
+    });
+
+    // The poll asks under the same revision while that read is pending, and is
+    // held too.
+    let answerPoll: (value: unknown) => void = () => undefined;
+    fetchIssueTimeline.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerPoll = resolve;
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(fetchIssueTimeline).toHaveBeenCalledTimes(3);
+
+    // The main read answers with a step more, the mail still on its way, so
+    // the poll stays on; the poll's older answer, without that step, lands
+    // after it and is dropped.
+    await act(async () => {
+      answerMain({
+        ok: true,
+        value: [
+          reported,
+          { ...workOrder, delivery: "pending" },
+          {
+            kind: "status",
+            at: "2026-08-21T11:00:00.000Z",
+            actor: null,
+            fromMeaning: "NEW",
+            toMeaning: "IN_PROGRESS",
+            fromStatusId: "s-new",
+            toStatusId: "s-doing",
+            waitingReason: null,
+            outcome: null,
+          },
+        ],
+      });
+      await Promise.resolve();
+    });
+    expect(await screen.findByText(/Flyttat till Pågår/)).toBeTruthy();
+    await act(async () => {
+      answerPoll(onItsWay);
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/Flyttat till Pågår/)).toBeTruthy();
+  });
+
   it("adds a status just saved to the timeline while it stays open", async () => {
     const reported = {
       kind: "reported",
@@ -1186,6 +1413,60 @@ describe("handling an issue", () => {
     );
 
     expect(await screen.findByText(/Flyttat till Pågår/)).toBeTruthy();
+    expect(fetchIssueTimeline).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads the timeline again when a finding is taken off", async () => {
+    // Taking the mark off moves neither the issue's revision nor its status,
+    // so only the save itself can tell the open timeline to read again.
+    const session = userEvent.setup();
+    render(
+      <IssueQueuePanel
+        issues={[
+          issue({
+            finding: {
+              kind: "OVK",
+              inspectedOn: "2026-03-10",
+              protocol: null,
+            },
+          }),
+        ]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await openHandling(session);
+    await waitFor(() => {
+      expect(fetchIssueTimeline).toHaveBeenCalledTimes(1);
+    });
+    // Set after the first read, so only the read the removal starts gets it.
+    fetchIssueTimeline.mockResolvedValueOnce({
+      ok: true,
+      value: [
+        {
+          kind: "finding",
+          at: "2026-08-22T09:00:00.000Z",
+          actor: null,
+          findingKind: null,
+        },
+      ],
+    });
+    expect(
+      screen.queryByText("Markeringen som besiktningsanmärkning togs bort"),
+    ).toBeNull();
+
+    await session.click(
+      await screen.findByRole("button", { name: "Ta bort markeringen" }),
+    );
+
+    await waitFor(() => {
+      expect(removeIssueFinding).toHaveBeenCalledWith("issue-1");
+    });
+    expect(
+      await screen.findByText(
+        "Markeringen som besiktningsanmärkning togs bort",
+      ),
+    ).toBeTruthy();
     expect(fetchIssueTimeline).toHaveBeenCalledTimes(2);
   });
 

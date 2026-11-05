@@ -14,7 +14,11 @@ import {
   ISSUE_CLOSING_OUTCOMES,
   ISSUE_COST_RESPONSIBILITIES,
   ISSUE_CONVERSATION_LIMITS,
+  ISSUE_ENTRY_ANSWERS,
+  ISSUE_FINDING_KINDS,
+  ISSUE_FIT_LIMITS,
   ISSUE_HANDLED_BY,
+  ISSUE_KNOWN_FAULT_LIMITS,
   ISSUE_PRIORITIES,
   ISSUE_QUEUE_VIEWS,
   ISSUE_REPORT_LIMITS,
@@ -42,6 +46,14 @@ import {
   type IssueNoteView,
   type ReporterIssueMessageView,
 } from "./issue-conversation.service";
+import type { IssueEntryView } from "./issue-fit-views";
+import { IssueFitService } from "./issue-fit.service";
+import {
+  type ConfiguredIssuePlaceView,
+  type IssuePlaceChoice,
+  type IssuePlaceCount,
+  IssuePlaceService,
+} from "./issue-place.service";
 import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import {
   type IssueSavedReplyView,
@@ -54,6 +66,7 @@ import {
   IssueTypeService,
   type ReportableIssueTypeView,
 } from "./issue-type.service";
+import type { KnownFaultView } from "./issue-known-fault";
 import {
   type IssueResidentChoice,
   IssueResidentsService,
@@ -62,6 +75,7 @@ import {
   type IssueApartmentView,
   type IssueBoardFilter,
   type IssueHandlerView,
+  type IssueLinksView,
   type IssuePhotoView,
   type IssueQueueCounts,
   type IssueQueueSnapshot,
@@ -79,10 +93,13 @@ const reportSchema = z.object({
   typeId: z.string().min(1),
   apartmentId: z.string().min(1).nullish(),
   location: z.string().max(ISSUE_REPORT_LIMITS.location).nullish(),
+  placeId: z.string().min(1).max(64).nullish(),
   /** The limit is shared with the form; see `ISSUE_REPORT_LIMITS`. */
   description: z.string().min(1).max(ISSUE_REPORT_LIMITS.description),
   /** The post in the feed the report is made from, when it is. */
   postId: z.string().min(1).max(64).nullish(),
+  /** One's own closed issue this report follows up, when it does. */
+  followsIssueId: z.string().min(1).max(64).nullish(),
 });
 
 /**
@@ -108,6 +125,7 @@ const openSchema = z.strictObject({
   /** A residency the resident picker offered; absent for an internal issue. */
   residencyId: z.string().min(1).max(64).nullish(),
   location: z.string().max(ISSUE_REPORT_LIMITS.location).nullish(),
+  placeId: z.string().min(1).max(64).nullish(),
   description: z.string().trim().min(1).max(ISSUE_REPORT_LIMITS.description),
 });
 
@@ -122,6 +140,8 @@ const openSchema = z.strictObject({
 const boardFilterSchema = z.strictObject({
   meaning: z.enum([...ISSUE_STATUS_MEANINGS, "OPEN"]).optional(),
   typeId: z.string().min(1).max(64).optional(),
+  /** Only the issues that name this common-area place (decision 30). */
+  placeId: z.string().min(1).max(64).optional(),
   priority: z.enum(ISSUE_PRIORITIES).optional(),
   q: z.string().max(ISSUE_SEARCH_LIMITS.length).optional(),
 });
@@ -139,6 +159,7 @@ function boardFilterOf(
   return {
     ...(query.meaning === undefined ? {} : { meaning: query.meaning }),
     ...(query.typeId === undefined ? {} : { typeId: query.typeId }),
+    ...(query.placeId === undefined ? {} : { placeId: query.placeId }),
     ...(query.priority === undefined ? {} : { priority: query.priority }),
     ...(search === "" ? {} : { search }),
   };
@@ -162,6 +183,16 @@ const savedReplySchema = z.strictObject({
   sortOrder: z.coerce.number().int().min(0).max(999).optional(),
 });
 
+/** Merging into another issue (decision 22). */
+const mergeSchema = z.strictObject({
+  intoIssueId: z.string().min(1).max(64),
+});
+
+/** A known fault's notice: the handler's own words, never only whitespace. */
+const knownFaultSchema = z.strictObject({
+  body: z.string().trim().min(1).max(ISSUE_KNOWN_FAULT_LIMITS.body),
+});
+
 const assignSchema = z.object({
   assigneePersonId: z.string().min(1).max(64).nullable(),
 });
@@ -177,6 +208,43 @@ const targetDateSchema = z.object({
 });
 
 const accessSchema = z.object({ boardOnly: z.boolean() });
+
+const calendarDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/**
+ * The resident's answer to the entry question (decision 29). Strict, so a field
+ * this route does not read - a door code sent as its own field, say - is
+ * refused and not dropped.
+ */
+const entrySchema = z.strictObject({
+  answer: z.enum(ISSUE_ENTRY_ANSWERS),
+  note: z.string().max(ISSUE_FIT_LIMITS.entryNote).nullish(),
+  pets: z.boolean().optional(),
+  masterKey: z.boolean().optional(),
+  until: calendarDay.nullish(),
+});
+
+const placeSchema = z.strictObject({
+  placeId: z.string().min(1).max(64).nullable(),
+});
+
+const findingSchema = z.strictObject({
+  kind: z.enum(ISSUE_FINDING_KINDS),
+  inspectedOn: calendarDay,
+  protocolAttachmentId: z.string().min(1).max(64),
+  targetDate: calendarDay,
+});
+
+/**
+ * Not coerced: `Number(null)` and `Number("")` are 0, so a coerced `sortOrder`
+ * would move a place to the top of the list on a null or an empty string. The
+ * field is a number or it is left out.
+ */
+const placeInputSchema = z.strictObject({
+  name: z.string().trim().min(1).max(ISSUE_FIT_LIMITS.placeName),
+  active: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(999).optional(),
+});
 
 /** Strict: the ring-fence is changed by a request that names it and nothing else. */
 const ringFenceSchema = z.strictObject({ ringFenced: z.boolean() });
@@ -279,7 +347,18 @@ export class IssueReportController {
     private readonly types: IssueTypeService,
     private readonly guide: ResponsibilityGuideService,
     private readonly conversation: IssueConversationService,
+    private readonly fit: IssueFitService,
+    private readonly places: IssuePlaceService,
   ) {}
+
+  /**
+   * The common-area places a report may name (decision 30): the association's
+   * short list, in the board's order. Names of rooms and yards, never homes.
+   */
+  @Get("places")
+  async offeredPlaces(): Promise<IssuePlaceChoice[]> {
+    return this.places.offered();
+  }
 
   /**
    * The association's responsibility guide, shown before filing (decision
@@ -319,6 +398,18 @@ export class IssueReportController {
   @Get("mine")
   async listOwn(@Req() request: RequestWithPrincipal): Promise<OwnIssueView[]> {
     return this.issues.listOwn(requirePrincipal(request).personId);
+  }
+
+  /**
+   * The known faults the house is told of (decision 22), for the report form
+   * and the resident's own page. Never read by the site layer: a known fault
+   * is for signed-in residents and never on the public website.
+   */
+  @Get("known-faults")
+  async knownFaults(
+    @Req() request: RequestWithPrincipal,
+  ): Promise<KnownFaultView[]> {
+    return this.issues.knownFaults(requirePrincipal(request));
   }
 
   @Post()
@@ -365,6 +456,40 @@ export class IssueReportController {
       bytes: file.bytes,
       fileName: file.fileName,
     });
+  }
+
+  /**
+   * Answers the entry question on one's own report (decision 29): whether the
+   * association or its contractor may enter the apartment it is about. A note
+   * that reads like a door code is refused.
+   */
+  @Put(":id/entry-permission")
+  async answerEntry(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<{ entry: IssueEntryView | null }> {
+    return {
+      entry: await this.fit.answerEntry(
+        requirePrincipal(request).personId,
+        id,
+        entrySchema.parse(body),
+      ),
+    };
+  }
+
+  /** Withdraws the answer to the entry question. */
+  @Delete(":id/entry-permission")
+  async withdrawEntry(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<{ entry: IssueEntryView | null }> {
+    return {
+      entry: await this.fit.withdrawEntry(
+        requirePrincipal(request).personId,
+        id,
+      ),
+    };
   }
 
   /**
@@ -416,8 +541,21 @@ export class IssueQueueController {
     private readonly guide: ResponsibilityGuideService,
     private readonly conversation: IssueConversationService,
     private readonly savedReplies: IssueSavedReplyService,
+    private readonly fit: IssueFitService,
+    private readonly places: IssuePlaceService,
     private readonly reporterLinks: IssueReporterLinkService,
   ) {}
+
+  /**
+   * The common-area places with how many of the issues this reader handles
+   * name each (decision 30): the count that makes a repeat fault visible.
+   */
+  @Get("places")
+  async placeCounts(
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssuePlaceCount[]> {
+    return this.places.counts(actingPersonId(request));
+  }
 
   /**
    * The responsibility guide as a handler reads it when deciding who pays:
@@ -559,6 +697,24 @@ export class IssueQueueController {
     @Req() request: RequestWithPrincipal,
   ): Promise<HandlerIssueMessageView> {
     return this.conversation.replyAsHandler(
+      actingPersonId(request),
+      id,
+      conversationSchema.parse(body).body,
+    );
+  }
+
+  /**
+   * Writes to the reporters of every issue merged into this one, one message
+   * on each duplicate's own conversation (decision 22).
+   */
+  @Post(":id/duplicate-messages")
+  @HttpCode(201)
+  async replyToDuplicates(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<{ sent: number; skipped: number }> {
+    return this.conversation.replyToDuplicates(
       actingPersonId(request),
       id,
       conversationSchema.parse(body).body,
@@ -709,6 +865,74 @@ export class IssueQueueController {
     );
   }
 
+  /** Sets the common-area place the issue is about, or takes it off. */
+  @Put(":id/place")
+  async setPlace(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.fit.setPlace(
+      actingPersonId(request),
+      id,
+      placeSchema.parse(body).placeId,
+    );
+  }
+
+  /**
+   * Records the resident's answer to the entry question, given to a handler
+   * by telephone or at the door (decision 29).
+   */
+  @Put(":id/entry-permission")
+  async answerEntry(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<{ entry: IssueEntryView | null }> {
+    return {
+      entry: await this.fit.answerEntryAsHandler(
+        actingPersonId(request),
+        id,
+        entrySchema.parse(body),
+      ),
+    };
+  }
+
+  @Delete(":id/entry-permission")
+  async withdrawEntry(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<{ entry: IssueEntryView | null }> {
+    return {
+      entry: await this.fit.withdrawEntryAsHandler(actingPersonId(request), id),
+    };
+  }
+
+  /**
+   * Marks the issue as a finding of an OVK, lift or fire inspection, with its
+   * protocol and a real target date (decision 31).
+   */
+  @Put(":id/finding")
+  async markFinding(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.fit.markFinding(
+      actingPersonId(request),
+      id,
+      findingSchema.parse(body),
+    );
+  }
+
+  @Delete(":id/finding")
+  async removeFinding(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.fit.removeFinding(actingPersonId(request), id);
+  }
+
   /** Who pays for the issue (decision 26). The value, never an amount. */
   @Post(":id/cost-responsibility")
   async setCostResponsibility(
@@ -734,6 +958,52 @@ export class IssueQueueController {
       statusMoveSchema.parse(body),
       actingPersonId(request),
     );
+  }
+
+  /** Merges this issue into another as its duplicate (decision 22). */
+  @Post(":id/merge")
+  async merge(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.issues.merge(
+      id,
+      mergeSchema.parse(body).intoIssueId,
+      actingPersonId(request),
+    );
+  }
+
+  /** The issues this one is merged into, merged from, follows or is followed by. */
+  @Get(":id/links")
+  async links(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssueLinksView> {
+    return this.issues.links(actingPersonId(request), id);
+  }
+
+  /** Publishes or rewrites the issue's known fault (decision 22). */
+  @Put(":id/known-fault")
+  async publishKnownFault(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.issues.publishKnownFault(
+      id,
+      knownFaultSchema.parse(body).body,
+      actingPersonId(request),
+    );
+  }
+
+  /** Withdraws the issue's known fault. */
+  @Delete(":id/known-fault")
+  async withdrawKnownFault(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.issues.withdrawKnownFault(id, actingPersonId(request));
   }
 }
 
@@ -892,5 +1162,41 @@ export class IssueSavedReplyAdminController {
   @HttpCode(204)
   async remove(@Param("id") id: string): Promise<void> {
     await this.savedReplies.remove(id);
+  }
+}
+
+/**
+ * The association's list of common-area places (decision 30), which the board
+ * keeps. issues:configure, as the type catalogue is: the list is the board's
+ * vocabulary for its building.
+ */
+@Controller("api/issue-places")
+@RequireCapability("issues:configure")
+export class IssuePlaceAdminController {
+  constructor(private readonly places: IssuePlaceService) {}
+
+  @Get()
+  async list(): Promise<ConfiguredIssuePlaceView[]> {
+    return this.places.configured();
+  }
+
+  @Post()
+  @HttpCode(201)
+  async create(@Body() body: unknown): Promise<ConfiguredIssuePlaceView> {
+    return this.places.create(placeInputSchema.parse(body));
+  }
+
+  @Put(":id")
+  async update(
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ): Promise<ConfiguredIssuePlaceView> {
+    return this.places.update(id, placeInputSchema.parse(body));
+  }
+
+  @Delete(":id")
+  @HttpCode(204)
+  async remove(@Param("id") id: string): Promise<void> {
+    await this.places.remove(id);
   }
 }

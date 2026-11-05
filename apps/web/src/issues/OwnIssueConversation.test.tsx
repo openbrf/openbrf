@@ -31,10 +31,14 @@ function own(overrides: Partial<OwnIssue> = {}): OwnIssue {
     typeId: "type-water",
     typeName: "Vatten",
     location: null,
+    place: null,
     description: "Det droppar i taket.",
     apartment: null,
+    entry: null,
     photos: [],
     enteredByHandler: false,
+    replyMode: "MESSAGE",
+    mergedIntoMeaning: null,
     descriptionRedactedAt: null,
     locationRedactedAt: null,
     freeTextRemovedAt: null,
@@ -88,7 +92,13 @@ beforeEach(() => {
 describe("the reporter's conversation", () => {
   it("reads nothing until opened, then signs the handlers' messages with a role", async () => {
     const session = userEvent.setup();
-    render(<OwnIssueConversation issue={own()} onClosed={() => undefined} />);
+    render(
+      <OwnIssueConversation
+        issue={own()}
+        onChanged={() => undefined}
+        onFollowUp={() => undefined}
+      />,
+    );
 
     expect(fetchOwnIssueMessages).not.toHaveBeenCalled();
     await openConversation(session);
@@ -115,7 +125,13 @@ describe("the reporter's conversation", () => {
       ],
     });
     const session = userEvent.setup();
-    render(<OwnIssueConversation issue={own()} onClosed={() => undefined} />);
+    render(
+      <OwnIssueConversation
+        issue={own()}
+        onChanged={() => undefined}
+        onFollowUp={() => undefined}
+      />,
+    );
     await openConversation(session);
 
     await screen.findByText("Kommer någon i dag?");
@@ -125,7 +141,13 @@ describe("the reporter's conversation", () => {
 
   it("sends a message and reads the conversation again", async () => {
     const session = userEvent.setup();
-    render(<OwnIssueConversation issue={own()} onClosed={() => undefined} />);
+    render(
+      <OwnIssueConversation
+        issue={own()}
+        onChanged={() => undefined}
+        onFollowUp={() => undefined}
+      />,
+    );
     await openConversation(session);
 
     const field = await screen.findByLabelText("Vatten: ditt meddelande");
@@ -146,7 +168,13 @@ describe("the reporter's conversation", () => {
 
   it("does not offer to send a message without words", async () => {
     const session = userEvent.setup();
-    render(<OwnIssueConversation issue={own()} onClosed={() => undefined} />);
+    render(
+      <OwnIssueConversation
+        issue={own()}
+        onChanged={() => undefined}
+        onFollowUp={() => undefined}
+      />,
+    );
     await openConversation(session);
 
     await session.type(
@@ -159,12 +187,14 @@ describe("the reporter's conversation", () => {
     ).toBe(true);
   });
 
-  it("offers no field on a closed report, and says why", async () => {
+  it("offers a new report instead of a field on a report closed too long ago", async () => {
+    const onFollowUp = vi.fn();
     const session = userEvent.setup();
     render(
       <OwnIssueConversation
-        issue={own({ meaning: "DONE" })}
-        onClosed={() => undefined}
+        issue={own({ meaning: "DONE", replyMode: "NEW_REPORT" })}
+        onChanged={() => undefined}
+        onFollowUp={onFollowUp}
       />,
     );
     await openConversation(session);
@@ -175,6 +205,156 @@ describe("the reporter's conversation", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByLabelText("Vatten: ditt meddelande")).toBeNull();
+    await session.click(
+      screen.getByRole("button", { name: "Gör en ny anmälan om detta" }),
+    );
+    expect(onFollowUp).toHaveBeenCalledTimes(1);
+    expect(onFollowUp).toHaveBeenCalledWith("");
+  });
+
+  it("hands the reply the server refused as closed to the new report", async () => {
+    sendOwnIssueMessage.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "issue-closed" },
+    });
+    const onFollowUp = vi.fn();
+    const session = userEvent.setup();
+    const { rerender } = render(
+      <OwnIssueConversation
+        issue={own()}
+        onChanged={() => undefined}
+        onFollowUp={onFollowUp}
+      />,
+    );
+    await openConversation(session);
+    await session.type(
+      await screen.findByLabelText("Vatten: ditt meddelande"),
+      "Det läcker igen",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+    await screen.findByText(/Anmälan avslutades medan du skrev/);
+
+    // The list is read again and says the window has passed: the field gives
+    // way to the button, and the text goes on with it.
+    rerender(
+      <OwnIssueConversation
+        issue={own({ meaning: "DONE", replyMode: "NEW_REPORT" })}
+        onChanged={() => undefined}
+        onFollowUp={onFollowUp}
+      />,
+    );
+    await session.click(
+      await screen.findByRole("button", { name: "Gör en ny anmälan om detta" }),
+    );
+    expect(onFollowUp).toHaveBeenCalledWith("Det läcker igen");
+  });
+
+  it("keeps the refused reply when the conversation is collapsed and opened again", async () => {
+    sendOwnIssueMessage.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "issue-closed" },
+    });
+    const onFollowUp = vi.fn();
+    const session = userEvent.setup();
+    const { rerender } = render(
+      <OwnIssueConversation
+        issue={own()}
+        onChanged={() => undefined}
+        onFollowUp={onFollowUp}
+      />,
+    );
+    await openConversation(session);
+    await session.type(
+      await screen.findByLabelText("Vatten: ditt meddelande"),
+      "Det läcker igen",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+    await screen.findByText(/Anmälan avslutades medan du skrev/);
+    rerender(
+      <OwnIssueConversation
+        issue={own({ meaning: "DONE", replyMode: "NEW_REPORT" })}
+        onChanged={() => undefined}
+        onFollowUp={onFollowUp}
+      />,
+    );
+
+    // Collapsing unmounts the thread; opening it again must not lose the text.
+    await session.click(screen.getByText("Meddelanden om Vatten"));
+    await session.click(screen.getByText("Meddelanden om Vatten"));
+    await session.click(
+      await screen.findByRole("button", { name: "Gör en ny anmälan om detta" }),
+    );
+    expect(onFollowUp).toHaveBeenCalledWith("Det läcker igen");
+  });
+
+  it("says a merged report is handled with another, and offers a new report", async () => {
+    const session = userEvent.setup();
+    render(
+      <OwnIssueConversation
+        issue={own({
+          meaning: "DONE",
+          replyMode: "NEW_REPORT",
+          mergedIntoMeaning: "IN_PROGRESS",
+        })}
+        onChanged={() => undefined}
+        onFollowUp={() => undefined}
+      />,
+    );
+    await openConversation(session);
+
+    expect(
+      await screen.findByText(/har slagits samman med en annan anmälan/),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("Vatten: ditt meddelande")).toBeNull();
+  });
+
+  it("says a reply reopens a report closed within the window, and reads the list again once sent", async () => {
+    const onChanged = vi.fn();
+    const session = userEvent.setup();
+    render(
+      <OwnIssueConversation
+        issue={own({ meaning: "DONE", replyMode: "REOPENS" })}
+        onChanged={onChanged}
+        onFollowUp={() => undefined}
+      />,
+    );
+    await openConversation(session);
+
+    expect(await screen.findByText(/öppnas den igen/)).toBeTruthy();
+    await session.type(
+      await screen.findByLabelText("Vatten: ditt meddelande"),
+      "Det läcker igen",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    await waitFor(() => {
+      expect(onChanged).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("reads the list again after a message sent to a report on screen as open", async () => {
+    // The report may have closed while the screen was open, in which case the
+    // server reopens it on this very send, and the list must say so.
+    const onChanged = vi.fn();
+    const session = userEvent.setup();
+    render(
+      <OwnIssueConversation
+        issue={own({ replyMode: "MESSAGE" })}
+        onChanged={onChanged}
+        onFollowUp={() => undefined}
+      />,
+    );
+    await openConversation(session);
+
+    await session.type(
+      await screen.findByLabelText("Vatten: ditt meddelande"),
+      "Det läcker igen",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    await waitFor(() => {
+      expect(onChanged).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("says when a report closed while the message was written", async () => {
@@ -183,7 +363,13 @@ describe("the reporter's conversation", () => {
       failure: { status: 409, reason: "issue-closed" },
     });
     const session = userEvent.setup();
-    render(<OwnIssueConversation issue={own()} onClosed={() => undefined} />);
+    render(
+      <OwnIssueConversation
+        issue={own()}
+        onChanged={() => undefined}
+        onFollowUp={() => undefined}
+      />,
+    );
     await openConversation(session);
 
     await session.type(
@@ -204,9 +390,15 @@ describe("the reporter's conversation", () => {
       ok: false,
       failure: { status: 409, reason: "issue-closed" },
     });
-    const onClosed = vi.fn();
+    const onChanged = vi.fn();
     const session = userEvent.setup();
-    render(<OwnIssueConversation issue={own()} onClosed={onClosed} />);
+    render(
+      <OwnIssueConversation
+        issue={own()}
+        onChanged={onChanged}
+        onFollowUp={() => undefined}
+      />,
+    );
     await openConversation(session);
 
     await session.type(
@@ -216,7 +408,7 @@ describe("the reporter's conversation", () => {
     await session.click(screen.getByRole("button", { name: "Skicka" }));
 
     await waitFor(() => {
-      expect(onClosed).toHaveBeenCalledTimes(1);
+      expect(onChanged).toHaveBeenCalledTimes(1);
     });
   });
 });

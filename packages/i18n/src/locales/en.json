@@ -885,6 +885,7 @@
           "ISSUE_TYPE_RING_FENCE_CHANGED": "An issue type was ring-fenced from contractors, or its ring-fence was lifted",
           "ISSUE_MESSAGE_SENT": "A message was written on an issue",
           "ISSUE_NOTE_ADDED": "An internal note was written on an issue",
+          "ISSUE_KNOWN_FAULT_CHANGED": "A known fault was published, rewritten or withdrawn on an issue",
           "ISSUE_REDACTED": "Text, a photograph or a file was removed from an issue",
           "ISSUE_LEGAL_HOLD_PLACED": "A legal hold was placed on an issue",
           "ISSUE_LEGAL_HOLD_RELEASED": "The legal hold on an issue was released",
@@ -929,6 +930,11 @@
           "SUPPORT_SESSION_STARTED": "Supporter signed in",
           "SUPPORT_REQUEST": "Supporter looked",
           "SUPPORT_SESSION_ENDED": "Supporter signed out",
+          "ISSUE_ENTRY_PERMISSION_SET": "An answer about entering an apartment was given on an issue",
+          "ISSUE_ENTRY_PERMISSION_REMOVED": "An answer about entering an apartment was withdrawn on an issue",
+          "ISSUE_PLACE_CHANGED": "The common area of an issue was set or changed",
+          "ISSUE_FINDING_MARKED": "An issue was marked as an inspection finding",
+          "ISSUE_FINDING_REMOVED": "An issue's mark as an inspection finding was removed",
           "ISSUE_REPORTER_LINK_ISSUED": "A private link to an issue was mailed to its reporter",
           "ISSUE_REPORTER_LINK_REVOKED": "The reporter's private link to an issue was withdrawn"
         },
@@ -1008,7 +1014,9 @@
           "issue": "This issue",
           "typeDefault": "Every new issue of this type"
         },
-        "issueCostResponsibility": "Who pays: {{who}}"
+        "issueCostResponsibility": "Who pays: {{who}}",
+        "issueEntry": "Permission to enter: {{answer}}. {{details}}",
+        "issuePlace": "Common area: {{place}}"
       },
       "requests": {
         "kind": {
@@ -2062,7 +2070,7 @@
     },
     "issueRetention": {
       "title": "Retention of issues",
-      "description": "How many years after an issue closes its free text is kept. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, stay with the issue; the description, the location, the conversation, the internal notes and the photographs and files are removed that many years after it closes, unless a legal hold stands on it.",
+      "description": "How many years after an issue closes its free text is kept. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, stay with the issue; the description, the location, the conversation, the internal notes and the photographs and files are removed that many years after it closes, unless a legal hold stands on it or a legal hold or a restriction on the person who reported it.",
       "years": "Years after an issue closes",
       "yearsHint": "A whole number between 1 and 10. A new instance starts at 2.",
       "purgeJob": "The purge runs every night and reads this number when it runs, so a change moves every pending date at once. After a shorter setting, the nights that follow remove the free text of the issues already past it, at most 500 issues in each run.",
@@ -2118,6 +2126,33 @@
         "radiators": "Radiators",
         "commonAreas": "Stairwells, the laundry room and other shared spaces",
         "buildingShell": "Roof, facade and exterior maintenance"
+      }
+    },
+    "issuePlaces": {
+      "title": "Common areas",
+      "description": "The short list a report can name beside its free-text location, such as laundry room, lift and yard. It makes a fault that keeps coming back in the same place countable.",
+      "loading": "Reading the common areas...",
+      "loadFailed": "The common areas could not be read just now.",
+      "empty": "No common areas.",
+      "nameLabel": "Name",
+      "nameNamed": "{{name}}: name",
+      "active": "Offered",
+      "activeNamed": "{{name}}: offered for new reports",
+      "issueCount_one": "{{count}} issue",
+      "issueCount_other": "{{count}} issues",
+      "save": "Save",
+      "remove": "Remove",
+      "removeNamed": "Remove {{name}}",
+      "addLabel": "New common area",
+      "add": "Add",
+      "neverApartments": "Common areas only, never apartments. An issue about a home has its apartment. One that issues name can be switched off, not removed.",
+      "errors": {
+        "notFound": "That common area is gone. The list has been read again.",
+        "nameTaken": "There is already a common area with that name.",
+        "nameApartment": "A common area is never an apartment. Name the room or the yard.",
+        "inUse": "Issues name this common area, so it cannot be removed. Switch it off instead.",
+        "tooMany": "The association already keeps as many common areas as it may.",
+        "unknown": "The common areas could not be changed just now. Please try again."
       }
     }
   },
@@ -3707,6 +3742,7 @@
       "message": "Write to the association",
       "messageHint": "Do not write personal identity numbers. Files cannot be attached here.",
       "send": "Send",
+      "reopensNotice": "This issue is closed. A message you send now opens it again.",
       "closedNotice": "This issue is closed and takes no more messages. If you have something new to report, make a new report on the association's website.",
       "private": "The link is personal, so do not share it. It stops working 30 days after the issue is closed or one year after the latest message in it, whichever comes first; until a message is written, the year counts from the day the link was issued.",
       "notFoundTitle": "This link opens no issue",
@@ -3834,8 +3870,17 @@
         "unknown": "The report could not be sent just now. Please try again.",
         "postNotFound": "The post does not exist, or you cannot read it. The report was not sent.",
         "postNotReportable": "Only whoever wrote the post and the board can report an issue from it. The report was not sent.",
-        "postAlreadyReported": "Somebody has already reported an issue from this post. The report was not sent."
-      }
+        "postAlreadyReported": "Somebody has already reported an issue from this post. The report was not sent.",
+        "followUpNotFound": "The report you are following up is gone. Write a separate report instead.",
+        "followUpOfOpenIssue": "The report you are following up is open again. Reply on it instead.",
+        "placeNotFound": "That common area is no longer offered. Choose another or none.",
+        "placeWithApartment": "A common area is chosen only when the report is not about an apartment. Choose one or the other."
+      },
+      "followUp": "This report follows up your earlier report about {{type}}.",
+      "followUpCancel": "Write a separate report instead",
+      "place": "Common area",
+      "placeNone": "None in particular",
+      "placeHint": "Choose one if the problem is in a common area. Describe exactly where in the field below."
     },
     "photos": {
       "title": "Photographs",
@@ -3857,7 +3902,9 @@
       "place": "Where",
       "noApartment": "This report is not about an apartment.",
       "noPlace": "No place in the building was given.",
-      "enteredByHandler": "Entered by whoever handles issues."
+      "enteredByHandler": "Entered by whoever handles issues.",
+      "merged": "Merged with another report of the same fault, which is now:",
+      "commonArea": "Common area:"
     },
     "queue": {
       "title": "The issue queue",
@@ -3894,7 +3941,8 @@
       "assignee": "Assignee",
       "targetDate": "Target date",
       "overdue": "Overdue",
-      "enteredBy": "Entered by"
+      "enteredBy": "Entered by",
+      "finding": "Finding: {{kind}}"
     },
     "errors": {
       "forbidden": "Your account is not allowed to do that.",
@@ -3972,6 +4020,9 @@
       "targetDateRemoved": "Target date removed",
       "boardOnly": "Closed to all but the board",
       "everyHandler": "Opened again to every handler of its type",
+      "byReporterReply": "after a reply from the reporter",
+      "knownFaultPublished": "Published or rewrote the known fault",
+      "knownFaultWithdrawn": "Withdrew the known fault",
       "redacted": {
         "description": "Removed the description",
         "location": "Removed the location",
@@ -3986,6 +4037,13 @@
       "legalHoldReleased": "Released the legal hold",
       "costResponsibility": "Who pays set to {{who}}",
       "costResponsibilityRemoved": "Who pays was removed",
+      "placeSet": "Common area set",
+      "placeRemoved": "Common area removed",
+      "entryWithdrawn": "Answer about entering withdrawn",
+      "entryAnsweredByResident": "The resident answered about entering: {{answer}}",
+      "entryRecorded": "Answer about entering recorded: {{answer}}",
+      "findingMarked": "Marked as a finding: {{kind}}",
+      "findingRemoved": "Mark as a finding removed",
       "workOrder": {
         "written": "A work order was written for a contractor",
         "pending": "A work order is on its way to a contractor",
@@ -4039,7 +4097,7 @@
       "send": "Send to {{name}}",
       "sending": "Sending...",
       "edit": "Change it",
-      "sent": "The work order to {{name}} is recorded. The log below says whether the mail went out.",
+      "sent": "The work order to {{name}} is recorded. The list of work orders below says whether the mail went out.",
       "errors": {
         "issueNotFound": "That issue is gone, or no longer yours to handle.",
         "contractorNotFound": "That contractor is no longer on the list. The list has been read again.",
@@ -4050,10 +4108,11 @@
         "unknown": "The work order could not be prepared or sent just now. Please try again.",
         "previewStale": "The contractor's details or the text changed since the preview. Preview it again before sending.",
         "issueClosed": "This issue is closed. Reopen it before writing a work order.",
-        "duplicate": "This work order was sent to this contractor a short while ago. Check the record above before sending it again.",
+        "duplicate": "A work order to this contractor was written a short while ago and may have been sent. Check the list of work orders above before writing another; one whose text was removed holds back a new one until the half hour has passed.",
         "budgetSpent": "You have sent as many work orders as one person may in an hour. Try again later."
       },
       "recipientRemoved": "A contractor since removed from the list",
+      "addressUnreadable": "The address could not be read.",
       "bodyErased": "The text was erased when the issue's retention period ran out."
     },
     "open": {
@@ -4174,7 +4233,10 @@
         "noReporter": "Nobody can read an answer on this issue.",
         "personalIdentityNumber": "The text carries a personal identity number. Remove it and send again.",
         "unknown": "That could not be sent just now. Please try again."
-      }
+      },
+      "mergedOwn": "This report was merged with another report of the same fault and is handled there. You can still read the messages here.",
+      "followUp": "Make a new report about this",
+      "reopensHint": "This report is closed. Writing here reopens it and puts it back with whoever handles it. No personal identity numbers, please."
     },
     "notes": {
       "title": "Internal notes",
@@ -4199,6 +4261,156 @@
         "unknown": "The file could not be attached just now. Please try again."
       }
     },
+    "knownFault": {
+      "label": "Known fault",
+      "listTitle": "Known faults",
+      "listHint": "Whoever handles issues already knows about these. You need not report them again."
+    },
+    "lifecycle": {
+      "readFailed": "The issue's links could not be read just now. Close and open the issue again.",
+      "toDuplicatesTitle": "Reporters of the merged reports",
+      "toDuplicates": "Message to every reporter of the merged reports",
+      "toDuplicatesNamed": "{{type}}: message to the reporters of the merged reports",
+      "toDuplicatesHint_one": "Goes to the reporter of the {{count}} merged report, on their own report, signed as the board or the property manager. Only a reporter with an account receives it. It does not reach this issue's own reporter.",
+      "toDuplicatesHint_other": "Goes to the reporters of the {{count}} merged reports, each on their own report, signed as the board or the property manager. None of them sees another's report. Only reporters with an account receive it, and it does not reach this issue's own reporter.",
+      "toDuplicatesSent_one": "Sent to {{count}} reporter.",
+      "toDuplicatesSent_other": "Sent to {{count}} reporters.",
+      "toDuplicatesSkipped_one": "{{count}} merged report was not reached, because it has no reporter with an account.",
+      "toDuplicatesSkipped_other": "{{count}} merged reports were not reached, because they have no reporter with an account.",
+      "knownFaultBoardOnly": "An issue the board keeps to itself carries no known fault.",
+      "knownFaultField": "Notice for the house",
+      "knownFaultNamed": "{{type}}: known fault",
+      "knownFaultHint": "Shown to signed-in residents, on their report form and on the post the issue came from, never on the public website. Signed as the board or the property manager. Write it yourself; nothing from the report is copied, and no personal identity numbers. It goes when the issue is closed.",
+      "knownFaultPublish": "Publish known fault",
+      "knownFaultRewrite": "Save the change",
+      "knownFaultPublishing": "Publishing...",
+      "knownFaultWithdraw": "Withdraw",
+      "linksTitle": "Linked issues",
+      "mergedInto": "Merged into",
+      "duplicate": "Merged into this one",
+      "follows": "Follows up",
+      "followUp": "Followed up by",
+      "followUpsMore_one": "Showing the first {{shown}} of {{count}} follow-up.",
+      "followUpsMore_other": "Showing the first {{shown}} of {{count}} follow-ups.",
+      "hidden": "an issue you do not handle",
+      "mergeTitle": "Duplicate",
+      "mergeInto": "Merge into",
+      "mergeIntoNamed": "{{type}}: merge into another issue",
+      "mergePick": "Choose the issue it duplicates...",
+      "mergeHint": "This issue closes as a duplicate. Its reporter keeps their report and follows where the other issue stands; neither reporter sees the other's report.",
+      "merge": "Merge as a duplicate",
+      "mergeConfirm": "Yes, close it as a duplicate",
+      "mergeKeep": "Keep it open",
+      "errors": {
+        "issueNotFound": "That issue is gone, or no longer yours to handle. The queue has been read again.",
+        "issueClosed": "The issue was closed meanwhile, so it carries no known fault. The queue has been read again.",
+        "knownFaultBoardOnly": "The board keeps this issue to itself, so it carries no known fault. The queue has been read again.",
+        "mergeIntoItself": "An issue cannot be merged into itself.",
+        "mergeIntoDuplicate": "That issue is itself a duplicate. Merge into the issue it was merged into. The queue has been read again.",
+        "mergeLimit": "That issue already has as many duplicates as one may. Merge into another issue, or answer the reporters with a known fault. The queue has been read again.",
+        "mergeIntoClosed": "That issue is done. Reopen it first, or merge into one that is still being handled. The queue has been read again.",
+        "mergeHasDuplicates": "Other issues were merged into this one. Merge the other issue into this one instead. The queue has been read again.",
+        "mergeAlreadyDuplicate": "That issue is already a duplicate of another. Reopen it first to merge it elsewhere. The queue has been read again.",
+        "personalIdentityNumber": "The text carries a personal identity number. Remove it and try again.",
+        "noDuplicateReporter": "Nobody can read an answer on the merged reports: their reporters have no account to read it in.",
+        "unknown": "That could not be saved just now. Please try again."
+      }
+    },
+    "seededPlaces": {
+      "laundryRoom": "Laundry room",
+      "lift": "Lift",
+      "yard": "Yard",
+      "stairwell": "Stairwell",
+      "basement": "Basement",
+      "attic": "Attic",
+      "bicycleRoom": "Bicycle room",
+      "garage": "Garage",
+      "wasteRoom": "Waste room"
+    },
+    "places": {
+      "title": "Issues per common area",
+      "description": "How many issues name each common area, closed ones included, so a fault that keeps coming back in the same place is seen as one.",
+      "counts": "{{issues}} issues, {{open}} open",
+      "showOnly": "Show only {{place}}",
+      "showAll": "Show all",
+      "hint": "Counts the issues you may open. Issues the board keeps to itself are counted for the board only."
+    },
+    "entry": {
+      "title": "Permission to enter",
+      "intro": "Tell us whether the association or a contractor may enter your apartment when you are not at home. It is kept only until the issue is closed.",
+      "introHandler": "Record the resident's answer, given by telephone or at the door. It is kept only until the issue is closed.",
+      "answerLabel": "May the association enter?",
+      "answerYes": "Yes",
+      "answerNo": "No",
+      "petsLabel": "There are pets in the home",
+      "petsShort": "pets",
+      "petsNone": "no pets",
+      "masterKeyLabel": "The master key may be used",
+      "masterKeyShort": "master key",
+      "masterKeyNone": "master key may not be used",
+      "noteLabel": "How to get in",
+      "noteHint": "For example who to ring, or when someone is at home. Never write a door code here.",
+      "doorCodeWarning": "This reads like a door code. Door codes are never stored in this note, because everyone who handles the issue could read it. Say who to ring or when someone is at home instead.",
+      "untilLabel": "Applies until and including",
+      "clearedAtClosing": "The answer is cleared when the issue is closed.",
+      "save": "Save answer",
+      "saving": "Saving...",
+      "withdraw": "Withdraw answer",
+      "expired": "The permission lapsed on <data>{{date}}</data>.",
+      "errors": {
+        "doorCode": "The note reads like a door code and was not saved. Say who to ring or when someone is at home instead.",
+        "untilPast": "That day has already passed. Choose today or a later day.",
+        "needsApartment": "Permission to enter belongs to an issue about an apartment.",
+        "notResident": "Only someone who lives in the apartment can give permission to enter. You can still say no or withdraw an answer.",
+        "closed": "The issue is closed, so the answer cannot be changed. The list has been read again.",
+        "notFound": "That issue is gone, or no longer yours. The list has been read again.",
+        "personalIdentityNumber": "The note carries a personal identity number. Remove it and save again.",
+        "dateInvalid": "That is not a date. Choose one from the calendar.",
+        "unknown": "The answer could not be saved just now. Please try again."
+      }
+    },
+    "fit": {
+      "place": {
+        "label": "Common area",
+        "none": "None in particular"
+      },
+      "finding": {
+        "title": "Inspection finding",
+        "intro": "Mark the issue as a finding of an OVK, lift or fire inspection. It needs the protocol, attached below under Files, and a target date. Residents are not shown it.",
+        "current": "Marked as a finding: {{kind}}.",
+        "protocolIs": "Protocol: {{name}}",
+        "protocolGone": "The protocol has been removed from the issue.",
+        "kind": "Inspection",
+        "kindNone": "Choose...",
+        "kinds": {
+          "OVK": "Ventilation (OVK)",
+          "LIFT": "Lift",
+          "FIRE": "Fire safety"
+        },
+        "inspectedOn": "Inspected on",
+        "targetDate": "Target date",
+        "liftRule": "A lift's remaining faults are to be put right within a month of the inspection (BFS 2025:11 1 kap. 17 §). The latest day is <data>{{date}}</data>.",
+        "useLatest": "Use that day",
+        "protocol": "Protocol",
+        "protocolNone": "Choose a file...",
+        "protocolHint": "One of the files attached to this issue for handlers.",
+        "attachFirst": "Attach the protocol under Files first, then choose it here.",
+        "mark": "Mark as finding",
+        "change": "Save finding",
+        "remove": "Remove the mark"
+      },
+      "errors": {
+        "issueNotFound": "That issue is gone, or no longer yours to handle. The queue has been read again.",
+        "closed": "The issue is closed. The queue has been read again.",
+        "placeNotFound": "That common area is no longer offered. The list has been read again.",
+        "placeWithApartment": "The issue is about an apartment, so it takes no common area.",
+        "findingNeedsTargetDate": "A finding needs a target date.",
+        "findingTargetDateTooLate": "A lift's remaining faults are to be put right within a month of the inspection. Choose an earlier day.",
+        "protocolNotFound": "That file is not attached to this issue any more. The list has been read again.",
+        "dateInvalid": "That is not a date. Choose one from the calendar.",
+        "unknown": "The issue could not be changed just now. Please try again."
+      }
+    },
     "reporterLink": {
       "live": "The reporter has no account and reads your answers through a private link that was mailed to them.",
       "ended": "The link mailed to the reporter no longer opens the issue: it was withdrawn or has expired, or the issue closed more than 30 days ago.",
@@ -4217,7 +4429,7 @@
       "purgedOn": "Free text removed on <data>{{date}}</data>",
       "freeTextRemoved": "The free text, the conversation and the photographs were removed on <data>{{date}}</data>. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, remain.",
       "title": "Free text and legal hold",
-      "intro": "Unless a legal hold stands on the issue itself, a handler can remove the description, the location, a message, an internal note, a photograph, a file or the text of a work order at any time, for instance when a person named in it has been granted erasure. What is removed is gone: nothing keeps the text, and nothing is written in its place.",
+      "intro": "Unless a legal hold stands on the issue itself, or a legal hold or a restriction on its reporter, a handler can remove the description, the location, a message, an internal note, a photograph, a file or the text of a work order at any time, for instance when a person named in it has been granted erasure. What is removed is gone: nothing keeps the text, and nothing is written in its place.",
       "remove": "Remove",
       "removeDescription": "{{type}}: remove the description",
       "removeLocation": "{{type}}: remove the location",
@@ -4250,7 +4462,7 @@
         "saving": "Saving..."
       },
       "errors": {
-        "legalHold": "A legal hold stands on this issue, so nothing can be removed. The issue has been read again.",
+        "legalHold": "A legal hold stands on this issue, or a legal hold or a restriction on its reporter, so nothing can be removed. The issue has been read again.",
         "targetNotFound": "That is already gone. The issue has been read again.",
         "unknown": "Nothing could be changed just now. Please try again."
       }
@@ -6638,7 +6850,7 @@
           "name": "Issue reports",
           "purpose": "Receiving and dealing with problems in the building, including the work orders handlers send to contractors, and telling whoever handles an issue, and whoever reported it, by email. The emails about an issue carry the issue number, the issue type and a link, and those to whoever handles it the priority too, never what anybody wrote. A work order's email carries the text a handler wrote for the contractor and nothing else from the issue.",
           "legalBasisNote": "Legitimate interest: managing the property. A reporter may volunteer data about health (art. 9).",
-          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, when a claim about the work becomes time-barred (preskriptionslagen 2 §); when it was sent is kept, and whom it went to is kept while the contractor stays on the list. Removing a contractor from the list erases the name and email address on their work orders."
+          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, the ordinary retention window chosen for it, which follows the general ten-year limitation period for a claim about the work (preskriptionslagen 2 §); a claim's limitation period can be interrupted or renewed, and the erasure does not follow that, so a legal hold on the issue or a legal hold or a restriction on the reporter is what keeps the text longer; when it was sent is kept, and whom it went to is kept while the contractor stays on the list. Removing a contractor from the list erases the name and email address on their work orders."
         },
         "documents": {
           "name": "Document archive",

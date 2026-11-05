@@ -4,7 +4,10 @@ import {
   compareLocalDays,
   dateColumnOf,
   formatDateColumn,
+  ISSUE_ENTRY_ANSWERS,
+  ISSUE_FINDING_KINDS,
   ISSUE_COST_RESPONSIBILITIES,
+  ISSUE_LINK_LIMITS,
   ISSUE_OPEN_MEANINGS,
   ISSUE_OUTCOMES,
   ISSUE_PRIORITIES,
@@ -14,14 +17,18 @@ import {
   ISSUE_STATUS_MEANINGS,
   ISSUE_WAITING_REASONS,
   type IssueClosingOutcome,
+  type IssueEntryAnswer,
+  type IssueFindingKind,
   type IssueCostResponsibility,
   type IssueHandledBy,
   type IssueMeaningFilter,
   type IssueOutcome,
   type IssuePriority,
+  type IssueReplyMode,
   type IssueQueueView,
   type IssueRedactionTarget,
   type IssueReporterGroup,
+  type IssueSignature,
   type IssueStatusMeaning,
   type IssueWaitingReason,
   isIssueStatusMeaning,
@@ -29,6 +36,7 @@ import {
   localDayOf,
   localDayOfColumn,
   parseLocalDay,
+  replyReopensIssue,
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
@@ -47,10 +55,40 @@ import {
   issueReaderScope,
   issuesHandledWhere,
   readIssueHandlers,
+  requireHandledIssue,
   typesHandledWhere,
 } from "./issue-handlers";
+import {
+  refusePersonalIdentityNumbers,
+  signatureOf,
+} from "./issue-conversation.service";
+import { requireFindingTargetDate } from "./issue-finding-rule";
+import {
+  type EntryColumns,
+  type FindingRecord,
+  FINDING_SELECT,
+  type IssueEntryView,
+  type IssueFindingView,
+  type IssuePlaceRef,
+  NO_ENTRY_PERMISSION,
+  toEntryView,
+  toFindingView,
+} from "./issue-fit-views";
+import {
+  KNOWN_FAULT_SELECT,
+  knownFaultOf,
+  knownFaultShownWhere,
+  type KnownFaultView,
+  typeNameForTheHouse,
+} from "./issue-known-fault";
 import { type IssueTypeView, IssueTypeService } from "./issue-type.service";
-import { lockIssue, lockIssueForHandling, lockIssueType } from "./issue-lock";
+import {
+  holdOfferedPlace,
+  lockIssue,
+  lockIssueForHandling,
+  lockIssuesForHandling,
+  lockIssueType,
+} from "./issue-lock";
 import {
   REPORTER_LINK_STATE_SELECT,
   type ReporterLinkState,
@@ -58,7 +96,7 @@ import {
 } from "./issue-reporter-link";
 import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import { IssueMailer } from "./issue-mailer.service";
-import { IssueError } from "./issue.error";
+import { IssueError, placeWithApartment } from "./issue.error";
 import { workOrderKnownNotSent } from "./work-order-delivery";
 
 /**
@@ -135,7 +173,7 @@ export type IssueReporterView =
  * leaves to the owner; until it is answered, the reporter is told what they
  * were told before statuses became the board's to name, in their own language.
  */
-export interface OwnIssueView {
+export interface IssueRowView {
   id: string;
   /** The issue number (ärendenummer), which every mail about it names. */
   number: number;
@@ -143,8 +181,19 @@ export interface OwnIssueView {
   typeId: string;
   typeName: string;
   location: string | null;
+  /**
+   * The common-area place it is about, from the association's list (decision
+   * 30), or null.
+   */
+  place: IssuePlaceRef | null;
   description: string;
   apartment: IssueApartmentView | null;
+  /**
+   * The resident's entry permission (decision 29), or null while nobody has
+   * answered. The reporter reads their own answer, and the handlers read it to
+   * send someone to the door.
+   */
+  entry: IssueEntryView | null;
   photos: IssuePhotoView[];
   /**
    * Whether a handler opened it on the reporter's behalf (decision 14). The
@@ -169,6 +218,69 @@ export interface OwnIssueView {
 }
 
 /**
+ * An issue as its reporter reads it: the row, and what the reporter can do
+ * next and follow.
+ */
+export interface OwnIssueView extends IssueRowView {
+  /**
+   * What a reply does (ADR 0054): a message on an open issue, a reopening
+   * within the window after it closed, and after that, or once it was merged
+   * into another issue, a new report linked to it instead. Decided here, on
+   * the server's clock, so a screen open across the window's end is refused
+   * rather than believed.
+   */
+  replyMode: IssueReplyMode;
+  /**
+   * Where the issue it was merged into stands, while it is a duplicate
+   * (decision 22): the meaning, in the reporter's own language, as their own
+   * issue's is, and nothing else of an issue somebody else may have reported.
+   * Null on an issue that is not a duplicate, and on one whose issue is gone.
+   */
+  mergedIntoMeaning: IssueStatusMeaning | null;
+}
+
+/**
+ * Another issue an issue is linked to, as a handler is told of it: merged
+ * into, merged from, followed up or following up (decisions 8 and 22).
+ *
+ * `hidden` is an issue the reader does not handle, such as one the board keeps
+ * to itself, or one that no longer exists: the reader learns that there is a
+ * link and nothing about what is at the other end of it.
+ */
+export type IssueReferenceView =
+  | {
+      kind: "issue";
+      id: string;
+      typeName: string;
+      meaning: IssueStatusMeaning;
+      createdAt: string;
+    }
+  | { kind: "hidden" };
+
+/** The issues one issue is linked to, as a handler reads them. */
+export interface IssueLinksView {
+  /** The issue this one was merged into, while it is a duplicate. */
+  mergedInto: IssueReferenceView | null;
+  /** The issues merged into this one, that the reader handles. */
+  duplicates: Extract<IssueReferenceView, { kind: "issue" }>[];
+  /**
+   * How many issues are merged into this one, those the reader does not
+   * handle included, which merging this one into another is refused for. A
+   * number and nothing of the issues behind it.
+   */
+  duplicateCount: number;
+  /** The earlier issue this one follows up, when it does. */
+  follows: IssueReferenceView | null;
+  /**
+   * The first later issues that follow this one up that the reader handles, at
+   * most `ISSUE_LINK_LIMITS.followUpsListed` of them.
+   */
+  followUps: Extract<IssueReferenceView, { kind: "issue" }>[];
+  /** How many follow-ups the reader handles, those not listed included. */
+  followUpCount: number;
+}
+
+/**
  * A handler as an issue names them: its assignee, the handler who entered it,
  * the one who acted on its timeline.
  *
@@ -189,14 +301,29 @@ export type IssueHandlerView = AuthorView;
  * apartment they live in, so on a protected reporter's report the apartment is
  * their home address, and withholding the name beside it would withhold
  * nothing. The location and the description stay: the reporter wrote those
- * themselves.
+ * themselves. So does the entry permission (decision 29): its note is the
+ * reporter's own words as the description is, a door code in it is refused
+ * (`findDoorCode`), and the answer, the pets and the master key say how to get
+ * in, not where. Without the apartment they lead to no door, and whoever the
+ * board sends there needs them.
+ *
+ * `aboutApartment` says whether it was filed against an apartment, which the
+ * mask does not hide: it names no apartment, and on an issue about one the
+ * handler records the entry permission rather than a common-area place, as the
+ * server decides it.
  *
  * The same row for every handler, the board included. The queue is one view
  * under one capability, and the board already has the address book, which has
  * a statutory reason to print the apartment. A board member who has to send
  * someone to the door looks there.
  */
-export type QueuedIssueView = OwnIssueView & {
+export type QueuedIssueView = IssueRowView & {
+  /**
+   * Whether it was filed against an apartment, true also while `apartment` is
+   * withheld for a protected reporter. The handler's screen offers the entry
+   * permission or a common-area place from it, never from `apartment`.
+   */
+  aboutApartment: boolean;
   /** The status it stands in, as the board named it for this type. */
   status: { id: string; label: string };
   /** Whom it waits on, while its status means WAITING; null otherwise. */
@@ -226,6 +353,13 @@ export type QueuedIssueView = OwnIssueView & {
   enteredBy: IssueHandlerView | null;
   /** Whether it is closed to every handler but the board on its own. */
   boardOnly: boolean;
+  /** The inspection it is a finding of (decision 31), or null. */
+  finding: IssueFindingView | null;
+  /**
+   * Its known fault, while one is published (decision 22); null otherwise.
+   * The type's name is the row's own.
+   */
+  knownFault: Omit<KnownFaultView, "typeName"> | null;
   /**
    * Since when a legal hold stands on it, or null (ADR 0057). While one stands
    * its free text outlasts its clock, and a handler may not redact it.
@@ -273,6 +407,8 @@ export type ProtectedReporters = "show" | "omit";
 export interface IssueBoardFilter {
   meaning?: IssueMeaningFilter;
   typeId?: string;
+  /** The common-area place the issue is about (decision 30). */
+  placeId?: string;
   priority?: IssuePriority;
   /**
    * What the handler typed, matched as `IssueService.searchWhere` says. Blank
@@ -306,6 +442,8 @@ export interface IssueQueueFilter {
   /** The meaning of the status the issue stands in. */
   meaning?: IssueStatusMeaning;
   typeId?: string;
+  /** The common-area place the issue is about (decision 30). */
+  placeId?: string;
   /** A group that may report the issue's type. */
   reporter?: IssueReporterGroup;
 }
@@ -340,6 +478,8 @@ export interface OpenIssueInput {
    */
   residencyId?: string | null;
   location?: string | null;
+  /** A common-area place from the association's list (decision 30). */
+  placeId?: string | null;
   description: string;
 }
 
@@ -353,7 +493,8 @@ export interface OpenIssueInput {
  * people by `IssueHandlerView`.
  *
  * `actor` is null on a step nobody took by hand - an assignment the type's
- * default made on filing - and on an entry whose actor was purged it is
+ * default made on filing - and on a step the reporter took, a reopening by
+ * their reply (`byReporter`); on an entry whose actor was purged it is
  * `unknown`. A reporter is never named here: the queue row says who reported
  * the issue, masked as a reporter is, and a second spelling of them would be a
  * second place for a protected reporter's name to escape.
@@ -372,6 +513,8 @@ export type IssueTimelineStep = {
       toStatusId: string | null;
       waitingReason: IssueWaitingReason | null;
       outcome: IssueOutcome | null;
+      /** Reopened by the reporter's reply within the window (ADR 0054). */
+      byReporter: boolean;
     }
   | {
       kind: "assigned";
@@ -382,6 +525,7 @@ export type IssueTimelineStep = {
   | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
+  | { kind: "knownFault"; published: boolean }
   /**
    * A work order was written; the work orders themselves say to whom. How its
    * mail ended is read from the work order as the timeline is read, because
@@ -392,6 +536,26 @@ export type IssueTimelineStep = {
   /** A handler redacted a text or removed a file (ADR 0057). */
   | { kind: "redacted"; target: IssueRedactionTarget | null }
   | { kind: "legalHold"; held: boolean }
+  | {
+      /** The common-area place set or changed; null when taken off. */
+      kind: "place";
+      placeId: string | null;
+    }
+  | {
+      /**
+       * The entry permission given (its answer) or withdrawn (null). By the
+       * reporter themselves, the step has no actor: a reporter is never named
+       * on the timeline.
+       */
+      kind: "entry";
+      answer: IssueEntryAnswer | null;
+      byReporter: boolean;
+    }
+  | {
+      /** Marked as a finding of this kind, or taken off (null). */
+      kind: "finding";
+      findingKind: IssueFindingKind | null;
+    }
   | {
       kind: "costResponsibility";
       from: IssueCostResponsibility | null;
@@ -518,6 +682,8 @@ export interface ReportIssueInput {
   /** The reporter's own apartment, when the issue is in one. */
   apartmentId?: string | null;
   location?: string | null;
+  /** A common-area place from the association's list (decision 30). */
+  placeId?: string | null;
   description: string;
   /**
    * The post in the feed the report is made from ("Gör felanmälan"), when it
@@ -525,6 +691,11 @@ export interface ReportIssueInput {
    * read the report.
    */
   postId?: string | null;
+  /**
+   * One's own earlier issue, closed, that this report follows up (ADR 0054):
+   * what the reply field offers once a reply no longer reopens it.
+   */
+  followsIssueId?: string | null;
 }
 
 /**
@@ -618,19 +789,30 @@ export class IssueService {
         ? null
         : await this.requireOwnApartment(principal.personId, input.apartmentId);
 
+    const followsIssueId = input.followsIssueId ?? null;
     const data = {
       typeId: type.id,
       // The type's default NEW status: a report is new until a handler moves it.
       statusId: type.newStatusId,
       reporterPersonId: principal.personId,
       apartmentId,
+      placeId: input.placeId ?? null,
       location: locationOrNull(input.location),
       description: input.description,
+      followsIssueId,
     };
     const postId = input.postId ?? null;
 
     await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
+      if (followsIssueId !== null) {
+        await requireFollowable(
+          tx,
+          followsIssueId,
+          principal.personId,
+          type.id,
+        );
+      }
       const filed = await this.file(tx, data);
       if (postId !== null) {
         refuseUnlinked(
@@ -796,6 +978,7 @@ export class IssueService {
         enteredByPersonId: principal.personId,
         enteredByHandler: true,
         apartmentId: resident?.apartmentId ?? null,
+        placeId: input.placeId ?? null,
         location: locationOrNull(input.location),
         description: input.description,
       });
@@ -839,7 +1022,36 @@ export class IssueService {
       include: ISSUE_INCLUDE,
     });
 
-    return issues.map((issue) => toOwnView(issue));
+    const now = new Date();
+    return issues.map((issue) => toOwnView(issue, now));
+  }
+
+  /**
+   * The known faults the house is told of (decision 22): every open issue
+   * with a notice that every handler may read, newest first. Reached with
+   * issues:report, by a resident or a handler; anybody else, such as a
+   * signed-in person who does not live here, is told of none, as the public
+   * website is not.
+   *
+   * Read by the rule `knownFaultShownWhere` states, which the feed reads a
+   * post's notice by too, so the report form and the post cannot disagree
+   * about which notices stand.
+   */
+  async knownFaults(principal: Principal): Promise<KnownFaultView[]> {
+    if (!principal.isResident && !principal.capabilities.has("issues:handle")) {
+      return [];
+    }
+    const issues = await this.prisma.issue.findMany({
+      where: knownFaultShownWhere(),
+      orderBy: [{ knownFaultPublishedAt: "desc" }, { id: "asc" }],
+      select: KNOWN_FAULT_SELECT,
+    });
+    return issues.flatMap((issue) => {
+      const view = knownFaultOf(issue);
+      return view === null
+        ? []
+        : [{ ...view, typeName: typeNameForTheHouse(issue.type) }];
+    });
   }
 
   /**
@@ -1159,6 +1371,8 @@ export class IssueService {
           closedAt: true,
           waitingReason: true,
           outcome: true,
+          mergedIntoIssueId: true,
+          entryAnswer: true,
           status: { select: { id: true, meaning: true } },
         },
       });
@@ -1192,6 +1406,11 @@ export class IssueService {
         next.waitingReason !== existing.waitingReason ||
         next.outcome !== existing.outcome
       ) {
+        // Said on the entry so the timeline and the access report can show that
+        // an entry permission was cleared by the closing, as a fact and not the
+        // permission's content.
+        const clearedEntry =
+          existing.entryAnswer !== null && next.entryAnswer === null;
         await this.audit.record(
           {
             action: "ISSUE_STATUS_CHANGED",
@@ -1208,6 +1427,7 @@ export class IssueService {
                 ? {}
                 : { waitingReason: next.waitingReason }),
               ...(next.outcome === null ? {} : { outcome: next.outcome }),
+              ...(clearedEntry ? { entryPermissionCleared: true } : {}),
             },
           },
           tx,
@@ -1372,6 +1592,15 @@ export class IssueService {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
       const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      // The target date of a finding is held to the inspection's rule, and a
+      // finding is never left without one.
+      if (existing.finding !== null) {
+        requireFindingTargetDate(
+          existing.finding.kind,
+          formatDateColumn(existing.finding.inspectedOn) ?? "",
+          targetDate,
+        );
+      }
       const from = formatDateColumn(existing.targetDate);
       const to = formatDateColumn(column);
       if (from !== to) {
@@ -1523,6 +1752,374 @@ export class IssueService {
   }
 
   /**
+   * Merges an issue into another as its duplicate (decision 22). Reached with
+   * issues:handle, by a handler of both.
+   *
+   * The duplicate moves to its type's default DONE status with the outcome
+   * `DUPLICATE`, which nothing else writes, and names the issue it was merged
+   * into. Its reporter keeps their own report, conversation and photographs,
+   * and follows the other issue from it: their report shows where that issue
+   * stands, and a handler may write to every reporter of its duplicates at
+   * once (`IssueConversationService.replyToDuplicates`). Nothing of either
+   * report is copied onto the other, so a protected reporter of either stays
+   * masked exactly as before, and neither reporter learns who the other is.
+   *
+   * Merged into an issue that is being handled, never one that is done: the
+   * reporter of the duplicate would follow a report nobody works on, and a
+   * handler who wants it there reopens that issue first (`merge-into-closed`).
+   * The issue merged may itself be done already, a report closed and only then
+   * found to be a duplicate: it keeps the day it closed, its outcome becomes
+   * `DUPLICATE` in place of the one it had, and its reporter is told it is
+   * handled with the other issue. The handler has pressed twice for that, and
+   * reopening it undoes it.
+   *
+   * One level only. An issue is not merged into a duplicate, which would leave
+   * its reporter following a report that follows another, and an issue others
+   * were merged into is merged the other way round instead. A duplicate that
+   * is reopened, or closed again with another outcome, leaves the issue it was
+   * merged into (`nextState`).
+   *
+   * Recorded as the status change it is, with the issue merged into among its
+   * facts, so the timeline and the access report read it where they read
+   * every other closing.
+   */
+  async merge(
+    issueId: string,
+    intoIssueId: string,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    if (issueId === intoIssueId) {
+      throw new IssueError(
+        "An issue cannot be merged into itself.",
+        "merge-into-itself",
+      );
+    }
+    const issue = await this.prisma.$transaction(async (tx) => {
+      await lockIssuesForHandling(tx, [issueId, intoIssueId]);
+      // After the lock waits. A person who handles nothing is read as the
+      // narrower scope, which admits every issue an every-handler type has: a
+      // role withdrawn since the route's check must not merge.
+      const now = new Date();
+      if (!(await handlesIssues(tx, actorPersonId, "EVERY_HANDLER", now))) {
+        throw new IssueError("No such issue.", "issue-not-found");
+      }
+      const scope = await this.readerScope(tx, actorPersonId, now);
+      const [existing, into] = await Promise.all(
+        [issueId, intoIssueId].map((id) =>
+          tx.issue.findFirst({
+            where: { id, ...issuesHandledWhere(scope) },
+            select: {
+              id: true,
+              typeId: true,
+              closedAt: true,
+              mergedIntoIssueId: true,
+              entryAnswer: true,
+              status: { select: { id: true, meaning: true } },
+              _count: { select: { duplicates: true } },
+            },
+          }),
+        ),
+      );
+      if (
+        existing === null ||
+        existing === undefined ||
+        into === null ||
+        into === undefined
+      ) {
+        throw new IssueError("No such issue.", "issue-not-found");
+      }
+      if (into.mergedIntoIssueId !== null) {
+        throw new IssueError(
+          "That issue is itself a duplicate of another.",
+          "merge-into-duplicate",
+        );
+      }
+      if (existing._count.duplicates > 0) {
+        throw new IssueError(
+          "Other issues were merged into this one; merge the other way.",
+          "merge-has-duplicates",
+        );
+      }
+      if (existing.mergedIntoIssueId === intoIssueId) {
+        return tx.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          include: ISSUE_INCLUDE,
+        });
+      }
+      if (existing.mergedIntoIssueId !== null) {
+        throw new IssueError(
+          "That issue is already a duplicate of another.",
+          "merge-already-duplicate",
+        );
+      }
+
+      if (into.status.meaning === "DONE") {
+        throw new IssueError(
+          "That issue is done; merge into one that is still being handled.",
+          "merge-into-closed",
+        );
+      }
+
+      if (into._count.duplicates >= ISSUE_LINK_LIMITS.duplicates) {
+        throw new IssueError(
+          "That issue already has as many duplicates as one may.",
+          "merge-limit",
+        );
+      }
+
+      const target = await tx.issueStatus.findFirst({
+        where: { typeId: existing.typeId, meaning: "DONE", isDefault: true },
+        select: { id: true, meaning: true },
+      });
+      if (target === null) {
+        // Every type keeps a default status of each meaning (ADR 0054).
+        throw new Error(`Type ${existing.typeId} has no default DONE status.`);
+      }
+
+      await this.audit.record(
+        {
+          action: "ISSUE_STATUS_CHANGED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "issue",
+          targetId: issueId,
+          context: {
+            from: existing.status.meaning,
+            to: target.meaning,
+            fromStatusId: existing.status.id,
+            toStatusId: target.id,
+            outcome: "DUPLICATE",
+            mergedIntoIssueId: intoIssueId,
+            // As a status change says it (`changeStatus`): the closing cleared
+            // an entry permission, as a fact and never its content.
+            ...(existing.entryAnswer === null
+              ? {}
+              : { entryPermissionCleared: true }),
+          },
+        },
+        tx,
+      );
+
+      // The issue merged into gains a duplicate without a column of its own
+      // changing, and a handler's open panel for it reads its links again only
+      // when its revision moves.
+      await tx.issue.update({
+        where: { id: intoIssueId },
+        data: { updatedAt: new Date() },
+      });
+
+      return tx.issue.update({
+        where: { id: issueId },
+        data: {
+          statusId: target.id,
+          waitingReason: null,
+          outcome: "DUPLICATE",
+          // A duplicate merged after it closed keeps the day it closed, which
+          // the purge clock runs on (`nextState`).
+          closedAt: existing.closedAt ?? new Date(),
+          mergedIntoIssueId: intoIssueId,
+          ...KNOWN_FAULT_CLEARED,
+          // Closing clears the entry permission (decision 29), as `nextState`
+          // does for every other closing.
+          ...NO_ENTRY_PERMISSION,
+        },
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} merged into ${intoIssueId}`);
+    return this.viewOf(issue);
+  }
+
+  /**
+   * Publishes or rewrites an issue's known fault (decision 22). Reached with
+   * issues:handle.
+   *
+   * The handler's own words, scanned for a personal identity number as every
+   * text the board writes back is, and signed with the role they write in,
+   * never their name (decision 19). Refused on an issue that is done, and on
+   * one the board keeps to itself: those are closed to the property manager,
+   * and a notice about them would tell the whole house what the board decided
+   * only the board should handle (decision 32 keeps Störningar from every
+   * notice).
+   */
+  async publishKnownFault(
+    issueId: string,
+    body: string,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    refusePersonalIdentityNumbers({ body });
+    const issue = await this.prisma.$transaction(async (tx) => {
+      await this.lockForAssignment(tx, issueId);
+      // After the lock wait: a board seat that ended during it must not sign
+      // the notice as BOARD.
+      const now = new Date();
+      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      // `requireHandled` answers the narrower scope for a person who handles
+      // nothing, and `signatureOf` would sign for them as the board: a role
+      // withdrawn since the route's check must not publish a notice.
+      if (!(await handlesIssues(tx, actorPersonId, "EVERY_HANDLER", now))) {
+        throw new IssueError("No such issue.", "issue-not-found");
+      }
+      if (existing.status.meaning === "DONE") {
+        throw new IssueError(
+          "This issue is closed; a fault that is fixed is not a known fault.",
+          "issue-closed",
+        );
+      }
+      if (issueHandledBy(existing) === "BOARD") {
+        throw new IssueError(
+          "An issue the board keeps to itself carries no known fault.",
+          "known-fault-board-only",
+        );
+      }
+
+      await this.audit.record(
+        {
+          action: "ISSUE_KNOWN_FAULT_CHANGED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "issue",
+          targetId: issueId,
+          // Whether a notice stands, never what it says.
+          context: { published: true },
+        },
+        tx,
+      );
+      return tx.issue.update({
+        where: { id: issueId },
+        data: {
+          knownFault: body,
+          knownFaultSignature: await signatureOf(tx, actorPersonId, now),
+          // The day it was first published, kept when it is rewritten, so a
+          // notice is not moved to the top of the list by a typo's correction.
+          knownFaultPublishedAt: existing.knownFaultPublishedAt ?? now,
+        },
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} known fault published`);
+    return this.viewOf(issue);
+  }
+
+  /** Withdraws an issue's known fault. Reached with issues:handle. */
+  async withdrawKnownFault(
+    issueId: string,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    const issue = await this.prisma.$transaction(async (tx) => {
+      await this.lockForAssignment(tx, issueId);
+      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      // As publishing does: a role withdrawn since the route's check must not
+      // clear a notice the board put up.
+      if (
+        !(await handlesIssues(tx, actorPersonId, "EVERY_HANDLER", new Date()))
+      ) {
+        throw new IssueError("No such issue.", "issue-not-found");
+      }
+      if (existing.knownFaultPublishedAt === null) {
+        return tx.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          include: ISSUE_INCLUDE,
+        });
+      }
+      await this.audit.record(
+        {
+          action: "ISSUE_KNOWN_FAULT_CHANGED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "issue",
+          targetId: issueId,
+          context: { published: false },
+        },
+        tx,
+      );
+      return tx.issue.update({
+        where: { id: issueId },
+        data: KNOWN_FAULT_CLEARED,
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} known fault withdrawn`);
+    return this.viewOf(issue);
+  }
+
+  /**
+   * The issues one issue is linked to (decisions 8 and 22). Reached with
+   * issues:handle, for an issue the reader handles.
+   *
+   * Each linked issue is named only when the reader handles it as well, by
+   * the rule every read of an issue uses, and otherwise as `hidden`: a
+   * property manager reading a duplicate of an issue the board keeps to itself
+   * learns that it was merged, which its outcome says anyway, and nothing
+   * about the issue it was merged into. Lists name only the issues the reader
+   * handles. Read from one snapshot, for the reason
+   * `IssueConversationService.readHandled` gives.
+   */
+  async links(
+    readerPersonId: string,
+    issueId: string,
+  ): Promise<IssueLinksView> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const scope = await this.readerScope(tx, readerPersonId, new Date());
+        const handled = issuesHandledWhere(scope);
+        const issue = await tx.issue.findFirst({
+          where: { id: issueId, ...handled },
+          select: { mergedIntoIssueId: true, followsIssueId: true },
+        });
+        if (issue === null) {
+          throw new IssueError("No such issue.", "issue-not-found");
+        }
+        const read = (where: Prisma.IssueWhereInput, take?: number) =>
+          tx.issue.findMany({
+            where: { AND: [where, handled] },
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            select: REFERENCE_SELECT,
+            ...(take === undefined ? {} : { take }),
+          });
+        const [linked, duplicates, followUps, duplicateCount, followUpCount] =
+          await Promise.all([
+            read({
+              id: {
+                in: [issue.mergedIntoIssueId, issue.followsIssueId].filter(
+                  (id): id is string => id !== null,
+                ),
+              },
+            }),
+            read({ mergedIntoIssueId: issueId }),
+            read(
+              { followsIssueId: issueId },
+              ISSUE_LINK_LIMITS.followUpsListed,
+            ),
+            tx.issue.count({ where: { mergedIntoIssueId: issueId } }),
+            tx.issue.count({
+              where: { AND: [{ followsIssueId: issueId }, handled] },
+            }),
+          ]);
+        const named = (id: string | null): IssueReferenceView | null => {
+          if (id === null) {
+            return null;
+          }
+          const row = linked.find((candidate) => candidate.id === id);
+          return row === undefined ? { kind: "hidden" } : toReference(row);
+        };
+        return {
+          mergedInto: named(issue.mergedIntoIssueId),
+          duplicates: duplicates.map(toReference),
+          duplicateCount,
+          follows: named(issue.followsIssueId),
+          followUps: followUps.map(toReference),
+          followUpCount,
+        };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
+  }
+
+  /**
    * The people an issue may be assigned to, by name and nothing else. Reached
    * with issues:handle.
    *
@@ -1578,6 +2175,15 @@ export class IssueService {
       },
     });
 
+    // The reporter's own act - answering the entry question, or a reply that
+    // reopened the issue - is shown as the reporter's and never by name: the queue row says who reported the issue,
+    // masked as a reporter is.
+    const byReporter = (entry: (typeof entries)[number]): boolean =>
+      typeof entry.context === "object" &&
+      entry.context !== null &&
+      !Array.isArray(entry.context) &&
+      entry.context.byReporter === true;
+
     const workOrders = entries.some(
       (entry) => entry.action === "ISSUE_WORK_ORDER_SENT",
     )
@@ -1605,7 +2211,9 @@ export class IssueService {
     );
 
     const viewOf = await readAuthors(this.prisma, [
-      ...entries.map((entry) => entry.actorPersonId),
+      ...entries
+        .filter((entry) => !byReporter(entry))
+        .map((entry) => entry.actorPersonId),
       ...entries
         .filter((entry) => entry.action === "ISSUE_ASSIGNED")
         .map((entry) => entry.targetPersonId),
@@ -1622,7 +2230,12 @@ export class IssueService {
     return [
       ...filed,
       ...entries.map((entry) =>
-        timelineStep(entry, person(entry.actorPersonId), person, deliveryOf),
+        timelineStep(
+          entry,
+          byReporter(entry) ? null : person(entry.actorPersonId),
+          person,
+          deliveryOf,
+        ),
       ),
     ];
   }
@@ -1809,6 +2422,17 @@ export class IssueService {
     if (type === null) {
       throw new IssueError("No such issue type.", "type-not-found");
     }
+    if (data.placeId != null && data.apartmentId != null) {
+      throw placeWithApartment();
+    }
+    if (data.placeId != null) {
+      // A place the board switched off is not offered, so a report naming it
+      // is answered as one naming a place that is not there. Held until the
+      // insert commits, so its key cannot be the one that fails.
+      if (!(await holdOfferedPlace(tx, data.placeId))) {
+        throw new IssueError("No such place.", "place-not-found");
+      }
+    }
     const assigneePersonId =
       type.defaultAssigneePersonId !== null &&
       (await handlesIssues(
@@ -1881,6 +2505,7 @@ export class IssueService {
         // One after another: a transaction runs one statement at a time.
         issuesHandledWhere(await this.readerScope(db, readerPersonId, now)),
         filter.typeId === undefined ? {} : { typeId: filter.typeId },
+        filter.placeId === undefined ? {} : { placeId: filter.placeId },
         filter.priority === undefined ? {} : { priority: filter.priority },
         terms.length === 0 ? {} : await this.searchWhere(db, terms),
       ],
@@ -1890,8 +2515,8 @@ export class IssueService {
   /**
    * What a search of the queue matches: each of its words (`searchTermsOf`:
    * the first `ISSUE_SEARCH_LIMITS.terms` different ones; any after those are
-   * not read) somewhere in the issue's description, its place, its type's
-   * name, its apartment's designation, its reporter's name, a message in its
+   * not read) somewhere in the issue's description, its place, the name of its
+   * common area, its type's name, its apartment's designation, its reporter's name, a message in its
    * conversation with the reporter or an internal note on it, case aside and
    * whichever Unicode form the text was stored in. The words need not all be
    * in one place: one in a note and another in the description is a match.
@@ -1946,10 +2571,14 @@ export class IssueService {
           ...forms.flatMap((matches) => [
             { description: matches },
             { location: matches },
+            // The board's own list (decision 30), shown on every row.
+            { place: { name: matches } },
             { type: { name: matches } },
             // Every handler the issue lets in reads its whole conversation
             // and every note on it (`IssueConversationService`), so the
-            // issues handled below are the boundary for these as well.
+            // issues handled below are the boundary for these as well. Each
+            // is read through a trigram index on `body`, without which every
+            // word read every message and note in the database.
             { messages: { some: { body: matches } } },
             { notes: { some: { body: matches } } },
             { AND: [{ apartment: { number: matches } }, notProtected] },
@@ -1971,32 +2600,28 @@ export class IssueService {
 
   /**
    * An issue this person handles, or the refusal that answers an issue that
-   * does not exist: one the reader may not open is not one they may learn of.
+   * does not exist: one the reader may not open is not one they may learn of
+   * (`requireHandledIssue`), with what a write needs.
    */
   private async requireHandled(
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
   ) {
-    const scope = await this.readerScope(db, readerPersonId, new Date());
-    const issue = await db.issue.findFirst({
-      where: { id: issueId, ...issuesHandledWhere(scope) },
-      select: {
-        id: true,
-        typeId: true,
-        boardOnly: true,
-        assigneePersonId: true,
-        priority: true,
-        targetDate: true,
-        costResponsibility: true,
-        createdAt: true,
-        type: { select: { handledBy: true } },
-      },
+    return requireHandledIssue(db, issueId, readerPersonId, {
+      id: true,
+      typeId: true,
+      boardOnly: true,
+      assigneePersonId: true,
+      priority: true,
+      targetDate: true,
+      costResponsibility: true,
+      createdAt: true,
+      knownFaultPublishedAt: true,
+      status: { select: { meaning: true } },
+      type: { select: { handledBy: true } },
+      finding: { select: { kind: true, inspectedOn: true } },
     });
-    if (issue === null) {
-      throw new IssueError("No such issue.", "issue-not-found");
-    }
-    return issue;
   }
 
   /**
@@ -2045,6 +2670,29 @@ export class IssueService {
       },
       tx,
     );
+  }
+
+  /**
+   * An issue a handler's write has just changed, read in that write's
+   * transaction, for `viewOfWritten` once it commits. The write authorised the
+   * handler under its locks, so the row is not read through the reader's scope
+   * a second time: a handler who stops handling the issue just after the write
+   * commits would otherwise be told `issue-not-found` about a change that is
+   * stored.
+   */
+  async writtenIssue(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+  ): Promise<QueueRecord> {
+    return tx.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      include: ISSUE_INCLUDE,
+    });
+  }
+
+  /** The queue's row for an issue `writtenIssue` read. */
+  async viewOfWritten(issue: QueueRecord): Promise<QueuedIssueView> {
+    return this.viewOf(issue);
   }
 
   /** The queue's row for one issue just written. */
@@ -2317,7 +2965,12 @@ const ISSUE_INCLUDE = {
   status: {
     select: { id: true, label: true, meaning: true, sortOrder: true },
   },
+  // The meaning alone, which is what a duplicate's reporter is told of the
+  // issue it was merged into (`OwnIssueView`).
+  mergedInto: { select: { status: { select: { meaning: true } } } },
   apartment: { select: APARTMENT_SELECT },
+  place: { select: { id: true, name: true } },
+  finding: { select: FINDING_SELECT },
   photos: {
     orderBy: { sortOrder: "asc" },
     select: {
@@ -2525,6 +3178,7 @@ export function unicodeFormsOf(term: string): string[] {
 function queueWhere(filter: IssueQueueFilter): Prisma.IssueWhereInput {
   return {
     ...(filter.typeId === undefined ? {} : { typeId: filter.typeId }),
+    ...(filter.placeId === undefined ? {} : { placeId: filter.placeId }),
     ...(filter.reporter === undefined
       ? {}
       : { type: { reporters: { has: filter.reporter } } }),
@@ -2574,11 +3228,18 @@ function afterWithinMeaning(cursor: IssueQueueCursor): Prisma.IssueWhereInput {
  * otherwise run on: detaching a reporter from a neighbouring issue is an
  * update, so a clock reading updatedAt would push its own purge date away
  * every night the purge ran.
+ *
+ * A duplicate stays merged on a move between two DONE statuses that keeps its
+ * outcome, and leaves the issue it was merged into on any other move: reopened,
+ * or closed again with an outcome of its own, it is no longer a duplicate, and
+ * its reporter follows it again rather than the other issue. Closing clears a
+ * known fault, which a fault nobody still has stops being.
  */
 function nextState(
   existing: {
     closedAt: Date | null;
     outcome: IssueOutcome | null;
+    mergedIntoIssueId: string | null;
     status: { meaning: IssueStatusMeaning };
   },
   target: { id: string; meaning: IssueStatusMeaning },
@@ -2588,7 +3249,9 @@ function nextState(
   waitingReason: IssueWaitingReason | null;
   outcome: IssueOutcome | null;
   closedAt: Date | null;
-} {
+  mergedIntoIssueId: string | null;
+} & Partial<typeof KNOWN_FAULT_CLEARED> &
+  Partial<typeof NO_ENTRY_PERMISSION> {
   if (target.meaning !== "WAITING" && move.waitingReason !== undefined) {
     throw new IssueError(
       "A waiting reason belongs to a status that means waiting.",
@@ -2620,8 +3283,26 @@ function nextState(
     waitingReason: move.waitingReason ?? null,
     outcome,
     closedAt: closing ? (existing.closedAt ?? new Date()) : null,
+    mergedIntoIssueId:
+      closing && outcome === "DUPLICATE" ? existing.mergedIntoIssueId : null,
+    ...(closing ? KNOWN_FAULT_CLEARED : {}),
+    /*
+     * The entry permission is cleared in the transaction that closes the issue
+     * (decision 29): what a resident said about getting into their home has no
+     * business outliving the work it was given for. A move between two DONE
+     * statuses finds it already gone, and a database constraint refuses a
+     * closed issue that holds one.
+     */
+    ...(closing ? NO_ENTRY_PERMISSION : {}),
   };
 }
+
+/** The columns of a known fault, cleared. */
+const KNOWN_FAULT_CLEARED = {
+  knownFault: null,
+  knownFaultSignature: null,
+  knownFaultPublishedAt: null,
+} as const;
 
 /** What a queue row's reporter is read as: the person, protection included. */
 interface ReporterRow {
@@ -2631,7 +3312,73 @@ interface ReporterRow {
   protectedPersonalData: boolean;
 }
 
-type QueueRecord = Prisma.IssueGetPayload<{ include: typeof ISSUE_INCLUDE }>;
+export type QueueRecord = Prisma.IssueGetPayload<{
+  include: typeof ISSUE_INCLUDE;
+}>;
+
+/**
+ * Refuses a follow-up of anything but one's own issue that is done: another
+ * person's issue is answered as one that does not exist, and an open one takes
+ * a reply instead.
+ *
+ * Under the locks a handler's reopening of the earlier issue takes, so the
+ * status read here is the one the new issue is saved against: the locks of the
+ * earlier issue's type and of the type being filed under, in one sorted order,
+ * and then the earlier issue's own. The type before the issue is the order
+ * `lockIssueForHandling` keeps, and sorting the types keeps two follow-ups
+ * whose earlier and new types are swapped from waiting on each other.
+ * `file` takes the new type's lock again, which a transaction already holds.
+ */
+async function requireFollowable(
+  tx: Prisma.TransactionClient,
+  issueId: string,
+  reporterPersonId: string,
+  newTypeId: string,
+): Promise<void> {
+  const own = await tx.issue.findFirst({
+    where: { id: issueId, reporterPersonId },
+    select: { typeId: true },
+  });
+  if (own === null) {
+    throw new IssueError("No such issue.", "issue-not-found");
+  }
+  for (const typeId of [...new Set([own.typeId, newTypeId])].sort()) {
+    await lockIssueType(tx, typeId);
+  }
+  await lockIssue(tx, issueId);
+  const earlier = await tx.issue.findFirst({
+    where: { id: issueId, reporterPersonId },
+    select: { status: { select: { meaning: true } } },
+  });
+  if (earlier === null) {
+    throw new IssueError("No such issue.", "issue-not-found");
+  }
+  if (earlier.status.meaning !== "DONE") {
+    throw new IssueError(
+      "That issue is still open; reply on it instead.",
+      "follow-up-of-open-issue",
+    );
+  }
+}
+
+const REFERENCE_SELECT = {
+  id: true,
+  createdAt: true,
+  type: { select: { name: true } },
+  status: { select: { meaning: true } },
+} as const;
+
+function toReference(
+  row: Prisma.IssueGetPayload<{ select: typeof REFERENCE_SELECT }>,
+): Extract<IssueReferenceView, { kind: "issue" }> {
+  return {
+    kind: "issue",
+    id: row.id,
+    typeName: row.type.name,
+    meaning: row.status.meaning,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
 
 export interface ApartmentRecord {
   id: string;
@@ -2690,7 +3437,8 @@ function locationOrNull(location: string | null | undefined): string | null {
  * at the same moment makes the insert raise P2003 against the restrictive key.
  * That is a type that does not exist, and is answered as one rather than with
  * a 500. The apartment's key cannot be the one: the reporter's residency holds
- * the apartment in the register.
+ * the apartment in the register. Nor can the place's: `holdOfferedPlace` holds
+ * it until the insert commits.
  */
 function typeRemoved(cause: unknown): never {
   if (
@@ -2702,7 +3450,7 @@ function typeRemoved(cause: unknown): never {
   throw cause;
 }
 
-interface IssueRecord {
+interface IssueRecord extends EntryColumns {
   id: string;
   number: number;
   priority: IssuePriority;
@@ -2720,6 +3468,11 @@ interface IssueRecord {
   };
   waitingReason: IssueWaitingReason | null;
   outcome: IssueOutcome | null;
+  mergedIntoIssueId: string | null;
+  mergedInto: { status: { meaning: IssueStatusMeaning } } | null;
+  knownFault: string | null;
+  knownFaultSignature: IssueSignature | null;
+  knownFaultPublishedAt: Date | null;
   location: string | null;
   description: string;
   descriptionRedactedAt: Date | null;
@@ -2736,6 +3489,8 @@ interface IssueRecord {
     handledBy: IssueHandledBy;
   };
   apartment: ApartmentRecord | null;
+  place: IssuePlaceRef | null;
+  finding: FindingRecord | null;
   photos: {
     id: string;
     file: {
@@ -2762,7 +3517,8 @@ function toQueuedView(
 ): QueuedIssueView {
   const targetDate = formatDateColumn(issue.targetDate);
   const queued = {
-    ...toOwnView(issue),
+    ...toIssueRowView(issue, today),
+    aboutApartment: issue.apartment !== null,
     status: { id: issue.status.id, label: issue.status.label },
     waitingReason: issue.waitingReason,
     outcome: issue.outcome,
@@ -2778,6 +3534,8 @@ function toQueuedView(
     assignee: handlers.assignee,
     enteredBy: handlers.enteredBy,
     boardOnly: issue.boardOnly,
+    knownFault: knownFaultOf(issue),
+    finding: toFindingView(issue.finding),
     legalHoldAt: issue.legalHoldAt?.toISOString() ?? null,
     costResponsibility: issue.costResponsibility,
   };
@@ -2787,7 +3545,25 @@ function toQueuedView(
   return { ...queued, reporter };
 }
 
-function toOwnView(issue: IssueRecord): OwnIssueView {
+/** An issue as its reporter reads it, at this moment. */
+function toOwnView(issue: IssueRecord, now: Date): OwnIssueView {
+  return {
+    ...toIssueRowView(issue, localDayOf(now)),
+    replyMode:
+      issue.status.meaning !== "DONE"
+        ? "MESSAGE"
+        : issue.mergedIntoIssueId === null &&
+            replyReopensIssue(issue.closedAt, now)
+          ? "REOPENS"
+          : "NEW_REPORT",
+    mergedIntoMeaning:
+      issue.mergedIntoIssueId === null
+        ? null
+        : (issue.mergedInto?.status.meaning ?? null),
+  };
+}
+
+function toIssueRowView(issue: IssueRecord, today: LocalDay): IssueRowView {
   return {
     id: issue.id,
     number: issue.number,
@@ -2795,9 +3571,11 @@ function toOwnView(issue: IssueRecord): OwnIssueView {
     typeId: issue.type.id,
     typeName: issue.type.name,
     location: issue.location,
+    place: issue.place,
     description: issue.description,
     apartment:
       issue.apartment === null ? null : toApartmentView(issue.apartment),
+    entry: toEntryView(issue, today),
     enteredByHandler: issue.enteredByHandler,
     photos: issue.photos.map((photo) => ({
       id: photo.id,
@@ -2822,6 +3600,12 @@ const TIMELINE_ACTIONS = [
   "ISSUE_PRIORITY_CHANGED",
   "ISSUE_TARGET_DATE_CHANGED",
   "ISSUE_ACCESS_CHANGED",
+  "ISSUE_KNOWN_FAULT_CHANGED",
+  "ISSUE_PLACE_CHANGED",
+  "ISSUE_ENTRY_PERMISSION_SET",
+  "ISSUE_ENTRY_PERMISSION_REMOVED",
+  "ISSUE_FINDING_MARKED",
+  "ISSUE_FINDING_REMOVED",
   "ISSUE_WORK_ORDER_SENT",
   "ISSUE_REDACTED",
   "ISSUE_LEGAL_HOLD_PLACED",
@@ -2894,6 +3678,40 @@ function timelineStep(
         actor,
         boardOnly: context.boardOnly === true,
       };
+    case "ISSUE_KNOWN_FAULT_CHANGED":
+      return {
+        kind: "knownFault",
+        at,
+        actor,
+        published: context.published === true,
+      };
+    case "ISSUE_PLACE_CHANGED":
+      return { kind: "place", at, actor, placeId: text("to") };
+    case "ISSUE_ENTRY_PERMISSION_SET":
+      return {
+        kind: "entry",
+        at,
+        actor,
+        answer: oneOf(text("answer"), ISSUE_ENTRY_ANSWERS),
+        byReporter: context.byReporter === true,
+      };
+    case "ISSUE_ENTRY_PERMISSION_REMOVED":
+      return {
+        kind: "entry",
+        at,
+        actor,
+        answer: null,
+        byReporter: context.byReporter === true,
+      };
+    case "ISSUE_FINDING_MARKED":
+      return {
+        kind: "finding",
+        at,
+        actor,
+        findingKind: oneOf(text("kind"), ISSUE_FINDING_KINDS),
+      };
+    case "ISSUE_FINDING_REMOVED":
+      return { kind: "finding", at, actor, findingKind: null };
     case "ISSUE_WORK_ORDER_SENT":
       return {
         kind: "workOrder",
@@ -2935,6 +3753,7 @@ function timelineStep(
         toStatusId: text("toStatusId"),
         waitingReason: oneOf(text("waitingReason"), ISSUE_WAITING_REASONS),
         outcome: oneOf(text("outcome"), ISSUE_OUTCOMES),
+        byReporter: context.byReporter === true,
       };
   }
 }

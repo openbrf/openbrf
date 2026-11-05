@@ -56,13 +56,22 @@ export async function lockIssueType(
 
 /**
  * The lock a transaction takes before it counts what one handler has sent
- * contractors in the last hour and adds a work order to it.
+ * contractors in the last hour and adds a work order to it, and that the purge
+ * of the handler takes before it detaches their work orders.
  *
  * The sending budget (`WorkOrderService.send`) is a count followed by an
  * insert across every issue the handler sends from, so the issue's own lock
  * does not serialise it: two sendings from two issues at once would both pass
  * the count. Taken after the type's and the issue's, the order every sending
  * takes them in. An advisory lock for the reason `lockIssue` gives.
+ *
+ * The purge (`PurgeService`) takes it so that a sending which read the
+ * handler's access before a role was withdrawn cannot commit its
+ * `sentByPersonId` after the purge has detached the person's work orders. The
+ * two serialise only on the same key: advisory locks are taken by the hash of
+ * a string, so the purge calls this function rather than spelling the key
+ * again, and a second spelling would hash to another lock and wait for
+ * nothing.
  */
 export async function lockWorkOrderSender(
   tx: Prisma.TransactionClient,
@@ -155,6 +164,33 @@ export async function lockIssueForHandling(
 }
 
 /**
+ * `lockIssueForHandling` for a write that decides about several issues at
+ * once, such as merging one into another.
+ *
+ * Every type's lock first and then every issue's, each set in one fixed order,
+ * so two such writes, or one and a single-issue write, never wait on each
+ * other in a cycle: taking the two issues' locks one issue at a time would hold
+ * one issue while waiting on a type a single-issue write holds while waiting on
+ * that issue.
+ */
+export async function lockIssuesForHandling(
+  tx: Prisma.TransactionClient,
+  issueIds: readonly string[],
+): Promise<void> {
+  const ids = [...new Set(issueIds)].sort();
+  const issues = await tx.issue.findMany({
+    where: { id: { in: ids } },
+    select: { typeId: true },
+  });
+  for (const typeId of [...new Set(issues.map((row) => row.typeId))].sort()) {
+    await lockIssueType(tx, typeId);
+  }
+  for (const id of ids) {
+    await lockIssue(tx, id);
+  }
+}
+
+/**
  * The lock a transaction takes before it adds to the association's saved
  * replies, or seeds them: the bound on how many there are is a count followed
  * by an insert, and a new instance's seed writes only into an empty list. One
@@ -164,4 +200,37 @@ export async function lockIssueSavedReplies(
   tx: Prisma.TransactionClient,
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"issue-saved-replies"}))`;
+}
+
+/**
+ * The lock a transaction takes before it changes the association's list of
+ * common-area places: the bound on how many there are is a count followed by
+ * an insert, and a new instance's seed writes only into an empty list. One key
+ * for the whole list, which is the association's one list.
+ */
+export async function lockIssuePlaces(
+  tx: Prisma.TransactionClient,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"issue-places"}))`;
+}
+
+/**
+ * Holds a common-area place a write is about to name, and says whether it is
+ * still offered.
+ *
+ * The place is read before the issue names it, and the board can remove it in
+ * between: the write's foreign key would then fail with P2003, which the
+ * reporting path would answer as a removed type and a handler's change as a
+ * 500. `FOR KEY SHARE` makes the removal wait for this transaction, and the
+ * database then refuses it as `place-in-use`. Renaming a place or switching it
+ * off does not wait: an issue filed while the board switches its place off is
+ * the same as one filed a moment before.
+ */
+export async function holdOfferedPlace(
+  tx: Prisma.TransactionClient,
+  placeId: string,
+): Promise<boolean> {
+  const rows = await tx.$queryRaw<{ active: boolean }[]>`
+    SELECT active FROM issue_place WHERE id = ${placeId} FOR KEY SHARE`;
+  return rows[0]?.active === true;
 }

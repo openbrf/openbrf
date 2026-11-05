@@ -2,7 +2,6 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
-import { Logger } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
@@ -11,6 +10,7 @@ import { AuthService } from "../auth/auth.service";
 import { ENV } from "../config/config.module";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { MediaService } from "../media/media.service";
 import { pngBytes } from "../media/testing/image-fixtures";
 import { erasureRemainder } from "../retention/erasure-domains";
@@ -24,6 +24,11 @@ import {
 } from "../testing/issue-fixtures";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
 import { IssueErasureService } from "./issue-erasure.service";
+import {
+  IssueFreeTextService,
+  type FreeTextRemoval,
+} from "./issue-free-text.service";
+import { IssueRedactionService } from "./issue-redaction.service";
 import { IssueTextPurgeService } from "./issue-text-purge.service";
 import { IssueService } from "./issue.service";
 import { WorkOrderMailerService } from "./work-order-mailer.service";
@@ -35,8 +40,9 @@ import { WorkOrderMailerService } from "./work-order-mailer.service";
  * conversation, the notes and every file, from storage - once the issue has
  * been closed for the board's number of years, and leaves the building record:
  * the type, the status, the outcome, the apartment, the dates, the priority. A
- * legal hold on the issue or on its reporter keeps it. A handler redacts a text
- * or removes a file at any time, recorded without the text. A granted erasure
+ * legal hold on the issue, or a legal hold or a restriction on its reporter,
+ * keeps it. A handler redacts a text or removes a file at any time, recorded
+ * without the text, unless one of those stands. A granted erasure
  * request removes the free text of the issues the person reported on the date
  * the board granted, keeps an open or held one and says so, and the person
  * purge detaches the reporter only from an issue whose text is gone, so a
@@ -52,8 +58,10 @@ let encryption: FieldEncryptionService;
 let media: MediaService;
 let storage: StorageService;
 let clock: IssueTextPurgeService;
+let freeText: IssueFreeTextService;
 let erasure: IssueErasureService;
 let personPurge: PurgeService;
+let redaction: IssueRedactionService;
 
 const suffix = process.hrtime.bigint().toString(36);
 const PASSWORD = "a-long-enough-password";
@@ -116,6 +124,16 @@ function inject(options: {
         ...options.headers,
       },
     });
+}
+
+/**
+ * Silences and watches the line the redaction service logs for an act that
+ * changed something. The spy is on the service's own logger, so what another
+ * service logs neither fills it nor is silenced, and a check that it was never
+ * called does not depend on the words of a line.
+ */
+function spyOnRedactionLog() {
+  return vi.spyOn(redaction["logger"], "log").mockImplementation(() => {});
 }
 
 async function signIn(email: string): Promise<string> {
@@ -375,8 +393,10 @@ beforeAll(async () => {
   media = app.get(MediaService);
   storage = app.get(StorageService);
   clock = app.get(IssueTextPurgeService);
+  freeText = app.get(IssueFreeTextService);
   erasure = app.get(IssueErasureService);
   personPurge = app.get(PurgeService);
+  redaction = app.get(IssueRedactionService);
 
   const existing = await prisma.association.findUnique({
     where: { id: 1 },
@@ -741,6 +761,62 @@ describe("the clock", () => {
     expect(releases[0]?.context).toHaveProperty("placedAt");
   });
 
+  it("marks the text as removed when a file attached during the run stands, and finishes with the file", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 5 * 365,
+    });
+    // A handler had redacted the description before the run.
+    expect(
+      (
+        await inject({
+          method: "POST",
+          url: `/api/issue-queue/${issue.id}/redactions`,
+          headers: { cookie: boardCookie },
+          payload: { target: "description" },
+        })
+      ).statusCode,
+    ).toBe(204);
+    const late = await upload();
+    const tonight = new Date();
+    const tomorrow = new Date(tonight.getTime() + 24 * 60 * 60 * 1000);
+
+    // The file arrives on the transaction that takes the text, after the
+    // files were read: the last `stillDue` is the text's.
+    let asked = 0;
+    const outcome = await app
+      .get(IssueFreeTextService)
+      .remove(issue.id, tonight, {
+        targetPersonId: null,
+        context: {},
+        stillDue: async (tx) => {
+          asked += 1;
+          if (asked === 3) {
+            await tx.issuePhoto.create({
+              data: { issueId: issue.id, fileId: late.fileId },
+            });
+          }
+          return true;
+        },
+      });
+    expect(outcome).toBe("unfinished");
+
+    // The marks of the redaction went with the text, so the purge's own mark
+    // stands in its place rather than a description read as filed blank.
+    const midway = await read(issue.id);
+    expect(midway.description).toBe("");
+    expect(midway.descriptionRedactedAt).toBeNull();
+    expect(midway.freeTextRemovedAt).toEqual(tonight);
+    expect(midway._count.photos).toBe(1);
+
+    // The next run takes the file and moves the mark to that run.
+    expect(await clock.purgeIssue(issue.id, tomorrow, 1)).toBe("removed");
+    const after = await read(issue.id);
+    expect(after._count.photos).toBe(0);
+    expect(after.freeTextRemovedAt).toEqual(tomorrow);
+    expect(await stored(late.storageKey)).toBe(false);
+  });
+
   it("keeps an issue whose reporter is under a legal hold", async () => {
     const issue = await seed({
       reporterPersonId: heldReporterId,
@@ -749,6 +825,159 @@ describe("the clock", () => {
     expect(await clock.eligible(new Date(), 1)).not.toContain(issue.id);
     expect(await clock.purgeIssue(issue.id, new Date(), 1)).toBe("kept");
     expect((await read(issue.id)).description).toBe(DESCRIPTION);
+  });
+});
+
+describe("a free-text removal that is refused after files went", () => {
+  /**
+   * A removal whose `stillDue` answers from a script, one answer for each ask:
+   * once for each file and once more in the closing transaction. An ask past
+   * the script's end answers yes.
+   */
+  function scripted(
+    answers: boolean[],
+    inTransaction?: (tx: Prisma.TransactionClient) => Promise<void>,
+  ): FreeTextRemoval {
+    let asked = 0;
+    return {
+      targetPersonId: null,
+      context: { test: true },
+      stillDue: async (tx) => {
+        const answer = answers[asked] ?? true;
+        asked += 1;
+        if (asked === answers.length && inTransaction !== undefined) {
+          await inTransaction(tx);
+        }
+        return answer;
+      },
+    };
+  }
+
+  /**
+   * Every line the free-text service logged during one issue's removal. The
+   * spy is on the service's own logger, as for the redaction log, so a check
+   * for no lines does not depend on the words of one.
+   */
+  async function partialLines(
+    issueId: string,
+    removal: FreeTextRemoval,
+  ): Promise<{ outcome: string; lines: string[] }> {
+    const log = vi
+      .spyOn(freeText["logger"], "log")
+      .mockImplementation(() => {});
+    try {
+      const outcome = await freeText.remove(issueId, new Date(), removal);
+      const lines = log.mock.calls.map(([message]) => String(message));
+      return { outcome, lines };
+    } finally {
+      log.mockRestore();
+    }
+  }
+
+  /** An issue with a description and no files at all. */
+  async function seedWithoutFiles(): Promise<string> {
+    const issue = await prisma.issue.create({
+      data: {
+        typeId,
+        statusId: type.statusIds.DONE,
+        outcome: "FIXED",
+        priority: "NORMAL",
+        reporterPersonId: resident.personId,
+        apartmentId,
+        description: DESCRIPTION,
+        closedAt: new Date(Date.now() - 3 * 365 * DAY),
+        createdAt: new Date("2021-03-01T08:00:00Z"),
+      },
+      select: { id: true },
+    });
+    return issue.id;
+  }
+
+  it("logs once, with the count, when the second file is refused", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 3 * 365,
+    });
+
+    const { outcome, lines } = await partialLines(
+      issue.id,
+      scripted([true, false]),
+    );
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([
+      `Issue ${issue.id} kept its free text after 1 files were removed`,
+    ]);
+    // The first file stays taken, the second and the text stand.
+    const after = await read(issue.id);
+    expect(after._count.photos + after._count.attachments).toBe(1);
+    expect(after.description).toBe(DESCRIPTION);
+  });
+
+  it("logs nothing when the first file is refused", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 3 * 365,
+    });
+
+    const { outcome, lines } = await partialLines(issue.id, scripted([false]));
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([]);
+    const after = await read(issue.id);
+    expect(after._count.photos + after._count.attachments).toBe(2);
+  });
+
+  it("logs nothing when an issue with no files is refused", async () => {
+    const issueId = await seedWithoutFiles();
+
+    const { outcome, lines } = await partialLines(issueId, scripted([false]));
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([]);
+    expect((await read(issueId)).description).toBe(DESCRIPTION);
+  });
+
+  it("logs once when the closing transaction refuses after the files went", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 3 * 365,
+    });
+
+    const { outcome, lines } = await partialLines(
+      issue.id,
+      scripted([true, true, false]),
+    );
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([
+      `Issue ${issue.id} kept its free text after 2 files were removed`,
+    ]);
+    const after = await read(issue.id);
+    expect(after._count.photos + after._count.attachments).toBe(0);
+    // The messages and notes go only after the closing check passes.
+    expect(after._count).toMatchObject({ messages: 1, notes: 1 });
+    expect(after.description).toBe(DESCRIPTION);
+    expect(after.freeTextRemovedAt).toBeNull();
+  });
+
+  it("logs once when the issue is gone by the closing transaction", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 3 * 365,
+    });
+
+    const { outcome, lines } = await partialLines(
+      issue.id,
+      scripted([true, true, true], async (tx) => {
+        await tx.issue.delete({ where: { id: issue.id } });
+      }),
+    );
+
+    expect(outcome).toBe("kept");
+    expect(lines).toEqual([
+      `Issue ${issue.id} kept its free text after 2 files were removed`,
+    ]);
   });
 });
 
@@ -878,7 +1107,7 @@ describe("redaction", () => {
       reporterPersonId: resident.personId,
       closedDaysAgo: null,
     });
-    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => {});
+    const log = spyOnRedactionLog();
     try {
       for (const _ of [1, 2]) {
         await inject({
@@ -968,61 +1197,85 @@ describe("redaction", () => {
     expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(1);
   });
 
-  it("answers a file another redaction already removed as done, and writes and logs nothing", async () => {
-    const issue = await seed({
-      reporterPersonId: resident.personId,
-      closedDaysAgo: null,
-    });
-    const mediaEntries = () =>
-      prisma.auditLogEntry.findMany({
-        where: {
-          targetKind: "media",
-          targetId: issue.photo.fileId,
-          action: "MEDIA_DELETED",
-        },
+  // A second handler's redaction takes the file while this one is removing it,
+  // which is the only way the removal finds the file gone: asked again
+  // afterwards, the photograph no longer exists and the redaction is refused as
+  // having nothing to reach. The rival goes in at each of the two places the
+  // removal can be overtaken before its own transaction has taken the file.
+  it.each([
+    ["before the removal opens its transaction", "before"],
+    [
+      "inside the transaction, before the check on the issue and the photograph",
+      "in-keep",
+    ],
+  ] as const)(
+    "answers a file another redaction already removed %s as done, and writes and logs nothing",
+    async (_place, when) => {
+      const issue = await seed({
+        reporterPersonId: resident.personId,
+        closedDaysAgo: null,
       });
+      const mediaEntries = () =>
+        prisma.auditLogEntry.findMany({
+          where: {
+            targetKind: "media",
+            targetId: issue.photo.fileId,
+            action: "MEDIA_DELETED",
+          },
+        });
 
-    // A second handler's redaction takes the file between this one finding the
-    // photograph and removing its file, which is the only way the removal finds
-    // the file gone: asked again afterwards, the photograph no longer exists
-    // and the redaction is refused as having nothing to reach.
-    const remove = media.remove.bind(media);
-    let rival: Promise<boolean> | undefined;
-    const rivalled = vi
-      .spyOn(media, "remove")
-      .mockImplementationOnce(async (...args) => {
+      const remove = media.remove.bind(media);
+      let rival: Promise<boolean> | undefined;
+      const takeFile = () => {
         rival = remove(issue.photo.fileId, board.personId, "WEB");
-        await rival;
-        return remove(...args);
-      });
-    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => {});
-    try {
-      const response = await inject({
-        method: "POST",
-        url: `/api/issue-queue/${issue.id}/redactions`,
-        headers: { cookie: boardCookie },
-        payload: { target: "photo", id: issue.photo.id },
-      });
+        return rival;
+      };
+      const rivalled = vi
+        .spyOn(media, "remove")
+        .mockImplementationOnce(async (id, actor, channel, options = {}) => {
+          if (when === "before") {
+            await takeFile();
+            return remove(id, actor, channel, options);
+          }
+          // The check the redaction passes runs in the transaction that
+          // deletes the row, after the row was read there.
+          const { keep } = options;
+          if (keep === undefined) {
+            throw new Error("The redaction passed no check to run.");
+          }
+          return remove(id, actor, channel, {
+            ...options,
+            keep: async (tx, file) => {
+              await takeFile();
+              return keep(tx, file);
+            },
+          });
+        });
+      const log = spyOnRedactionLog();
+      try {
+        const response = await inject({
+          method: "POST",
+          url: `/api/issue-queue/${issue.id}/redactions`,
+          headers: { cookie: boardCookie },
+          payload: { target: "photo", id: issue.photo.id },
+        });
 
-      expect(response.statusCode).toBe(204);
-      expect(rivalled).toHaveBeenCalledTimes(1);
-      expect(await rival).toBe(true);
-      expect(
-        log.mock.calls.filter(([message]) =>
-          String(message).includes(`Issue ${issue.id} had its`),
-        ),
-      ).toHaveLength(0);
-    } finally {
-      log.mockRestore();
-      rivalled.mockRestore();
-    }
+        expect(response.statusCode).toBe(204);
+        expect(rivalled).toHaveBeenCalledTimes(1);
+        expect(await rival).toBe(true);
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+        rivalled.mockRestore();
+      }
 
-    // The rival's removal is the one entry for the file, and the redaction
-    // that found it gone wrote none of its own.
-    expect(await mediaEntries()).toHaveLength(1);
-    expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
-    expect((await read(issue.id))._count.photos).toBe(0);
-  });
+      // The rival's removal is the one entry for the file, and the redaction
+      // that found it gone wrote none of its own.
+      expect(await mediaEntries()).toHaveLength(1);
+      expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
+      expect((await read(issue.id))._count.photos).toBe(0);
+    },
+  );
 
   it("takes no replacement text, and is refused to a reporter and under a legal hold", async () => {
     const issue = await seed({
@@ -1076,6 +1329,164 @@ describe("redaction", () => {
     expect(kept._count.photos).toBe(1);
     expect(await stored(issue.photo.storageKey)).toBe(true);
     expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
+  });
+});
+
+describe("redaction after the purge and under a reporter's hold", () => {
+  const redact = (issueId: string, payload: object) =>
+    inject({
+      method: "POST",
+      url: `/api/issue-queue/${issueId}/redactions`,
+      headers: { cookie: boardCookie },
+      payload,
+    });
+
+  it("redacts nothing and writes nothing once the purge has emptied the text", async () => {
+    const issue = await seed({
+      reporterPersonId: resident.personId,
+      closedDaysAgo: 5 * 365,
+    });
+    expect(await clock.purgeIssue(issue.id, new Date(), 1)).toBe("removed");
+    const purged = await read(issue.id);
+    expect(purged.description).toBe("");
+    expect(purged.freeTextRemovedAt).not.toBeNull();
+
+    for (const target of ["description", "location"]) {
+      expect((await redact(issue.id, { target })).statusCode).toBe(204);
+    }
+
+    const after = await read(issue.id);
+    expect(after.descriptionRedactedAt).toBeNull();
+    expect(after.locationRedactedAt).toBeNull();
+    expect(after.freeTextRemovedAt).toEqual(purged.freeTextRemovedAt);
+    expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
+  });
+
+  it("is refused while the reporter is under a legal hold, and goes through once it is released", async () => {
+    const issue = await seed({
+      reporterPersonId: heldReporterId,
+      closedDaysAgo: null,
+    });
+    for (const payload of [
+      { target: "description" },
+      { target: "message", id: issue.messageId },
+      { target: "photo", id: issue.photo.id },
+    ]) {
+      const refused = await redact(issue.id, payload);
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json()).toMatchObject({ reason: "legal-hold" });
+    }
+    const kept = await read(issue.id);
+    expect(kept.description).toBe(DESCRIPTION);
+    expect(kept._count.photos).toBe(1);
+    expect(await stored(issue.photo.storageKey)).toBe(true);
+    expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
+
+    // A reporter of their own, so the hold above stays for the other tests.
+    const releasedId = `ir-released-${suffix}`;
+    personIds.push(releasedId);
+    await prisma.person.create({
+      data: { id: releasedId, firstName: "Rolf", lastName: "Reda" },
+    });
+    await prisma.legalHold.create({
+      data: {
+        personId: releasedId,
+        reason: "Tvist om vattenskada",
+        placedByPersonId: board.personId,
+      },
+    });
+    const other = await seed({
+      reporterPersonId: releasedId,
+      closedDaysAgo: null,
+    });
+    expect((await redact(other.id, { target: "description" })).statusCode).toBe(
+      409,
+    );
+    await prisma.legalHold.updateMany({
+      where: { personId: releasedId },
+      data: { releasedAt: new Date() },
+    });
+    expect((await redact(other.id, { target: "description" })).statusCode).toBe(
+      204,
+    );
+    expect((await read(other.id)).descriptionRedactedAt).not.toBeNull();
+  });
+
+  it("is refused while the reporter is restricted, and while a public-form reporter's address is held or restricted", async () => {
+    const restrictedId = `ir-restricted-${suffix}`;
+    const addressHeldId = `ir-address-held-${suffix}`;
+    const addressRestrictedId = `ir-address-restricted-${suffix}`;
+    personIds.push(restrictedId, addressHeldId, addressRestrictedId);
+    await prisma.person.create({
+      data: {
+        id: restrictedId,
+        firstName: "Rakel",
+        lastName: "Begransad",
+        processingRestrictedAt: new Date(),
+      },
+    });
+    const email = `${addressHeldId}@exempel.se`;
+    const encrypted = await encryption.encrypt("person.email", email);
+    await prisma.person.create({
+      data: {
+        id: addressHeldId,
+        firstName: "Adrian",
+        lastName: "Adress",
+        emailCipher: encrypted.cipher,
+        emailIndex: encrypted.index,
+      },
+    });
+    // Restricted and under no hold, so only the restriction refuses it.
+    const restrictedEmail = `${addressRestrictedId}@exempel.se`;
+    const restrictedEncrypted = await encryption.encrypt(
+      "person.email",
+      restrictedEmail,
+    );
+    await prisma.person.create({
+      data: {
+        id: addressRestrictedId,
+        firstName: "Bodil",
+        lastName: "Begransad",
+        emailCipher: restrictedEncrypted.cipher,
+        emailIndex: restrictedEncrypted.index,
+        processingRestrictedAt: new Date(),
+      },
+    });
+    await prisma.legalHold.create({
+      data: {
+        personId: addressHeldId,
+        reason: "Tvist om vattenskada",
+        placedByPersonId: board.personId,
+      },
+    });
+
+    const restricted = await seed({
+      reporterPersonId: restrictedId,
+      closedDaysAgo: null,
+    });
+    const fromForm = async (address: string) => {
+      const issue = await seed({ reporterPersonId: null, closedDaysAgo: null });
+      await prisma.issue.update({
+        where: { id: issue.id },
+        data: {
+          reporterEmailIndex: await encryption.computeIndex(
+            "issue.reporterEmail",
+            address,
+          ),
+        },
+      });
+      return issue;
+    };
+    const byHeldAddress = await fromForm(email);
+    const byRestrictedAddress = await fromForm(restrictedEmail);
+
+    for (const issue of [restricted, byHeldAddress, byRestrictedAddress]) {
+      const refused = await redact(issue.id, { target: "description" });
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json()).toMatchObject({ reason: "legal-hold" });
+      expect((await read(issue.id)).description).toBe(DESCRIPTION);
+      expect(await entriesFor(issue.id, "ISSUE_REDACTED")).toHaveLength(0);
+    }
   });
 });
 
@@ -1235,7 +1646,7 @@ describe("redaction of a work order's text", () => {
     });
   });
 
-  it("detaches a reporter whose erasure was carried out once the last text is gone, unless a hold keeps them", async () => {
+  it("detaches a reporter whose erasure was carried out once the last text is gone, and is refused while a hold keeps them", async () => {
     const finished = await seedWithOnlyWorkOrderText(erasedReporterId);
     const second = await createWorkOrder(finished.id);
 
@@ -1253,8 +1664,8 @@ describe("redaction of a work order's text", () => {
       { target: "workOrder", id: second, reporterDetached: true },
     ]);
 
-    // A hold placed on the person since keeps the column, and the text still
-    // goes: a redaction answers only to a hold on the issue itself.
+    // A hold placed on the person since refuses the redaction: the text and
+    // the column both stay.
     const held = await seedWithOnlyWorkOrderText(erasedHeldReporterId);
     await prisma.legalHold.create({
       data: {
@@ -1263,8 +1674,10 @@ describe("redaction of a work order's text", () => {
         placedByPersonId: board.personId,
       },
     });
-    expect((await redact(held.id, held.workOrderId)).statusCode).toBe(204);
-    expect((await readWorkOrder(held.workOrderId)).body).toBeNull();
+    const refused = await redact(held.id, held.workOrderId);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ reason: "legal-hold" });
+    expect((await readWorkOrder(held.workOrderId)).body).toBe(WORK_ORDER_TEXT);
     expect((await read(held.id)).reporterPersonId).toBe(erasedHeldReporterId);
   });
 

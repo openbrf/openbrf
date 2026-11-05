@@ -15,6 +15,7 @@ import { mayHaveBeenHandedOver } from "../mail/mail-driver";
 import type { RenderedMail } from "../mail/mail-template";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { workOrderMail, type WorkOrderMailProps } from "../mail/templates";
+import { associationDefaultLocale } from "../settings/default-locale";
 import { lockIssueType } from "./issue-lock";
 import { WORK_ORDER_DELIVERY_FAILURES } from "./work-order-delivery";
 
@@ -145,7 +146,7 @@ export class WorkOrderMailerService implements OnModuleInit {
    */
   async render(props: WorkOrderMailProps): Promise<RenderedMail> {
     return this.mail.renderMail(
-      this.workOrderMail(props, await this.defaultLocale()),
+      this.workOrderMail(props, await associationDefaultLocale(this.prisma)),
     );
   }
 
@@ -154,7 +155,7 @@ export class WorkOrderMailerService implements OnModuleInit {
     // Read before the claim: a read that fails here fails the job, which is
     // retried with the work order untouched. After the claim it would land in
     // the catch below and record a send error nobody made.
-    const locale = await this.defaultLocale();
+    const locale = await associationDefaultLocale(this.prisma);
     const order = await this.prisma.$transaction((tx) =>
       this.claim(tx, workOrderId),
     );
@@ -365,20 +366,6 @@ export class WorkOrderMailerService implements OnModuleInit {
     props: WorkOrderMailProps;
   } {
     return { locale, template: workOrderMail, props };
-  }
-
-  /**
-   * The association's default language, which the mail is written in (see the
-   * note at the top of this file). Swedish where there is no association row,
-   * the mail service's own default; a null locale would be the same, but would
-   * ignore an association that chose English.
-   */
-  private async defaultLocale(): Promise<string> {
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-      select: { defaultLocale: true },
-    });
-    return association?.defaultLocale ?? "sv";
   }
 
   /**

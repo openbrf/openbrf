@@ -92,11 +92,14 @@ interface Read {
 export function IssueConversation({
   issue,
   onStale,
+  onUploaded,
   redaction,
 }: {
   issue: QueuedIssue;
   /** Told when the server says the issue is no longer the reader's to see. */
   onStale: () => void;
+  /** Told when a file was added to the issue, for a panel that lists them too. */
+  onUploaded?: () => void;
   /**
    * The removals on this issue (ADR 0057), shared with the panel that removes
    * its description and photographs. Each answer bumps its revision, which
@@ -300,7 +303,10 @@ export function IssueConversation({
         issue={issue}
         attachments={read.attachments}
         failed={read.failed}
-        onAttached={reread}
+        onAttached={() => {
+          reread();
+          onUploaded?.();
+        }}
         onRefused={refused}
         redaction={redaction}
       />

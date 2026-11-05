@@ -32,6 +32,7 @@ export type {
   PostCommentView,
   PostImageView,
   PostIssueView,
+  PostKnownFaultView,
   PostNewsView,
   PostReadView,
   PostReportQueueView,
@@ -99,6 +100,14 @@ export {
 } from "./issue-conversation.ts";
 export type { IssueMessageSide, IssueSignature } from "./issue-conversation.ts";
 export {
+  ISSUE_KNOWN_FAULT_LIMITS,
+  ISSUE_LINK_LIMITS,
+  ISSUE_REOPEN_WINDOW_DAYS,
+  ISSUE_REPLY_MODES,
+  replyReopensIssue,
+} from "./issue-lifecycle.ts";
+export type { IssueReplyMode } from "./issue-lifecycle.ts";
+export {
   ISSUE_REDACTION_TARGETS,
   ISSUE_TEXT_RETENTION_YEARS,
 } from "./issue-retention.ts";
@@ -123,6 +132,19 @@ export type {
   IssueStatusMeaning,
   IssueWaitingReason,
 } from "./issue-status.ts";
+export {
+  findDoorCode,
+  ISSUE_ENTRY_ANSWERS,
+  ISSUE_FINDING_KINDS,
+  ISSUE_FIT_LIMITS,
+  latestFindingTargetDate,
+  LIFT_FINDING_MONTHS,
+} from "./issue-fit.ts";
+export type {
+  DoorCodeMatch,
+  IssueEntryAnswer,
+  IssueFindingKind,
+} from "./issue-fit.ts";
 export {
   ISSUE_COST_RESPONSIBILITIES,
   MAINTENANCE_RESPONSIBILITIES,

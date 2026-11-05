@@ -10,11 +10,16 @@ import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import {
+  fetchKnownFaults,
+  fetchIssuePlaces,
   fetchOwnApartments,
   fetchOwnIssues,
   fetchReportableTypes,
   fetchReporterResponsibilityGuide,
   type IssueApartment,
+  type KnownFault,
+  type IssueEntry,
+  type IssuePlaceChoice,
   type OwnIssue,
   type ReportableIssueType,
   type ResponsibilityGuide,
@@ -46,7 +51,9 @@ interface Loaded {
   ready: boolean;
   types: readonly ReportableIssueType[];
   apartments: readonly IssueApartment[];
+  places: readonly IssuePlaceChoice[];
   own: readonly OwnIssue[];
+  knownFaults: readonly KnownFault[];
   /**
    * The responsibility guide the board has adopted, shown before filing, or
    * null: none adopted, or one that could not be read. Not a failed load
@@ -60,7 +67,9 @@ const EMPTY: Loaded = {
   ready: false,
   types: [],
   apartments: [],
+  places: [],
   own: [],
+  knownFaults: [],
   guide: null,
   loadFailed: false,
 };
@@ -83,6 +92,14 @@ const EMPTY: Loaded = {
  * that is gone - is said in a sentence, and the form opens empty: the feed
  * answers both as one, and so does this screen. Once the report is filed, the
  * screen offers the way back to the post, where its status now shows.
+ *
+ * ## Known faults, and a report that follows up another
+ *
+ * The form opens with the known faults the house is told of (decision 22),
+ * so a resident about to report the same thing sees that it is known. A
+ * report closed too long ago for a reply to reopen it, or merged into
+ * another, offers a new report linked to it instead (ADR 0054): the form
+ * opens on its type and says which report it follows up.
  */
 export function IssuesScreen({
   viewer,
@@ -100,6 +117,17 @@ export function IssuesScreen({
     read: Extract<FromPost, { kind: "read" | "unreadable" }>;
   } | null>(null);
   const [reportedFrom, setReportedFrom] = useState<string | null>(null);
+  /** The closed report a new one follows up, while the reporter writes it. */
+  const [followUp, setFollowUp] = useState<OwnIssue | null>(null);
+  /** The reply that report refused as closed, which the new one starts from. */
+  const [followUpDraft, setFollowUpDraft] = useState("");
+  /*
+   * What the report form is keyed on besides a post: counted up when a
+   * follow-up is chosen or cancelled, never when a report is filed, so the form
+   * stays mounted and keeps the notices its submit left.
+   */
+  const [formEpoch, setFormEpoch] = useState(0);
+  const formRef = useRef<HTMLDivElement>(null);
   const fromPost: FromPost =
     fromPostId === null || !canReport
       ? { kind: "none" }
@@ -133,22 +161,33 @@ export function IssuesScreen({
   }, [fromPostId, canReport, t]);
 
   /**
-   * One read of the three lists and the guide. A list that could not be read
-   * comes back `null`, so a re-read that fails on one of them leaves what the
-   * screen already shows in place instead of replacing it with an empty list.
+   * One read of the three lists, the places, the known faults and the guide.
+   * A list that could not be read comes back `null`, so a re-read that fails
+   * on one of them leaves what the screen already shows in place instead of
+   * replacing it with an empty list. The known faults are the exception
+   * `reload` names.
+   *
+   * The places alone do not fail the screen: a place is optional on a report,
+   * so without them the form still reports an issue in the apartment, as the
+   * queue tolerates a places read that fails.
    */
   const read = useCallback(async () => {
-    const [types, apartments, own, guide] = await Promise.all([
-      canReport ? fetchReportableTypes() : null,
-      canReport ? fetchOwnApartments() : null,
-      canReport ? fetchOwnIssues() : null,
-      canReport ? fetchReporterResponsibilityGuide() : null,
-    ]);
+    const [types, apartments, places, own, knownFaults, guide] =
+      await Promise.all([
+        canReport ? fetchReportableTypes() : null,
+        canReport ? fetchOwnApartments() : null,
+        canReport ? fetchIssuePlaces() : null,
+        canReport ? fetchOwnIssues() : null,
+        canReport ? fetchKnownFaults() : null,
+        canReport ? fetchReporterResponsibilityGuide() : null,
+      ]);
 
     return {
       types: types?.ok === true ? types.value : null,
       apartments: apartments?.ok === true ? apartments.value : null,
+      places: places?.ok === true ? places.value : null,
       own: own?.ok === true ? own.value : null,
+      knownFaults: knownFaults?.ok === true ? knownFaults.value : null,
       /**
        * Not a failed load either way: a report is filed without the guide.
        * `undefined` marks a read that failed, so a re-read keeps the guide on
@@ -156,7 +195,10 @@ export function IssuesScreen({
        */
       guide: guide === null ? null : guide.ok ? guide.value.guide : undefined,
       loadFailed:
-        types?.ok === false || apartments?.ok === false || own?.ok === false,
+        types?.ok === false ||
+        apartments?.ok === false ||
+        own?.ok === false ||
+        knownFaults?.ok === false,
       /** Nothing was asked for: a viewer who cannot report has no lists. */
       asked: canReport,
     };
@@ -181,7 +223,14 @@ export function IssuesScreen({
           types: next.types ?? (next.asked ? previous.types : []),
           apartments:
             next.apartments ?? (next.asked ? previous.apartments : []),
+          places: next.places ?? (next.asked ? previous.places : []),
           own: next.own ?? (next.asked ? previous.own : []),
+          /*
+           * Not kept on a failed read, unlike the lists: a known fault leaves
+           * the house when its issue closes or the board keeps it to itself,
+           * and a copy kept from before would go on showing one that has.
+           */
+          knownFaults: next.knownFaults ?? [],
           guide: next.guide === undefined ? previous.guide : next.guide,
           loadFailed: next.loadFailed,
         }));
@@ -201,7 +250,27 @@ export function IssuesScreen({
     };
   }, [reload]);
 
-  const { ready, types, apartments, own, loadFailed } = loaded;
+  /**
+   * The answer about entering an issue, as its save answered it. Applied
+   * before the re-read that follows, so the summary and the withdraw button
+   * show what was saved even when that re-read fails and the list it read
+   * before stays on screen. A re-read that lands afterwards replaces it with
+   * the same answer, read from the server.
+   */
+  const applyEntry = useCallback(
+    (issueId: string, entry: IssueEntry | null): void => {
+      setLoaded((previous) => ({
+        ...previous,
+        own: previous.own.map((issue) =>
+          issue.id === issueId ? { ...issue, entry } : issue,
+        ),
+      }));
+    },
+    [],
+  );
+
+  const { ready, types, apartments, places, own, knownFaults, loadFailed } =
+    loaded;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -247,19 +316,60 @@ export function IssuesScreen({
 
       {ready && canReport && fromPost.kind !== "reading" ? (
         <>
-          <ReportIssuePanel
-            // Mounted again once the post is read, so the form opens with it.
-            key={fromPost.kind === "read" ? fromPost.prefill.postId : "blank"}
-            types={types}
-            apartments={apartments}
-            guide={loaded.guide}
-            {...(fromPost.kind === "read" ? { prefill: fromPost.prefill } : {})}
-            onReported={(postId) => {
-              setReportedFrom(postId);
-              reload();
+          <div ref={formRef}>
+            <ReportIssuePanel
+              // Mounted again once the post is read, or a follow-up chosen or
+              // cancelled, so the form opens with it. Not when a report is
+              // filed: its notices belong to the form that filed it.
+              key={
+                fromPost.kind === "read"
+                  ? `${fromPost.prefill.postId}:${String(formEpoch)}`
+                  : `form-${String(formEpoch)}`
+              }
+              types={types}
+              apartments={apartments}
+              places={places}
+              knownFaults={knownFaults}
+              guide={loaded.guide}
+              {...(fromPost.kind === "read"
+                ? { prefill: fromPost.prefill }
+                : {})}
+              // Independent of the post: a follow-up chosen from the list is
+              // filed as one whether or not the form opened from a post.
+              {...(followUp === null
+                ? {}
+                : {
+                    followUp,
+                    followUpDraft,
+                    onFollowUpCancelled: () => {
+                      setFollowUp(null);
+                      setFollowUpDraft("");
+                      setFormEpoch((epoch) => epoch + 1);
+                    },
+                  })}
+              onReported={(postId) => {
+                setReportedFrom(postId);
+                // The form stays mounted, so its notices stay; it files the
+                // next report as a new one.
+                setFollowUp(null);
+                setFollowUpDraft("");
+                reload();
+              }}
+            />
+          </div>
+          <OwnIssuesPanel
+            issues={own}
+            onChanged={reload}
+            onEntrySaved={applyEntry}
+            onFollowUp={(issue, refusedReply) => {
+              if (followUp?.id !== issue.id || refusedReply !== "") {
+                setFormEpoch((epoch) => epoch + 1);
+              }
+              setFollowUp(issue);
+              setFollowUpDraft(refusedReply);
+              formRef.current?.scrollIntoView({ block: "start" });
             }}
           />
-          <OwnIssuesPanel issues={own} onClosed={reload} />
         </>
       ) : null}
     </div>

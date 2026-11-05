@@ -46,6 +46,7 @@ import {
   ISSUE_PRIORITY_LABEL,
   ISSUE_WAITING_REASON_LABEL,
 } from "./issue-labels";
+import { IssueFitHandling } from "./IssueFitHandling";
 import { IssueHandlerName, issueHandlerName } from "./IssueHandlerName";
 import { ResponsibilityGuideTable } from "./ResponsibilityGuideTable";
 
@@ -56,6 +57,10 @@ const HANDLING_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.handling.errors.issueNotFound",
   "assignee-not-a-handler": "issues.handling.errors.assigneeNotAHandler",
   "target-date-invalid": "issues.handling.errors.targetDateInvalid",
+  // An issue marked as a finding keeps a target date, and a lift's within a
+  // month of its inspection; this form is where a handler clears or moves it.
+  "finding-needs-target-date": "issues.fit.errors.findingNeedsTargetDate",
+  "finding-target-date-too-late": "issues.fit.errors.findingTargetDateTooLate",
   "invalid-body": "issues.handling.errors.unknown",
 };
 
@@ -132,6 +137,7 @@ export function IssueHandling({
   type,
   workOrdersSent,
   canManageCharges = false,
+  filesRevision = 0,
   onChanged,
 }: {
   issue: QueuedIssue;
@@ -145,6 +151,11 @@ export function IssueHandling({
    * refuses the read without it.
    */
   canManageCharges?: boolean;
+  /**
+   * Changes when a file is added to or removed from the issue beside this
+   * panel, which the finding's protocol list reads again on.
+   */
+  filesRevision?: number;
   onChanged: () => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
@@ -164,8 +175,19 @@ export function IssueHandling({
    */
   const revision = `${issue.updatedAt}:${issue.status.id}`;
 
+  /*
+   * Counts the main read's starts and finishes. A timeline poll notes the count
+   * when it asks and drops its answer if the count has moved, so an answer asked
+   * before the main read began or finished never lands over what that read
+   * showed: a read that began is newer than the poll, and one that finished has
+   * already shown steps the poll's answer may predate. A start also covers a
+   * save, a newer revision or a sending, each of which starts a read.
+   */
+  const mainReadEpoch = useRef(0);
+
   useEffect(() => {
     let active = true;
+    mainReadEpoch.current += 1;
     void Promise.all([
       fetchIssueHandlers(issue.id),
       fetchIssueTimeline(issue.id),
@@ -173,6 +195,7 @@ export function IssueHandling({
       if (!active) {
         return;
       }
+      mainReadEpoch.current += 1;
       setHandlers(handlerRead.ok ? handlerRead.value : null);
       setTimeline(timelineRead.ok ? timelineRead.value : null);
       setReadFailed(!handlerRead.ok || !timelineRead.ok);
@@ -184,27 +207,22 @@ export function IssueHandling({
 
   /*
    * The timeline alone, and only while a work order's mail is on its way. Each
-   * answer is matched to the read it was asked under, so one that a save, a
-   * newer revision or a sending has since superseded is dropped; a failed
-   * attempt keeps what is shown, and the next attempt asks again.
+   * answer is matched to the main read's count when it was asked, so one that a
+   * read has since started or finished is dropped; a failed attempt keeps what
+   * is shown, and the next attempt asks again.
    */
-  const readKey = `${issue.id}:${revision}:${String(reads)}:${String(workOrdersSent)}`;
-  const readKeyRef = useRef(readKey);
-  useEffect(() => {
-    readKeyRef.current = readKey;
-  }, [readKey]);
   const mailPending =
     timeline?.some(
       (step) => step.kind === "workOrder" && step.delivery === "pending",
     ) ?? false;
   usePoll(
     async (stillWanted) => {
-      const askedUnder = readKeyRef.current;
+      const askedUnder = mainReadEpoch.current;
       const timelineRead = await fetchIssueTimeline(issue.id);
       if (
         stillWanted() &&
         timelineRead.ok &&
-        askedUnder === readKeyRef.current
+        askedUnder === mainReadEpoch.current
       ) {
         setTimeline(timelineRead.value);
       }
@@ -334,6 +352,18 @@ export function IssueHandling({
         disabled={busy}
         onSave={(boardOnly) => {
           void save.submit({ kind: "access", boardOnly });
+        }}
+      />
+
+      {/* A save there writes a timeline step too, and taking a finding off
+        moves neither the revision nor the status: the timeline is read
+        again here, as after a save of this panel's own. */}
+      <IssueFitHandling
+        issue={issue}
+        filesRevision={filesRevision}
+        onChanged={() => {
+          setReads((count) => count + 1);
+          onChanged();
         }}
       />
 
@@ -765,6 +795,7 @@ function TimelineSentence({
             : ` ${t("issues.queue.closedAs", {
                 outcome: t(ISSUE_OUTCOME_LABEL[step.outcome]),
               })}`}
+          {step.byReporter ? ` ${t("issues.timeline.byReporterReply")}` : null}
         </>
       );
     }
@@ -809,6 +840,54 @@ function TimelineSentence({
           {step.boardOnly
             ? t("issues.timeline.boardOnly")
             : t("issues.timeline.everyHandler")}
+        </>
+      );
+    case "knownFault":
+      return (
+        <>
+          {step.published
+            ? t("issues.timeline.knownFaultPublished")
+            : t("issues.timeline.knownFaultWithdrawn")}
+        </>
+      );
+    case "place":
+      return (
+        <>
+          {step.placeId === null
+            ? t("issues.timeline.placeRemoved")
+            : t("issues.timeline.placeSet")}
+        </>
+      );
+    case "entry":
+      return (
+        <>
+          {step.answer === null
+            ? t("issues.timeline.entryWithdrawn")
+            : step.byReporter
+              ? t("issues.timeline.entryAnsweredByResident", {
+                  answer: t(
+                    step.answer === "YES"
+                      ? "issues.entry.answerYes"
+                      : "issues.entry.answerNo",
+                  ),
+                })
+              : t("issues.timeline.entryRecorded", {
+                  answer: t(
+                    step.answer === "YES"
+                      ? "issues.entry.answerYes"
+                      : "issues.entry.answerNo",
+                  ),
+                })}
+        </>
+      );
+    case "finding":
+      return (
+        <>
+          {step.findingKind === null
+            ? t("issues.timeline.findingRemoved")
+            : t("issues.timeline.findingMarked", {
+                kind: t(`issues.fit.finding.kinds.${step.findingKind}`),
+              })}
         </>
       );
     case "workOrder":

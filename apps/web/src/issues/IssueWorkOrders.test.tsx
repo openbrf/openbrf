@@ -184,7 +184,7 @@ describe("IssueWorkOrders", () => {
     });
     expect(
       await screen.findByText(
-        "Arbetsordern till Rörfirman är sparad. Loggen nedan visar om mejlet gick iväg.",
+        "Arbetsordern till Rörfirman är sparad. Listan med arbetsorder nedan visar om mejlet gick iväg.",
       ),
     ).toBeTruthy();
     // The record is read again after the send, and the issue's timeline is
@@ -456,6 +456,26 @@ describe("IssueWorkOrders", () => {
       screen.getByText("Texten raderades när ärendets lagringstid gick ut."),
     ).toBeTruthy();
   });
+
+  it("says so when the address of a listed work order cannot be read", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        workOrders: [
+          {
+            ...SENT,
+            recipientEmail: null,
+            deliveryStatus: "SENT",
+            deliveryFailure: null,
+          },
+        ],
+      }),
+    });
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    expect(await screen.findByText(PLUMBER.name)).toBeTruthy();
+    expect(screen.getByText("Adressen kunde inte läsas.")).toBeTruthy();
+  });
 });
 
 describe("removing a work order's text", () => {
@@ -566,6 +586,83 @@ describe("removing a work order's text", () => {
     });
     expect(screen.queryByText("Byt packningen.")).toBeNull();
     expect(screen.getByText(/^Borttaget av en handläggare/)).toBeTruthy();
+  });
+
+  it("drops an answer asked before a stale refusal when it arrives in the same step", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    previewWorkOrder.mockImplementation((input: { body: string }) =>
+      Promise.resolve({ ok: true, value: preview(input.body) }),
+    );
+    const onWay: WorkOrder = {
+      ...SENT,
+      deliveryStatus: "PENDING",
+      deliveryFailure: null,
+    };
+    let answerPoll: (value: unknown) => void = () => undefined;
+    let refuseSend: (value: unknown) => void = () => undefined;
+    fetchIssueWorkOrders
+      .mockResolvedValueOnce({
+        ok: true,
+        value: orders({ workOrders: [onWay] }),
+      })
+      // The poll's read, held until the refusal has been taken.
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          answerPoll = resolve;
+        }),
+      )
+      // The read the refusal asks for never answers, so what is on screen is
+      // what the poll's answer left there.
+      .mockReturnValue(new Promise(() => undefined));
+    sendWorkOrder.mockReturnValue(
+      new Promise((resolve) => {
+        refuseSend = resolve;
+      }),
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<IssueWorkOrders issue={ISSUE} />);
+    expect(await screen.findByText("Byt packningen.")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(fetchIssueWorkOrders).toHaveBeenCalledTimes(2);
+
+    await user.selectOptions(
+      screen.getByLabelText("Vatten: entreprenör"),
+      PLUMBER.id,
+    );
+    await user.type(
+      screen.getByLabelText("Vatten: arbetsorder"),
+      "Dra om rören.",
+    );
+    await user.click(screen.getByRole("button", { name: "Förhandsgranska" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Skicka till Rörfirman" }),
+    );
+
+    // Both answers are given before React has rendered anything: the refusal
+    // first, then the poll's, which was asked before it. The refusal has moved
+    // the reads on by the time the poll's answer is looked at, so the answer
+    // is dropped, not shown until the read after the refusal replaces it.
+    await act(async () => {
+      refuseSend({
+        ok: false,
+        failure: { status: 409, reason: "work-order-preview-stale" },
+      });
+      for (let tick = 0; tick < 20; tick += 1) {
+        await Promise.resolve();
+      }
+      answerPoll({
+        ok: true,
+        value: orders({ workOrders: [{ ...onWay, body: "Gammal text." }] }),
+      });
+      for (let tick = 0; tick < 20; tick += 1) {
+        await Promise.resolve();
+      }
+    });
+
+    expect(screen.queryByText("Gammal text.")).toBeNull();
+    expect(screen.getByText("Byt packningen.")).toBeTruthy();
   });
 
   it("drops the text on screen when the read after a removal fails", async () => {
@@ -714,7 +811,7 @@ describe("removing a work order's text", () => {
 
     expect(
       await screen.findByText(
-        "Arbetsordern till Rörfirman är sparad. Loggen nedan visar om mejlet gick iväg.",
+        "Arbetsordern till Rörfirman är sparad. Listan med arbetsorder nedan visar om mejlet gick iväg.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/bevarandekrav/)).toBeNull();

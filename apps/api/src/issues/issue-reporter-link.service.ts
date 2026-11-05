@@ -1,10 +1,11 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import type { IssueStatusMeaning } from "@openbrf/shared";
+import { replyReopensIssue, type IssueStatusMeaning } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { NORMALIZATION_VERSION } from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import {
@@ -21,6 +22,7 @@ import {
 } from "./issue-conversation.service";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
 import { lockIssue, lockIssueForHandling } from "./issue-lock";
+import { IssueMailer } from "./issue-mailer.service";
 import {
   extendReporterLink,
   type LiveReporterLink,
@@ -31,6 +33,8 @@ import {
   mintReporterLinkToken,
   reporterLinkDigest,
 } from "./issue-reporter-link-token";
+import { lockedNow } from "../fees/fee-lock";
+import { reopenIssueByReply } from "./issue-reopening";
 import { IssueError } from "./issue.error";
 
 /**
@@ -107,8 +111,14 @@ export interface ReporterLinkPageView {
   /** Whether the page offers a field to write in. */
   acceptsMessages: boolean;
   /**
-   * Whether an open issue has all the messages a link takes: the page then
-   * offers no field and says so, rather than saying the issue is closed.
+   * Whether the issue is closed and a message now reopens it (within the
+   * reopening window, ADR 0054): the page says so beside the field.
+   */
+  reopensOnMessage: boolean;
+  /**
+   * Whether an issue that takes messages has all the messages a link takes:
+   * the page then offers no field and says so, rather than saying the issue is
+   * closed.
    */
   messageLimitReached: boolean;
   messages: ReporterIssueMessageView[];
@@ -146,8 +156,9 @@ export type ReporterLinkReplyOutcome =
  *   "last used", no audit entry. Mail scanners and link previews open every
  *   link in a message, and must not be able to do anything by it.
  * - **The form cannot mail a stranger at will.** One link mail per issue,
- *   never sent again, and at most three a day to one address, counted in the
- *   database. There is no way to ask for the link again.
+ *   not sent again (save the one failure `deliver` names), and at most three
+ *   a day to one address, counted in the database. There is no way to ask for
+ *   the link again.
  */
 @Injectable()
 export class IssueReporterLinkService implements OnModuleInit {
@@ -160,6 +171,7 @@ export class IssueReporterLinkService implements OnModuleInit {
     private readonly mail: MailService,
     private readonly jobs: JobQueueService,
     private readonly audit: AuditLogService,
+    private readonly mailer: IssueMailer,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -245,9 +257,11 @@ export class IssueReporterLinkService implements OnModuleInit {
    * there and its link not withdrawn is read again in the same place, under
    * the issue's lock.
    *
-   * A link whose mail is refused (a restriction, a close, no mail settings)
-   * or abandoned after its retries is deleted, so it no longer counts toward
-   * its address's three a day; one still being retried counts.
+   * A link whose mail is refused (a restriction, a close, no mail settings,
+   * or, on a retry, an address whose three a day are spent) or abandoned
+   * after its retries is deleted, so it no longer counts toward its address's
+   * three a day; one still being retried counts. A retry that refuses before
+   * it mints a token deletes the unmailed link the earlier attempt left too.
    *
    * Answers whether a mail went. Nothing is mailed, and no link issued, for a
    * report that no longer has an address, that already has its link, that a
@@ -294,9 +308,16 @@ export class IssueReporterLinkService implements OnModuleInit {
       if (issue.closedAt !== null) {
         // Closed before the mail went: a link would open the page for a few
         // days at most, and the reporter learns nothing a mail should carry.
+        await this.releaseEarlier(tx, existing);
         return null;
       }
-      if (await this.isRestricted(tx, issue.reporterEmailIndex)) {
+      if (
+        await this.isRestricted(tx, {
+          emailCipher: issue.reporterEmailCipher,
+          emailIndex: issue.reporterEmailIndex,
+        })
+      ) {
+        await this.releaseEarlier(tx, existing);
         return null;
       }
 
@@ -304,6 +325,13 @@ export class IssueReporterLinkService implements OnModuleInit {
        * The address's budget, counted under a lock on the address, so two
        * reports from one address delivered at once count each other. The
        * blind index rather than the address, so the key names nobody.
+       *
+       * Links issued, not mails sent: a link is mailed after this transaction
+       * commits, so a count of `mailedAt` would miss one whose mail is on its
+       * way, and two deliveries to one address could each find a slot free. A
+       * link that will not be mailed is deleted and gives its slot back
+       * (`releaseUnsent`, `releaseEarlier`, `abandon`), so what counts is
+       * mailed or still being tried (ADR 0055).
        */
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`issue-reporter-link-address:${issue.reporterEmailIndex}`}))`;
       const sentToday = await tx.$queryRaw<{ count: bigint }[]>`
@@ -320,6 +348,7 @@ export class IssueReporterLinkService implements OnModuleInit {
         this.logger.log(
           `Issue ${issueId} gets no private link: its address has had as many today as it may.`,
         );
+        await this.releaseEarlier(tx, existing);
         return null;
       }
 
@@ -383,7 +412,7 @@ export class IssueReporterLinkService implements OnModuleInit {
       async (tx) => {
         await lockLegalHoldRegistry(tx);
         await lockIssue(tx, issueId);
-        if (await this.isRestricted(tx, issued.emailIndex)) {
+        if (await this.isRestricted(tx, issued)) {
           await this.releaseUnsent(tx, issued);
           return false;
         }
@@ -496,6 +525,25 @@ export class IssueReporterLinkService implements OnModuleInit {
   }
 
   /**
+   * Gives back the slot of a link an earlier attempt issued and did not mail,
+   * when a retry finds it will not mail it either: the issue closed, its
+   * address restricted or that address's budget spent. The caller holds the
+   * issue's lock, which the stamp is written under too, and has read the link
+   * as neither mailed nor withdrawn.
+   */
+  private async releaseEarlier(
+    tx: Prisma.TransactionClient,
+    existing: { id: string } | null,
+  ): Promise<void> {
+    if (existing === null) {
+      return;
+    }
+    await tx.issueReporterLink.deleteMany({
+      where: { id: existing.id, mailedAt: null, revokedAt: null },
+    });
+  }
+
+  /**
    * The page a token opens, or null for every token that opens nothing.
    *
    * Reads, and writes nothing at all. The token's form is checked before the
@@ -538,12 +586,16 @@ export class IssueReporterLinkService implements OnModuleInit {
     }
     const digest = reporterLinkDigest(token);
 
+    // Before the transaction: a queue is made on the backend's own connection.
+    await this.mailer.ensureQueues();
     const outcome = await this.prisma.$transaction(async (tx) => {
       const first = await liveReporterLinkByDigest(tx, digest);
       if (first === null) {
         return { kind: "not-found" as const };
       }
-      await lockIssue(tx, first.issueId);
+      // The locks a status move takes: a reply that reopens the issue and a
+      // handler's move must not both decide what its closing date is.
+      await lockIssueForHandling(tx, first.issueId);
       const link = await liveReporterLinkByDigest(tx, digest);
       if (link === null) {
         return { kind: "not-found" as const };
@@ -551,9 +603,22 @@ export class IssueReporterLinkService implements OnModuleInit {
 
       const issue = await tx.issue.findUniqueOrThrow({
         where: { id: link.issueId },
-        select: { status: { select: { meaning: true } } },
+        select: {
+          id: true,
+          typeId: true,
+          closedAt: true,
+          mergedIntoIssueId: true,
+          status: { select: { id: true, meaning: true } },
+        },
       });
-      if (issue.status.meaning === "DONE") {
+      const reopens = issue.status.meaning === "DONE";
+      // The database's clock, as the link's own liveness is judged on: an API
+      // clock ahead of it must not refuse a reply to a link that still opens.
+      if (
+        reopens &&
+        (issue.mergedIntoIssueId !== null ||
+          !replyReopensIssue(issue.closedAt, await lockedNow(tx)))
+      ) {
         return { kind: "closed" as const };
       }
 
@@ -573,6 +638,16 @@ export class IssueReporterLinkService implements OnModuleInit {
         return { kind: "limited" as const };
       }
 
+      if (reopens) {
+        // Within the reopening window the reply reopens the issue, as a
+        // signed-in reporter's does (ADR 0054), and alerts its assignee.
+        await reopenIssueByReply(
+          { audit: this.audit, mailer: this.mailer },
+          tx,
+          issue,
+          { channel: "LINK", linkId: link.linkId },
+        );
+      }
       const message = await tx.issueMessage.create({
         data: {
           issueId: link.issueId,
@@ -596,12 +671,14 @@ export class IssueReporterLinkService implements OnModuleInit {
         },
         tx,
       );
-      return { kind: "sent" as const, issueId: link.issueId };
+      return { kind: "sent" as const, issueId: link.issueId, reopens };
     });
 
     if (outcome.kind === "sent") {
       this.logger.log(
-        `Issue ${outcome.issueId} has a message through its reporter's link`,
+        outcome.reopens
+          ? `Issue ${outcome.issueId} was reopened by a message through its reporter's link`
+          : `Issue ${outcome.issueId} has a message through its reporter's link`,
       );
     }
     return outcome.kind;
@@ -668,6 +745,8 @@ export class IssueReporterLinkService implements OnModuleInit {
       where: { id: link.issueId },
       select: {
         createdAt: true,
+        closedAt: true,
+        mergedIntoIssueId: true,
         type: { select: { name: true } },
         status: { select: { meaning: true } },
         messages: {
@@ -687,14 +766,22 @@ export class IssueReporterLinkService implements OnModuleInit {
     const reporterMessages = issue.messages.filter(
       (message) => message.side === "REPORTER",
     ).length;
+    const closed = issue.status.meaning === "DONE";
+    // A closed issue takes a message only while one still reopens it.
+    // Judged on the database's clock, as the link is (see `lockedNow`).
+    const reopensOnMessage =
+      closed &&
+      issue.mergedIntoIssueId === null &&
+      replyReopensIssue(issue.closedAt, await lockedNow(tx));
     const messageLimitReached =
-      issue.status.meaning !== "DONE" &&
+      (!closed || reopensOnMessage) &&
       reporterMessages >= REPORTER_LINK_MESSAGES_PER_ISSUE;
     return {
       typeName: issue.type.name,
       meaning: issue.status.meaning,
       createdAt: issue.createdAt,
-      acceptsMessages: issue.status.meaning !== "DONE" && !messageLimitReached,
+      acceptsMessages: (!closed || reopensOnMessage) && !messageLimitReached,
+      reopensOnMessage: reopensOnMessage && !messageLimitReached,
       messageLimitReached,
       messages: issue.messages.map(toReporterView),
     };
@@ -703,15 +790,37 @@ export class IssueReporterLinkService implements OnModuleInit {
   /**
    * Whether the address is that of a person who restricted processing (GDPR
    * art. 18): the association may store their data and must not mail them.
+   *
+   * Asked under the issue's lock on every delivery, so it reads the people at
+   * this one address rather than every restricted person. The two blind
+   * indexes are not comparable (`field-encryption.service.ts`), so the
+   * reporter's address is decrypted and indexed as a person's address, and the
+   * register is asked for that index. A person whose indexes predate the
+   * current normalisation rules (`blindIndexVersion`) may hold an index that
+   * no longer matches their address until `PersonReindexService` rewrites it,
+   * so a restricted one is read too. Every candidate's address is indexed
+   * under the reporter's field and compared, as a 32-bit index can collide.
    */
   private async isRestricted(
     tx: Prisma.TransactionClient,
-    emailIndex: string,
+    reporter: { emailCipher: string; emailIndex: string },
   ): Promise<boolean> {
+    const address = await this.encryption.decrypt(
+      "issue.reporterEmail",
+      reporter.emailCipher,
+    );
+    const personIndex = await this.encryption.computeIndex(
+      "person.email",
+      address,
+    );
     const restricted = await tx.person.findMany({
       where: {
         processingRestrictedAt: { not: null },
         emailCipher: { not: null },
+        OR: [
+          ...(personIndex === null ? [] : [{ emailIndex: personIndex }]),
+          { blindIndexVersion: { lt: NORMALIZATION_VERSION } },
+        ],
       },
       select: { emailCipher: true },
     });
@@ -719,13 +828,15 @@ export class IssueReporterLinkService implements OnModuleInit {
       if (person.emailCipher === null) {
         continue;
       }
-      const address = await this.encryption.decrypt(
+      const candidate = await this.encryption.decrypt(
         "person.email",
         person.emailCipher,
       );
       if (
-        (await this.encryption.computeIndex("issue.reporterEmail", address)) ===
-        emailIndex
+        (await this.encryption.computeIndex(
+          "issue.reporterEmail",
+          candidate,
+        )) === reporter.emailIndex
       ) {
         return true;
       }

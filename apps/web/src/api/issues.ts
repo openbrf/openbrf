@@ -1,11 +1,14 @@
 import type {
   AuthorView,
   IssueClosingOutcome,
+  IssueEntryAnswer,
+  IssueFindingKind,
   IssueCostResponsibility,
   IssueHandledBy,
   IssueMeaningFilter,
   IssueOutcome,
   IssuePriority,
+  IssueReplyMode,
   IssueQueueView,
   IssueRedactionTarget,
   IssueReporterGroup,
@@ -103,6 +106,69 @@ export interface IssueApartment {
   address: string;
 }
 
+/** A common-area place, as a reporter or a handler picks it (decision 30). */
+export interface IssuePlaceChoice {
+  id: string;
+  name: string;
+}
+
+/** A place with how many of the issues this handler may open name it. */
+export interface IssuePlaceCount extends IssuePlaceChoice {
+  active: boolean;
+  issues: number;
+  open: number;
+}
+
+/** A place as the board edits it. */
+export interface ConfiguredIssuePlace extends IssuePlaceChoice {
+  active: boolean;
+  sortOrder: number;
+  issueCount: number;
+}
+
+export interface IssuePlaceInput {
+  name: string;
+  active?: boolean;
+  sortOrder?: number;
+}
+
+/** The resident's entry permission on an issue (decision 29). */
+export interface IssueEntry {
+  answer: IssueEntryAnswer;
+  note: string | null;
+  pets: boolean | null;
+  masterKey: boolean | null;
+  /** `YYYY-MM-DD`, or null for no end. */
+  until: string | null;
+  /** Past its last day; still shown until the issue closes. */
+  expired: boolean;
+}
+
+/** What the resident, or a handler for them, answers. */
+export interface IssueEntryInput {
+  answer: IssueEntryAnswer;
+  note?: string | null;
+  pets?: boolean;
+  masterKey?: boolean;
+  until?: string | null;
+}
+
+/** The mark of an inspection finding on an issue (decision 31). */
+export interface IssueFinding {
+  kind: IssueFindingKind;
+  /** `YYYY-MM-DD`. */
+  inspectedOn: string;
+  /** One of the issue's handler files, or null once it has been removed. */
+  protocol: { attachmentId: string; fileName: string } | null;
+}
+
+export interface IssueFindingInput {
+  kind: IssueFindingKind;
+  inspectedOn: string;
+  protocolAttachmentId: string;
+  targetDate: string;
+}
+
 export interface IssuePhoto {
   id: string;
   url: string;
@@ -115,7 +181,7 @@ export interface IssuePhoto {
  * An issue as its reporter reads it: where it stands as the meaning of its
  * status, never the board's label for it.
  */
-export interface OwnIssue {
+export interface IssueRow {
   id: string;
   /** The issue number (ärendenummer), which every mail about it names. */
   number: number;
@@ -123,8 +189,12 @@ export interface OwnIssue {
   typeId: string;
   typeName: string;
   location: string | null;
+  /** The common-area place it is about, or null. */
+  place: IssuePlaceChoice | null;
   description: string;
   apartment: IssueApartment | null;
+  /** The resident's answer about entering the apartment, or null. */
+  entry: IssueEntry | null;
   photos: IssuePhoto[];
   /** Whether a handler opened it on the reporter's behalf; never which one. */
   enteredByHandler: boolean;
@@ -136,11 +206,67 @@ export interface OwnIssue {
   locationRedactedAt: string | null;
   /**
    * When the nightly purge removed the free text, the conversation and the
-   * photographs after the issue closed, or null while they stand.
+   * photographs after the issue closed, or null while they stand. A
+   * photograph attached while the purge ran can stand after this is set, until
+   * the next run takes it and moves the date.
    */
   freeTextRemovedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface OwnIssue extends IssueRow {
+  /**
+   * What a reply does, as the server decided it: a message on an open issue,
+   * a reopening within the window after it closed, and after that, or once it
+   * was merged, a new report linked to it instead (ADR 0054).
+   */
+  replyMode: IssueReplyMode;
+  /** Where the issue it was merged into stands, while it is a duplicate. */
+  mergedIntoMeaning: IssueStatusMeaning | null;
+}
+
+/**
+ * A known fault (känt fel): a handler's notice about a fault the house already
+ * knows of, signed with a role and never a person, with the type's name.
+ */
+export interface KnownFault {
+  body: string;
+  signature: IssueSignature;
+  publishedAt: string;
+  /** Null on a type only handlers report, whose name is the board's own. */
+  typeName: string | null;
+}
+
+/**
+ * Another issue an issue is linked to, as a handler is told of it, or
+ * `hidden` when the reader does not handle it or it is gone.
+ */
+export type IssueReference =
+  | {
+      kind: "issue";
+      id: string;
+      typeName: string;
+      meaning: IssueStatusMeaning;
+      createdAt: string;
+    }
+  | { kind: "hidden" };
+
+/** The issues one issue is linked to (decisions 8 and 22). */
+export interface IssueLinks {
+  mergedInto: IssueReference | null;
+  duplicates: Extract<IssueReference, { kind: "issue" }>[];
+  /**
+   * How many issues are merged into this one, those the reader does not
+   * handle included: merging this one into another is refused while there are
+   * any.
+   */
+  duplicateCount: number;
+  follows: IssueReference | null;
+  /** The first follow-ups the reader handles, a page of them. */
+  followUps: Extract<IssueReference, { kind: "issue" }>[];
+  /** How many follow-ups the reader handles, those not listed included. */
+  followUpCount: number;
 }
 
 /**
@@ -173,7 +299,12 @@ export type IssueReporter =
 /** Where an external reporter's private link stands. */
 export type ReporterLinkState = "live" | "ended" | "pending" | "none";
 
-export type QueuedIssue = OwnIssue & {
+export type QueuedIssue = IssueRow & {
+  /**
+   * Filed against an apartment, true also while `apartment` is withheld for a
+   * protected reporter. Decides between the entry permission and a place.
+   */
+  aboutApartment: boolean;
   /** The status it stands in, as the board named it for its type. */
   status: { id: string; label: string };
   waitingReason: IssueWaitingReason | null;
@@ -192,6 +323,10 @@ export type QueuedIssue = OwnIssue & {
   enteredBy: IssueHandler | null;
   /** Closed to every handler but the board on its own. */
   boardOnly: boolean;
+  /** Its known fault, while one is published. */
+  knownFault: Omit<KnownFault, "typeName"> | null;
+  /** The inspection it is a finding of, or null. */
+  finding: IssueFinding | null;
   /** Since when a legal hold stands on the issue, or null. */
   legalHoldAt: string | null;
   /**
@@ -211,6 +346,7 @@ export interface ReportIssueInput {
   typeId: string;
   apartmentId?: string | null;
   location?: string | null;
+  placeId?: string | null;
   description: string;
   /**
    * The post in the feed this report is made from ("Gör felanmälan"), which
@@ -219,6 +355,11 @@ export interface ReportIssueInput {
    * somebody already reported from is refused too.
    */
   postId?: string;
+  /**
+   * One's own closed issue this report follows up: what the reply field offers
+   * once a reply no longer reopens it (ADR 0054).
+   */
+  followsIssueId?: string;
 }
 
 export interface IssueTypeInput {
@@ -238,6 +379,7 @@ export interface OpenIssueInput {
   /** A residency the resident picker offered; absent for an internal issue. */
   residencyId?: string;
   location?: string;
+  placeId?: string;
   description: string;
 }
 
@@ -268,11 +410,23 @@ export type IssueTimelineStep = {
       toStatusId: string | null;
       waitingReason: IssueWaitingReason | null;
       outcome: IssueOutcome | null;
+      /** Reopened by the reporter's reply, who is never named here. */
+      byReporter: boolean;
     }
   | { kind: "assigned"; assignee: IssueHandler | null; byTypeDefault: boolean }
   | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
+  | { kind: "knownFault"; published: boolean }
+  | { kind: "place"; placeId: string | null }
+  | {
+      kind: "entry";
+      /** The answer given, or null when it was withdrawn. */
+      answer: IssueEntryAnswer | null;
+      /** Answered by the resident; then the step has no actor. */
+      byReporter: boolean;
+    }
+  | { kind: "finding"; findingKind: IssueFindingKind | null }
   | { kind: "redacted"; target: IssueRedactionTarget | null }
   | { kind: "legalHold"; held: boolean }
   | {
@@ -325,21 +479,46 @@ export interface IssueStatusChangeInput {
   sortOrder?: number;
 }
 
+/**
+ * How long a read the report form waits for may take, body included. The form
+ * is drawn when its reads have all answered, so one that never settles would
+ * hold it behind the loading notice; a read that is given up comes back as the
+ * same failure as one that got no answer, which the screen offers a retry for.
+ */
+const READ_TIMEOUT_MS = 10_000;
+
 export function fetchReportableTypes(): Promise<
   ApiResult<ReportableIssueType[]>
 > {
   return previewing(
-    apiRequest<ReportableIssueType[]>("GET", "/api/issues/types"),
+    apiRequest<ReportableIssueType[]>("GET", "/api/issues/types", undefined, {
+      signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+    }),
     previewedIssueTypes,
   );
 }
 
+/** The common-area places a report may name. */
+/**
+ * The places a reporter may name. Bounded as the place counts are, by
+ * `ISSUE_PLACES_TIMEOUT_MS`: the issues screen waits for this read with the
+ * others before it shows the report form, and files a report without a place
+ * when it fails.
+ */
+export function fetchIssuePlaces(): Promise<ApiResult<IssuePlaceChoice[]>> {
+  return readPlaces("/api/issues/places");
+}
+
 export function fetchOwnApartments(): Promise<ApiResult<IssueApartment[]>> {
-  return apiRequest("GET", "/api/issues/apartments");
+  return apiRequest("GET", "/api/issues/apartments", undefined, {
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+  });
 }
 
 export function fetchOwnIssues(): Promise<ApiResult<OwnIssue[]>> {
-  return apiRequest("GET", "/api/issues/mine");
+  return apiRequest("GET", "/api/issues/mine", undefined, {
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+  });
 }
 
 export function reportIssue(
@@ -367,6 +546,8 @@ export function attachIssuePhoto(
 export interface IssueQueueFilter {
   meaning?: IssueMeaningFilter;
   typeId?: string;
+  /** Only the issues that name this common-area place (decision 30). */
+  placeId?: string;
   priority?: IssuePriority;
   /** What the handler typed; blank is no search. */
   search?: string;
@@ -392,6 +573,9 @@ function queueQuery(filter: IssueQueueFilter, view?: IssueQueueView): string {
   }
   if (filter.typeId !== undefined) {
     query.set("typeId", filter.typeId);
+  }
+  if (filter.placeId !== undefined) {
+    query.set("placeId", filter.placeId);
   }
   if (filter.priority !== undefined) {
     query.set("priority", filter.priority);
@@ -536,6 +720,76 @@ export function setIssueTargetDate(input: {
   );
 }
 
+/** Merges the issue into another as its duplicate (decision 22). */
+export function mergeIssue(input: {
+  issueId: string;
+  intoIssueId: string;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/merge`,
+    { intoIssueId: input.intoIssueId },
+  );
+}
+
+/** The issues this one is merged into, merged from, follows or is followed by. */
+export function fetchIssueLinks(
+  issueId: string,
+): Promise<ApiResult<IssueLinks>> {
+  return apiRequest(
+    "GET",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/links`,
+    undefined,
+    { signal: AbortSignal.timeout(READ_TIMEOUT_MS) },
+  );
+}
+
+/** Publishes or rewrites the issue's known fault. */
+export function publishKnownFault(input: {
+  issueId: string;
+  body: string;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/known-fault`,
+    { body: input.body },
+  );
+}
+
+/** Withdraws the issue's known fault. */
+export function withdrawKnownFault(
+  issueId: string,
+): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "DELETE",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/known-fault`,
+  );
+}
+
+/** The known faults the house is told of, for the report form. */
+export function fetchKnownFaults(): Promise<ApiResult<KnownFault[]>> {
+  // Bounded, body included, for the reason the responsibility guide's read is:
+  // the report form waits for this with its other reads.
+  return apiRequest("GET", "/api/issues/known-faults", undefined, {
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+  });
+}
+
+/**
+ * Writes to the reporters of every issue merged into this one, one message on
+ * each duplicate's own conversation.
+ */
+export function sendToDuplicateReporters(input: {
+  issueId: string;
+  body: string;
+}): Promise<ApiResult<{ sent: number; skipped: number }>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/duplicate-messages`,
+    { body: input.body },
+  );
+}
+
 /** Who pays for the issue, or null to say nothing again. Never an amount. */
 export function setIssueCostResponsibility(input: {
   issueId: string;
@@ -572,7 +826,7 @@ export function fetchReporterResponsibilityGuide(): Promise<
    * unbounded.
    */
   return apiRequest("GET", "/api/issues/responsibility-guide", undefined, {
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
   });
 }
 
@@ -605,6 +859,139 @@ export function setIssueBoardOnly(input: {
     `/api/issue-queue/${encodeURIComponent(input.issueId)}/access`,
     { boardOnly: input.boardOnly },
   );
+}
+
+/** Answers the entry question on one's own report. */
+export function answerOwnEntry(input: {
+  issueId: string;
+  entry: IssueEntryInput;
+}): Promise<ApiResult<{ entry: IssueEntry | null }>> {
+  return apiRequest(
+    "PUT",
+    `/api/issues/${encodeURIComponent(input.issueId)}/entry-permission`,
+    input.entry,
+  );
+}
+
+export function withdrawOwnEntry(
+  issueId: string,
+): Promise<ApiResult<{ entry: IssueEntry | null }>> {
+  return apiRequest(
+    "DELETE",
+    `/api/issues/${encodeURIComponent(issueId)}/entry-permission`,
+  );
+}
+
+/**
+ * How long a screen waits for the whole of a places read, body included. The
+ * issues screen reads the places with the reporter's lists, and the queue reads
+ * the place counts with the issues, and neither draws until all are in, so a
+ * server that never answers, or stops halfway through the answer, would leave
+ * it loading with no retry; past this the read comes back as a failed one and
+ * the screen goes on without places. The whole read is bounded, not only the
+ * wait for the headers as `answerTimeoutMs` would: the answer is a short list,
+ * so one still arriving after this is one that has stalled.
+ */
+export const ISSUE_PLACES_TIMEOUT_MS = 10_000;
+
+/** A GET of a places list under `ISSUE_PLACES_TIMEOUT_MS`. */
+async function readPlaces<T>(path: string): Promise<ApiResult<T>> {
+  const deadline = new AbortController();
+  const timer = setTimeout(() => {
+    deadline.abort();
+  }, ISSUE_PLACES_TIMEOUT_MS);
+  try {
+    return await apiRequest("GET", path, undefined, {
+      signal: deadline.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The places with how many issues this handler may open name each. */
+export function fetchIssuePlaceCounts(): Promise<ApiResult<IssuePlaceCount[]>> {
+  return readPlaces("/api/issue-queue/places");
+}
+
+export function setIssuePlace(input: {
+  issueId: string;
+  placeId: string | null;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/place`,
+    { placeId: input.placeId },
+  );
+}
+
+/** A handler records the resident's answer to the entry question. */
+export function answerEntry(input: {
+  issueId: string;
+  entry: IssueEntryInput;
+}): Promise<ApiResult<{ entry: IssueEntry | null }>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/entry-permission`,
+    input.entry,
+  );
+}
+
+export function withdrawEntry(
+  issueId: string,
+): Promise<ApiResult<{ entry: IssueEntry | null }>> {
+  return apiRequest(
+    "DELETE",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/entry-permission`,
+  );
+}
+
+export function markIssueFinding(input: {
+  issueId: string;
+  finding: IssueFindingInput;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/finding`,
+    input.finding,
+  );
+}
+
+export function removeIssueFinding(
+  issueId: string,
+): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "DELETE",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/finding`,
+  );
+}
+
+/** The places, as the board edits them. */
+export function fetchConfiguredPlaces(): Promise<
+  ApiResult<ConfiguredIssuePlace[]>
+> {
+  return apiRequest("GET", "/api/issue-places");
+}
+
+export function createIssuePlace(
+  input: IssuePlaceInput,
+): Promise<ApiResult<ConfiguredIssuePlace>> {
+  return apiRequest("POST", "/api/issue-places", input);
+}
+
+export function updateIssuePlace(input: {
+  id: string;
+  values: IssuePlaceInput;
+}): Promise<ApiResult<ConfiguredIssuePlace>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-places/${encodeURIComponent(input.id)}`,
+    input.values,
+  );
+}
+
+export function removeIssuePlace(id: string): Promise<ApiResult<undefined>> {
+  return apiRequest("DELETE", `/api/issue-places/${encodeURIComponent(id)}`);
 }
 
 /**

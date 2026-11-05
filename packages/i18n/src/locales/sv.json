@@ -885,6 +885,7 @@
           "ISSUE_TYPE_RING_FENCE_CHANGED": "En ärendetyp stängdes för entreprenörer, eller öppnades igen",
           "ISSUE_MESSAGE_SENT": "Ett meddelande skrevs i ett ärende",
           "ISSUE_NOTE_ADDED": "En intern anteckning skrevs i ett ärende",
+          "ISSUE_KNOWN_FAULT_CHANGED": "Ett känt fel publicerades, ändrades eller togs bort i ett ärende",
           "ISSUE_REDACTED": "Text, en bild eller en fil togs bort från ett ärende",
           "ISSUE_LEGAL_HOLD_PLACED": "Ett rättsligt bevarandekrav lades på ett ärende",
           "ISSUE_LEGAL_HOLD_RELEASED": "Det rättsliga bevarandekravet på ett ärende hävdes",
@@ -929,6 +930,11 @@
           "SUPPORT_SESSION_STARTED": "Supportperson loggade in",
           "SUPPORT_REQUEST": "Supportperson tittade",
           "SUPPORT_SESSION_ENDED": "Supportperson loggade ut",
+          "ISSUE_ENTRY_PERMISSION_SET": "Ett svar om tillträde till en lägenhet gavs i ett ärende",
+          "ISSUE_ENTRY_PERMISSION_REMOVED": "Ett svar om tillträde till en lägenhet togs tillbaka i ett ärende",
+          "ISSUE_PLACE_CHANGED": "Det gemensamma utrymmet i ett ärende angavs eller ändrades",
+          "ISSUE_FINDING_MARKED": "Ett ärende markerades som besiktningsanmärkning",
+          "ISSUE_FINDING_REMOVED": "Ett ärendes markering som besiktningsanmärkning togs bort",
           "ISSUE_REPORTER_LINK_ISSUED": "En privat länk till ett ärende skickades till anmälaren",
           "ISSUE_REPORTER_LINK_REVOKED": "Anmälarens privata länk till ett ärende drogs tillbaka"
         },
@@ -1008,7 +1014,9 @@
           "issue": "Det här ärendet",
           "typeDefault": "Varje nytt ärende av typen"
         },
-        "issueCostResponsibility": "Vem betalar: {{who}}"
+        "issueCostResponsibility": "Vem betalar: {{who}}",
+        "issueEntry": "Tillträde: {{answer}}. {{details}}",
+        "issuePlace": "Gemensamt utrymme: {{place}}"
       },
       "requests": {
         "kind": {
@@ -2062,7 +2070,7 @@
     },
     "issueRetention": {
       "title": "Gallring av ärenden",
-      "description": "Hur många år efter att ett ärende stängts dess fritext sparas. Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, finns kvar i ärendet; beskrivningen, platsen, svaren, de interna anteckningarna och bilderna och filerna gallras så många år efter att det stängts, om inte ett rättsligt bevarandekrav gäller.",
+      "description": "Hur många år efter att ett ärende stängts dess fritext sparas. Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, finns kvar i ärendet; beskrivningen, platsen, svaren, de interna anteckningarna och bilderna och filerna gallras så många år efter att det stängts, om inte ett rättsligt bevarandekrav gäller för ärendet eller ett rättsligt bevarandekrav eller en begränsning för den som anmälde det.",
       "years": "År efter att ett ärende stängts",
       "yearsHint": "Ett heltal mellan 1 och 10. En ny instans börjar på 2.",
       "purgeJob": "Gallringen körs varje natt och läser talet när den körs, så en ändring flyttar alla kommande datum på en gång. Efter en kortare inställning gallras fritexten i de ärenden som redan passerat den under nätterna som följer, högst 500 ärenden vid varje körning.",
@@ -2118,6 +2126,33 @@
         "radiators": "Radiatorer",
         "commonAreas": "Trapphus, tvättstuga och andra gemensamma utrymmen",
         "buildingShell": "Tak, fasad och yttre underhåll"
+      }
+    },
+    "issuePlaces": {
+      "title": "Gemensamma utrymmen",
+      "description": "Den korta lista en anmälan kan peka ut vid sidan av den fria platsangivelsen, till exempel tvättstuga, hiss och gård. Den gör ett fel som återkommer på samma plats räknebart.",
+      "loading": "Läser in de gemensamma utrymmena...",
+      "loadFailed": "De gemensamma utrymmena kunde inte läsas in just nu.",
+      "empty": "Inga gemensamma utrymmen.",
+      "nameLabel": "Namn",
+      "nameNamed": "{{name}}: namn",
+      "active": "Erbjuds",
+      "activeNamed": "{{name}}: erbjuds för nya anmälningar",
+      "issueCount_one": "{{count}} ärende",
+      "issueCount_other": "{{count}} ärenden",
+      "save": "Spara",
+      "remove": "Ta bort",
+      "removeNamed": "Ta bort {{name}}",
+      "addLabel": "Nytt gemensamt utrymme",
+      "add": "Lägg till",
+      "neverApartments": "Bara gemensamma utrymmen, aldrig lägenheter. Ett ärende om en bostad har sin lägenhet. Ett utrymme som ärenden pekar ut kan stängas av men inte tas bort.",
+      "errors": {
+        "notFound": "Det gemensamma utrymmet finns inte längre. Listan har lästs in igen.",
+        "nameTaken": "Det finns redan ett gemensamt utrymme med det namnet.",
+        "nameApartment": "Ett gemensamt utrymme är aldrig en lägenhet. Namnge rummet eller gården.",
+        "inUse": "Ärenden pekar ut det här gemensamma utrymmet, så det kan inte tas bort. Stäng av det i stället.",
+        "tooMany": "Föreningen har redan så många gemensamma utrymmen som den får ha.",
+        "unknown": "De gemensamma utrymmena kunde inte ändras just nu. Försök igen."
       }
     }
   },
@@ -3707,6 +3742,7 @@
       "message": "Skriv till föreningen",
       "messageHint": "Skriv inga personnummer. Det går inte att bifoga filer här.",
       "send": "Skicka",
+      "reopensNotice": "Ärendet är avslutat. Skickar du ett meddelande nu öppnas det igen.",
       "closedNotice": "Ärendet är avslutat och tar inte emot fler meddelanden. Har du något nytt att anmäla gör du en ny anmälan på föreningens webbplats.",
       "private": "Länken är personlig, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats eller ett år efter det senaste meddelandet i det, det som inträffar först. Innan något meddelande har skrivits räknas året från den dag länken utfärdades.",
       "notFoundTitle": "Länken öppnar inget ärende",
@@ -3717,7 +3753,7 @@
         "identity": "Meddelandet innehåller ett personnummer och skickades inte. Ta bort det och försök igen.",
         "closed": "Ärendet är avslutat och tar inte emot fler meddelanden.",
         "limited": "Ärendet tar inte emot fler meddelanden just nu. Försök igen senare.",
-        "full": "Ärendet har nått det högsta antal meddelanden som en länk tar emot. Fler meddelanden kan inte skickas via länken."
+        "full": "Ärendet har nått det högsta antalet meddelanden som en länk tar emot. Fler meddelanden kan inte skickas via länken."
       }
     }
   },
@@ -3834,8 +3870,17 @@
         "unknown": "Anmälan kunde inte skickas just nu. Försök igen.",
         "postNotFound": "Inlägget finns inte, eller så kan du inte läsa det. Anmälan skickades inte.",
         "postNotReportable": "Bara den som skrev inlägget och styrelsen kan göra en felanmälan från det. Anmälan skickades inte.",
-        "postAlreadyReported": "Någon har redan gjort en felanmälan från det här inlägget. Anmälan skickades inte."
-      }
+        "postAlreadyReported": "Någon har redan gjort en felanmälan från det här inlägget. Anmälan skickades inte.",
+        "followUpNotFound": "Anmälan du följer upp finns inte längre. Skriv en fristående anmälan i stället.",
+        "followUpOfOpenIssue": "Anmälan du följer upp är öppen igen. Svara i den i stället.",
+        "placeNotFound": "Det gemensamma utrymmet erbjuds inte längre. Välj ett annat eller inget.",
+        "placeWithApartment": "Ett gemensamt utrymme väljs bara när anmälan inte gäller en lägenhet. Välj det ena eller det andra."
+      },
+      "followUp": "Den här anmälan följer upp din tidigare anmälan om {{type}}.",
+      "followUpCancel": "Skriv en fristående anmälan i stället",
+      "place": "Gemensamt utrymme",
+      "placeNone": "Inget särskilt",
+      "placeHint": "Välj ett om problemet finns i ett gemensamt utrymme. Beskriv exakt var i fältet nedan."
     },
     "photos": {
       "title": "Foton",
@@ -3857,7 +3902,9 @@
       "place": "Var",
       "noApartment": "Anmälan gäller ingen lägenhet.",
       "noPlace": "Ingen plats i huset angavs.",
-      "enteredByHandler": "Upplagt av den som hanterar ärenden."
+      "enteredByHandler": "Upplagt av den som hanterar ärenden.",
+      "merged": "Sammanslagen med en annan anmälan om samma fel, som nu är:",
+      "commonArea": "Gemensamt utrymme:"
     },
     "queue": {
       "title": "Ärendekön",
@@ -3894,7 +3941,8 @@
       "assignee": "Ansvarig",
       "targetDate": "Senast klart",
       "overdue": "Försenat",
-      "enteredBy": "Upplagt av"
+      "enteredBy": "Upplagt av",
+      "finding": "Besiktningsanmärkning: {{kind}}"
     },
     "errors": {
       "forbidden": "Ditt konto får inte göra det.",
@@ -3972,6 +4020,9 @@
       "targetDateRemoved": "Senast klart borttaget",
       "boardOnly": "Stängt för alla utom styrelsen",
       "everyHandler": "Öppnat igen för alla som hanterar typen",
+      "byReporterReply": "efter ett svar från anmälaren",
+      "knownFaultPublished": "Publicerade eller ändrade det kända felet",
+      "knownFaultWithdrawn": "Tog bort det kända felet",
       "redacted": {
         "description": "Tog bort beskrivningen",
         "location": "Tog bort platsen",
@@ -3986,6 +4037,13 @@
       "legalHoldReleased": "Hävde det rättsliga bevarandekravet",
       "costResponsibility": "Vem betalar satt till {{who}}",
       "costResponsibilityRemoved": "Vem betalar togs bort",
+      "placeSet": "Gemensamt utrymme angavs",
+      "placeRemoved": "Gemensamt utrymme togs bort",
+      "entryWithdrawn": "Svaret om tillträde togs tillbaka",
+      "entryAnsweredByResident": "Den boende svarade om tillträde: {{answer}}",
+      "entryRecorded": "Svar om tillträde antecknades: {{answer}}",
+      "findingMarked": "Markerades som besiktningsanmärkning: {{kind}}",
+      "findingRemoved": "Markeringen som besiktningsanmärkning togs bort",
       "workOrder": {
         "written": "En arbetsorder skrevs till en entreprenör",
         "pending": "En arbetsorder är på väg till en entreprenör",
@@ -4039,7 +4097,7 @@
       "send": "Skicka till {{name}}",
       "sending": "Skickar...",
       "edit": "Ändra",
-      "sent": "Arbetsordern till {{name}} är sparad. Loggen nedan visar om mejlet gick iväg.",
+      "sent": "Arbetsordern till {{name}} är sparad. Listan med arbetsorder nedan visar om mejlet gick iväg.",
       "errors": {
         "issueNotFound": "Ärendet finns inte längre, eller är inte längre ditt att hantera.",
         "contractorNotFound": "Entreprenören finns inte längre på listan. Listan har lästs om.",
@@ -4050,10 +4108,11 @@
         "unknown": "Arbetsordern gick inte att förbereda eller skicka just nu. Försök igen.",
         "previewStale": "Entreprenörens uppgifter eller texten har ändrats sedan förhandsvisningen. Förhandsvisa den igen innan du skickar.",
         "issueClosed": "Ärendet är avslutat. Öppna det igen innan du skriver en arbetsorder.",
-        "duplicate": "Den här arbetsordern skickades till entreprenören för en stund sedan. Titta i listan ovan innan du skickar den igen.",
+        "duplicate": "En arbetsorder till entreprenören skrevs för en stund sedan och kan ha skickats. Titta i listan ovan innan du skriver en ny; en vars text har tagits bort håller tillbaka en ny tills halvtimmen har gått.",
         "budgetSpent": "Du har skickat så många arbetsorder som en person får skicka på en timme. Försök igen senare."
       },
       "recipientRemoved": "En entreprenör som sedan tagits bort från listan",
+      "addressUnreadable": "Adressen kunde inte läsas.",
       "bodyErased": "Texten raderades när ärendets lagringstid gick ut."
     },
     "open": {
@@ -4174,7 +4233,10 @@
         "noReporter": "Ingen kan läsa ett svar på det här ärendet.",
         "personalIdentityNumber": "Texten innehåller ett personnummer. Ta bort det och skicka igen.",
         "unknown": "Det gick inte att skicka just nu. Försök igen."
-      }
+      },
+      "mergedOwn": "Anmälan har slagits samman med en annan anmälan om samma fel och hanteras där. Meddelandena kan du fortfarande läsa här.",
+      "followUp": "Gör en ny anmälan om detta",
+      "reopensHint": "Anmälan är avslutad. Skriver du här öppnas den igen och går tillbaka till den som hanterar den. Inga personnummer, tack."
     },
     "notes": {
       "title": "Interna anteckningar",
@@ -4199,6 +4261,156 @@
         "unknown": "Filen gick inte att bifoga just nu. Försök igen."
       }
     },
+    "knownFault": {
+      "label": "Känt fel",
+      "listTitle": "Kända fel",
+      "listHint": "Det här känner de som hanterar ärenden redan till. Du behöver inte anmäla det igen."
+    },
+    "lifecycle": {
+      "readFailed": "Ärendets kopplingar kunde inte läsas just nu. Stäng och öppna ärendet igen.",
+      "toDuplicatesTitle": "Anmälarna till de sammanslagna anmälningarna",
+      "toDuplicates": "Meddelande till alla som anmälde de sammanslagna anmälningarna",
+      "toDuplicatesNamed": "{{type}}: meddelande till anmälarna till de sammanslagna anmälningarna",
+      "toDuplicatesHint_one": "Går till den som anmälde den {{count}} sammanslagna anmälan, i deras egen anmälan, undertecknat som styrelsen eller förvaltaren. Bara en anmälare med konto får det. Det når inte det här ärendets egen anmälare.",
+      "toDuplicatesHint_other": "Går till dem som anmälde de {{count}} sammanslagna anmälningarna, var och en i sin egen anmälan, undertecknat som styrelsen eller förvaltaren. Ingen av dem ser någon annans anmälan. Bara anmälare med konto får det, och det når inte det här ärendets egen anmälare.",
+      "toDuplicatesSent_one": "Skickat till {{count}} anmälare.",
+      "toDuplicatesSent_other": "Skickat till {{count}} anmälare.",
+      "toDuplicatesSkipped_one": "{{count}} sammanslagen anmälan nåddes inte, eftersom den saknar anmälare med konto.",
+      "toDuplicatesSkipped_other": "{{count}} sammanslagna anmälningar nåddes inte, eftersom de saknar anmälare med konto.",
+      "knownFaultBoardOnly": "Ett ärende som bara styrelsen hanterar kan inte ha något känt fel.",
+      "knownFaultField": "Meddelande till huset",
+      "knownFaultNamed": "{{type}}: känt fel",
+      "knownFaultHint": "Visas för inloggade boende, på deras felanmälningsformulär och på inlägget ärendet kom från, aldrig på den publika webbplatsen. Undertecknas som styrelsen eller förvaltaren. Skriv det själv: inget kopieras från anmälan, och inga personnummer. Det försvinner när ärendet avslutas.",
+      "knownFaultPublish": "Publicera känt fel",
+      "knownFaultRewrite": "Spara ändringen",
+      "knownFaultPublishing": "Publicerar...",
+      "knownFaultWithdraw": "Ta bort",
+      "linksTitle": "Kopplade ärenden",
+      "mergedInto": "Sammanslagen med",
+      "duplicate": "Sammanslagen hit",
+      "follows": "Följer upp",
+      "followUp": "Följs upp av",
+      "followUpsMore_one": "Visar de första {{shown}} av {{count}} uppföljning.",
+      "followUpsMore_other": "Visar de första {{shown}} av {{count}} uppföljningar.",
+      "hidden": "ett ärende du inte hanterar",
+      "mergeTitle": "Dublett",
+      "mergeInto": "Slå samman med",
+      "mergeIntoNamed": "{{type}}: slå samman med ett annat ärende",
+      "mergePick": "Välj ärendet det är en dublett av...",
+      "mergeHint": "Det här ärendet avslutas som dublett. Anmälaren behåller sin anmälan och ser hur det andra ärendet går, och ingen av anmälarna ser den andras anmälan.",
+      "merge": "Slå samman som dublett",
+      "mergeConfirm": "Ja, avsluta som dublett",
+      "mergeKeep": "Behåll det öppet",
+      "errors": {
+        "issueNotFound": "Ärendet finns inte längre, eller är inte längre ditt att hantera. Kön har lästs om.",
+        "issueClosed": "Ärendet avslutades under tiden och kan inte ha något känt fel. Kön har lästs om.",
+        "knownFaultBoardOnly": "Styrelsen hanterar ärendet själv, så det kan inte ha något känt fel. Kön har lästs om.",
+        "mergeIntoItself": "Ett ärende kan inte slås samman med sig självt.",
+        "mergeIntoDuplicate": "Det ärendet är självt en dublett. Slå samman med ärendet det slogs samman med. Kön har lästs om.",
+        "mergeLimit": "Det ärendet har redan så många dubletter som det får ha. Slå samman med ett annat ärende, eller svara anmälarna med ett känt fel. Kön har lästs om.",
+        "mergeIntoClosed": "Det ärendet är avslutat. Öppna det igen först, eller slå samman med ett som fortfarande hanteras. Kön har lästs om.",
+        "mergeHasDuplicates": "Andra ärenden har slagits samman med det här. Slå i stället samman det andra ärendet med det här. Kön har lästs om.",
+        "mergeAlreadyDuplicate": "Det ärendet är redan en dublett av ett annat. Öppna det igen för att slå samman det med något annat. Kön har lästs om.",
+        "personalIdentityNumber": "Texten innehåller ett personnummer. Ta bort det och försök igen.",
+        "noDuplicateReporter": "Ingen kan läsa ett svar i de sammanslagna anmälningarna: anmälarna har inget konto att läsa det i.",
+        "unknown": "Det gick inte att spara just nu. Försök igen."
+      }
+    },
+    "seededPlaces": {
+      "laundryRoom": "Tvättstuga",
+      "lift": "Hiss",
+      "yard": "Gård",
+      "stairwell": "Trapphus",
+      "basement": "Källare",
+      "attic": "Vind",
+      "bicycleRoom": "Cykelrum",
+      "garage": "Garage",
+      "wasteRoom": "Soprum"
+    },
+    "places": {
+      "title": "Ärenden per gemensamt utrymme",
+      "description": "Hur många ärenden som pekar ut varje gemensamt utrymme, även avslutade, så att ett fel som återkommer på samma plats syns som ett.",
+      "counts": "{{issues}} ärenden, {{open}} öppna",
+      "showOnly": "Visa bara {{place}}",
+      "showAll": "Visa alla",
+      "hint": "Räknar de ärenden du får öppna. Ärenden som styrelsen håller för sig själv räknas bara för styrelsen."
+    },
+    "entry": {
+      "title": "Tillträde",
+      "intro": "Berätta om föreningen eller en entreprenör får gå in i din lägenhet när du inte är hemma. Uppgiften sparas bara tills ärendet är avslutat.",
+      "introHandler": "Anteckna den boendes svar, givet i telefon eller vid dörren. Uppgiften sparas bara tills ärendet är avslutat.",
+      "answerLabel": "Får föreningen gå in?",
+      "answerYes": "Ja",
+      "answerNo": "Nej",
+      "petsLabel": "Det finns husdjur i bostaden",
+      "petsShort": "husdjur",
+      "petsNone": "inga husdjur",
+      "masterKeyLabel": "Huvudnyckeln får användas",
+      "masterKeyShort": "huvudnyckel",
+      "masterKeyNone": "huvudnyckel får inte användas",
+      "noteLabel": "Hur man kommer in",
+      "noteHint": "Till exempel vem man ringer, eller när någon är hemma. Skriv aldrig en portkod här.",
+      "doorCodeWarning": "Det här ser ut som en portkod. Portkoder sparas aldrig i den här anteckningen, eftersom alla som hanterar ärendet skulle kunna läsa den. Skriv i stället vem man ringer eller när någon är hemma.",
+      "untilLabel": "Gäller till och med",
+      "clearedAtClosing": "Svaret rensas när ärendet avslutas.",
+      "save": "Spara svar",
+      "saving": "Sparar...",
+      "withdraw": "Ta tillbaka svaret",
+      "expired": "Tillträdet gick ut den <data>{{date}}</data>.",
+      "errors": {
+        "doorCode": "Anteckningen ser ut som en portkod och sparades inte. Skriv i stället vem man ringer eller när någon är hemma.",
+        "untilPast": "Den dagen har redan varit. Välj i dag eller en senare dag.",
+        "needsApartment": "Tillträde hör till ett ärende om en lägenhet.",
+        "notResident": "Bara den som bor i lägenheten kan ge tillträde. Du kan fortfarande svara nej eller ta tillbaka ett svar.",
+        "closed": "Ärendet är avslutat, så svaret kan inte ändras. Listan har lästs in igen.",
+        "notFound": "Ärendet finns inte längre, eller är inte längre ditt. Listan har lästs in igen.",
+        "personalIdentityNumber": "Anteckningen innehåller ett personnummer. Ta bort det och spara igen.",
+        "dateInvalid": "Det är inget datum. Välj ett i kalendern.",
+        "unknown": "Svaret kunde inte sparas just nu. Försök igen."
+      }
+    },
+    "fit": {
+      "place": {
+        "label": "Gemensamt utrymme",
+        "none": "Inget särskilt"
+      },
+      "finding": {
+        "title": "Besiktningsanmärkning",
+        "intro": "Markera ärendet som en anmärkning från en OVK-, hiss- eller brandbesiktning. Det kräver protokollet, bifogat under Filer, och ett senast klart-datum. Boende ser det inte.",
+        "current": "Markerat som besiktningsanmärkning: {{kind}}.",
+        "protocolIs": "Protokoll: {{name}}",
+        "protocolGone": "Protokollet har tagits bort från ärendet.",
+        "kind": "Besiktning",
+        "kindNone": "Välj...",
+        "kinds": {
+          "OVK": "Ventilation (OVK)",
+          "LIFT": "Hiss",
+          "FIRE": "Brandskydd"
+        },
+        "inspectedOn": "Besiktigad den",
+        "targetDate": "Senast klart",
+        "liftRule": "Kvarstående fel på en hiss ska åtgärdas inom en månad från besiktningen (BFS 2025:11 1 kap. 17 §). Senast <data>{{date}}</data>.",
+        "useLatest": "Använd det datumet",
+        "protocol": "Protokoll",
+        "protocolNone": "Välj en fil...",
+        "protocolHint": "En av filerna som bifogats ärendet för handläggare.",
+        "attachFirst": "Bifoga protokollet under Filer först och välj det sedan här.",
+        "mark": "Markera som anmärkning",
+        "change": "Spara anmärkning",
+        "remove": "Ta bort markeringen"
+      },
+      "errors": {
+        "issueNotFound": "Ärendet finns inte längre, eller är inte längre ditt att hantera. Kön har lästs in igen.",
+        "closed": "Ärendet är avslutat. Kön har lästs in igen.",
+        "placeNotFound": "Det gemensamma utrymmet erbjuds inte längre. Listan har lästs in igen.",
+        "placeWithApartment": "Ärendet gäller en lägenhet, så det får inget gemensamt utrymme.",
+        "findingNeedsTargetDate": "En anmärkning behöver ett senast klart-datum.",
+        "findingTargetDateTooLate": "Kvarstående fel på en hiss ska åtgärdas inom en månad från besiktningen. Välj ett tidigare datum.",
+        "protocolNotFound": "Filen är inte längre bifogad ärendet. Listan har lästs in igen.",
+        "dateInvalid": "Det är inget datum. Välj ett i kalendern.",
+        "unknown": "Ärendet kunde inte ändras just nu. Försök igen."
+      }
+    },
     "reporterLink": {
       "live": "Anmälaren har inget konto och läser svaren via en privat länk som skickades med e-post.",
       "ended": "Länken som skickades till anmälaren öppnar inte längre ärendet: den har dragits tillbaka eller gått ut, eller så avslutades ärendet för mer än 30 dagar sedan.",
@@ -4217,7 +4429,7 @@
       "purgedOn": "Fritexten togs bort <data>{{date}}</data>",
       "freeTextRemoved": "Fritexten, svaren och bilderna togs bort <data>{{date}}</data>. Vad det gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, finns kvar.",
       "title": "Fritext och rättsligt bevarandekrav",
-      "intro": "Så länge inget rättsligt bevarandekrav gäller för själva ärendet kan en handläggare när som helst ta bort beskrivningen, platsen, ett svar, en intern anteckning, en bild, en fil eller texten i en arbetsorder, till exempel när en person som nämns där har fått radering beviljad. Det som tas bort är borta: ingenting sparar texten, och ingenting skrivs i dess ställe.",
+      "intro": "Så länge inget rättsligt bevarandekrav gäller för själva ärendet, och varken ett rättsligt bevarandekrav eller en begränsning gäller för den som anmälde det, kan en handläggare när som helst ta bort beskrivningen, platsen, ett svar, en intern anteckning, en bild, en fil eller texten i en arbetsorder, till exempel när en person som nämns där har fått radering beviljad. Det som tas bort är borta: ingenting sparar texten, och ingenting skrivs i dess ställe.",
       "remove": "Ta bort",
       "removeDescription": "{{type}}: ta bort beskrivningen",
       "removeLocation": "{{type}}: ta bort platsen",
@@ -4250,7 +4462,7 @@
         "saving": "Sparar..."
       },
       "errors": {
-        "legalHold": "Ärendet har ett rättsligt bevarandekrav, så ingenting kan tas bort. Ärendet har lästs om.",
+        "legalHold": "Ett rättsligt bevarandekrav gäller för ärendet, eller ett rättsligt bevarandekrav eller en begränsning för den som anmälde det, så ingenting kan tas bort. Ärendet har lästs om.",
         "targetNotFound": "Det är redan borta. Ärendet har lästs om.",
         "unknown": "Ingenting kunde ändras just nu. Försök igen."
       }
@@ -6638,7 +6850,7 @@
           "name": "Felanmälningar",
           "purpose": "Ta emot och åtgärda fel i huset, med de arbetsorder som skickas till entreprenörer, och meddela den som handlägger ett ärende och den som anmälde det med e-post. Mejlen om ett ärende innehåller ärendenummer, ärendetyp och en länk, och de till den som handlägger det också prioritet, aldrig vad någon har skrivit. Mejlet med en arbetsorder innehåller den text en handläggare skrev till entreprenören och inget annat från ärendet.",
           "legalBasisNote": "Berättigat intresse: att förvalta fastigheten. Den som anmäler kan självmant skriva uppgifter om hälsa (art. 9).",
-          "retention": "Vad ärendet gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, behålls. Beskrivningen, platsen, svaren, de interna anteckningarna och bilderna gallras det antal år efter avslut som styrelsen bestämmer (1 till 10, 2 som standard) om inte ett rättsligt bevarandekrav gäller, eller tidigare när anmälarens begäran om radering beviljas. Kopplingen till anmälaren tas bort när anmälarens egna personuppgifter gallras, när den texten är borta och ingen arbetsorders text finns kvar, så att ett rättsligt bevarandekrav eller en begränsning som läggs på personen senare fortfarande behåller texten. Kontaktuppgifterna i en anmälan från det öppna formuläret gallras 365 dagar efter avslut; har en arbetsorder skickats om anmälan sparas e-postadressen i en kodad form som inte går att läsa tillbaka tills arbetsorderns text raderas, så att ett rättsligt bevarandekrav eller en begränsning för den som anmälde fortfarande behåller texten. Texten i en arbetsorder till en entreprenör raderas tio år efter att ärendet avslutats, när ett anspråk om arbetet preskriberas (preskriptionslagen 2 §); när den skickades sparas, och vem den gick till sparas så länge entreprenören finns kvar i registret. Att ta bort en entreprenör från registret raderar namn och e-postadress på dess arbetsorder."
+          "retention": "Vad ärendet gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, behålls. Beskrivningen, platsen, svaren, de interna anteckningarna och bilderna gallras det antal år efter avslut som styrelsen bestämmer (1 till 10, 2 som standard) om inte ett rättsligt bevarandekrav gäller för ärendet eller ett rättsligt bevarandekrav eller en begränsning för den som anmälde det, eller tidigare när anmälarens begäran om radering beviljas. Kopplingen till anmälaren tas bort när anmälarens egna personuppgifter gallras, när den texten är borta och ingen arbetsorders text finns kvar, så att ett rättsligt bevarandekrav eller en begränsning som läggs på personen senare fortfarande behåller texten. Kontaktuppgifterna i en anmälan från det öppna formuläret gallras 365 dagar efter avslut; har en arbetsorder skickats om anmälan sparas e-postadressen i en kodad form som inte går att läsa tillbaka tills arbetsorderns text raderas, så att ett rättsligt bevarandekrav eller en begränsning för den som anmälde fortfarande behåller texten. Texten i en arbetsorder till en entreprenör raderas tio år efter att ärendet avslutats, det vanliga gallringsfönster som valts för den och som följer den allmänna tioåriga preskriptionstiden för ett anspråk om arbetet (preskriptionslagen 2 §); preskriptionen av ett anspråk kan avbrytas eller börja om, och raderingen följer inte det, så ett rättsligt bevarandekrav för ärendet eller ett rättsligt bevarandekrav eller en begränsning för anmälaren är det som behåller texten längre; när den skickades sparas, och vem den gick till sparas så länge entreprenören finns kvar i registret. Att ta bort en entreprenör från registret raderar namn och e-postadress på dess arbetsorder."
         },
         "documents": {
           "name": "Dokumentarkiv",

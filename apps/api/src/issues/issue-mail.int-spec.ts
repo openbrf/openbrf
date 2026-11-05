@@ -16,6 +16,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
@@ -30,7 +31,7 @@ import {
 } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import { JobQueueService } from "../jobs/job-queue.service";
+import { JOB_SCHEMA, JobQueueService } from "../jobs/job-queue.service";
 import {
   MailNotConfiguredError,
   MailService,
@@ -51,6 +52,7 @@ import {
   NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR,
   NOTIFIED_PUBLIC_REPORTS_PER_HOUR,
   NOTIFIED_REPORTS_PER_REPORTER_PER_HOUR,
+  REPEATED_NOTICE_SECONDS,
 } from "./issue-mailer.service";
 import { IssueService } from "./issue.service";
 
@@ -119,6 +121,8 @@ const addressId = `im-address-${suffix}`;
 const REPORTER_DESCRIPTION = `Vattnet rinner ur taket hos grannen ${suffix}`;
 const REPORTER_LOCATION = `Badrummet ovanför ${suffix}`;
 const HANDLER_STATUS_LABEL = `Väntar på rörmokaren ${suffix}`;
+const REPORTER_MESSAGE = `Droppet har blivit en stråle ${suffix}`;
+const HANDLER_MESSAGE = `Rörmokaren kommer på torsdag ${suffix}`;
 
 const typeIds = {
   unassigned: `im-type-unassigned-${suffix}`,
@@ -229,6 +233,47 @@ async function holdsSlot(job: IssueNoticeJob): Promise<boolean> {
   );
   expect(row).toBeDefined();
   return row?.holds === true;
+}
+
+/**
+ * How long one test may run, the integration config's `testTimeout`. A test
+ * still running past it has failed.
+ */
+const TEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Slack kept above {@link TEST_TIMEOUT_MS} when the slot is checked: the
+ * test's own timer starts only after the hook returns, and the clock is read
+ * before that, so a test needs more than its timeout of the slot left.
+ */
+const SLOT_MARGIN_MS = 1_000;
+
+/**
+ * Waits for the queue's throttle slot to turn when less than
+ * {@link TEST_TIMEOUT_MS} plus {@link SLOT_MARGIN_MS} of it is left.
+ *
+ * The queue cuts the database's clock into slots of
+ * {@link REPEATED_NOTICE_SECONDS}, each starting on the hour, and a repeated
+ * assignment or reopening notice is dropped only within the slot of the first.
+ * A test that queues a notice and then a repeat expects both in one slot, and
+ * one started a second before the hour turns would see the repeat queued. A
+ * test that starts with a timeout's worth of its slot left, and a margin, and
+ * passes, cannot cross the turn.
+ */
+async function clearOfTheSlotTurn(): Promise<void> {
+  const slotMs = REPEATED_NOTICE_SECONDS * 1000;
+  for (;;) {
+    // The clock the queue reads when it cuts the slot.
+    const [row] = await prisma.$queryRawUnsafe<{ nowMs: number }[]>(
+      `SELECT (date_part('epoch', ${JOB_SCHEMA}.job_now()) * 1000)::float8 AS "nowMs"`,
+    );
+    expect(row).toBeDefined();
+    const leftMs = slotMs - ((row?.nowMs ?? 0) % slotMs);
+    if (leftMs >= TEST_TIMEOUT_MS + SLOT_MARGIN_MS) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, leftMs + 100));
+  }
 }
 
 /** The notice last queued for one issue, which a test expects there to be. */
@@ -373,6 +418,49 @@ function captureSends(): SendMailInput<unknown>[] {
   return captured;
 }
 
+const storedMessageIds: string[] = [];
+
+/**
+ * Stores a message on an issue, as the conversation does before it mails
+ * about it, and answers its id for the notice to name. The resident writes a
+ * reporter's message, and a handler's carries the signature given.
+ *
+ * A reporter's message spends the resident's hourly mail budget, so every
+ * message stored here is deleted after the test, whether it passed or not.
+ */
+async function storeMessage(
+  issueId: string,
+  author:
+    | { side: "REPORTER" }
+    | {
+        side: "HANDLER";
+        personId: string;
+        signature: "BOARD" | "PROPERTY_MANAGER";
+      },
+  body: string,
+): Promise<string> {
+  const { id } = await prisma.issueMessage.create({
+    data:
+      author.side === "REPORTER"
+        ? {
+            issueId,
+            side: "REPORTER",
+            authorPersonId: resident.personId,
+            body,
+          }
+        : {
+            issueId,
+            side: "HANDLER",
+            authorPersonId: author.personId,
+            signature: author.signature,
+            body,
+          },
+    select: { id: true },
+  });
+  storedMessageIds.push(id);
+  return id;
+}
+
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
@@ -489,8 +577,12 @@ beforeAll(async () => {
   });
 }, 180_000);
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
+  const stored = storedMessageIds.splice(0);
+  if (stored.length > 0) {
+    await prisma.issueMessage.deleteMany({ where: { id: { in: stored } } });
+  }
 });
 
 afterAll(async () => {
@@ -875,7 +967,44 @@ describe("a report is filed", () => {
   });
 });
 
+describe("the slot-turn guard", () => {
+  it("waits for the slot to turn when too little of it is left", async () => {
+    const slotMs = REPEATED_NOTICE_SECONDS * 1000;
+    const waitMs = 1_000;
+    // Only the clock read is stubbed, so the wait itself still runs.
+    const query = vi
+      .spyOn(prisma, "$queryRawUnsafe")
+      .mockResolvedValueOnce([{ nowMs: slotMs - waitMs }])
+      .mockResolvedValueOnce([{ nowMs: slotMs }]);
+    const startedAt = Date.now();
+
+    await clearOfTheSlotTurn();
+
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(waitMs);
+  });
+
+  it("starts at once when a test's worth of the slot is left", async () => {
+    const slotMs = REPEATED_NOTICE_SECONDS * 1000;
+    const query = vi
+      .spyOn(prisma, "$queryRawUnsafe")
+      .mockResolvedValueOnce([
+        { nowMs: slotMs - TEST_TIMEOUT_MS - SLOT_MARGIN_MS },
+      ]);
+
+    await clearOfTheSlotTurn();
+
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("a handler acts on an issue", () => {
+  // Several tests here count on a notice and its repeat sharing a slot.
+  beforeEach(async () => {
+    await mailer.ensureQueues();
+    await clearOfTheSlotTurn();
+  }, TEST_TIMEOUT_MS + 15_000);
+
   it("mails a new assignee, and nobody who assigns an issue to themselves", async () => {
     const issueId = await report(unassignedType);
     const before = (await notices(issueId)).length;
@@ -1333,74 +1462,93 @@ describe("an issue message", () => {
   it("from the reporter is mailed to the assignee, and from a handler to the reporter", async () => {
     const issueId = await report(assignedType);
     const before = (await notices(issueId)).length;
+    const fromReporter = await storeMessage(
+      issueId,
+      { side: "REPORTER" },
+      "A message from the reporter.",
+    );
+    const fromHandler = await storeMessage(
+      issueId,
+      {
+        side: "HANDLER",
+        personId: manager.personId,
+        signature: "PROPERTY_MANAGER",
+      },
+      "A reply from a handler.",
+    );
 
     await mailer.ensureQueues();
     await prisma.$transaction((tx) =>
-      mailer.messageInTransaction(tx, issueId, { kind: "reporter" }),
+      mailer.messageInTransaction(tx, issueId, {
+        kind: "reporter",
+        messageId: fromReporter,
+      }),
     );
     await prisma.$transaction((tx) =>
       mailer.messageInTransaction(tx, issueId, {
         kind: "handler",
         personId: manager.personId,
+        messageId: fromHandler,
       }),
     );
 
     expect((await notices(issueId)).slice(before)).toEqual([
-      { issueId, personId: manager.personId, event: "message" },
-      { issueId, personId: resident.personId, event: "reporterMessage" },
+      {
+        issueId,
+        personId: manager.personId,
+        event: "message",
+        messageId: fromReporter,
+      },
+      {
+        issueId,
+        personId: resident.personId,
+        event: "reporterMessage",
+        messageId: fromHandler,
+      },
     ]);
   });
 
   it("is not mailed about once the free-text purge has erased it, from either side", async () => {
     const issueId = await report(assignedType);
     await mailer.ensureQueues();
-    const written = await prisma.issueMessage.create({
-      data: {
-        issueId,
-        side: "REPORTER",
-        authorPersonId: resident.personId,
-        body: "A message the purge will erase.",
-      },
-      select: { id: true },
-    });
-    const kept = await prisma.issueMessage.create({
-      data: {
-        issueId,
-        side: "REPORTER",
-        authorPersonId: resident.personId,
-        body: "A message that stays.",
-      },
-      select: { id: true },
-    });
-    const keptByHandler = await prisma.issueMessage.create({
-      data: {
-        issueId,
+    const written = await storeMessage(
+      issueId,
+      { side: "REPORTER" },
+      "A message the purge will erase.",
+    );
+    const kept = await storeMessage(
+      issueId,
+      { side: "REPORTER" },
+      "A message that stays.",
+    );
+    const keptByHandler = await storeMessage(
+      issueId,
+      {
         side: "HANDLER",
-        authorPersonId: manager.personId,
+        personId: manager.personId,
         signature: "PROPERTY_MANAGER",
-        body: "A handler reply that stays.",
       },
-      select: { id: true },
-    });
+      "A handler reply that stays.",
+    );
     const before = (await notices(issueId)).length;
     await prisma.$transaction(async (tx) => {
       await mailer.messageInTransaction(tx, issueId, {
         kind: "reporter",
-        messageId: written.id,
+        messageId: written,
       });
       await mailer.messageInTransaction(tx, issueId, {
         kind: "handler",
         personId: manager.personId,
-        messageId: written.id,
+        messageId: written,
       });
       await mailer.messageInTransaction(tx, issueId, {
         kind: "reporter",
-        messageId: kept.id,
+        messageId: kept,
       });
       await mailer.messageInTransaction(tx, issueId, {
         kind: "handler",
         personId: manager.personId,
-        messageId: keptByHandler.id,
+        messageId: keptByHandler,
       });
     });
     const queued = (await notices(issueId)).slice(before);
@@ -1415,28 +1563,21 @@ describe("an issue message", () => {
     };
     expect(queued).toHaveLength(4);
 
-    try {
-      await prisma.issueMessage.delete({ where: { id: written.id } });
-      const sent = captureSends();
-      expect(await mailer.deliver(noticeOf(written.id, "message"))).toBe(false);
-      expect(
-        await mailer.deliver(noticeOf(written.id, "reporterMessage")),
-      ).toBe(false);
-      expect(sent).toHaveLength(0);
-      expect(await mailer.deliver(noticeOf(kept.id, "message"))).toBe(true);
-      expect(
-        await mailer.deliver(noticeOf(keptByHandler.id, "reporterMessage")),
-      ).toBe(true);
-      expect(sent.map((input) => input.to)).toEqual([
-        manager.email,
-        resident.email,
-      ]);
-    } finally {
-      // The reporter's hourly budget counts their messages across the suite.
-      await prisma.issueMessage.deleteMany({
-        where: { id: { in: [written.id, kept.id, keptByHandler.id] } },
-      });
-    }
+    await prisma.issueMessage.delete({ where: { id: written } });
+    const sent = captureSends();
+    expect(await mailer.deliver(noticeOf(written, "message"))).toBe(false);
+    expect(await mailer.deliver(noticeOf(written, "reporterMessage"))).toBe(
+      false,
+    );
+    expect(sent).toHaveLength(0);
+    expect(await mailer.deliver(noticeOf(kept, "message"))).toBe(true);
+    expect(
+      await mailer.deliver(noticeOf(keptByHandler, "reporterMessage")),
+    ).toBe(true);
+    expect(sent.map((input) => input.to)).toEqual([
+      manager.email,
+      resident.email,
+    ]);
   });
 
   it("from one reporter is mailed about up to their hour's budget across their issues, written at once or not, and stored past it", async () => {
@@ -1478,26 +1619,37 @@ describe("an issue message", () => {
       // its transaction is kept open while a message on the second issue
       // counts. That one has to wait for the reporter's budget lock: counting
       // without it, it would not see the first and be mailed about too.
-      const racing: Promise<unknown>[] = [];
+      // The write on the second issue is handled from the moment it starts: a
+      // rejection is recorded here, never left unhandled while the transaction
+      // is open, and thrown once the transaction is over.
+      const racing: { ended?: Promise<void>; failure?: { error: unknown } } =
+        {};
       await mailer.ensureQueues();
       try {
         await prisma.$transaction(
           async (tx) => {
             count += 1;
-            await tx.issueMessage.create({
+            const { id: messageId } = await tx.issueMessage.create({
               data: {
                 issueId: first,
                 side: "REPORTER",
                 authorPersonId: resident.personId,
                 body: `${REPORTER_DESCRIPTION} (${count})`,
               },
+              select: { id: true },
             });
             expect(
               await mailer.messageInTransaction(tx, first, {
                 kind: "reporter",
+                messageId,
               }),
             ).toBe(1);
-            racing.push(write(second));
+            racing.ended = write(second).then(
+              () => undefined,
+              (error: unknown) => {
+                racing.failure = { error };
+              },
+            );
             await untilWaitingForLock(
               `issue-message-budget:person:${resident.personId}`,
               "the reporter's message budget lock",
@@ -1509,12 +1661,23 @@ describe("an issue message", () => {
         );
       } catch (error) {
         // The transaction has rolled back and let go of the lock, so the write
-        // that waited for it ends; settle it so it is not left unhandled, and
-        // let the failure that matters be the one reported.
-        await Promise.allSettled(racing);
+        // that waited for it ends. Give it a moment, no longer: a write stuck
+        // on something else must not hold the failure that matters back until
+        // the suite's timeout.
+        let timer: NodeJS.Timeout | undefined;
+        await Promise.race([
+          racing.ended,
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, 2_000);
+          }),
+        ]);
+        clearTimeout(timer);
         throw error;
       }
-      await Promise.all(racing);
+      await racing.ended;
+      if (racing.failure !== undefined) {
+        throw racing.failure.error;
+      }
 
       // Four more at once, two on each issue, all past the budget.
       await Promise.all(
@@ -2103,12 +2266,27 @@ describe("delivering a mail", () => {
     const yesterday = formatLocalDay(addLocalDays(today(), -1));
     await issues.setTargetDate(issueId, yesterday, board.personId);
     await mailer.remindOverdue({ issueId, targetDate: yesterday });
+    const fromReporter = await storeMessage(
+      issueId,
+      { side: "REPORTER" },
+      REPORTER_MESSAGE,
+    );
+    const fromHandler = await storeMessage(
+      issueId,
+      { side: "HANDLER", personId: board.personId, signature: "BOARD" },
+      HANDLER_MESSAGE,
+    );
+
     await mailer.ensureQueues();
     await prisma.$transaction(async (tx) => {
-      await mailer.messageInTransaction(tx, issueId, { kind: "reporter" });
+      await mailer.messageInTransaction(tx, issueId, {
+        kind: "reporter",
+        messageId: fromReporter,
+      });
       await mailer.messageInTransaction(tx, issueId, {
         kind: "handler",
         personId: board.personId,
+        messageId: fromHandler,
       });
     });
 
@@ -2147,6 +2325,12 @@ describe("delivering a mail", () => {
       REPORTER_DESCRIPTION,
       REPORTER_LOCATION,
       HANDLER_STATUS_LABEL,
+      REPORTER_MESSAGE,
+      HANDLER_MESSAGE,
+      // The opening words of each message, which a shortened preview would
+      // still print although it is not the whole text.
+      REPORTER_MESSAGE.split(" ")[0],
+      HANDLER_MESSAGE.split(" ")[0],
       // The reporter's name, which only the reporter's own mail greets.
       resident.lastName,
     ];

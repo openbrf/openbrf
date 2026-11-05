@@ -37,8 +37,11 @@ const QUEUED: QueuedIssueView = {
   typeName: "Vatten",
   typeReporters: ["PUBLIC", "RESIDENTS"],
   location: "Badrummet",
+  place: null,
   description: "Det droppar från taket.",
   apartment: { id: "apartment-1", number: "1001", address: "Storgatan 12" },
+  aboutApartment: true,
+  entry: null,
   photos: [
     {
       id: "photo-1",
@@ -62,7 +65,9 @@ const QUEUED: QueuedIssueView = {
   overdue: false,
   assignee: null,
   enteredBy: null,
+  knownFault: null,
   boardOnly: false,
+  finding: null,
   legalHoldAt: null,
   costResponsibility: null,
 };
@@ -71,6 +76,7 @@ const EXTERNAL: QueuedIssueView = {
   ...QUEUED,
   id: "issue-2",
   apartment: null,
+  aboutApartment: false,
   photos: [],
   reporter: {
     kind: "external",

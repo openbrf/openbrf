@@ -352,9 +352,13 @@ locally the application runs from source beside the PostgreSQL that
       made it, not the photographs, and no link. A ring-fenced issue type
       reaches no contractor, refused in the service, the preview included.
       The text of a work order is erased ten years after its issue was closed,
-      when a claim about the work becomes time-barred, and the record of whom
-      it went to and when stays, except that removing a contractor from the
-      list clears their name and address from the work orders sent them. This is how a work order travels while the
+      the ordinary retention window chosen for it, which follows the general
+      ten-year limitation period for a claim about the work; a claim's period
+      can be interrupted or renewed and the erasure does not follow that, so a
+      legal hold on the issue or a legal hold or a restriction on the reporter
+      is what keeps the text longer. The record of whom it went to and when stays, except that
+      removing a contractor from the list clears their name and address from
+      the work orders sent them. This is how a work order travels while the
       contractor's own link waits for its legal review (ADR 0055)
 - [x] Mail about issues: a new issue to its assignee, or to the type's handlers
       when it lands unassigned; an urgent one to every handler of its type; an
@@ -392,6 +396,21 @@ locally the application runs from source beside the PostgreSQL that
       name, a mail says only that there is a new message and never what it says,
       and no action offers it to a connected app
       or the AI package (ADR 0056)
+- [x] After an issue closes: a reply from its reporter within 30 days of
+      closing reopens it, back to its type's in-progress status with its
+      outcome cleared (the same through a private link, for a reporter
+      without an account), and after that the reporter is offered a new report
+      linked to the old one. A handler merges a duplicate into another issue,
+      which closes it as a duplicate; its reporter keeps their own report,
+      follows where the other issue stands, and a handler writes to the
+      reporters of the merged reports they handle who have an account, each on
+      their own report (reports with no reporter or no account are counted as
+      not reached), so nobody reads another's report and a protected reporter
+      stays masked. A handler
+      publishes a short known fault on an open issue, signed by the board or
+      the property manager, which signed-in residents see on their report form
+      and on the post the issue came from, never on the public website and
+      never on an issue the board keeps to itself (ADR 0054)
 - [x] A reporter without an account: a report from the website's form that
       left an email address is followed by a mail with a private link to a
       page for that issue, where the reporter reads the conversation and writes
@@ -408,6 +427,18 @@ locally the application runs from source beside the PostgreSQL that
       and how many have no assignee, and each number opens its view. The search
       never matches a protected reporter's name or apartment. No dashboards
       (ADR 0054)
+- [x] What is particular to a Swedish house on an issue: on an issue about an
+      apartment the resident answers whether the association or a contractor
+      may enter - yes or no, pets, whether the master key may be used, a note on
+      how to get in and the last day - and a handler can record the answer from
+      a telephone call. It is cleared when the issue closes, a door code is
+      refused rather than stored, and no action offers it to a connected app or
+      the AI package. The board keeps a short list of common areas beside the
+      free-text location, never apartments, so a fault that keeps coming back in
+      the lift or the laundry room is counted. A handler can mark an issue as an
+      OVK, lift or fire finding with its protocol and a target date, which a
+      lift's holds to a month from the inspection (BFS 2025:11 1 kap. 17 §);
+      the inspections' schedule stays with the 2027 reminders
 - [x] One page, one audience: the board's work on its own pages under the
       Styrelsen section, each signed on its own heading, the overview as the
       house's notice board with one line for whoever works a queue, and a phone

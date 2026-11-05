@@ -64,8 +64,9 @@ import { DomainError } from "../http/domain-error";
  * done, which is reopened first.
  *
  * The conversation's reasons. `issue-closed` is a reporter writing on an issue
- * that is done; what a reply to a closed issue does is the reopening rule's to
- * decide (ADR 0054). `no-reporter` is a handler writing to the reporter of an
+ * that is done and that a reply no longer reopens: it closed more than the
+ * reopening window ago, or was merged into another (ADR 0054). It is also a
+ * known fault published on an issue that is done. `no-reporter` is a handler writing to the reporter of an
  * issue nobody can read the answer on: an internal issue, a report from the
  * website's form whose reporter has no live private link (none mailed,
  * withdrawn or ended), and one whose reporter was purged. `no-reporter-link`
@@ -76,6 +77,41 @@ import { DomainError } from "../http/domain-error";
  * sits and never the value. `too-many-attachments` and `too-many-saved-replies`
  * are the bounds in `ISSUE_CONVERSATION_LIMITS`, and `saved-reply-not-found` a
  * saved reply that is not there.
+ *
+ * The lifecycle's reasons (decisions 8 and 22). `merge-into-itself` is an
+ * issue merged into itself; `merge-into-duplicate` one merged into an issue
+ * that is itself a duplicate, which would make a chain its reporter follows
+ * through somebody else's report; and `merge-has-duplicates` one that others
+ * were already merged into, which is merged the other way instead.
+ * `merge-already-duplicate` is a duplicate merged into a different issue than
+ * the one it follows, which would move its reporter between reports unseen;
+ * it is reopened first.
+ * `merge-into-closed` is an issue merged into one that is done, which would
+ * leave its reporter following a report nobody is working on.
+ * `merge-limit` is an issue merged into one that already has as many
+ * duplicates as `ISSUE_LINK_LIMITS` allows.
+ * `known-fault-board-only` is a known fault on an issue the board keeps to
+ * itself, which never reaches the house. `follow-up-of-open-issue` is a new
+ * report filed as the follow-up of one's own issue that is still open, which
+ * takes a reply instead.
+ *
+ * The Swedish-fit reasons (decisions 29 to 31). `place-not-found` is a place
+ * that is not on the list or is switched off, answered alike. `place-name-taken`
+ * is a name the list has under any capitalisation, `place-name-apartment` a
+ * name that is an apartment, which the list never holds, `place-in-use` a
+ * removal of a place an issue names and `too-many-places` the bound in
+ * `ISSUE_FIT_LIMITS`. `place-with-apartment` is a place on an issue about an
+ * apartment: the list is of what is not in a home, and an issue counted under
+ * both would be counted as a fault in a common area. `entry-needs-apartment` is an entry permission on an
+ * issue that is not about an apartment, `entry-not-resident` a reporter's yes
+ * from someone who no longer holds a residency in that apartment,
+ * `entry-until-past` an expiry before
+ * today, and `door-code` an entry note that reads like a door code, refused
+ * with where it starts and never the value. `finding-needs-target-date` and
+ * `finding-target-date-too-late` hold a finding to a real target date and a lift to
+ * its one month; `finding-protocol-not-found` is a protocol that is not one of
+ * the issue's own handler files, and `date-invalid` a date the calendar does
+ * not have.
  */
 export type IssueReason =
   | "type-not-found"
@@ -111,6 +147,28 @@ export type IssueReason =
   | "too-many-attachments"
   | "saved-reply-not-found"
   | "too-many-saved-replies"
+  | "merge-into-itself"
+  | "merge-into-duplicate"
+  | "merge-has-duplicates"
+  | "merge-already-duplicate"
+  | "merge-into-closed"
+  | "merge-limit"
+  | "known-fault-board-only"
+  | "follow-up-of-open-issue"
+  | "place-not-found"
+  | "place-name-taken"
+  | "place-name-apartment"
+  | "place-in-use"
+  | "too-many-places"
+  | "place-with-apartment"
+  | "entry-needs-apartment"
+  | "entry-not-resident"
+  | "entry-until-past"
+  | "door-code"
+  | "finding-needs-target-date"
+  | "finding-target-date-too-late"
+  | "finding-protocol-not-found"
+  | "date-invalid"
   | "no-reporter-link"
   | "redaction-target-not-found"
   | "legal-hold";
@@ -120,7 +178,7 @@ export type IssueReason =
  * an offset, never the value.
  */
 export interface IssueTextLocation {
-  part: "body" | "title";
+  part: "body" | "title" | "entryNote";
   offset: number;
 }
 
@@ -144,6 +202,18 @@ export class IssueError extends DomainError {
       reason === "post-already-reported" ||
       reason === "default-status-required" ||
       reason === "too-many-statuses" ||
+      reason === "merge-into-duplicate" ||
+      reason === "merge-has-duplicates" ||
+      reason === "merge-already-duplicate" ||
+      reason === "merge-into-closed" ||
+      reason === "merge-limit" ||
+      reason === "known-fault-board-only" ||
+      reason === "place-name-taken" ||
+      reason === "place-in-use" ||
+      reason === "too-many-places" ||
+      reason === "place-with-apartment" ||
+      reason === "entry-needs-apartment" ||
+      reason === "entry-not-resident" ||
       reason === "work-order-preview-stale" ||
       reason === "work-order-duplicate" ||
       reason === "legal-hold"
@@ -159,6 +229,14 @@ export class IssueError extends DomainError {
                 reason === "assignee-not-a-handler" ||
                 reason === "target-date-invalid" ||
                 reason === "personal-identity-number" ||
+                reason === "merge-into-itself" ||
+                reason === "follow-up-of-open-issue" ||
+                reason === "place-name-apartment" ||
+                reason === "entry-until-past" ||
+                reason === "date-invalid" ||
+                reason === "door-code" ||
+                reason === "finding-needs-target-date" ||
+                reason === "finding-target-date-too-late" ||
                 reason === "contractor-without-email" ||
                 reason === "contractor-incomplete" ||
                 reason === "work-order-empty" ||
@@ -176,4 +254,15 @@ export class IssueError extends DomainError {
   override details(): Record<string, readonly unknown[]> {
     return { locations: this.locations };
   }
+}
+
+/**
+ * A common-area place named on an issue about an apartment, by a request the
+ * screens never make (`place-with-apartment`).
+ */
+export function placeWithApartment(): IssueError {
+  return new IssueError(
+    "A common-area place is for an issue that is not about an apartment.",
+    "place-with-apartment",
+  );
 }

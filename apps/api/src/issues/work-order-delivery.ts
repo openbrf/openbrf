@@ -73,20 +73,31 @@ export type WorkOrderDeliveryFailure =
   (typeof WORK_ORDER_DELIVERY_FAILURES)[keyof typeof WORK_ORDER_DELIVERY_FAILURES];
 
 /**
- * The failures after which nothing left this instance: no mail server, a mail
- * send the driver places before the handover, a sending given up before any
- * attempt, a recipient or text erased, a type ring-fenced, an address that
- * could not be read back. Only `delivery-unconfirmed` is not.
+ * Whether each failure is one after which nothing left this instance: no mail
+ * server, a mail send the driver places before the handover, a sending given up
+ * before any attempt, a recipient or text erased, a type ring-fenced, an
+ * address that could not be read back. Only `delivery-unconfirmed` is not.
+ *
+ * A record over every code, so a new failure code does not compile until it is
+ * decided here, and does not silently count as unconfirmed.
  */
-const NEVER_LEFT: ReadonlySet<string> = new Set([
-  WORK_ORDER_DELIVERY_FAILURES.mailNotConfigured,
-  WORK_ORDER_DELIVERY_FAILURES.sendErrored,
-  WORK_ORDER_DELIVERY_FAILURES.interrupted,
-  WORK_ORDER_DELIVERY_FAILURES.recipientRemoved,
-  WORK_ORDER_DELIVERY_FAILURES.recipientUnreadable,
-  WORK_ORDER_DELIVERY_FAILURES.textErased,
-  WORK_ORDER_DELIVERY_FAILURES.ringFenced,
-]);
+const NEVER_LEFT_BY_FAILURE: Record<WorkOrderDeliveryFailure, boolean> = {
+  [WORK_ORDER_DELIVERY_FAILURES.mailNotConfigured]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.sendErrored]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.interrupted]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.recipientRemoved]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.recipientUnreadable]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.textErased]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.ringFenced]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.unconfirmed]: false,
+};
+
+/** The failure codes after which nothing left this instance. */
+export const WORK_ORDER_NEVER_LEFT: readonly WorkOrderDeliveryFailure[] = (
+  Object.keys(NEVER_LEFT_BY_FAILURE) as WorkOrderDeliveryFailure[]
+).filter((failure) => NEVER_LEFT_BY_FAILURE[failure]);
+
+const NEVER_LEFT: ReadonlySet<string> = new Set(WORK_ORDER_NEVER_LEFT);
 
 /**
  * Whether a failed work order is known not to have gone out, as against one

@@ -4,7 +4,10 @@ import { ActionsModule } from "../actions/actions.module";
 import { MediaModule } from "../media/media.module";
 import { IssueActionsRegistrar } from "./issue-actions.registrar";
 import { IssueConversationService } from "./issue-conversation.service";
+import { IssueFitService } from "./issue-fit.service";
+import { IssuePlaceService } from "./issue-place.service";
 import { IssueErasureService } from "./issue-erasure.service";
+import { IssueFileSweepService } from "./issue-file-sweep.service";
 import { IssueFreeTextService } from "./issue-free-text.service";
 import { IssueMailer } from "./issue-mailer.service";
 import { IssuePurgeService } from "./issue-purge.service";
@@ -21,6 +24,7 @@ import { IssueTextPurgeService } from "./issue-text-purge.service";
 import { IssueTypeService } from "./issue-type.service";
 import { IssueService } from "./issue.service";
 import {
+  IssuePlaceAdminController,
   IssueQueueController,
   IssueReportController,
   IssueSavedReplyAdminController,
@@ -59,7 +63,9 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
  *
  * IssuePurgeService is a provider and not exported: it is a scheduled job with
  * nobody to call it, and the integration suite reaches it through the module
- * reference the way it reaches every other purge in the band.
+ * reference the way it reaches every other purge in the band. So is
+ * IssueFileSweepService, which removes the files an upload stored and never
+ * put on an issue or a work order.
  */
 @Module({
   imports: [ActionsModule, MediaModule],
@@ -71,6 +77,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     ContractorAdminController,
     ResponsibilityGuideAdminController,
     IssueSavedReplyAdminController,
+    IssuePlaceAdminController,
     IssueRedactionController,
     IssueRetentionController,
   ],
@@ -82,9 +89,12 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueResidentsService,
     IssueConversationService,
     IssueSavedReplyService,
+    IssueFitService,
+    IssuePlaceService,
     IssueReporterLinkService,
     IssueFreeTextService,
     IssueTextPurgeService,
+    IssueFileSweepService,
     IssueErasureService,
     IssueRedactionService,
     IssueRetentionSettingService,
@@ -98,6 +108,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueService,
     IssueTypeService,
     IssueSavedReplyService,
+    IssuePlaceService,
     IssueReporterLinkService,
     ResponsibilityGuideService,
   ],

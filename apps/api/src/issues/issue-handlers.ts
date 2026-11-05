@@ -4,6 +4,7 @@ import type { FeedDbClient } from "../feed/feed-audience";
 import { readAuthors } from "../feed/feed-author";
 import type { Prisma } from "../generated/prisma/client";
 import { activeBoardSeatWhere } from "../mail/board-recipients";
+import { IssueError } from "./issue.error";
 
 /**
  * Who handles the issues of a type, or of one issue, as a filter on persons
@@ -130,6 +131,33 @@ export async function issueReaderScope(
   return (await handlesIssues(db, personId, "BOARD", now))
     ? "BOARD"
     : "EVERY_HANDLER";
+}
+
+/**
+ * An issue this person handles, read with the caller's select, or the refusal
+ * that answers an issue that does not exist: one the reader may not open is
+ * not one they may learn of.
+ *
+ * The one read a handler's act on a single issue starts from, in
+ * `IssueService`, `IssueConversationService` and `IssueFitService` alike, so
+ * the rule of who may open an issue is spelled once.
+ */
+export async function requireHandledIssue<S extends Prisma.IssueSelect>(
+  db: FeedDbClient,
+  issueId: string,
+  readerPersonId: string,
+  select: S,
+  now: Date = new Date(),
+): Promise<Prisma.IssueGetPayload<{ select: S }>> {
+  const scope = await issueReaderScope(db, readerPersonId, now);
+  const issue = await db.issue.findFirst({
+    where: { id: issueId, ...issuesHandledWhere(scope) },
+    select,
+  });
+  if (issue === null) {
+    throw new IssueError("No such issue.", "issue-not-found");
+  }
+  return issue;
 }
 
 /** The types a reader who is let into types of this scope handles. */

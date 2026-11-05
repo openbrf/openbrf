@@ -7,11 +7,13 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { NO_ENTRY_PERMISSION } from "../issues/issue-fit-views";
 import { ISSUE_FREE_TEXT_STANDING } from "../issues/issue-free-text";
 import { lockIssue, lockWorkOrderSender } from "../issues/issue-lock";
 import { WORK_ORDER_TEXT_STANDING } from "../issues/issue-retention";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { associationDefaultLocale } from "../settings/default-locale";
 import {
   sweepConnectedAppTokens,
   type ConnectedAppTokenSweepOutcome,
@@ -557,7 +559,7 @@ export class PurgeService implements OnModuleInit {
     maxPersons: number = MAX_PERSONS_PER_RUN,
   ): Promise<string[]> {
     const cutoff = purgeCutoff(now, retentionDays);
-    const defaultLocale = await this.defaultLocale();
+    const defaultLocale = await associationDefaultLocale(this.prisma);
 
     /*
      * People whose data is referenced from a row this job detaches. These are
@@ -781,7 +783,7 @@ export class PurgeService implements OnModuleInit {
     const days =
       retentionDays ?? (await retentionDaysAfterMoveOut(this.prisma));
     const cutoff = purgeCutoff(now, days);
-    const defaultLocale = await this.defaultLocale();
+    const defaultLocale = await associationDefaultLocale(this.prisma);
 
     return this.prisma.$transaction(async (tx) => {
       /*
@@ -997,6 +999,15 @@ export class PurgeService implements OnModuleInit {
           reporterNameCipher: null,
           reporterEmailCipher: null,
           reporterEmailIndex: null,
+          /*
+           * What the person said about getting into their home (decision 29)
+           * goes with them: it is their answer, and it is cleared when the
+           * issue closes in any case, so an open issue is the only one that
+           * can hold it. An open issue whose text still stands is not selected
+           * here and keeps both until it closes; one whose text a handler
+           * redacted is, and loses the answer with the reference.
+           */
+          ...NO_ENTRY_PERMISSION,
         },
       });
 
@@ -1020,10 +1031,13 @@ export class PurgeService implements OnModuleInit {
       /*
        * The handler who sent a work order: the order stays, and so does its
        * audit entry, but the row stops naming the person. Under the lock a
-       * sending takes before it checks the handler's access and inserts: one
-       * that read the access before this purge removed the role would
-       * otherwise commit its `sentByPersonId` after the detachment below, and
-       * nothing later counts that reference.
+       * sending takes before it checks the handler's access and inserts. The
+       * purge removes no role: it refuses a person who holds one
+       * (`lockErasureEligibility`) and then deletes the account. The race is a
+       * sending that read the handler's access, then a role withdrawn, then
+       * this purge starting on a person who holds none: without the lock that
+       * sending would commit its `sentByPersonId` after the detachment below,
+       * and nothing later counts that reference.
        */
       await lockWorkOrderSender(tx, personId);
       const { count: workOrdersNoLongerSentBy } = await tx.workOrder.updateMany(
@@ -1217,15 +1231,6 @@ export class PurgeService implements OnModuleInit {
         erasureRemainder: remainder,
       };
     });
-  }
-
-  /** The association's default language, or the schema's when unset. */
-  private async defaultLocale(): Promise<string> {
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-      select: { defaultLocale: true },
-    });
-    return association?.defaultLocale ?? "sv";
   }
 }
 
