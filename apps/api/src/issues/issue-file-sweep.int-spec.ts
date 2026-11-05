@@ -11,6 +11,7 @@ import { ENV } from "../config/config.module";
 import { PrismaService } from "../database/prisma.service";
 import { MediaService } from "../media/media.service";
 import { pngBytes } from "../media/testing/image-fixtures";
+import { lockLegalHold } from "../retention/legal-hold-lock";
 import { StorageService } from "../storage/storage.service";
 import { waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
@@ -34,9 +35,10 @@ import { IssueService } from "./issue.service";
  * in a transaction of its own, so a process that stops between the two leaves
  * the file on nothing. The sweep removes such a file, its row and its bytes,
  * once a day has passed. It keeps a younger one, a file anything holds, a file
- * another module stored, and a file whose uploader is under a legal hold. And
- * it keeps a file whose row is being written while it decides, which is the
- * property only a real database can show.
+ * another module stored, and a file whose uploader is under a legal hold or a
+ * restriction of processing. And it keeps a file whose row, or whose
+ * uploader's hold, is being written while it decides, which is the property
+ * only a real database can show.
  *
  * The sweep reads the whole database, so every assertion is about this suite's
  * own files, and each run's counts are read as at least what this suite put
@@ -79,8 +81,16 @@ async function createIssue(): Promise<string> {
   return issue.id;
 }
 
+/**
+ * Files this suite stored with no uploader, as a contractor's photograph is.
+ * The cleanup cannot find them through a person.
+ */
+const strayFileIds: string[] = [];
+
 /** A file as the issues module stores one, before the row that places it. */
-async function storeIssueFile(uploadedByPersonId: string): Promise<string> {
+async function storeIssueFile(
+  uploadedByPersonId: string | null,
+): Promise<string> {
   const file = await media.upload({
     bytes: pngBytes(16, 16),
     fileName: `kranen-${suffix}.png`,
@@ -91,6 +101,9 @@ async function storeIssueFile(uploadedByPersonId: string): Promise<string> {
     channel: "WEB",
     recordFileName: false,
   });
+  if (uploadedByPersonId === null) {
+    strayFileIds.push(file.id);
+  }
   return file.id;
 }
 
@@ -211,7 +224,12 @@ beforeAll(async () => {
 afterAll(async () => {
   // The objects first: the rows are their only record.
   const files = await prisma.mediaFile.findMany({
-    where: { uploadedByPersonId: { in: personIds } },
+    where: {
+      OR: [
+        { uploadedByPersonId: { in: personIds } },
+        { id: { in: strayFileIds } },
+      ],
+    },
     select: { id: true, storageKey: true },
   });
   for (const file of files) {
@@ -350,6 +368,10 @@ describe("the sweep of the issues module's unattached files", () => {
   it("keeps a file on nothing while a legal hold stands over its uploader", async () => {
     const fileId = await storeIssueFile(residentPersonId);
     await age(fileId, UNATTACHED_ISSUE_FILE_HOURS + 1);
+    // No uploader, as a contractor's photograph has: nobody a hold could stand
+    // over, so the hold leaves it to the sweep.
+    const noUploaderId = await storeIssueFile(null);
+    await age(noUploaderId, UNATTACHED_ISSUE_FILE_HOURS + 1);
     const hold = await prisma.legalHold.create({
       data: {
         personId: residentPersonId,
@@ -360,11 +382,99 @@ describe("the sweep of the issues module's unattached files", () => {
     try {
       await sweep.run();
       expect(await hasRow(fileId)).toBe(true);
+      expect(await hasRow(noUploaderId)).toBe(false);
     } finally {
       await prisma.legalHold.update({
         where: { id: hold.id },
         data: { releasedAt: new Date(), releasedByPersonId: boardPersonId },
       });
+    }
+
+    await sweep.run();
+    expect(await hasRow(fileId)).toBe(false);
+  });
+
+  it("keeps a file on nothing while its uploader's processing is restricted", async () => {
+    const fileId = await storeIssueFile(residentPersonId);
+    await age(fileId, UNATTACHED_ISSUE_FILE_HOURS + 1);
+    await prisma.person.update({
+      where: { id: residentPersonId },
+      data: { processingRestrictedAt: new Date() },
+    });
+    try {
+      await sweep.run();
+      expect(await hasRow(fileId)).toBe(true);
+    } finally {
+      await prisma.person.update({
+        where: { id: residentPersonId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+
+    await sweep.run();
+    expect(await hasRow(fileId)).toBe(false);
+  });
+
+  it("keeps a file whose uploader a hold is placed over while the sweep decides", async () => {
+    /*
+     * The hold's transaction has taken the uploader's legal hold key and
+     * written the hold, and not yet committed, so the scan does not see the
+     * hold and selects the file. The removal then waits for the key, read out
+     * of the database rather than inferred from a delay, and finds the hold
+     * once it has committed.
+     */
+    const fileId = await storeIssueFile(residentPersonId);
+    await age(fileId, UNATTACHED_ISSUE_FILE_HOURS + 1);
+
+    let release: (() => void) | undefined;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let holderPid: number | undefined;
+    let holdId: string | undefined;
+    const holder = prisma.$transaction(
+      async (tx) => {
+        holderPid = await backendPid(tx);
+        await lockLegalHold(tx, residentPersonId);
+        holdId = (
+          await tx.legalHold.create({
+            data: {
+              personId: residentPersonId,
+              reason: "Tvist om en vattenskada",
+              placedByPersonId: boardPersonId,
+            },
+            select: { id: true },
+          })
+        ).id;
+        await released;
+      },
+      { timeout: 60_000, maxWait: 60_000 },
+    );
+
+    let running: Promise<unknown> | undefined;
+    try {
+      try {
+        await waitFor(async () => holdId !== undefined);
+        running = sweep.run();
+        await waitFor(
+          async () =>
+            holderPid !== undefined &&
+            (await waitersBehind(prisma, holderPid)) > 0,
+        );
+      } finally {
+        release?.();
+        await holder;
+      }
+      await running;
+
+      expect(await hasRow(fileId)).toBe(true);
+    } finally {
+      if (holdId !== undefined) {
+        await prisma.legalHold.update({
+          where: { id: holdId },
+          data: { releasedAt: new Date(), releasedByPersonId: boardPersonId },
+        });
+      }
     }
 
     await sweep.run();
