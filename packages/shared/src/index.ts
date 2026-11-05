@@ -32,6 +32,7 @@ export type {
   PostCommentView,
   PostImageView,
   PostIssueView,
+  PostKnownFaultView,
   PostNewsView,
   PostReadView,
   PostReportQueueView,
@@ -98,6 +99,14 @@ export {
   ISSUE_SIGNATURES,
 } from "./issue-conversation.ts";
 export type { IssueMessageSide, IssueSignature } from "./issue-conversation.ts";
+export {
+  ISSUE_KNOWN_FAULT_LIMITS,
+  ISSUE_LINK_LIMITS,
+  ISSUE_REOPEN_WINDOW_DAYS,
+  ISSUE_REPLY_MODES,
+  replyReopensIssue,
+} from "./issue-lifecycle.ts";
+export type { IssueReplyMode } from "./issue-lifecycle.ts";
 export {
   ISSUE_REDACTION_TARGETS,
   ISSUE_TEXT_RETENTION_YEARS,

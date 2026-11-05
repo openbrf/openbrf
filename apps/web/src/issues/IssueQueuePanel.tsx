@@ -33,6 +33,7 @@ import { IssueConversation } from "./IssueConversation";
 import { IssueDamageCaseSection } from "./IssueDamageCase";
 import { IssueDescription, IssueLocation } from "./IssueFreeText";
 import { IssueHandling } from "./IssueHandling";
+import { IssueLifecycle } from "./IssueLifecycle";
 import { IssuePriorityChip } from "./IssuePriorityChip";
 import { IssueFreeTextSection, useIssueRedaction } from "./IssueRedaction";
 import { IssueStatusChip } from "./IssueStatusChip";
@@ -68,6 +69,8 @@ export interface IssueQueuePanelProps {
   types: readonly IssueTypeView[] | null;
   /** Called after a status change, so the caller can reload the queue. */
   onChanged: () => void;
+  /** Which read of the queue this is, so what an open row keeps beside it is read again with it. */
+  queueRead?: number;
   /**
    * Reads the types again. With it, the notice that they could not be read
    * offers a retry; without it the notice only says so.
@@ -118,6 +121,7 @@ export function IssueQueuePanel({
   issues,
   types,
   onChanged,
+  queueRead = 0,
   onRetryTypes,
   emptyMessage,
   canManageCharges = false,
@@ -349,8 +353,10 @@ export function IssueQueuePanel({
                 <HandlingDisclosure
                   issue={issue}
                   type={type}
+                  candidates={issues}
                   workOrdersSent={workOrdersSent[issue.id] ?? 0}
                   canManageCharges={canManageCharges}
+                  queueRead={queueRead}
                   reading={reading}
                   onChanged={onChanged}
                 />
@@ -383,15 +389,20 @@ export function IssueQueuePanel({
 function HandlingDisclosure({
   issue,
   type,
+  candidates,
   workOrdersSent,
   canManageCharges,
+  queueRead,
   reading,
   onChanged,
 }: {
   issue: QueuedIssue;
   type: IssueTypeView | undefined;
+  /** The issues on screen, which this one may be merged into. */
+  candidates: readonly QueuedIssue[];
   workOrdersSent: number;
   canManageCharges: boolean;
+  queueRead: number;
   reading: boolean;
   onChanged: () => void;
 }): ReactElement {
@@ -428,6 +439,12 @@ function HandlingDisclosure({
             onChanged={onChanged}
           />
           <IssueDamageCaseSection issue={issue} onChanged={onChanged} />
+          <IssueLifecycle
+            issue={issue}
+            candidates={candidates}
+            queueRead={queueRead}
+            onChanged={onChanged}
+          />
           <IssueFreeTextSection issue={issue} control={redaction} />
           <IssueConversation
             issue={issue}

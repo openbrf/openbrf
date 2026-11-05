@@ -990,6 +990,50 @@ describe("posts and the website's form", () => {
   });
 });
 
+describe("merging duplicates", () => {
+  it("merges no issue across the ring-fence, and two inside it", async () => {
+    const fencedIssue = await opened(fenced);
+    const ordinaryIssue = await opened(open);
+    const merge = (issueId: string, intoIssueId: string) =>
+      inject({
+        method: "POST",
+        url: `/api/issue-queue/${issueId}/merge`,
+        payload: { intoIssueId },
+        cookie: as(board),
+      });
+
+    // A duplicate's reporter follows the issue it was merged into, and is
+    // told how it stands: neither way across the ring-fence.
+    for (const [from, into] of [
+      [fencedIssue, ordinaryIssue],
+      [ordinaryIssue, fencedIssue],
+    ] as const) {
+      const refused = await merge(from, into);
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json<{ reason: string }>().reason).toBe(
+        "merge-ring-fenced",
+      );
+      expect(
+        await prisma.issue.findUniqueOrThrow({
+          where: { id: from },
+          select: { mergedIntoIssueId: true, outcome: true },
+        }),
+      ).toEqual({ mergedIntoIssueId: null, outcome: null });
+    }
+
+    // Inside the ring-fence the board merges as it does elsewhere.
+    const alsoFenced = await opened(fenced);
+    const merged = await merge(alsoFenced, fencedIssue);
+    expect(merged.statusCode, merged.body).toBe(201);
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: alsoFenced },
+        select: { mergedIntoIssueId: true },
+      }),
+    ).toEqual({ mergedIntoIssueId: fencedIssue });
+  });
+});
+
 describe("the clock", () => {
   it("removes the free text a year after closing, whatever the board set", async () => {
     const now = new Date();

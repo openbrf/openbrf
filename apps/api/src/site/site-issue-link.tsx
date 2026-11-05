@@ -117,6 +117,9 @@ export function renderIssueLinkPage(
 
       {view.acceptsMessages ? (
         <form className="site-form" method="post" action={pagePath}>
+          {view.reopensOnMessage ? (
+            <p>{t("site.issueLink.reopensNotice")}</p>
+          ) : null}
           <label className="site-field">
             <span>{t("site.issueLink.message")}</span>
             <textarea

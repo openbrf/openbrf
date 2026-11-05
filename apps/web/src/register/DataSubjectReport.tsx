@@ -593,6 +593,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ISSUE_COST_RESPONSIBILITY_CHANGED",
   ISSUE_MESSAGE_SENT: "register.person.report.action.ISSUE_MESSAGE_SENT",
   ISSUE_NOTE_ADDED: "register.person.report.action.ISSUE_NOTE_ADDED",
+  ISSUE_KNOWN_FAULT_CHANGED:
+    "register.person.report.action.ISSUE_KNOWN_FAULT_CHANGED",
   ISSUE_ENTRY_PERMISSION_SET:
     "register.person.report.action.ISSUE_ENTRY_PERMISSION_SET",
   ISSUE_ENTRY_PERMISSION_REMOVED:

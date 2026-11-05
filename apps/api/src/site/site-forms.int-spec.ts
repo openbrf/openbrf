@@ -292,6 +292,32 @@ afterAll(async () => {
 });
 
 describe("the forms on a public page", () => {
+  it("never show a known fault, which is for signed-in residents alone", async () => {
+    // A known fault on an open issue of a type the website's form offers:
+    // the house is shown it, the public website never (decision 22).
+    const notice = `Hissen i port 14 står still ${suffix}-known-fault.`;
+    const issue = await prisma.issue.create({
+      data: {
+        typeId: nonMemberTypeId,
+        statusId: `${nonMemberTypeId}-in_progress`,
+        description: "Hissen står still.",
+        knownFault: notice,
+        knownFaultSignature: "BOARD",
+        knownFaultPublishedAt: new Date(),
+      },
+      select: { id: true },
+    });
+    try {
+      const response = await inject({ method: "GET", url: `/${publicSlug}` });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toContain(`action="/${publicSlug}/felanmalan"`);
+      expect(response.body.includes(notice)).toBe(false);
+    } finally {
+      await prisma.issue.delete({ where: { id: issue.id } });
+    }
+  });
+
   it("are rendered with no script and with the board's own sentence", async () => {
     const response = await inject({ method: "GET", url: `/${publicSlug}` });
 

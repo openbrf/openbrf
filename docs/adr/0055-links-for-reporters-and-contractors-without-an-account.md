@@ -95,13 +95,15 @@ application bundle, no cookie and no third-party request.
   `Cache-Control: no-store` and `X-Robots-Tag: noindex`, so the token leaves in
   no `Referer`, stays in no shared cache and is listed by no search engine. No
   log line records the path of these routes. The headers are set by a hook on
-  the route the router matched, or on the decoded path where no route did, so a
-  percent-encoded spelling of the path carries them as well and the refusals the
-  rate limit and the exception filters build carry them too, and none of these answers carries an `ETag`, a CORS header or a
-  cookie. Under `no-referrer` a browser posts the page's own form with
-  `Origin: null`, so a post is accepted with that origin or the instance's own
-  and refused with any other: the token, not the origin, is what stops a forged
-  post, because there is no cookie for one to ride on.
+  the decoded path where it is a token's address, else the route the router
+  matched, or the decoded path where no route did, so a percent-encoded
+  spelling of the path (an escaped slash included) carries them as well and the
+  refusals the rate limit and the exception filters build carry them too, and
+  none of these answers carries an `ETag`, a CORS header or a cookie. Under
+  `no-referrer` a browser posts the page's own form with `Origin: null`, so a
+  post is accepted with that origin or the instance's own and refused with any
+  other: the token, not the origin, is what stops a forged post, because there
+  is no cookie for one to ride on.
 
 ### Expiry and revocation
 
@@ -115,8 +117,10 @@ one that follows their report, and ends at the first of: 30 days after the issue
 is closed, 365 days after the issue's latest message (or the day the link was
 issued, if no message came), a handler revoking it, and the purge clearing the
 issue's contact details ([ADR 0057](0057-purging-issues-in-two-layers.md)),
-which also removes the link. In the 30 days after closing the page reads and takes no reply, until
-the reopening rule decides what such a reply does (ADR 0054). Both numbers are
+which also removes the link. In the 30 days after closing the page reads, and a reply
+through it reopens the issue as a signed-in reporter's does (ADR 0054): onto
+its type's default in-progress status, alerting its assignee. A report merged
+into another takes no reply. Both numbers are
 constants in code. This answers question 1 as the threat review of this record
 required (APT-9360, control B4): "until the contact details are purged" can be
 years, and a link is a bearer secret in a mailbox. A handler can revoke it, and

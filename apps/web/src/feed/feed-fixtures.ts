@@ -84,6 +84,7 @@ export function post(
     comments: 0,
     readBy: 0,
     issue: null,
+    knownFault: null,
     mayReportIssue: false,
     mayEdit: false,
     mayReadHistory: false,

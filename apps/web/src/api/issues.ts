@@ -9,6 +9,7 @@ import type {
   IssueMeaningFilter,
   IssueOutcome,
   IssuePriority,
+  IssueReplyMode,
   IssueQueueView,
   IssueRedactionTarget,
   IssueReporterGroup,
@@ -186,7 +187,7 @@ export interface IssuePhoto {
  * An issue as its reporter reads it: where it stands as the meaning of its
  * status, never the board's label for it.
  */
-export interface OwnIssue {
+export interface IssueRow {
   id: string;
   /** The issue number (ärendenummer), which every mail about it names. */
   number: number;
@@ -216,6 +217,60 @@ export interface OwnIssue {
   freeTextRemovedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface OwnIssue extends IssueRow {
+  /**
+   * What a reply does, as the server decided it: a message on an open issue,
+   * a reopening within the window after it closed, and after that, or once it
+   * was merged, a new report linked to it instead (ADR 0054).
+   */
+  replyMode: IssueReplyMode;
+  /** Where the issue it was merged into stands, while it is a duplicate. */
+  mergedIntoMeaning: IssueStatusMeaning | null;
+}
+
+/**
+ * A known fault (känt fel): a handler's notice about a fault the house already
+ * knows of, signed with a role and never a person, with the type's name.
+ */
+export interface KnownFault {
+  body: string;
+  signature: IssueSignature;
+  publishedAt: string;
+  /** Null on a type only handlers report, whose name is the board's own. */
+  typeName: string | null;
+}
+
+/**
+ * Another issue an issue is linked to, as a handler is told of it, or
+ * `hidden` when the reader does not handle it or it is gone.
+ */
+export type IssueReference =
+  | {
+      kind: "issue";
+      id: string;
+      typeName: string;
+      meaning: IssueStatusMeaning;
+      createdAt: string;
+    }
+  | { kind: "hidden" };
+
+/** The issues one issue is linked to (decisions 8 and 22). */
+export interface IssueLinks {
+  mergedInto: IssueReference | null;
+  duplicates: Extract<IssueReference, { kind: "issue" }>[];
+  /**
+   * How many issues are merged into this one, those the reader does not
+   * handle included: merging this one into another is refused while there are
+   * any.
+   */
+  duplicateCount: number;
+  follows: IssueReference | null;
+  /** The first follow-ups the reader handles, a page of them. */
+  followUps: Extract<IssueReference, { kind: "issue" }>[];
+  /** How many follow-ups the reader handles, those not listed included. */
+  followUpCount: number;
 }
 
 /**
@@ -248,7 +303,7 @@ export type IssueReporter =
 /** Where an external reporter's private link stands. */
 export type ReporterLinkState = "live" | "ended" | "pending" | "none";
 
-export type QueuedIssue = OwnIssue & {
+export type QueuedIssue = IssueRow & {
   /**
    * Filed against an apartment, true also while `apartment` is withheld for a
    * protected reporter. Decides between the entry permission and a place.
@@ -274,6 +329,8 @@ export type QueuedIssue = OwnIssue & {
   enteredBy: IssueHandler | null;
   /** Closed to every handler but the board on its own. */
   boardOnly: boolean;
+  /** Its known fault, while one is published. */
+  knownFault: Omit<KnownFault, "typeName"> | null;
   /** The inspection it is a finding of, or null. */
   finding: IssueFinding | null;
   /** Since when a legal hold stands on the issue, or null. */
@@ -315,6 +372,11 @@ export interface ReportIssueInput {
    * somebody already reported from is refused too.
    */
   postId?: string;
+  /**
+   * One's own closed issue this report follows up: what the reply field offers
+   * once a reply no longer reopens it (ADR 0054).
+   */
+  followsIssueId?: string;
 }
 
 export interface IssueTypeInput {
@@ -365,11 +427,14 @@ export type IssueTimelineStep = {
       toStatusId: string | null;
       waitingReason: IssueWaitingReason | null;
       outcome: IssueOutcome | null;
+      /** Reopened by the reporter's reply, who is never named here. */
+      byReporter: boolean;
     }
   | { kind: "assigned"; assignee: IssueHandler | null; byTypeDefault: boolean }
   | { kind: "priority"; from: IssuePriority | null; to: IssuePriority | null }
   | { kind: "targetDate"; from: string | null; to: string | null }
   | { kind: "access"; boardOnly: boolean }
+  | { kind: "knownFault"; published: boolean }
   | { kind: "place"; placeId: string | null }
   | {
       kind: "entry";
@@ -432,11 +497,21 @@ export interface IssueStatusChangeInput {
   sortOrder?: number;
 }
 
+/**
+ * How long a read the report form waits for may take, body included. The form
+ * is drawn when its reads have all answered, so one that never settles would
+ * hold it behind the loading notice; a read that is given up comes back as the
+ * same failure as one that got no answer, which the screen offers a retry for.
+ */
+const READ_TIMEOUT_MS = 10_000;
+
 export function fetchReportableTypes(): Promise<
   ApiResult<ReportableIssueType[]>
 > {
   return previewing(
-    apiRequest<ReportableIssueType[]>("GET", "/api/issues/types"),
+    apiRequest<ReportableIssueType[]>("GET", "/api/issues/types", undefined, {
+      signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+    }),
     previewedIssueTypes,
   );
 }
@@ -453,11 +528,15 @@ export function fetchIssuePlaces(): Promise<ApiResult<IssuePlaceChoice[]>> {
 }
 
 export function fetchOwnApartments(): Promise<ApiResult<IssueApartment[]>> {
-  return apiRequest("GET", "/api/issues/apartments");
+  return apiRequest("GET", "/api/issues/apartments", undefined, {
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+  });
 }
 
 export function fetchOwnIssues(): Promise<ApiResult<OwnIssue[]>> {
-  return apiRequest("GET", "/api/issues/mine");
+  return apiRequest("GET", "/api/issues/mine", undefined, {
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+  });
 }
 
 export function reportIssue(
@@ -659,6 +738,76 @@ export function setIssueTargetDate(input: {
   );
 }
 
+/** Merges the issue into another as its duplicate (decision 22). */
+export function mergeIssue(input: {
+  issueId: string;
+  intoIssueId: string;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/merge`,
+    { intoIssueId: input.intoIssueId },
+  );
+}
+
+/** The issues this one is merged into, merged from, follows or is followed by. */
+export function fetchIssueLinks(
+  issueId: string,
+): Promise<ApiResult<IssueLinks>> {
+  return apiRequest(
+    "GET",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/links`,
+    undefined,
+    { signal: AbortSignal.timeout(READ_TIMEOUT_MS) },
+  );
+}
+
+/** Publishes or rewrites the issue's known fault. */
+export function publishKnownFault(input: {
+  issueId: string;
+  body: string;
+}): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "PUT",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/known-fault`,
+    { body: input.body },
+  );
+}
+
+/** Withdraws the issue's known fault. */
+export function withdrawKnownFault(
+  issueId: string,
+): Promise<ApiResult<QueuedIssue>> {
+  return apiRequest(
+    "DELETE",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/known-fault`,
+  );
+}
+
+/** The known faults the house is told of, for the report form. */
+export function fetchKnownFaults(): Promise<ApiResult<KnownFault[]>> {
+  // Bounded, body included, for the reason the responsibility guide's read is:
+  // the report form waits for this with its other reads.
+  return apiRequest("GET", "/api/issues/known-faults", undefined, {
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+  });
+}
+
+/**
+ * Writes to the reporters of every issue merged into this one, one message on
+ * each duplicate's own conversation.
+ */
+export function sendToDuplicateReporters(input: {
+  issueId: string;
+  body: string;
+}): Promise<ApiResult<{ sent: number; skipped: number }>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/duplicate-messages`,
+    { body: input.body },
+  );
+}
+
 /** Who pays for the issue, or null to say nothing again. Never an amount. */
 export function setIssueCostResponsibility(input: {
   issueId: string;
@@ -695,7 +844,7 @@ export function fetchReporterResponsibilityGuide(): Promise<
    * unbounded.
    */
   return apiRequest("GET", "/api/issues/responsibility-guide", undefined, {
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
   });
 }
 

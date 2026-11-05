@@ -222,6 +222,33 @@ export async function lockIssueForHandling(
 }
 
 /**
+ * `lockIssueForHandling` for a write that decides about several issues at
+ * once, such as merging one into another.
+ *
+ * Every type's lock first and then every issue's, each set in one fixed order,
+ * so two such writes, or one and a single-issue write, never wait on each
+ * other in a cycle: taking the two issues' locks one issue at a time would hold
+ * one issue while waiting on a type a single-issue write holds while waiting on
+ * that issue.
+ */
+export async function lockIssuesForHandling(
+  tx: Prisma.TransactionClient,
+  issueIds: readonly string[],
+): Promise<void> {
+  const ids = [...new Set(issueIds)].sort();
+  const issues = await tx.issue.findMany({
+    where: { id: { in: ids } },
+    select: { typeId: true },
+  });
+  for (const typeId of [...new Set(issues.map((row) => row.typeId))].sort()) {
+    await lockIssueType(tx, typeId);
+  }
+  for (const id of ids) {
+    await lockIssue(tx, id);
+  }
+}
+
+/**
  * The lock a transaction takes before it adds to the association's saved
  * replies, or seeds them: the bound on how many there are is a count followed
  * by an insert, and a new instance's seed writes only into an empty list. One

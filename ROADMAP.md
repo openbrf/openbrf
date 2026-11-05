@@ -365,6 +365,7 @@ locally the application runs from source beside the PostgreSQL that
       alone reads its issues, the property manager never, and nothing about
       them leaves the board - no work order, no mail to anybody, no new post
       report (a link from a post that was reported before the fence stays), no
+      merge as a duplicate across the fence, no
       connected app or AI package, and not the website's form. Its free text is
       purged one year after closing, a clock the board does not set, pending
       the legal review, and the ring-fence is never lifted from a type issues
@@ -405,6 +406,21 @@ locally the application runs from source beside the PostgreSQL that
       name, a mail says only that there is a new message and never what it says,
       and no action offers it to a connected app
       or the AI package (ADR 0056)
+- [x] After an issue closes: a reply from its reporter within 30 days of
+      closing reopens it, back to its type's in-progress status with its
+      outcome cleared (the same through a private link, for a reporter
+      without an account), and after that the reporter is offered a new report
+      linked to the old one. A handler merges a duplicate into another issue,
+      which closes it as a duplicate; its reporter keeps their own report,
+      follows where the other issue stands, and a handler writes to the
+      reporters of the merged reports they handle who have an account, each on
+      their own report (reports with no reporter or no account are counted as
+      not reached), so nobody reads another's report and a protected reporter
+      stays masked. A handler
+      publishes a short known fault on an open issue, signed by the board or
+      the property manager, which signed-in residents see on their report form
+      and on the post the issue came from, never on the public website and
+      never on an issue the board keeps to itself (ADR 0054)
 - [x] A reporter without an account: a report from the website's form that
       left an email address is followed by a mail with a private link to a
       page for that issue, where the reporter reads the conversation and writes
