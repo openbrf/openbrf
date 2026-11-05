@@ -56,6 +56,9 @@ const TYPE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "default-status-required": "settings.issueTypes.errors.defaultStatusRequired",
   "too-many-statuses": "settings.issueTypes.errors.tooManyStatuses",
   "assignee-not-a-handler": "settings.issueTypes.errors.assigneeNotAHandler",
+  "ring-fence-in-use": "settings.issueTypes.errors.ringFenceInUse",
+  "ring-fenced-board-only": "settings.issueTypes.errors.ringFencedBoardOnly",
+  "ring-fenced-public": "settings.issueTypes.errors.ringFencedPublic",
 };
 
 const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
@@ -117,6 +120,33 @@ function settingsOf(type: ConfiguredIssueType): IssueTypeInput {
     active: type.active,
     sortOrder: type.sortOrder,
   };
+}
+
+/** Why the ring-fence switch of a type cannot move, where it cannot. */
+function FenceLockedHint({
+  type,
+}: {
+  type: ConfiguredIssueType;
+}): ReactElement | null {
+  const { t } = useTranslation();
+  const reason = fenceLockedReason(type);
+  return reason === null ? null : (
+    <p className={`${HINT} w-full`}>{t(reason)}</p>
+  );
+}
+
+/**
+ * Why a type's ring-fence switch cannot move, or null when it can: lifted
+ * only from a type nobody has reported under, and set only on a type the
+ * website's form does not offer (ADR 0054, question 5).
+ */
+function fenceLockedReason(type: ConfiguredIssueType): TranslationKey | null {
+  if (type.ringFenced) {
+    return type.reportCount > 0 ? "settings.issueTypes.ringFencedLocked" : null;
+  }
+  return type.reporters.includes("PUBLIC")
+    ? "settings.issueTypes.ringFencedPublic"
+    : null;
 }
 
 /**
@@ -308,7 +338,13 @@ export function IssueTypesPanel(): ReactElement {
                         checked={on}
                         // The last group stays: a type nobody may report is a
                         // switched-off type, and the switch for that is beside.
-                        disabled={busy || (on && type.reporters.length === 1)}
+                        // A ring-fenced type is never offered on the website's
+                        // form, whose reporter is answered by mail alone.
+                        disabled={
+                          busy ||
+                          (on && type.reporters.length === 1) ||
+                          (!on && group === "PUBLIC" && type.ringFenced)
+                        }
                         onChange={(event) => {
                           void change.submit({
                             id: type.id,
@@ -363,7 +399,10 @@ export function IssueTypesPanel(): ReactElement {
                     name: type.name,
                   })}
                   checked={type.ringFenced}
-                  disabled={busy}
+                  // Never lifted once anything was reported under the type,
+                  // and never set while the website's form offers it: the API
+                  // refuses both, and the hint below says why.
+                  disabled={busy || fenceLockedReason(type) !== null}
                   onChange={(event) => {
                     void fence.submit({
                       id: type.id,
@@ -401,6 +440,13 @@ export function IssueTypesPanel(): ReactElement {
                     : t("settings.issueTypes.remove")}
                 </button>
               ) : null}
+
+              {type.ringFenced ? (
+                <p className={`${HINT} w-full`}>
+                  {t("settings.issueTypes.ringFencedHint")}
+                </p>
+              ) : null}
+              <FenceLockedHint type={type} />
 
               <TypeHandlingSettings
                 type={type}
@@ -580,7 +626,8 @@ function TypeHandlingSettings({
         <select
           aria-label={t("settings.issueTypes.handledByNamed", named)}
           value={type.handledBy}
-          disabled={busy}
+          // A ring-fenced type is the board's alone (decision 32).
+          disabled={busy || type.ringFenced}
           onChange={(event) => {
             onChange({ handledBy: event.target.value as IssueHandledBy });
           }}

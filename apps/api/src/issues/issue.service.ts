@@ -7,6 +7,7 @@ import {
   ISSUE_ENTRY_ANSWERS,
   ISSUE_FINDING_KINDS,
   ISSUE_COST_RESPONSIBILITIES,
+  ISSUE_DAMAGE_CAUSES,
   ISSUE_LINK_LIMITS,
   ISSUE_OPEN_MEANINGS,
   ISSUE_OUTCOMES,
@@ -20,6 +21,7 @@ import {
   type IssueEntryAnswer,
   type IssueFindingKind,
   type IssueCostResponsibility,
+  type IssueDamageCause,
   type IssueHandledBy,
   type IssueMeaningFilter,
   type IssueOutcome,
@@ -35,6 +37,9 @@ import {
   type LocalDay,
   localDayOf,
   localDayOfColumn,
+  normalizeSingleLineText,
+  parseLocalDay,
+  scanForPersonalIdentityNumbers,
   replyReopensIssue,
 } from "@openbrf/shared";
 
@@ -341,6 +346,12 @@ export type QueuedIssueView = IssueRowView & {
   typeReporters: IssueReporterGroup[];
   /** Who handles an issue of its type. */
   typeHandledBy: IssueHandledBy;
+  /**
+   * Whether its type is ring-fenced (decision 32): read by the board alone,
+   * with nothing about it leaving it, and its free text removed a year after
+   * closing.
+   */
+  typeRingFenced: boolean;
   /** When it last moved into DONE, or null while it is open. */
   closedAt: string | null;
   priority: IssuePriority;
@@ -370,6 +381,11 @@ export type QueuedIssueView = IssueRowView & {
    */
   legalHoldAt: string | null;
   /**
+   * The insurance damage it is marked as, or null (decision 28). Internal, as
+   * the assignee is: a reporter never reads it.
+   */
+  damageCase: IssueDamageCaseView | null;
+  /**
    * Who pays for it, or null while nobody has said (decision 26). Never an
    * amount: a charge made from the issue is read from the charges, by those
    * who may read charges, and the property manager may not.
@@ -382,6 +398,48 @@ export type QueuedIssueView = IssueRowView & {
         apartment: null;
       }
   );
+
+/** What a handler marks an issue's damage case with (decision 28). */
+export interface IssueDamageCaseInput {
+  insurer: string;
+  claimNumber: string;
+  /** The day of the damage, `YYYY-MM-DD`. */
+  occurredOn: string;
+  cause: IssueDamageCause;
+}
+
+/**
+ * Whether the damage case a row holds is the one a change says it began from.
+ * Both `null` is the same: nothing was marked and nothing is.
+ */
+function sameDamageCase(
+  stored: {
+    insurer: string;
+    claimNumber: string;
+    occurredOn: Date;
+    cause: IssueDamageCause;
+  } | null,
+  from: IssueDamageCaseView | null,
+): boolean {
+  if (stored === null || from === null) {
+    return stored === null && from === null;
+  }
+  return (
+    stored.insurer === from.insurer &&
+    stored.claimNumber === from.claimNumber &&
+    formatDateColumn(stored.occurredOn) === from.occurredOn &&
+    stored.cause === from.cause
+  );
+}
+
+/** An issue's damage case (skadeärende, decision 28) as a handler reads it. */
+export interface IssueDamageCaseView {
+  insurer: string;
+  claimNumber: string;
+  /** The day of the damage, `YYYY-MM-DD`. */
+  occurredOn: string;
+  cause: IssueDamageCause;
+}
 
 /**
  * Whether a read of the queue shows the issues a reporter with protected
@@ -397,8 +455,23 @@ export type QueuedIssueView = IssueRowView & {
  * action may bind a read only where the omission happens in the service method
  * it calls (docs/actions.md, "What an action that names a person must
  * satisfy").
+ *
+ * `omit` leaves out every issue of a ring-fenced type as well (decision 32,
+ * ADR 0056), by the same omission and for the same callers: nothing about a
+ * ring-fenced issue reaches `mcp` or `ai`, whoever reported it. The name is
+ * the first rule's; both are what a read leaving the instance withholds.
  */
 export type ProtectedReporters = "show" | "omit";
+
+/**
+ * The issues a read of this kind may name: with `omit`, none of a ring-fenced
+ * type. Put under `AND`, as the protected reporters' filter is.
+ */
+function outsideRingFence(
+  protectedReporters: ProtectedReporters,
+): Prisma.IssueWhereInput {
+  return protectedReporters === "omit" ? { type: { ringFenced: false } } : {};
+}
 
 /**
  * What the board's screen narrows a view of the queue to (decision 15): the
@@ -548,6 +621,15 @@ export type IssueTimelineStep = {
   /** A handler redacted a text or removed a file (ADR 0057). */
   | { kind: "redacted"; target: IssueRedactionTarget | null }
   | { kind: "legalHold"; held: boolean }
+  /**
+   * A handler marked it as a damage case or changed the mark, with the cause,
+   * or took the mark off (decision 28). Never the insurer or the claim number.
+   */
+  | {
+      kind: "damageCase";
+      marked: boolean;
+      cause: IssueDamageCause | null;
+    }
   | {
       /** The common-area place set or changed; null when taken off. */
       kind: "place";
@@ -827,11 +909,20 @@ export class IssueService {
       }
       const filed = await this.file(tx, data);
       if (postId !== null) {
+        // Read under the type's lock `file` took, which ring-fencing takes too.
+        // A post is read by the house, and a ring-fenced report tied to one
+        // would say to everybody who reads it that a report was made.
+        if (filed.ringFenced) {
+          throw new IssueError(
+            "A report under this issue type is not made from a post.",
+            "ring-fenced-post",
+          );
+        }
         refuseUnlinked(
           await linkIssueToPost(tx, principal, postId, filed.id, new Date()),
         );
       }
-      return filed;
+      return { id: filed.id };
     });
 
     // The identifiers only. The description is the resident's own account of
@@ -895,6 +986,13 @@ export class IssueService {
         location: locationOrNull(input.location),
         description: input.description,
       });
+      // A type the board ring-fenced, or took off the form, since the form was
+      // resolved, under the lock `file` took: the website's form offers no
+      // ring-fenced type (`ring-fenced-public`), so it is answered as the type
+      // that is no longer offered.
+      if (filed.ringFenced || !filed.reporters.includes("PUBLIC")) {
+        throw new IssueError("No such issue type.", "type-not-found");
+      }
       /*
        * An address is a way to answer the reporter, and the only one: the
        * private link to the issue is mailed to it (decision 20, ADR 0055).
@@ -909,7 +1007,7 @@ export class IssueService {
           input.reporterLocale ?? null,
         );
       }
-      return filed;
+      return { id: filed.id };
     });
 
     // The identifier and the type. What a passer-by wrote about the building,
@@ -1072,14 +1170,27 @@ export class IssueService {
    * Reached with issues:handle. A type the board keeps to itself is left out
    * for a reader the board-only rule does not let in, as its issues are, and
    * a type's counts are of the issues the reader handles.
+   *
+   * With `omit`, a ring-fenced type is left out as well, for a read leaving the
+   * instance (`issue_type_list`): ADR 0056 reads decision 32's "never to ... AI
+   * or MCP" as covering the type itself.
    */
-  async handledTypes(readerPersonId: string): Promise<IssueTypeView[]> {
+  async handledTypes(
+    readerPersonId: string,
+    protectedReporters: ProtectedReporters,
+  ): Promise<IssueTypeView[]> {
     const scope = await this.readerScope(
       this.prisma,
       readerPersonId,
       new Date(),
     );
-    return this.types.list(typesHandledWhere(scope), issuesHandledWhere(scope));
+    return this.types.list(
+      {
+        ...typesHandledWhere(scope),
+        ...(protectedReporters === "omit" ? { ringFenced: false } : {}),
+      },
+      issuesHandledWhere(scope),
+    );
   }
 
   /**
@@ -1238,7 +1349,8 @@ export class IssueService {
    * one" is answered without a second statement about a second moment.
    *
    * With `omit`, an issue a reporter with protected personal data filed is not
-   * on the page at all, and neither is anything about it. It is left out of the
+   * on the page at all, and neither is anything about it; nor is an issue of a
+   * ring-fenced type, which the query leaves out by its type. It is left out of the
    * query, so a page is not short for it, and left out again once the reporters
    * are read, so a person whose data became protected between the two reads is
    * not shown either. A row dropped that late leaves a gap, which is filled by
@@ -1278,6 +1390,7 @@ export class IssueService {
           AND: [
             handled,
             queueWhere(filter),
+            outsideRingFence(protectedReporters),
             protectedReporters === "omit"
               ? await this.notReportedByProtectedPersons()
               : {},
@@ -1318,9 +1431,10 @@ export class IssueService {
   /**
    * One issue from the triage queue. Reached with issues:handle.
    *
-   * With `omit`, an issue a reporter with protected personal data filed is
-   * answered exactly as an issue that does not exist, with the same reason and
-   * the same sentence, so the answer does not say that there is one.
+   * With `omit`, an issue a reporter with protected personal data filed, or
+   * one of a ring-fenced type, is answered exactly as an issue that does not
+   * exist, with the same reason and the same sentence, so the answer does not
+   * say that there is one.
    */
   async queuedIssue(
     readerPersonId: string,
@@ -1333,9 +1447,13 @@ export class IssueService {
       new Date(),
     );
     // An issue the reader does not handle is answered as one that does not
-    // exist, so the answer does not say that there is one.
+    // exist, so the answer does not say that there is one; and so, with
+    // `omit`, is one of a ring-fenced type.
     const issue = await this.prisma.issue.findFirst({
-      where: { id: issueId, ...issuesHandledWhere(scope) },
+      where: {
+        id: issueId,
+        AND: [issuesHandledWhere(scope), outsideRingFence(protectedReporters)],
+      },
       include: ISSUE_INCLUDE,
     });
     const [view] =
@@ -1688,6 +1806,205 @@ export class IssueService {
   }
 
   /**
+   * Marks an issue as a damage case (skadeärende, decision 28), or changes the
+   * mark: the insurer, the claim number, the day of the damage and its cause.
+   * Reached with issues:handle, by any handler the issue lets in, open or
+   * closed: a claim is often made after the repair.
+   *
+   * The first mark places a legal hold on the issue where none stands (ADR
+   * 0057), so neither its clock nor a granted erasure request removes the text
+   * and photographs the claim may need, with an `ISSUE_LEGAL_HOLD_PLACED` entry
+   * saying the mark placed it. A hold already standing keeps its date, and a
+   * hold a handler released after the mark was their own decision, which
+   * changing the mark does not undo.
+   *
+   * The insurer and the claim number are folded to one line each, as the
+   * identity-number scan folds text, and refused when nothing is left or when
+   * either holds a personal identity number: they are the building record,
+   * which outlasts every purge. The day is a day in the association's
+   * calendar that has come. The entry carries the cause and the day, never
+   * the insurer or the claim number, which are text a handler typed. A request
+   * that changes nothing writes nothing.
+   *
+   * `replaces` is the mark the change was made from, `null` for none. A mark
+   * that is another by the time the change is decided - another handler
+   * changed it, or took it off - is refused as `damage-case-changed` rather
+   * than written over unseen: what a claim is made on is the insurer and the
+   * number, and a change that overwrote them would go to the insurer under the
+   * wrong ones. Decided under the issue's lock, with the write.
+   */
+  async markDamageCase(
+    issueId: string,
+    input: IssueDamageCaseInput,
+    replaces: IssueDamageCaseView | null,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    const insurer = normalizeSingleLineText(input.insurer);
+    const claimNumber = normalizeSingleLineText(input.claimNumber);
+    if (insurer === "" || claimNumber === "") {
+      throw new IssueError(
+        "A damage case needs the insurer and the claim number.",
+        "damage-case-incomplete",
+      );
+    }
+    if (
+      scanForPersonalIdentityNumbers(insurer).length > 0 ||
+      scanForPersonalIdentityNumbers(claimNumber).length > 0
+    ) {
+      throw new IssueError(
+        "A damage case may not hold a personal identity number.",
+        "personal-identity-number",
+      );
+    }
+    const day = parseLocalDay(input.occurredOn);
+    if (day === null || compareLocalDays(day, localDayOf(new Date())) > 0) {
+      throw new IssueError(
+        "The day of the damage is not a day that has come.",
+        "damage-date-invalid",
+      );
+    }
+    const occurredOn = dateColumnOf(day);
+
+    const issue = await this.prisma.$transaction(async (tx) => {
+      await this.lockForAssignment(tx, issueId);
+      await this.requireHandled(tx, issueId, actorPersonId);
+      const held = await tx.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: {
+          legalHoldAt: true,
+          damageCase: {
+            select: {
+              insurer: true,
+              claimNumber: true,
+              occurredOn: true,
+              cause: true,
+            },
+          },
+        },
+      });
+      const existing = held.damageCase;
+      const unchanged =
+        existing !== null &&
+        existing.insurer === insurer &&
+        existing.claimNumber === claimNumber &&
+        formatDateColumn(existing.occurredOn) === input.occurredOn &&
+        existing.cause === input.cause;
+      if (!unchanged) {
+        if (!sameDamageCase(existing, replaces)) {
+          throw new IssueError(
+            "The damage case has been changed since you read it.",
+            "damage-case-changed",
+          );
+        }
+        const data = { insurer, claimNumber, occurredOn, cause: input.cause };
+        await tx.issueDamageCase.upsert({
+          where: { issueId },
+          create: { issueId, ...data },
+          update: data,
+        });
+        await this.audit.record(
+          {
+            action: "ISSUE_DAMAGE_CASE_MARKED",
+            channel: "WEB",
+            actorPersonId,
+            targetKind: "issue",
+            targetId: issueId,
+            context: {
+              cause: input.cause,
+              occurredOn: formatDateColumn(occurredOn),
+              changed: existing !== null,
+            },
+          },
+          tx,
+        );
+      }
+      if (existing === null && held.legalHoldAt === null) {
+        await tx.issue.update({
+          where: { id: issueId },
+          data: { legalHoldAt: new Date() },
+        });
+        await this.audit.record(
+          {
+            action: "ISSUE_LEGAL_HOLD_PLACED",
+            channel: "WEB",
+            actorPersonId,
+            targetKind: "issue",
+            targetId: issueId,
+            context: { byDamageCase: true },
+          },
+          tx,
+        );
+      }
+      return tx.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} marked as a damage case`);
+    return this.viewOf(issue);
+  }
+
+  /**
+   * Takes the damage-case mark off an issue. Reached with issues:handle.
+   *
+   * The legal hold the mark placed stays: `legalHoldAt` is one date with no
+   * reason beside it, so taking it off here could release a hold a handler or
+   * an inspection finding placed, and a claim that is withdrawn is not always
+   * a claim that is over. A handler releases the hold as its own act.
+   *
+   * `replaces` is the mark the handler saw and means to take off. A mark that
+   * is another by the time this is decided - changed, or already taken off by
+   * another handler - is refused as `damage-case-changed`: the insurer and the
+   * claim number are in no audit entry, so a deletion of a mark nobody saw
+   * could not be put back. Decided under the issue's lock, with the delete.
+   */
+  async removeDamageCase(
+    issueId: string,
+    replaces: IssueDamageCaseView,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    const issue = await this.prisma.$transaction(async (tx) => {
+      await this.lockForAssignment(tx, issueId);
+      await this.requireHandled(tx, issueId, actorPersonId);
+      const stored = await tx.issueDamageCase.findUnique({
+        where: { issueId },
+        select: {
+          insurer: true,
+          claimNumber: true,
+          occurredOn: true,
+          cause: true,
+        },
+      });
+      if (!sameDamageCase(stored, replaces)) {
+        throw new IssueError(
+          "The damage case has been changed since you read it.",
+          "damage-case-changed",
+        );
+      }
+      await tx.issueDamageCase.delete({ where: { issueId } });
+      await this.audit.record(
+        {
+          action: "ISSUE_DAMAGE_CASE_REMOVED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "issue",
+          targetId: issueId,
+          context: {},
+        },
+        tx,
+      );
+      return tx.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} damage-case mark taken off`);
+    return this.viewOf(issue);
+  }
+
+  /**
    * Closes an issue to every handler but the board, or opens it again to every
    * handler its type lets in (decision 13). Reached with issues:handle.
    *
@@ -1819,6 +2136,7 @@ export class IssueService {
             select: {
               id: true,
               typeId: true,
+              type: { select: { ringFenced: true } },
               closedAt: true,
               mergedIntoIssueId: true,
               entryAnswer: true,
@@ -1835,6 +2153,16 @@ export class IssueService {
         into === undefined
       ) {
         throw new IssueError("No such issue.", "issue-not-found");
+      }
+      // A duplicate's reporter follows the issue it was merged into, and the
+      // reporters of that issue are told how the duplicate stands. Across the
+      // ring-fence either would learn of a report the ring-fence keeps out of
+      // their reach (decision 32).
+      if (existing.type.ringFenced !== into.type.ringFenced) {
+        throw new IssueError(
+          "An issue is not merged across the ring-fence of its type.",
+          "merge-ring-fenced",
+        );
       }
       if (into.mergedIntoIssueId !== null) {
         throw new IssueError(
@@ -2213,9 +2541,10 @@ export class IssueService {
           : order.deliveryStatus === "PENDING"
             ? ("pending" as const)
             : // Only a failure after which nothing left this instance reads
-              // "not sent"; a mail driver's error (`send-failed`) and a sending
-              // that may have gone out are unconfirmed, as on the work order
-              // list and in the data subject report.
+              // "not sent"; a sending that may have gone out, including a mail
+              // error after the message may have reached the mail server, is
+              // unconfirmed, as on the work order list and in the data subject
+              // report.
               workOrderKnownNotSent(order.deliveryFailure)
               ? ("failed" as const)
               : ("unconfirmed" as const),
@@ -2418,10 +2747,16 @@ export class IssueService {
       Prisma.IssueUncheckedCreateInput,
       "priority" | "assigneePersonId"
     >,
-  ): Promise<{ id: string }> {
+  ): Promise<{
+    id: string;
+    ringFenced: boolean;
+    reporters: readonly string[];
+  }> {
     // Under the type's lock, which a change to who handles the type takes too
     // (`IssueTypeService.update`): a default assignee the change shuts out is
-    // never given an issue filed while it commits.
+    // never given an issue filed while it commits. Ring-fencing takes it as
+    // well, so the answer's `ringFenced` is the type as the issue was filed
+    // under it.
     await lockIssueType(tx, data.typeId);
     const type = await tx.issueType.findUnique({
       where: { id: data.typeId },
@@ -2429,6 +2764,8 @@ export class IssueService {
         handledBy: true,
         defaultPriority: true,
         defaultAssigneePersonId: true,
+        ringFenced: true,
+        reporters: true,
       },
     });
     if (type === null) {
@@ -2479,7 +2816,11 @@ export class IssueService {
     }
     // Store, then tell: the mail is a job this transaction writes (decision 12).
     await this.mailer.filedInTransaction(tx, filed.id);
-    return filed;
+    return {
+      id: filed.id,
+      ringFenced: type.ringFenced,
+      reporters: type.reporters,
+    };
   }
 
   /**
@@ -2590,8 +2931,10 @@ export class IssueService {
             // Every handler the issue lets in reads its whole conversation
             // and every note on it (`IssueConversationService`), so the
             // issues handled below are the boundary for these as well. Each
-            // is read through a trigram index on `body`, without which every
-            // word read every message and note in the database.
+            // has a trigram index on `body`, without which every word read
+            // every message and note in the database; the database reads it
+            // once when many issues are left to ask about, and each issue's
+            // own rows when few are (ADR 0054).
             { messages: { some: { body: matches } } },
             { notes: { some: { body: matches } } },
             { AND: [{ apartment: { number: matches } }, notProtected] },
@@ -2974,7 +3317,15 @@ const APARTMENT_SELECT = {
 } as const;
 
 const ISSUE_INCLUDE = {
-  type: { select: { id: true, name: true, reporters: true, handledBy: true } },
+  type: {
+    select: {
+      id: true,
+      name: true,
+      reporters: true,
+      handledBy: true,
+      ringFenced: true,
+    },
+  },
   status: {
     select: { id: true, label: true, meaning: true, sortOrder: true },
   },
@@ -2992,6 +3343,9 @@ const ISSUE_INCLUDE = {
     },
   },
   reporterLink: { select: REPORTER_LINK_STATE_SELECT },
+  damageCase: {
+    select: { insurer: true, claimNumber: true, occurredOn: true, cause: true },
+  },
 } as const;
 
 /**
@@ -3500,7 +3854,14 @@ interface IssueRecord extends EntryColumns {
     name: string;
     reporters: IssueReporterGroup[];
     handledBy: IssueHandledBy;
+    ringFenced: boolean;
   };
+  damageCase: {
+    insurer: string;
+    claimNumber: string;
+    occurredOn: Date;
+    cause: IssueDamageCause;
+  } | null;
   apartment: ApartmentRecord | null;
   place: IssuePlaceRef | null;
   finding: FindingRecord | null;
@@ -3537,6 +3898,7 @@ function toQueuedView(
     outcome: issue.outcome,
     typeReporters: issue.type.reporters,
     typeHandledBy: issue.type.handledBy,
+    typeRingFenced: issue.type.ringFenced,
     closedAt: issue.closedAt?.toISOString() ?? null,
     priority: issue.priority,
     targetDate,
@@ -3550,6 +3912,15 @@ function toQueuedView(
     knownFault: knownFaultOf(issue),
     finding: toFindingView(issue.finding),
     legalHoldAt: issue.legalHoldAt?.toISOString() ?? null,
+    damageCase:
+      issue.damageCase === null
+        ? null
+        : {
+            insurer: issue.damageCase.insurer,
+            claimNumber: issue.damageCase.claimNumber,
+            occurredOn: formatDateColumn(issue.damageCase.occurredOn),
+            cause: issue.damageCase.cause,
+          },
     costResponsibility: issue.costResponsibility,
   };
   if (reporter.kind === "protected") {
@@ -3627,6 +3998,8 @@ const TIMELINE_ACTIONS = [
   "ISSUE_REDACTED",
   "ISSUE_LEGAL_HOLD_PLACED",
   "ISSUE_LEGAL_HOLD_RELEASED",
+  "ISSUE_DAMAGE_CASE_MARKED",
+  "ISSUE_DAMAGE_CASE_REMOVED",
   "ISSUE_COST_RESPONSIBILITY_CHANGED",
 ] as const satisfies readonly AuditAction[];
 
@@ -3757,6 +4130,15 @@ function timelineStep(
         at,
         actor,
         held: entry.action === "ISSUE_LEGAL_HOLD_PLACED",
+      };
+    case "ISSUE_DAMAGE_CASE_MARKED":
+    case "ISSUE_DAMAGE_CASE_REMOVED":
+      return {
+        kind: "damageCase",
+        at,
+        actor,
+        marked: entry.action === "ISSUE_DAMAGE_CASE_MARKED",
+        cause: oneOf(text("cause"), ISSUE_DAMAGE_CAUSES),
       };
     case "ISSUE_COST_RESPONSIBILITY_CHANGED":
       return {

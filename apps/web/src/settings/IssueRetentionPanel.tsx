@@ -161,6 +161,10 @@ export function IssueRetentionPanel(): ReactElement {
               {t("settings.issueRetention.yearsHint")}
             </span>
           </label>
+          {/* The ring-fenced clock is a constant, never this setting
+              (RING_FENCED_ISSUE_TEXT_RETENTION_YEARS): said here, where the
+              board would otherwise look for it. */}
+          <p className={HINT}>{t("settings.issueRetention.ringFenced")}</p>
 
           {outOfRange ? (
             <Notice tone="warn" live>

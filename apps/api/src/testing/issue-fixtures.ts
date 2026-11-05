@@ -34,6 +34,11 @@ export async function createIssueTypeFixture(
     handledBy?: IssueHandledBy;
     defaultPriority?: IssuePriority;
     defaultAssigneePersonId?: string | null;
+    /**
+     * Written as it stands. The CHECKs hold a ring-fenced type to the board and
+     * to no PUBLIC reporter, so the caller passes `handledBy: "BOARD"` with it.
+     */
+    ringFenced?: boolean;
   },
 ): Promise<IssueTypeFixture> {
   const statusIds = Object.fromEntries(
@@ -53,6 +58,7 @@ export async function createIssueTypeFixture(
       handledBy: input.handledBy ?? "EVERY_HANDLER",
       defaultPriority: input.defaultPriority ?? "NORMAL",
       defaultAssigneePersonId: input.defaultAssigneePersonId ?? null,
+      ringFenced: input.ringFenced ?? false,
       statuses: {
         create: ISSUE_STATUS_MEANINGS.map((meaning) => ({
           id: statusIds[meaning],

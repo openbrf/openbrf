@@ -414,12 +414,12 @@ export class IssueActionsRegistrar implements OnModuleInit {
           types: z
             .array(issueTypeSchema)
             .describe(
-              "Every issue type the caller handles, active or not, in the order the board gave them.",
+              "Every issue type the caller handles, active or not, in the order the board gave them. A type kept to the board alone and away from connected apps is not listed.",
             ),
         }),
         handler: async (_input, context) => ({
           types: (
-            await this.issues.handledTypes(context.principal.personId)
+            await this.issues.handledTypes(context.principal.personId, "omit")
           ).map((type) => ({
             id: type.id,
             title: type.name,

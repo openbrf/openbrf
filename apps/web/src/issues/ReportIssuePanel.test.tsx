@@ -34,8 +34,18 @@ vi.mock("../api/issues", async (importOriginal) => ({
 }));
 
 const TYPES: readonly ReportableIssueType[] = [
-  { id: "type-water", name: "Vatten", reporters: ["RESIDENTS"] },
-  { id: "type-heat", name: "Värme", reporters: ["RESIDENTS"] },
+  {
+    id: "type-water",
+    name: "Vatten",
+    reporters: ["RESIDENTS"],
+    ringFenced: false,
+  },
+  {
+    id: "type-heat",
+    name: "Värme",
+    reporters: ["RESIDENTS"],
+    ringFenced: false,
+  },
 ];
 
 const APARTMENTS: readonly IssueApartment[] = [
@@ -85,6 +95,78 @@ describe("the sensitive-data warning", () => {
     // Standing, not a response to a refusal: it is advice about what to write,
     // and it names who reads it - an external property manager included.
     expect(screen.getByText(/extern förvaltare/i)).toBeTruthy();
+  });
+
+  it("is the description field's own description, so direct navigation reads it", () => {
+    renderPanel();
+
+    expect(
+      screen.getByRole("textbox", {
+        name: /vad har hänt/i,
+        description: /extern förvaltare/i,
+      }),
+    ).toBeTruthy();
+  });
+
+  it("says who reads a ring-fenced type, and what not to write, once it is chosen", async () => {
+    const session = userEvent.setup();
+    renderPanel({
+      types: [
+        ...TYPES,
+        {
+          id: "type-noise",
+          name: "Störningar",
+          reporters: ["RESIDENTS"],
+          ringFenced: true,
+        },
+      ],
+    });
+
+    await session.selectOptions(
+      screen.getByLabelText(/vad gäller det/i),
+      "type-noise",
+    );
+    // Not the property manager, as the ordinary warning says: only the board.
+    expect(screen.getByText(/läses bara av styrelsen/i)).toBeTruthy();
+    expect(screen.getByText(/skriv inte vem du tror/i)).toBeTruthy();
+    expect(screen.queryByText(/extern förvaltare/i)).toBeNull();
+    // Read before the description is written, not after it.
+    const warning = screen.getByText(/skriv inte vem du tror/i);
+    const description = screen.getByRole("textbox", {
+      name: /vad har hänt/i,
+    });
+    expect(
+      warning.compareDocumentPosition(description) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("keeps the intro line for an ordinary type, and drops it for a ring-fenced one", async () => {
+    const session = userEvent.setup();
+    renderPanel({
+      types: [
+        ...TYPES,
+        {
+          id: "type-noise",
+          name: "Störningar",
+          reporters: ["RESIDENTS"],
+          ringFenced: true,
+        },
+      ],
+    });
+    const intro = /styrelsen och förvaltaren läser det här/i;
+    const select = screen.getByLabelText(/vad gäller det/i);
+
+    await session.selectOptions(select, "type-water");
+    expect(screen.getByText(intro)).toBeTruthy();
+
+    // The intro says the property manager reads the report; the ring-fence
+    // warning on the same card says never.
+    await session.selectOptions(select, "type-noise");
+    expect(screen.queryByText(intro)).toBeNull();
+
+    await session.selectOptions(select, "type-water");
+    expect(screen.getByText(intro)).toBeTruthy();
   });
 
   it("does not stop a report that reads like personal data", async () => {
@@ -572,6 +654,103 @@ describe("a report made from a post", () => {
     expect(reportIssue).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ postId: expect.anything() as unknown }),
     );
+  });
+
+  it("offers no ring-fenced type for a report made from a post", () => {
+    render(
+      <ReportIssuePanel
+        types={[
+          ...TYPES,
+          {
+            id: "type-noise",
+            name: "Störningar",
+            reporters: ["RESIDENTS"],
+            ringFenced: true,
+          },
+        ]}
+        apartments={APARTMENTS}
+        prefill={PREFILL}
+        onReported={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("option", { name: "Störningar" })).toBeNull();
+    expect(screen.getByRole("option", { name: "Vatten" })).toBeTruthy();
+  });
+
+  it("keeps a ring-fenced type for a follow-up started from a post, which is not linked to it", async () => {
+    const session = userEvent.setup();
+    const onReported = vi.fn();
+    render(
+      <ReportIssuePanel
+        types={[
+          ...TYPES,
+          {
+            id: "type-noise",
+            name: "Störningar",
+            reporters: ["RESIDENTS"],
+            ringFenced: true,
+          },
+        ]}
+        apartments={APARTMENTS}
+        prefill={PREFILL}
+        followUp={{
+          id: "issue-earlier",
+          typeId: "type-noise",
+          typeName: "Störningar",
+        }}
+        onReported={onReported}
+      />,
+    );
+
+    expect(
+      (screen.getByLabelText(/vad gäller det/i) as HTMLSelectElement).value,
+    ).toBe("type-noise");
+
+    await session.click(
+      screen.getByRole("button", { name: /skicka anmälan/i }),
+    );
+
+    await waitFor(() => {
+      expect(onReported).toHaveBeenCalledWith(null);
+    });
+    expect(reportIssue).toHaveBeenCalledWith({
+      typeId: "type-noise",
+      apartmentId: null,
+      placeId: null,
+      location: null,
+      description: "Hissen i port 14 står still igen.",
+      followsIssueId: "issue-earlier",
+    });
+  });
+
+  it("says so, and offers no form, when only ring-fenced types are left for a post", () => {
+    render(
+      <ReportIssuePanel
+        types={[
+          {
+            id: "type-noise",
+            name: "Störningar",
+            reporters: ["RESIDENTS"],
+            ringFenced: true,
+          },
+        ]}
+        apartments={APARTMENTS}
+        prefill={PREFILL}
+        onReported={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        /kan inte läggas under någon av de typer du får anmäla/i,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/inte lagt in några ärendetyper/i)).toBeNull();
+    expect(screen.queryByLabelText(/vad gäller det/i)).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /skicka anmälan/i }),
+    ).toBeNull();
   });
 
   it("says when the post was already reported from", async () => {

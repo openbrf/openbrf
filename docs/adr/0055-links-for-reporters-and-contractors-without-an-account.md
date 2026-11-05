@@ -281,8 +281,8 @@ is answered for every read and write
 alone, so a later route or action cannot step past it. The MCP and AI surfaces
 offer none of the three for any case
 ([ADR 0056](0056-issue-handling-on-mcp-and-ai.md)); this is the rule for the
-board's own screen and for the token routes. It holds whatever marks a case as
-ring-fenced, which is open (ADR 0054, question 5).
+board's own screen and for the token routes. A case is ring-fenced when its type
+is ([ADR 0054](0054-issue-types-statuses-and-outcomes.md#the-interim-answer-to-question-5)).
 
 A closed issue is offered no work order until it is reopened. Previewing or
 sending one on an issue in the `DONE` meaning is refused as `issue-closed`,
@@ -538,8 +538,8 @@ waits for it, and, like an erasure, cannot recall the mail that follows.
 
 A ring-fenced type is a column on the type, `ringFenced`, read by the refusal
 and set by the board under issues:configure through a request of its own,
-audited with who set or lifted it. Which types are ring-fenced by default is
-question 5 of ADR 0054.
+audited with who set or lifted it. Which types are ring-fenced by default, and
+when the ring-fence may be lifted, is ADR 0054's interim answer to its question 5.
 
 ## Open questions
 

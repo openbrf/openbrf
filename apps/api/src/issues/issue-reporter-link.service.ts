@@ -21,7 +21,13 @@ import {
   toReporterView,
 } from "./issue-conversation.service";
 import { requireHandledIssue } from "./issue-handlers";
-import { lockIssue, lockIssueForHandling } from "./issue-lock";
+import {
+  holdIssueTypeRingFence,
+  lockIssue,
+  lockIssueForHandling,
+  MAIL_TRANSACTION_MS,
+  mailHandoffDeadline,
+} from "./issue-lock";
 import { IssueMailer } from "./issue-mailer.service";
 import {
   extendReporterLink,
@@ -36,12 +42,6 @@ import {
 import { lockedNow } from "../fees/fee-lock";
 import { reopenIssueByReply } from "./issue-reopening";
 import { IssueError } from "./issue.error";
-
-/**
- * How long the transaction that sends a link mail may run: the mail driver's
- * connection, greeting and socket timeouts (10 s, 10 s, 20 s) with room over.
- */
-const MAIL_TRANSACTION_MS = 60_000;
 
 /** The queue a public report's link mail waits on. */
 export const REPORTER_LINK_QUEUE = "issue-reporter-link";
@@ -266,8 +266,9 @@ export class IssueReporterLinkService implements OnModuleInit {
    * Answers whether a mail went. Nothing is mailed, and no link issued, for a
    * report that no longer has an address, that already has its link, that a
    * handler withdrew the link of, that closed long enough ago that a link
-   * would open nothing, or whose address is a person's who restricted
-   * processing (GDPR art. 18). Nor to an address that has had its three link
+   * would open nothing, whose type the board has since ring-fenced (decision
+   * 32), or whose address is a person's who restricted processing (GDPR art.
+   * 18). Nor to an address that has had its three link
    * mails today: that report is in the queue like any other, and the board
    * answers its reporter by other means if it must.
    */
@@ -284,12 +285,21 @@ export class IssueReporterLinkService implements OnModuleInit {
           reporterEmailCipher: true,
           reporterEmailIndex: true,
           closedAt: true,
-          type: { select: { name: true } },
+          type: { select: { name: true, ringFenced: true } },
           reporterLink: {
             select: { id: true, mailedAt: true, revokedAt: true },
           },
         },
       });
+      if (issue !== null && issue.type.ringFenced) {
+        // Nothing about a ring-fenced issue is mailed (decision 32). The
+        // website's form offers no ring-fenced type, so this is a report filed
+        // before the board ring-fenced its type: read under the issue's lock
+        // and not mailed. A link an earlier attempt issued and did not mail
+        // gives its slot back, as on a close.
+        await this.releaseEarlier(tx, issue.reporterLink);
+        return null;
+      }
       if (
         issue === null ||
         issue.reporterPersonId !== null ||
@@ -400,17 +410,37 @@ export class IssueReporterLinkService implements OnModuleInit {
      * waits until the mail server has taken the message, and a check made in
      * the transaction above would leave a gap in which the mail still goes to
      * an address that was restricted meanwhile. The lock is held as long as
-     * the send can take, which the transaction's time limit allows for.
+     * the send can take: the send is ended at its deadline, before the
+     * transaction's time limit can end the transaction (`MAIL_HANDOFF_MS`).
      *
-     * The issue's lock too, after the registry's and for the same reason: a
-     * close, a withdrawal or the purge of the address between the two
+     * The type's ring-fence, held shared, and the issue's own lock too, after
+     * the registry's and for the same reason: a close, a withdrawal, the purge
+     * of the address or the board's ring-fence of the type between the two
      * transactions is seen below, and one that comes later waits for the
-     * stamp. Nothing takes the issue's lock and then the registry's, so the
-     * two cannot wait on each other the other way round.
+     * stamp. Not the type's lock, which a filing and every handler's write
+     * take: they must not wait for a mail server (`lockIssueTypeRingFence`).
+     * The ring-fence before the issue, and nothing takes the issue's lock and
+     * then the ring-fence or the registry, so the locks cannot wait on each
+     * other the other way round. The type is read first, unlocked: nothing
+     * moves an issue to another type.
+     *
+     * The send is ended before the transaction's limit can end the
+     * transaction and let these locks go with the mail still on its way
+     * (`MAIL_HANDOFF_MS`): one deadline, started before the transaction is
+     * asked for, so the waits for a connection and for every lock spend it
+     * too, and checked again once the address is decrypted.
      */
+    const deadline = mailHandoffDeadline();
     const mailed = await this.prisma.$transaction(
       async (tx) => {
         await lockLegalHoldRegistry(tx);
+        const typed = await tx.issue.findUnique({
+          where: { id: issueId },
+          select: { typeId: true },
+        });
+        if (typed !== null) {
+          await holdIssueTypeRingFence(tx, typed.typeId);
+        }
         await lockIssue(tx, issueId);
         if (await this.isRestricted(tx, issued)) {
           await this.releaseUnsent(tx, issued);
@@ -422,10 +452,12 @@ export class IssueReporterLinkService implements OnModuleInit {
             closedAt: true,
             reporterEmailIndex: true,
             reporterLink: { select: { revokedAt: true } },
+            type: { select: { ringFenced: true } },
           },
         });
         if (
           still === null ||
+          still.type.ringFenced ||
           still.closedAt !== null ||
           still.reporterEmailIndex !== issued.emailIndex ||
           still.reporterLink === null ||
@@ -445,6 +477,7 @@ export class IssueReporterLinkService implements OnModuleInit {
             // reporter without an account has no profile to name one.
             locale,
             template: issueReporterLinkMail,
+            signal: deadline,
             props: {
               typeName: issued.typeName,
               linkUrl: reporterLinkUrl(this.env.APP_URL, issued.token),
@@ -526,8 +559,8 @@ export class IssueReporterLinkService implements OnModuleInit {
 
   /**
    * Gives back the slot of a link an earlier attempt issued and did not mail,
-   * when a retry finds it will not mail it either: the issue closed, its
-   * address restricted or that address's budget spent. The caller holds the
+   * when a retry finds it will not mail it either: the issue closed, its type
+   * ring-fenced, its address restricted or that address's budget spent. The caller holds the
    * issue's lock, which the stamp is written under too, and has read the link
    * as neither mailed nor withdrawn.
    */

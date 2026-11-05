@@ -12,8 +12,14 @@ function coded(code: string): Error {
 describe("a failure that is the mail not leaving", () => {
   it.each([
     ["no mail configured", new MailNotConfiguredError()],
-    ["the mail API refusing", new MailApiError("refused", 503)],
-    ["the mail API not answering", new MailApiError("timeout", null)],
+    [
+      "the mail API refusing",
+      new MailApiError("refused", 503, "may-have-been-handed-over"),
+    ],
+    [
+      "the mail API not answering",
+      new MailApiError("timeout", null, "may-have-been-handed-over"),
+    ],
     [
       "a mail server this instance may not connect to",
       new MailServerNotPublicError({ cause: null }),

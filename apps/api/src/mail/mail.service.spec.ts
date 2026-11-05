@@ -14,6 +14,7 @@ import type { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
 import { Logger } from "@nestjs/common";
 
+import { mayHaveBeenHandedOver } from "./mail-driver";
 import { MailSettingsResolver } from "./mail-settings";
 import { MailNotConfiguredError, MailService } from "./mail.service";
 import {
@@ -454,7 +455,7 @@ const SMTP_ENV = {
 
 function invitation(
   service: MailService,
-  extra: { replyTo?: string; messageId?: string } = {},
+  extra: { replyTo?: string; messageId?: string; signal?: AbortSignal } = {},
 ) {
   return service.send({
     to: "anna@exempel.se",
@@ -475,6 +476,29 @@ function lastAccepted() {
 }
 
 describe("the driver", () => {
+  it("is handed the caller's signal, which gets the send a socket the signal closes", async () => {
+    await invitation(serviceWith(SMTP_ENV, STORED, i18n), {
+      signal: new AbortController().signal,
+    });
+
+    expect(transport.createTransport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: "smtp.host.example",
+        getSocket: expect.any(Function),
+      }),
+    );
+    expect(transport.sendMail).toHaveBeenCalledTimes(1);
+  });
+
+  it("is handed nothing once the caller's signal is aborted", async () => {
+    const aborted = AbortSignal.abort();
+
+    await expect(
+      invitation(serviceWith(SMTP_ENV, STORED, i18n), { signal: aborted }),
+    ).rejects.toBe(aborted.reason);
+    expect(transport.sendMail).not.toHaveBeenCalled();
+  });
+
   it("is the board's own server while the environment chooses none", async () => {
     await invitation(serviceWith(TEST_ENV, STORED, i18n));
 
@@ -725,5 +749,78 @@ describe("whether mail is configured", () => {
       false,
     );
     expect(await serviceWith(TEST_ENV, STORED, i18n).isConfigured()).toBe(true);
+  });
+});
+
+/**
+ * A failure before a driver is called composed and sent nothing, so it is not
+ * unconfirmed. One that persists, a stored password that can no longer be
+ * decrypted above all, must not read as "ask the recipient" on every send.
+ */
+describe("a failure before the driver is called", () => {
+  it("says a database that cannot be read handed nothing over", async () => {
+    const failure = new Error("connection to the database lost");
+    const prisma = {
+      association: { findUnique: vi.fn().mockRejectedValue(failure) },
+    } as unknown as PrismaService;
+    const encryption = {
+      decrypt: vi.fn(),
+    } as unknown as FieldEncryptionService;
+    const service = new MailService(
+      TEST_ENV,
+      prisma,
+      i18n,
+      new MailSettingsResolver(TEST_ENV, prisma, encryption),
+    );
+
+    const thrown = await invitation(service).catch((error: unknown) => error);
+
+    // The same error, so what the log reads stays what it was.
+    expect(thrown).toBe(failure);
+    expect(thrown).toMatchObject({ handover: "not-handed-over" });
+    expect(mayHaveBeenHandedOver(thrown)).toBe(false);
+    expect(transport.sendMail).not.toHaveBeenCalled();
+  });
+
+  it("says a stored password that cannot be decrypted handed nothing over", async () => {
+    const prisma = {
+      association: {
+        findUnique: vi.fn().mockResolvedValue({
+          ...STORED,
+          smtpUser: "styrelsen",
+          smtpPasswordCipher: "brf:password-ciphertext",
+        }),
+      },
+    } as unknown as PrismaService;
+    const encryption = {
+      decrypt: vi.fn().mockRejectedValue(new Error("authentication failed")),
+    } as unknown as FieldEncryptionService;
+    const service = new MailService(
+      TEST_ENV,
+      prisma,
+      i18n,
+      new MailSettingsResolver(TEST_ENV, prisma, encryption),
+    );
+
+    const thrown = await invitation(service).catch((error: unknown) => error);
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(mayHaveBeenHandedOver(thrown)).toBe(false);
+    expect(transport.sendMail).not.toHaveBeenCalled();
+  });
+
+  it("leaves a failure of the driver's own for the driver to state", async () => {
+    transport.sendMail.mockRejectedValue(
+      Object.assign(new Error("Connection closed"), { code: "ECONNECTION" }),
+    );
+
+    const thrown = await invitation(serviceWith(TEST_ENV, STORED, i18n)).then(
+      () => {
+        throw new Error("send resolved instead of rejecting");
+      },
+      (error: unknown) => error,
+    );
+
+    expect(mayHaveBeenHandedOver(thrown)).toBe(true);
   });
 });

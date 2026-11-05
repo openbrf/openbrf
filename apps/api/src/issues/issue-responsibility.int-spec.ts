@@ -26,6 +26,7 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { lockIssueForHandling, lockResponsibilityGuide } from "./issue-lock";
+import { IssueService } from "./issue.service";
 import {
   type ResponsibilityGuideItemView,
   ResponsibilityGuideService,
@@ -539,6 +540,64 @@ describe("a charge made from an issue", () => {
         cookie: cookies[person.personId],
       });
       expect(refused.statusCode).toBe(403);
+    }
+  });
+
+  it("answers the basis as one that does not exist for a reader the issue's type or its board-only flag keeps out", async () => {
+    /*
+     * The route's own capabilities (`memberCharges:manage` with `issues:handle`)
+     * are held by the board alone, whose scope is every issue, so no request
+     * reaches the scope. It is read where it applies, in `chargeBasis`, as a
+     * reader whose scope is the narrower one: the property manager, whom
+     * neither the board-only flag nor a board-handled type lets in.
+     */
+    const issues = app.get(IssueService);
+    const boardTypeId = `ir-type-board-${suffix}`;
+    const boardType = await createIssueTypeFixture(prisma, {
+      id: boardTypeId,
+      name: `Styrelseärende ${suffix}`,
+      reporters: ["RESIDENTS"],
+      handledBy: "BOARD",
+    });
+    try {
+      const plain = await filed("basis-scope-plain");
+      const keptByFlag = await filed("basis-scope-flag");
+      await prisma.issue.update({
+        where: { id: keptByFlag },
+        data: { boardOnly: true },
+      });
+      const keptByType = `ir-issue-basis-scope-type-${suffix}`;
+      await prisma.issue.create({
+        data: {
+          id: keptByType,
+          typeId: boardTypeId,
+          statusId: boardType.statusIds.NEW,
+          reporterPersonId: resident.personId,
+          apartmentId,
+          description: "Beskrivning basis-scope-type",
+        },
+      });
+
+      // The same reader reads an issue the type and the flag leave open.
+      await expect(
+        issues.chargeBasis(manager.personId, plain),
+      ).resolves.toMatchObject({ issueId: plain });
+      for (const kept of [keptByFlag, keptByType]) {
+        await expect(
+          issues.chargeBasis(manager.personId, kept),
+          "answered as an issue that does not exist",
+        ).rejects.toMatchObject({
+          reason: "issue-not-found",
+          message: "No such issue.",
+        });
+        // The board reads the same issue.
+        await expect(
+          issues.chargeBasis(board.personId, kept),
+        ).resolves.toMatchObject({ issueId: kept });
+      }
+    } finally {
+      await prisma.issue.deleteMany({ where: { typeId: boardTypeId } });
+      await prisma.issueType.deleteMany({ where: { id: boardTypeId } });
     }
   });
 

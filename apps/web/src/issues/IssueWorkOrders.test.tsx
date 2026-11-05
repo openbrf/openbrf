@@ -315,7 +315,9 @@ describe("IssueWorkOrders", () => {
     expect(screen.queryByLabelText("Vatten: arbetsorder")).toBeNull();
     // The record says it did not go out, and why, in words.
     expect(
-      screen.getByText(/^Obekräftad: e-postservern svarade med ett fel/),
+      screen.getByText(
+        /^Inte skickad: meddelandet kunde inte förberedas, eller e-postservern gick inte att nå/,
+      ),
     ).toBeTruthy();
   });
 
@@ -1371,6 +1373,30 @@ describe("a contractor's link", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("shows a refused link at once, without waiting for the association's name", async () => {
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({ linksEnabled: true, workOrders: [DELIVERED] }),
+    });
+    issueWorkOrderLink.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "work-order-protected" },
+    });
+    // Never answered: the refusal must not wait out the read's five seconds.
+    fetchViewer.mockReturnValue(new Promise(() => undefined));
+    const user = userEvent.setup();
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    await user.click(await screen.findByRole("button", give));
+    expect(
+      await screen.findByText(
+        "Någon som ärendet gäller har skyddade personuppgifter, så ingen arbetsorder i ärendet får någon länk.",
+        undefined,
+        { timeout: 1_000 },
+      ),
+    ).toBeTruthy();
   });
 
   it("does not show the address of a link the record says has ended", async () => {

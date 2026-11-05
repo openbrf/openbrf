@@ -27,14 +27,30 @@ vi.mock("./client", async (importOriginal) => ({
 
 /** The types the server offers a board member who lives here and handles issues. */
 const AS_THE_BOARD_IS_OFFERED_THEM: ReportableIssueType[] = [
-  { id: "type-lift", name: "Hissen", reporters: ["PUBLIC", "RESIDENTS"] },
-  { id: "type-budget", name: "Budgetuppföljning", reporters: ["HANDLERS"] },
+  {
+    id: "type-lift",
+    name: "Hissen",
+    reporters: ["PUBLIC", "RESIDENTS"],
+    ringFenced: false,
+  },
+  {
+    id: "type-budget",
+    name: "Budgetuppföljning",
+    reporters: ["HANDLERS"],
+    ringFenced: false,
+  },
   {
     id: "type-laundry",
     name: "Tvättstugan",
     reporters: ["RESIDENTS", "HANDLERS"],
+    ringFenced: false,
   },
-  { id: "type-gate", name: "Grinden", reporters: ["PUBLIC", "HANDLERS"] },
+  {
+    id: "type-gate",
+    name: "Grinden",
+    reporters: ["PUBLIC", "HANDLERS"],
+    ringFenced: false,
+  },
 ];
 
 beforeEach(() => {
