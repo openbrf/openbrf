@@ -984,6 +984,32 @@ describe("the slot-turn guard", () => {
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(waitMs);
   });
 
+  it("waits when a test's timeout and a millisecond of the slot is left", async () => {
+    // Inside the margin: it holds a test's timeout, but not the margin above
+    // it. Were the margin 0, this reading would start the test at once. The
+    // wait is a fake timer's, as a real one would pass the test's timeout.
+    const slotMs = REPEATED_NOTICE_SECONDS * 1000;
+    const query = vi
+      .spyOn(prisma, "$queryRawUnsafe")
+      .mockResolvedValueOnce([{ nowMs: slotMs - TEST_TIMEOUT_MS - 1 }])
+      .mockResolvedValueOnce([{ nowMs: slotMs }]);
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const guard = clearOfTheSlotTurn();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(TEST_TIMEOUT_MS + 101);
+      await guard;
+
+      expect(query).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("starts at once when a test's worth of the slot is left", async () => {
     const slotMs = REPEATED_NOTICE_SECONDS * 1000;
     const query = vi
