@@ -2540,6 +2540,15 @@ describe("G. the contractor's photographs", () => {
     expect(url).toMatch(/^\/api\/media\//);
     // The listing carries the address and no bytes of the photograph.
     expect(JSON.stringify(order.contractorLink)).not.toContain("data:");
+    // A field carrying the bytes some other way would add a key here.
+    expect(Object.keys(order.contractorLink.files[0] ?? {}).sort()).toEqual([
+      "createdAt",
+      "fileName",
+      "height",
+      "id",
+      "url",
+      "width",
+    ]);
     const served = await inject({ method: "GET", url, cookie: as(board) });
     expect(served.statusCode).toBe(200);
     expect(served.rawPayload.length).toBeGreaterThan(0);
