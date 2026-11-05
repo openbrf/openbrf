@@ -101,6 +101,7 @@ import {
   requireCalendarDay,
 } from "./issue.error";
 import { workOrderKnownNotSent } from "./work-order-delivery";
+import { revokeWorkOrderLinks } from "./work-order-link";
 
 /**
  * How many photographs one report may carry.
@@ -536,6 +537,14 @@ export type IssueTimelineStep = {
    * `null` when the work order is no longer there to ask.
    */
   | { kind: "workOrder"; delivery: IssueTimelineWorkOrderDelivery | null }
+  /**
+   * The contractor answered a work order through its link (ADR 0055). No
+   * actor: whoever held the link answered.
+   */
+  | {
+      kind: "workOrderAnswer";
+      answer: "ACCEPTED" | "DECLINED" | "DONE" | null;
+    }
   /** A handler redacted a text or removed a file (ADR 0057). */
   | { kind: "redacted"; target: IssueRedactionTarget | null }
   | { kind: "legalHold"; held: boolean }
@@ -1435,6 +1444,12 @@ export class IssueService {
         data: next,
         include: ISSUE_INCLUDE,
       });
+      // Into done ends every contractor's link to the issue's work orders, as a
+      // fact on the row (ADR 0055): reopening it later brings none back, and a
+      // handler gives the contractor a new link if the work goes on.
+      if (target.meaning === "DONE") {
+        await revokeWorkOrderLinks(tx, { issueId });
+      }
       // Out of done is a reopening, which the assignee is told of (decision 8).
       if (existing.status.meaning === "DONE" && target.meaning !== "DONE") {
         await this.mailer.reopenedInTransaction(tx, issueId, actorPersonId);
@@ -1841,7 +1856,7 @@ export class IssueService {
       }
       if (existing.mergedIntoIssueId !== null) {
         throw new IssueError(
-          "That issue is already a duplicate of another.",
+          "This issue is already a duplicate of another.",
           "merge-already-duplicate",
         );
       }
@@ -1900,6 +1915,11 @@ export class IssueService {
         where: { id: intoIssueId },
         data: { updatedAt: new Date() },
       });
+
+      // A merge is a closing, and ends every contractor's link to the
+      // duplicate's work orders as `changeStatus` does (ADR 0055): reopening
+      // the duplicate later brings none back.
+      await revokeWorkOrderLinks(tx, { issueId });
 
       return tx.issue.update({
         where: { id: issueId },
@@ -3585,6 +3605,9 @@ function toIssueRowView(issue: IssueRecord, today: LocalDay): IssueRowView {
   };
 }
 
+/** What a contractor may answer a work order, as the entry records it. */
+const WORK_ORDER_ANSWERS = ["ACCEPTED", "DECLINED", "DONE"] as const;
+
 /** The audit actions an issue's timeline is read from. */
 const TIMELINE_ACTIONS = [
   "ISSUE_OPENED",
@@ -3600,6 +3623,7 @@ const TIMELINE_ACTIONS = [
   "ISSUE_FINDING_MARKED",
   "ISSUE_FINDING_REMOVED",
   "ISSUE_WORK_ORDER_SENT",
+  "ISSUE_WORK_ORDER_ANSWERED",
   "ISSUE_REDACTED",
   "ISSUE_LEGAL_HOLD_PLACED",
   "ISSUE_LEGAL_HOLD_RELEASED",
@@ -3711,6 +3735,13 @@ function timelineStep(
         at,
         actor,
         delivery: deliveryOf.get(text("workOrderId") ?? "") ?? null,
+      };
+    case "ISSUE_WORK_ORDER_ANSWERED":
+      return {
+        kind: "workOrderAnswer",
+        at,
+        actor: null,
+        answer: oneOf(text("answer"), WORK_ORDER_ANSWERS),
       };
     case "ISSUE_REDACTED":
       return {

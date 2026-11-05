@@ -40,6 +40,7 @@ function build(files: number, dueFor: number) {
       findMany: vi.fn(async () => fileIds.map((fileId) => ({ fileId }))),
     },
     issueAttachment: { findMany: vi.fn(async () => []) },
+    workOrderFile: { findMany: vi.fn(async () => []) },
     $transaction: vi.fn(
       async (work: (client: Prisma.TransactionClient) => Promise<unknown>) =>
         work(tx),

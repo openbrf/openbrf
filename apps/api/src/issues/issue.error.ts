@@ -63,6 +63,20 @@ import { DomainError } from "../http/domain-error";
  * `issue-closed` is also a handler writing a work order on an issue that is
  * done, which is reopened first.
  *
+ * The reasons of a contractor's link (ADR 0055). `work-order-links-off` is any
+ * act on a link while the switch the legal review holds is off (decision 25),
+ * answered as not found, so an instance with the switch off shows no sign of
+ * the feature. `work-order-not-found` is a work order that is not on the issue.
+ * `work-order-answered` is a link for a work order the contractor declined or
+ * marked done, which no link opens again, `work-order-text-erased` one whose
+ * text was redacted or purged, and `work-order-recipient-removed` one whose
+ * contractor was removed from the list and erased from it.
+ * `work-order-protected` is a link for an issue that a person with protected
+ * personal data reported, or whose apartment one lives in: refused until the
+ * owner answers ADR 0055's question 4, because the photographs may show the
+ * home. `work-order-photo-not-found` is a photograph chosen for a link that is
+ * not an image on the issue.
+ *
  * The conversation's reasons. `issue-closed` is a reporter writing on an issue
  * that is done and that a reply no longer reopens: it closed more than the
  * reopening window ago, or was merged into another (ADR 0054). It is also a
@@ -140,6 +154,13 @@ export type IssueReason =
   | "work-order-preview-stale"
   | "work-order-duplicate"
   | "work-order-budget-spent"
+  | "work-order-links-off"
+  | "work-order-not-found"
+  | "work-order-answered"
+  | "work-order-text-erased"
+  | "work-order-recipient-removed"
+  | "work-order-protected"
+  | "work-order-photo-not-found"
   | "issue-closed"
   | "no-reporter"
   | "personal-identity-number"
@@ -215,6 +236,9 @@ export class IssueError extends DomainError {
       reason === "entry-not-resident" ||
       reason === "work-order-preview-stale" ||
       reason === "work-order-duplicate" ||
+      reason === "work-order-answered" ||
+      reason === "work-order-text-erased" ||
+      reason === "work-order-recipient-removed" ||
       reason === "legal-hold"
         ? HttpStatus.CONFLICT
         : reason === "work-order-budget-spent"
@@ -239,7 +263,9 @@ export class IssueError extends DomainError {
                 reason === "contractor-incomplete" ||
                 reason === "work-order-empty" ||
                 reason === "work-order-ring-fenced" ||
-                reason === "work-order-identity-number"
+                reason === "work-order-identity-number" ||
+                reason === "work-order-protected" ||
+                reason === "work-order-photo-not-found"
               ? HttpStatus.UNPROCESSABLE_ENTITY
               : HttpStatus.NOT_FOUND;
   }

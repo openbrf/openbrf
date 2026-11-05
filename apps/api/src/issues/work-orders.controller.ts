@@ -21,6 +21,10 @@ import {
   type ContractorView,
 } from "./contractor.service";
 import {
+  type IssuedWorkOrderLink,
+  WorkOrderLinkService,
+} from "./work-order-link.service";
+import {
   type IssueWorkOrdersView,
   type WorkOrderPreview,
   WorkOrderService,
@@ -43,6 +47,11 @@ const workOrderSchema = z.strictObject({
  */
 const sendingSchema = workOrderSchema.extend({
   previewToken: z.string().min(1).max(128),
+});
+
+/** The photographs a handler chooses for a work order's link, by file. */
+const chosenPhotosSchema = z.strictObject({
+  fileIds: z.array(z.string().min(1).max(64)).max(50),
 });
 
 /** An optional one-line field: absent, null or empty is none. */
@@ -77,6 +86,7 @@ export class IssueWorkOrderController {
   constructor(
     private readonly workOrders: WorkOrderService,
     private readonly contractors: ContractorService,
+    private readonly links: WorkOrderLinkService,
   ) {}
 
   /** The contractors on the list and switched on, by name. */
@@ -123,6 +133,50 @@ export class IssueWorkOrderController {
       actingPersonId(request),
       id,
       sendingSchema.parse(body),
+    );
+  }
+
+  /**
+   * Gives the contractor of a work order a link to it, replacing any before
+   * (ADR 0055). The answer carries the link's address, and is the only time
+   * it does: no read shows it again. Refused as not found while contractors'
+   * links are switched off (decision 25).
+   */
+  @Post(":id/work-orders/:workOrderId/link")
+  @HttpCode(201)
+  async issueLink(
+    @Param("id") id: string,
+    @Param("workOrderId") workOrderId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssuedWorkOrderLink> {
+    return this.links.issue(actingPersonId(request), id, workOrderId);
+  }
+
+  /** Withdraws a work order's link. */
+  @Delete(":id/work-orders/:workOrderId/link")
+  @HttpCode(204)
+  async revokeLink(
+    @Param("id") id: string,
+    @Param("workOrderId") workOrderId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<void> {
+    await this.links.revoke(actingPersonId(request), id, workOrderId);
+  }
+
+  /** Chooses the issue's photographs a work order's link shows. */
+  @Put(":id/work-orders/:workOrderId/photos")
+  @HttpCode(204)
+  async choosePhotos(
+    @Param("id") id: string,
+    @Param("workOrderId") workOrderId: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<void> {
+    await this.links.choosePhotos(
+      actingPersonId(request),
+      id,
+      workOrderId,
+      chosenPhotosSchema.parse(body).fileIds,
     );
   }
 }

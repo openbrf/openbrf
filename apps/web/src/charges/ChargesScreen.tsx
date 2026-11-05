@@ -34,7 +34,7 @@ import {
   type DebitingList,
   exportDebitingList,
   fetchDebitingList,
-  fetchIssueCharges,
+  fetchIssueChargeBasis,
   type IssueChargeBasis,
   removeCharge,
 } from "./charges-api";
@@ -116,16 +116,27 @@ type FromIssue =
  */
 function useFromIssue(issueId: string | null): FromIssue {
   const [read, setRead] = useState<FromIssue>({ state: "none" });
+  /*
+   * The issue the stored read was made for. When the address names another
+   * issue, or none, the read is dropped in the same render: an issue left and
+   * entered again in this mounted screen is read again, and its form is not
+   * filled in from what the first visit found.
+   */
+  const [readFor, setReadFor] = useState(issueId);
+  if (readFor !== issueId) {
+    setReadFor(issueId);
+    setRead({ state: "none" });
+  }
   useEffect(() => {
     if (issueId === null) {
       return;
     }
     let active = true;
-    void fetchIssueCharges(issueId).then((answer) => {
+    void fetchIssueChargeBasis(issueId).then((answer) => {
       if (active) {
         setRead(
           answer.ok
-            ? { state: "read", basis: answer.value.issue }
+            ? { state: "read", basis: answer.value }
             : { state: "failed", issueId },
         );
       }

@@ -27,6 +27,7 @@ import {
 import { reporterGroupsOf } from "./issue-reporter-groups";
 import { lockIssueType } from "./issue-lock";
 import { IssueError } from "./issue.error";
+import { revokeWorkOrderLinks } from "./work-order-link";
 
 /** A status as the board configures it. */
 export interface IssueStatusView {
@@ -618,6 +619,11 @@ export class IssueTypeService {
    * before and still queued is refused at its claim and recorded as not sent.
    * A request that changes nothing writes nothing.
    *
+   * Ring-fencing a type also revokes every contractor's link to a work order on
+   * its issues, in the same transaction (ADR 0055, control B5 of its threat
+   * review). The link's lookup refuses them anyway; the revocation keeps them
+   * ended once the ring-fence is lifted.
+   *
    * Not a recall: a work order claimed before the type was ring-fenced is on
    * its way, and may have left.
    */
@@ -639,6 +645,12 @@ export class IssueTypeService {
         return;
       }
       await tx.issueType.update({ where: { id }, data: { ringFenced } });
+      if (ringFenced) {
+        // Nothing about the type's issues reaches a contractor from now on:
+        // every link to one of their work orders ends in this transaction, and
+        // lifting the ring-fence later brings none back (ADR 0055).
+        await revokeWorkOrderLinks(tx, { issue: { typeId: id } });
+      }
       await this.audit.record(
         {
           action: "ISSUE_TYPE_RING_FENCE_CHANGED",

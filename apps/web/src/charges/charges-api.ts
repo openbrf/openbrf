@@ -140,6 +140,20 @@ export function fetchIssueCharges(
   );
 }
 
+/**
+ * One issue as a charge is made from it, without the charges made from it.
+ * The same guards and the same answer for an issue the reader does not handle
+ * as `fetchIssueCharges`.
+ */
+export function fetchIssueChargeBasis(
+  issueId: string,
+): Promise<ApiResult<IssueChargeBasis>> {
+  return apiRequest(
+    "GET",
+    `/api/member-charges/issues/${encodeURIComponent(issueId)}/basis`,
+  );
+}
+
 export function recordCharge(
   input: ChargeInput,
 ): Promise<ApiResult<ChargeRow>> {

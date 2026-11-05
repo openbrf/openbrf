@@ -54,6 +54,19 @@ export function residencyEndedBy(day: LocalDay): Prisma.ResidencyWhereInput {
   return { movedOutOn: { lte: dateColumnOf(day) } };
 }
 
+/**
+ * The residencies not yet ended on a day: held on it, or still to begin.
+ *
+ * The end alone, as the comment at the top of this file says, so a household
+ * recorded ahead of its move-in date counts from the day it is recorded. What
+ * a protected household keeps from a contractor asks this (ADR 0055), because
+ * no write marks the day the move-in date arrives.
+ */
+export function residencyNotEndedOn(day: LocalDay): Prisma.ResidencyWhereInput {
+  const on = dateColumnOf(day);
+  return { OR: [{ movedOutOn: null }, { movedOutOn: { gt: on } }] };
+}
+
 /** The board seats held on a day. */
 export function boardSeatHeldOn(day: LocalDay): Prisma.BoardPositionWhereInput {
   const on = dateColumnOf(day);
