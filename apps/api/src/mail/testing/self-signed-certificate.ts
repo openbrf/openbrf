@@ -66,9 +66,10 @@ export function selfSignedCertificate(
     namedCurve: "prime256v1",
   });
   const now = Date.now();
-  // A positive serial: the first byte's top bit is clear.
+  // A minimal positive INTEGER: the first byte is nonzero and its top bit is
+  // clear, so the DER encoding has no redundant leading zero.
   const serial = randomBytes(8);
-  serial[0] = (serial[0] ?? 0) & 0x7f;
+  serial[0] = (serial[0] ?? 0) & 0x7f || 0x01;
   const tbs = sequence(
     // Version 3.
     der(0xa0, der(0x02, Buffer.from([0x02]))),
