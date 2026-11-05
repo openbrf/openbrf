@@ -1,5 +1,5 @@
 import { ISSUE_CONVERSATION_LIMITS } from "@openbrf/shared";
-import { useId, useState, type ReactElement } from "react";
+import { useId, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { ApiResult } from "../api/client";
@@ -51,8 +51,12 @@ export function ConversationComposer<T>({
   fallback: TranslationKey;
   send: (body: string) => Promise<ApiResult<T>>;
   onSent: (sent: T) => void;
-  /** Told of a refusal, so the caller can read again what it was about. */
-  onRefused?: (reason: string) => void;
+  /**
+   * Told of a refusal, so the caller can read again what it was about, with
+   * the text that was refused, which the caller may carry on to wherever the
+   * reporter goes next.
+   */
+  onRefused?: (reason: string, body: string) => void;
   savedReplies?: readonly IssueSavedReply[];
 }): ReactElement {
   const { t } = useTranslation();
@@ -61,15 +65,20 @@ export function ConversationComposer<T>({
   const [tooLong, setTooLong] = useState(false);
   const pickerId = useId();
   const hintId = useId();
+  // What was last submitted, which a refusal is told with.
+  const submitted = useRef("");
   const save = useSaveAction(
-    send,
+    (body: string) => {
+      submitted.current = body;
+      return send(body);
+    },
     (sent) => {
       setDraft("");
       // The notice was about the draft that is now gone.
       setTooLong(false);
       onSent(sent);
     },
-    (failure) => onRefused?.(failure.reason),
+    (failure) => onRefused?.(failure.reason, submitted.current),
   );
   const busy = save.pending;
   const unsendable =

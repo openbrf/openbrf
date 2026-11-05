@@ -66,6 +66,16 @@ describe("the reporter's link controller", () => {
     }
   });
 
+  it("matches the malformed token's route on any one segment, ranked below the token's", () => {
+    const prototype = SiteIssueLinkController.prototype as unknown as Record<
+      string,
+      object
+    >;
+    expect(
+      Reflect.getMetadata(PATH_METADATA, prototype["malformed"] ?? {}),
+    ).toBe(":segment");
+  });
+
   it("puts every route behind a per-address budget", () => {
     const prototype = SiteIssueLinkController.prototype as unknown as Record<
       string,
