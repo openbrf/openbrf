@@ -4520,7 +4520,7 @@
       },
       "finding": {
         "title": "Inspection finding",
-        "intro": "Mark the issue as a finding of an OVK, lift or fire inspection. It needs the protocol, attached below under Files, and a target date. Residents are not shown it. Marking it places a legal hold on the issue: its text is not redacted, purged or erased until a handler releases the hold.",
+        "intro": "Mark the issue as a finding of an OVK, lift or fire inspection. It needs the protocol, attached below under Files, and a target date. Residents are not shown it. Marking it places a legal hold on the issue: its text is not redacted, purged or erased until a handler releases the hold. Changing the mark later does not place a released hold again.",
         "current": "Marked as a finding: {{kind}}.",
         "protocolIs": "Protocol: {{name}}",
         "protocolGone": "The protocol has been removed from the issue.",
