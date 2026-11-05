@@ -41,8 +41,9 @@ export const ISSUE_TEXT_RETENTION_YEARS = {
  * it is never a setting. The purge reads the shorter of this and the board's
  * setting, so a ring-fenced issue's text never outlasts an ordinary one's
  * clock, whatever the review sets. A legal hold on the issue (a damage case
- * places one) stands over this clock as over the board's, and keeps the text
- * until the hold is released (ADR 0057).
+ * places one), or a legal hold or a restriction on its reporter, stands over
+ * this clock as over the board's, and keeps the text until it is released
+ * (ADR 0057).
  */
 export const RING_FENCED_ISSUE_TEXT_RETENTION_YEARS = 1;
 

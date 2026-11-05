@@ -291,13 +291,17 @@ export class IssueReporterLinkService implements OnModuleInit {
           },
         },
       });
-      if (
-        issue === null ||
+      if (issue !== null && issue.type.ringFenced) {
         // Nothing about a ring-fenced issue is mailed (decision 32). The
         // website's form offers no ring-fenced type, so this is a report filed
         // before the board ring-fenced its type: read under the issue's lock
-        // and not mailed.
-        issue.type.ringFenced ||
+        // and not mailed. A link an earlier attempt issued and did not mail
+        // gives its slot back, as on a close.
+        await this.releaseEarlier(tx, issue.reporterLink);
+        return null;
+      }
+      if (
+        issue === null ||
         issue.reporterPersonId !== null ||
         issue.reporterEmailCipher === null ||
         issue.reporterEmailIndex === null
@@ -555,8 +559,8 @@ export class IssueReporterLinkService implements OnModuleInit {
 
   /**
    * Gives back the slot of a link an earlier attempt issued and did not mail,
-   * when a retry finds it will not mail it either: the issue closed, its
-   * address restricted or that address's budget spent. The caller holds the
+   * when a retry finds it will not mail it either: the issue closed, its type
+   * ring-fenced, its address restricted or that address's budget spent. The caller holds the
    * issue's lock, which the stamp is written under too, and has read the link
    * as neither mailed nor withdrawn.
    */

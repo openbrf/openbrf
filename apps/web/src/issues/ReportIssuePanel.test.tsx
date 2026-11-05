@@ -678,6 +678,52 @@ describe("a report made from a post", () => {
     expect(screen.getByRole("option", { name: "Vatten" })).toBeTruthy();
   });
 
+  it("keeps a ring-fenced type for a follow-up started from a post, which is not linked to it", async () => {
+    const session = userEvent.setup();
+    const onReported = vi.fn();
+    render(
+      <ReportIssuePanel
+        types={[
+          ...TYPES,
+          {
+            id: "type-noise",
+            name: "Störningar",
+            reporters: ["RESIDENTS"],
+            ringFenced: true,
+          },
+        ]}
+        apartments={APARTMENTS}
+        prefill={PREFILL}
+        followUp={{
+          id: "issue-earlier",
+          typeId: "type-noise",
+          typeName: "Störningar",
+        }}
+        onReported={onReported}
+      />,
+    );
+
+    expect(
+      (screen.getByLabelText(/vad gäller det/i) as HTMLSelectElement).value,
+    ).toBe("type-noise");
+
+    await session.click(
+      screen.getByRole("button", { name: /skicka anmälan/i }),
+    );
+
+    await waitFor(() => {
+      expect(onReported).toHaveBeenCalledWith(null);
+    });
+    expect(reportIssue).toHaveBeenCalledWith({
+      typeId: "type-noise",
+      apartmentId: null,
+      placeId: null,
+      location: null,
+      description: "Hissen i port 14 står still igen.",
+      followsIssueId: "issue-earlier",
+    });
+  });
+
   it("says so, and offers no form, when only ring-fenced types are left for a post", () => {
     render(
       <ReportIssuePanel

@@ -185,6 +185,13 @@ export function ReportIssuePanel({
     prefill?.postId ?? null,
   );
   /*
+   * The post the report is sent with. A follow-up is not linked to the post it
+   * was started from: the post may already name the report being followed up,
+   * and the server refuses a second report on a post that names one. The post
+   * keeps its link.
+   */
+  const linkedPostId = followUp === undefined ? fromPostId : null;
+  /*
    * The photographs that did not make it, by name.
    *
    * A name rather than a flag because the reporter has to know which of the
@@ -247,7 +254,7 @@ export function ReportIssuePanel({
       setPhotos([]);
       setFromPostId(null);
       // The post the report was sent with: none for a follow-up.
-      onReported(followUp === undefined ? fromPostId : null);
+      onReported(linkedPostId);
     },
   );
 
@@ -259,12 +266,13 @@ export function ReportIssuePanel({
    * sent unseen and refused with nothing on the form to correct.
    */
   /*
-   * A report made from a post is offered no ring-fenced type: the server
+   * A report linked to a post is offered no ring-fenced type: the server
    * refuses one (`ring-fenced-post`), because a post is read by the house and
-   * the link would tell it a report was made.
+   * the link would tell it a report was made. A follow-up started from a post
+   * is not linked to it, so it keeps its ring-fenced type.
    */
   const typeChoices =
-    fromPostId === null ? types : types.filter((type) => !type.ringFenced);
+    linkedPostId === null ? types : types.filter((type) => !type.ringFenced);
   const typeId = offered(draft.typeId, typeChoices);
   const chosen = typeChoices.find((type) => type.id === typeId);
   const apartmentId = offered(draft.apartmentId, apartments);
@@ -281,10 +289,7 @@ export function ReportIssuePanel({
       location: draft.location.trim() === "" ? null : draft.location.trim(),
       description: draft.description.trim(),
       photos,
-      // A follow-up is not linked to the post it was started from: the post
-      // may already name the report being followed up, and the server refuses
-      // a second report on a post that names one. The post keeps its link.
-      postId: followUp === undefined ? fromPostId : null,
+      postId: linkedPostId,
       followsIssueId: followUp?.id ?? null,
     });
   };

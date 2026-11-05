@@ -83,9 +83,11 @@ onto the shorter clock from the next night.
 A legal hold stands over the ring-fenced clock as it does over the board's: the
 purge skips a case under a hold, ring-fenced or not, until a handler releases
 it. That includes a damage case, which places a hold without a word to the
-handler who marks it. A ring-fenced case under a hold therefore keeps its text
-past the year, and the texts that promise the year say "unless a legal hold
-stands". Whether a ring-fenced case may be held at all, or the mark refused on
+handler who marks it. A legal hold or a restriction on the case's reporter
+stops the purge on either clock as well. A ring-fenced case under any of these
+therefore keeps its text past the year, and the texts that promise the year
+name both: a legal hold on the issue, or a legal hold or a restriction on the
+person who reported it. Whether a ring-fenced case may be held at all, or the mark refused on
 one, is part of question 4 below.
 
 The text of a work order has a clock of its own too: ten years after closing

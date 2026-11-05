@@ -945,6 +945,44 @@ describe("mail", () => {
       send.mockRestore();
     }
   });
+
+  it("gives back the slot of a link a failed attempt left when the retry finds the type ring-fenced", async () => {
+    const send = vi
+      .spyOn(mail, "send")
+      .mockRejectedValue(new Error("mail server unavailable"));
+    try {
+      const type = await addType("webb-retry", { reporters: ["PUBLIC"] });
+      const { id: issueId } = await issues.reportPublicly({
+        typeId: type.id,
+        description: REPORT,
+        reporterName: "Vera Retry",
+        reporterEmail: `rf-retry-${suffix}@exempel.se`,
+      });
+      // The first attempt issues a link and fails to mail it: the link is
+      // kept for the retry and counts toward the address's three a day.
+      await expect(reporterLinks.deliver(issueId)).rejects.toThrow();
+      expect(
+        await prisma.issueReporterLink.count({
+          where: { issueId, mailedAt: null },
+        }),
+      ).toBe(1);
+
+      await prisma.issueType.update({
+        where: { id: type.id },
+        data: { reporters: ["RESIDENTS"] },
+      });
+      expect((await setRingFence(type.id, true)).statusCode).toBe(200);
+      send.mockClear();
+
+      expect(await reporterLinks.deliver(issueId)).toBe(false);
+      expect(send).not.toHaveBeenCalled();
+      expect(await prisma.issueReporterLink.count({ where: { issueId } })).toBe(
+        0,
+      );
+    } finally {
+      send.mockRestore();
+    }
+  });
 });
 
 describe("posts and the website's form", () => {

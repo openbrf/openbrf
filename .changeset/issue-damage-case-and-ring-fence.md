@@ -41,7 +41,8 @@ leaves it.
   Tenant-Ownership Act are taken outside Open BRF.
 - **Its own clock.** The free text of a ring-fenced issue is purged one year
   after the issue closes, whatever the board set for other issues, unless a
-  legal hold stands on it, a damage case included. The board does not set the
+  legal hold stands on it, a damage case included, or a legal hold or a
+  restriction stands on the person who reported it. The board does not set the
   year; it stays at one year until the legal review of the module says
   otherwise.
 - **Lifted only from an unused type.** The ring-fence cannot be lifted once
