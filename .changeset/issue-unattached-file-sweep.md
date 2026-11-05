@@ -12,6 +12,9 @@ never shown to anybody, but nothing removed it either: the clock on an issue's
 free text and a granted erasure request reach files through their issue.
 
 A nightly job now removes such a file, with its bytes, on its first run after
-a day has passed since the upload. It keeps a file that anything holds, and a file whose
-uploader is under a legal hold or a restriction of processing. The audit log
-records each removal without the file's name.
+a day has passed since the upload. A run removes at most 500 such files,
+oldest first, so a larger backlog takes several nights. A file whose removal
+fails is tried again the next night, and the run goes on to the files behind
+it. The job keeps a file that anything holds, and a file whose uploader is
+under a legal hold or a restriction of processing. The audit log records each
+removal without the file's name.

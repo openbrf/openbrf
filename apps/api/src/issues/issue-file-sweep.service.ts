@@ -47,9 +47,27 @@ export const UNATTACHED_ISSUE_FILE_HOURS = 24;
  * Never reached in ordinary running, where a stopped upload is rare. It bounds
  * the first run after something went wrong many times over. Nothing is lost by
  * stopping: what is swept is selected by the data, so the next run finds the
- * rest.
+ * rest. Only removals count against it. A file whose removal fails is passed
+ * over, not counted, so files that fail every night cannot use up the bound and
+ * keep the files behind them stored.
  */
 const MAX_FILES_PER_RUN = 500;
+
+/** How many candidates one read of the scan selects. */
+const SCAN_PAGE_SIZE = 100;
+
+/** The bounds of one run. Only a test passes others than the defaults. */
+export interface IssueFileSweepLimits {
+  /** The most files the run removes. */
+  maxRemovals: number;
+  /** How many candidates one read of the scan selects. */
+  pageSize: number;
+}
+
+const DEFAULT_LIMITS: IssueFileSweepLimits = {
+  maxRemovals: MAX_FILES_PER_RUN,
+  pageSize: SCAN_PAGE_SIZE,
+};
 
 /** The capability every file the issues module stores is held under. */
 const ISSUE_FILE_CAPABILITY = "issues:handle";
@@ -108,8 +126,8 @@ export interface IssueFileSweepRunSummary {
   /** Files removed, with their bytes. */
   removed: number;
   /**
-   * Files whose removal threw. The run carries on past them, and the next run
-   * selects them again.
+   * Files whose removal threw. The run carries on past them to the files
+   * behind them, and the next run selects them again.
    */
   failed: number;
 }
@@ -188,64 +206,104 @@ export class IssueFileSweepService implements OnModuleInit {
   /**
    * Removes the issues module's files that are on nothing and past their age.
    *
+   * The scan reads the candidates oldest first, a page at a time, each page
+   * starting after the last file of the one before. A file the run could not
+   * remove is therefore passed over rather than read again, and the run goes
+   * on to the files behind it until it has removed
+   * {@link IssueFileSweepLimits.maxRemovals} or found no more. When storage
+   * refuses every removal, the run tries each candidate once and leaves them
+   * all to the next night.
+   *
    * @param now The moment to judge the age at, passed in so a test can drive
    *   it instead of waiting a day.
+   * @param limits The run's bounds, passed in so a test can reach them with a
+   *   handful of files.
    */
-  async run(now: Date = new Date()): Promise<IssueFileSweepRunSummary> {
+  async run(
+    now: Date = new Date(),
+    limits: IssueFileSweepLimits = DEFAULT_LIMITS,
+  ): Promise<IssueFileSweepRunSummary> {
     const uploadedBefore = new Date(
       now.getTime() - UNATTACHED_ISSUE_FILE_HOURS * 60 * 60 * 1000,
     );
     const withheld = await withheldPersonIds(this.prisma);
-    const files = await this.prisma.mediaFile.findMany({
-      where: {
-        ...unattachedIssueFiles(uploadedBefore),
-        // Excluded by the query, so withheld uploads cannot spend the run's
-        // bound. Spelled out for the file with no uploader, which a bare
-        // `notIn` would leave out: SQL answers NULL NOT IN (...) with neither
-        // true nor false.
-        ...(withheld.length > 0
-          ? {
-              OR: [
-                { uploadedByPersonId: null },
-                { uploadedByPersonId: { notIn: withheld } },
-              ],
-            }
-          : {}),
-      },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      take: MAX_FILES_PER_RUN,
-      select: { id: true },
-    });
+    // Excluded by the query, so withheld uploads cannot spend the run's bound.
+    // Spelled out for the file with no uploader, which a bare `notIn` would
+    // leave out: SQL answers NULL NOT IN (...) with neither true nor false.
+    const notWithheld: Prisma.MediaFileWhereInput =
+      withheld.length > 0
+        ? {
+            OR: [
+              { uploadedByPersonId: null },
+              { uploadedByPersonId: { notIn: withheld } },
+            ],
+          }
+        : {};
 
+    let considered = 0;
     let removed = 0;
     let failed = 0;
-    for (const { id } of files) {
-      try {
-        if (
-          await this.media.remove(id, null, "SYSTEM", {
-            recordFileName: false,
-            bytesFirst: true,
-            keep: (tx, file) => this.keepsFile(tx, file, uploadedBefore),
-          })
-        ) {
-          removed += 1;
+    let after: { createdAt: Date; id: string } | null = null;
+    scan: while (removed < limits.maxRemovals) {
+      const page: { createdAt: Date; id: string }[] =
+        await this.prisma.mediaFile.findMany({
+          where: {
+            AND: [
+              unattachedIssueFiles(uploadedBefore),
+              notWithheld,
+              after === null
+                ? {}
+                : {
+                    OR: [
+                      { createdAt: { gt: after.createdAt } },
+                      { createdAt: after.createdAt, id: { gt: after.id } },
+                    ],
+                  },
+            ],
+          },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          take: limits.pageSize,
+          select: { id: true, createdAt: true },
+        });
+
+      for (const { id } of page) {
+        if (removed >= limits.maxRemovals) {
+          break scan;
         }
-      } catch (error) {
-        // The id and the class of the failure: an id is opaque, and a file
-        // name would be somebody's own words.
-        failed += 1;
-        this.logger.error(
-          `Issue file sweep left the file ${id}: ${failureName(error)}`,
-        );
+        considered += 1;
+        try {
+          if (
+            await this.media.remove(id, null, "SYSTEM", {
+              recordFileName: false,
+              bytesFirst: true,
+              keep: (tx, file) => this.keepsFile(tx, file, uploadedBefore),
+            })
+          ) {
+            removed += 1;
+          }
+        } catch (error) {
+          // The id and the class of the failure: an id is opaque, and a file
+          // name would be somebody's own words.
+          failed += 1;
+          this.logger.error(
+            `Issue file sweep left the file ${id}: ${failureName(error)}`,
+          );
+        }
       }
+
+      const last = page.at(-1);
+      if (last === undefined || page.length < limits.pageSize) {
+        break;
+      }
+      after = last;
     }
 
     if (removed > 0 || failed > 0) {
       this.logger.log(
-        `Removed ${String(removed)} of ${String(files.length)} issue files that were on nothing`,
+        `Removed ${String(removed)} of ${String(considered)} issue files that were on nothing`,
       );
     }
-    return { considered: files.length, removed, failed };
+    return { considered, removed, failed };
   }
 
   /**

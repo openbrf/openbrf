@@ -456,4 +456,47 @@ describe("the sweep of the issues module's unattached files", () => {
     expect(await hasRow(fileId)).toBe(false);
     expect(await hasObject(key)).toBe(false);
   });
+
+  it("goes on past a file it could not remove to the files behind it", async () => {
+    /*
+     * The failing file is the oldest, and a page and the run's bound are one
+     * file each: a scan that read the oldest candidates again, or counted a
+     * failure against the bound, would reach the failing file alone and never
+     * the one behind it. Twenty years back puts both ahead of what any other
+     * suite on the database leaves behind.
+     */
+    const failingId = await storeIssueFile(residentPersonId);
+    const behindId = await storeIssueFile(residentPersonId);
+    await age(failingId, 20 * 365 * 24 + 1);
+    await age(behindId, 20 * 365 * 24);
+    const failingKey = await storageKeyOf(failingId);
+
+    const error = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => {});
+    const remove = storage.remove.bind(storage);
+    const refuse = vi
+      .spyOn(storage, "remove")
+      .mockImplementation(async (storageKey) => {
+        if (storageKey === failingKey) {
+          throw new Error("storage refused the file");
+        }
+        await remove(storageKey);
+      });
+    try {
+      const summary = await sweep.run(new Date(), {
+        maxRemovals: 1,
+        pageSize: 1,
+      });
+      expect(summary).toEqual({ considered: 2, removed: 1, failed: 1 });
+      expect(await hasRow(failingId)).toBe(true);
+      expect(await hasRow(behindId)).toBe(false);
+    } finally {
+      refuse.mockRestore();
+      error.mockRestore();
+    }
+
+    await sweep.run();
+    expect(await hasRow(failingId)).toBe(false);
+  });
 });
