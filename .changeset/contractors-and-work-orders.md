@@ -25,10 +25,12 @@ a preview, and the issue keeps the record of it (ADR 0055).
   and nothing else: if the contractor's name or address changed after the
   preview, or the preview is over half an hour old, the handler is asked to
   preview again. The mail's subject, heading and language follow the
-  association's settings when it is sent. The same work order sent
-  twice within half an hour is refused, also when the first one's text has been
-  removed in between, and one person may send twenty work
-  orders an hour. An issue that is closed is offered no work order until it
+  association's settings when it is sent. A work order to the same
+  contractor on the same issue with the same text is refused within half an
+  hour, and so is any text while an earlier one to that contractor has had its
+  text removed in the half hour; an earlier one known not to have left the
+  instance does not count, so it can be written again at once. One person may
+  send twenty work orders an hour. An issue that is closed is offered no work order until it
   is reopened. The preview says when this instance has no mail server set
   up.
 - **What the mail carries.** The handler's text and nothing else from the
@@ -45,8 +47,8 @@ a preview, and the issue keeps the record of it (ADR 0055).
   Outside production, a work order sent with no mail server set up is recorded
   as not sent.
   A work order whose recipient address cannot be read back is still listed,
-  with no address and the reason it was not sent, and does not hide the issue's
-  other work orders.
+  with a note that the address could not be read, and does not hide the issue's
+  other work orders. One that failed for that reason says it was not sent.
   A work order whose contractor was removed, or whose text was erased, before
   its sending began is not mailed and is recorded as not sent, as is one whose
   recipient address cannot be read back; one removed after that cannot be
@@ -59,10 +61,13 @@ a preview, and the issue keeps the record of it (ADR 0055).
   subject access report lists the work orders sent about their issues: to
   whom, when, and whether the mail went out, saying "not sent" only for a
   failure known not to have left the instance. The text of a work order is erased
-  ten years after its issue was closed, when a claim about the work it ordered
-  becomes time-barred, unless a legal hold stands on the issue; when it was
-  sent stays, and whom it went to stays while
-  the contractor is on the list. A report from the public form still loses
+  ten years after its issue was closed, the ordinary retention window chosen
+  for it, which follows the general ten-year limitation period for a claim
+  about the work it ordered. A claim's limitation period can be interrupted or
+  renewed and the erasure does not follow that: a legal hold on the issue, or a
+  legal hold or a restriction of processing on the reporter, is what keeps the
+  text longer. When it was sent stays, and whom it went to stays while the
+  contractor is on the list. A report from the public form still loses
   its reporter's name and email address a year after it is closed, but while
   the text of a work order about it stands, the address is kept in a coded
   form that cannot be read back, and goes when the last text is erased: a

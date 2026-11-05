@@ -254,9 +254,8 @@ export function IssueQueueScreen({
   /*
    * The types, read again whenever the queue is read again for a save, an
    * issue opened or a retry, and on their own retry, but not for each change
-   * of view or filter. A
-   * status switched off since they were read is refused by the server, and
-   * the panel reads the queue again on that refusal.
+   * of view or filter. A status switched off since they were read is refused
+   * by the server, and the panel reads the queue again on that refusal.
    */
   useEffect(() => {
     if (!canHandle) {

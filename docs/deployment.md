@@ -1021,6 +1021,14 @@ with a message that names what is wrong:
   connection limit the script sets for the role has to be 1 or more; `-1`
   would mean no limit.
 
+The server also has to offer the `pg_trgm` extension, which the issue queue's
+search is indexed with. It ships with PostgreSQL's contrib modules, which the
+bundled database's image includes; on a server built from packages, install
+them. `pg_trgm` is a trusted extension, so the migrations create it as the
+schema owner, with no superuser; a managed server that has extensions allowed
+one by one has to allow it first. Without it the migration that creates it
+stops the deploy with PostgreSQL's own error.
+
 A new database grants `CONNECT` to every role on the server. Each deploy that
 constrains the runtime role revokes that grant on the instance's own database,
 and checks afterwards that it is gone, so no instance's runtime role can open
