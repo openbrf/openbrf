@@ -71,6 +71,14 @@ export interface SendMailInput<Props> {
    */
   messageId?: string | null;
   inReplyTo?: string | null;
+
+  /**
+   * Ends the send where it stands once aborted, for a caller that holds a lock
+   * across the handoff and must hand nothing over after the lock is gone
+   * (`MailDriver.send`). Checked again before the driver is given the message,
+   * since rendering it and reading the settings take time of their own.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -145,6 +153,7 @@ export class MailService {
   async send<Props>(
     input: SendMailInput<Props>,
   ): Promise<SentMail & { suppressed?: true }> {
+    input.signal?.throwIfAborted();
     const association = await this.loadAssociation();
     const rendered = await this.renderWith(input, this.brandOf(association));
     const mail = await this.mailSettings.currentFrom(association);
@@ -174,19 +183,23 @@ export class MailService {
     }
 
     const sender = this.senderFor(mail, association);
-    return this.driverFor(mail).send({
-      from: sender.from,
-      to: input.to,
-      // One line whichever driver sends it. A subject can quote one an outside
-      // sender wrote - a board mailbox answer is "Re:" and theirs - and a line
-      // break in it must not reach a service that writes the header as given.
-      subject: oneLine(rendered.subject),
-      html: rendered.html,
-      text: rendered.text,
-      replyTo: input.replyTo ?? sender.replyTo,
-      messageId: input.messageId ?? null,
-      inReplyTo: input.inReplyTo ?? null,
-    });
+    input.signal?.throwIfAborted();
+    return this.driverFor(mail).send(
+      {
+        from: sender.from,
+        to: input.to,
+        // One line whichever driver sends it. A subject can quote one an outside
+        // sender wrote - a board mailbox answer is "Re:" and theirs - and a line
+        // break in it must not reach a service that writes the header as given.
+        subject: oneLine(rendered.subject),
+        html: rendered.html,
+        text: rendered.text,
+        replyTo: input.replyTo ?? sender.replyTo,
+        messageId: input.messageId ?? null,
+        inReplyTo: input.inReplyTo ?? null,
+      },
+      input.signal,
+    );
   }
 
   /**

@@ -1,3 +1,5 @@
+import { connect } from "node:net";
+
 import { HttpStatus } from "@nestjs/common";
 import {
   createTransport,
@@ -162,11 +164,15 @@ export class SmtpMailDriver implements MailDriver {
       : null;
   }
 
-  async send(mail: OutgoingMail): Promise<SentMail> {
+  async send(mail: OutgoingMail, signal?: AbortSignal): Promise<SentMail> {
     let info: unknown;
     try {
-      info = await this.sendOne(mail);
+      info = await this.sendOne(mail, signal);
     } catch (error) {
+      // The caller's deadline, whatever nodemailer made of the closed socket.
+      if (signal?.aborted === true) {
+        throw signal.reason;
+      }
       if (isTlsFailure(error)) {
         throw new MailTlsUnavailableError({ cause: error });
       }
@@ -193,42 +199,67 @@ export class SmtpMailDriver implements MailDriver {
    * transport built on the name would connect wherever that resolution said
    * rather than where this one did. The name stays the TLS server name, so a
    * certificate is still checked against the host the board entered.
+   *
+   * A send with a signal gets one of its own too, whose socket the signal
+   * closes (`connectUntil`): the shared transport opens sockets of its own
+   * that nothing here can reach.
    */
-  private async transportFor(): Promise<{
+  private async transportFor(signal: AbortSignal | undefined): Promise<{
     transporter: Transporter;
     own: boolean;
   }> {
-    if (this.transporter !== null) {
+    if (this.transporter !== null && signal === undefined) {
       return { transporter: this.transporter, own: false };
     }
 
-    let addresses: readonly ResolvedAddress[];
-    try {
-      addresses = await resolvePublicAddresses(this.server.host, {
-        allowPrivate: false,
-        ...(this.resolve === undefined ? {} : { resolve: this.resolve }),
-      });
-    } catch (cause) {
-      throw new MailServerNotPublicError({ cause });
+    let address: string | undefined;
+    if (!this.server.allowPrivateHosts) {
+      let addresses: readonly ResolvedAddress[];
+      try {
+        // Raced rather than cancelled, which the system resolver cannot be: a
+        // lookup carries no part of the message, and nothing is connected to
+        // once the signal is aborted.
+        addresses = await untilAborted(
+          resolvePublicAddresses(this.server.host, {
+            allowPrivate: false,
+            ...(this.resolve === undefined ? {} : { resolve: this.resolve }),
+          }),
+          signal,
+        );
+      } catch (cause) {
+        if (signal?.aborted === true) {
+          throw signal.reason;
+        }
+        throw new MailServerNotPublicError({ cause });
+      }
+
+      // IPv4 first where there is one, which is the order nodemailer tries a
+      // name in: a container with no IPv6 route would otherwise fail on a host
+      // that answers on both.
+      address = (
+        addresses.find((answer) => answer.family === 4) ?? addresses[0]
+      )?.address;
     }
 
-    // IPv4 first where there is one, which is the order nodemailer tries a
-    // name in: a container with no IPv6 route would otherwise fail on a host
-    // that answers on both.
-    const address =
-      addresses.find((answer) => answer.family === 4) ?? addresses[0];
+    signal?.throwIfAborted();
     return {
       transporter: createTransport(
-        transportOptions(this.server, address?.address),
+        transportOptions(this.server, address, signal),
       ),
       own: true,
     };
   }
 
-  private async sendOne(mail: OutgoingMail): Promise<unknown> {
-    const { transporter, own } = await this.transportFor();
+  private async sendOne(
+    mail: OutgoingMail,
+    signal: AbortSignal | undefined,
+  ): Promise<unknown> {
+    const { transporter, own } = await this.transportFor(signal);
     try {
-      return await this.sendThrough(transporter, mail);
+      // Raced as well, so the caller hears of the abort when it comes: the
+      // socket is closed by then, and what nodemailer reports of it later is
+      // left unread.
+      return await untilAborted(this.sendThrough(transporter, mail), signal);
     } finally {
       if (own) {
         transporter.close();
@@ -265,13 +296,16 @@ export class SmtpMailDriver implements MailDriver {
 
 /**
  * What a transport for this server is built with, connecting to `address` when
- * one is given and to the host by name when not.
+ * one is given and to the host by name when not, over a socket `signal` closes
+ * when one is given.
  */
 function transportOptions(
   server: SmtpServer,
   address?: string,
+  signal?: AbortSignal,
 ): SMTPTransportOptions {
   return {
+    ...(signal === undefined ? {} : { getSocket: connectUntil(signal) }),
     host: address ?? server.host,
     // The name the certificate is checked against, and the one presented for
     // SNI, when the connection is made to an address.
@@ -287,6 +321,79 @@ function transportOptions(
         ? undefined
         : { user: server.user, pass: server.password ?? "" },
   };
+}
+
+/**
+ * Opens the connection for nodemailer, on a socket the signal destroys.
+ *
+ * Nodemailer takes no signal, and the socket it opens itself is out of reach,
+ * so the connection is opened here and handed to it as a proxy's would be.
+ * Destroying it is what ends the send where it stands: TLS, which nodemailer
+ * still sets up over it, runs on this socket, and once it is destroyed no
+ * further byte of the conversation leaves this process. The connect is bounded
+ * as nodemailer bounds its own.
+ */
+function connectUntil(
+  signal: AbortSignal,
+): NonNullable<SMTPTransportOptions["getSocket"]> {
+  return (options, callback) => {
+    if (signal.aborted) {
+      callback(signal.reason as Error);
+      return;
+    }
+    let settled = false;
+    const socket = connect({
+      host: options.host,
+      port: Number(options.port),
+      signal,
+    });
+    const timedOut = (): void => {
+      socket.destroy(
+        Object.assign(new Error("Connection timeout"), { code: "ETIMEDOUT" }),
+      );
+    };
+    socket.setTimeout(CONNECTION_TIMEOUT_MS);
+    socket.once("timeout", timedOut);
+    socket.once("connect", () => {
+      settled = true;
+      // Nodemailer sets its own bounds on the open socket.
+      socket.setTimeout(0);
+      socket.removeListener("timeout", timedOut);
+      callback(null, { connection: socket });
+    });
+    socket.once("error", (error) => {
+      if (!settled) {
+        settled = true;
+        callback(error);
+      }
+    });
+  };
+}
+
+/**
+ * `work`, or the signal's reason as soon as it is aborted. What `work` comes
+ * to after that is left unread.
+ */
+function untilAborted<T>(
+  work: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (signal === undefined) {
+    return work;
+  }
+  return new Promise<T>((resolve, reject) => {
+    const abort = (): void => {
+      reject(signal.reason as Error);
+    };
+    if (signal.aborted) {
+      abort();
+    } else {
+      signal.addEventListener("abort", abort, { once: true });
+    }
+    work.then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", abort);
+    });
+  });
 }
 
 /** The identifier nodemailer reports, without its angle brackets. */

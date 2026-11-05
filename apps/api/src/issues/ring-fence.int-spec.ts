@@ -884,12 +884,39 @@ describe("mail", () => {
       expect(filed).toBe("filed");
       expect(fenced).toBe(false);
 
+      // Under a deadline the send is ended at before the transaction's limit
+      // can end the transaction and let the ring-fence go (MAIL_HANDOFF_MS).
+      const signal = send.mock.calls[0]?.[0].signal;
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(signal?.aborted).toBe(false);
+
       release();
       expect(await delivery).toBe(true);
       expect((await fencing).statusCode).toBe(200);
       expect(send).toHaveBeenCalledTimes(1);
     } finally {
       release();
+      send.mockRestore();
+    }
+  });
+
+  it("mails a private link under a deadline that ends before the locks can go", async () => {
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
+    try {
+      const type = await addType("webb-frist", { reporters: ["PUBLIC"] });
+      const { id: issueId } = await issues.reportPublicly({
+        typeId: type.id,
+        description: REPORT,
+        reporterName: "Vera Frist",
+        reporterEmail: `rf-frist-${suffix}@exempel.se`,
+      });
+
+      expect(await reporterLinks.deliver(issueId)).toBe(true);
+      expect(send).toHaveBeenCalledTimes(1);
+      const signal = send.mock.calls[0]?.[0].signal;
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(signal?.aborted).toBe(false);
+    } finally {
       send.mockRestore();
     }
   });

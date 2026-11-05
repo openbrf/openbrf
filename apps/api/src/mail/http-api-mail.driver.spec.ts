@@ -245,6 +245,28 @@ describe("a refusal", () => {
     );
   });
 
+  it("ends the request when the caller's signal is aborted, long before its own bound", async () => {
+    // A caller that holds a lock across the handoff hands nothing over after
+    // its deadline, and hears of it as its own abort.
+    api.silenceNext();
+    const deadline = AbortSignal.timeout(100);
+    const started = Date.now();
+
+    const failure = await driver({ requestTimeoutMs: 5000 })
+      .send(MAIL, deadline)
+      .catch((error: unknown) => error);
+
+    expect(failure).toBe(deadline.reason);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it("sends nothing on a signal that is already aborted", async () => {
+    const before = api.requests.length;
+
+    await expect(driver().send(MAIL, AbortSignal.abort())).rejects.toThrow();
+    expect(api.requests).toHaveLength(before);
+  });
+
   it("treats a redirect as a failure and does not follow it", async () => {
     // The key and the recipient would go wherever the answer pointed.
     api.answerNextWith(302, "", { location: `${api.baseUrl}/elsewhere` });

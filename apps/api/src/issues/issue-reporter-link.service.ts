@@ -25,6 +25,7 @@ import {
   lockIssue,
   lockIssueForHandling,
   MAIL_TRANSACTION_MS,
+  mailHandoffDeadline,
 } from "./issue-lock";
 import {
   extendReporterLink,
@@ -382,7 +383,8 @@ export class IssueReporterLinkService implements OnModuleInit {
      * waits until the mail server has taken the message, and a check made in
      * the transaction above would leave a gap in which the mail still goes to
      * an address that was restricted meanwhile. The lock is held as long as
-     * the send can take, which the transaction's time limit allows for.
+     * the send can take: the send is ended at its deadline, before the
+     * transaction's time limit can end the transaction (`MAIL_HANDOFF_MS`).
      *
      * The type's ring-fence, held shared, and the issue's own lock too, after
      * the registry's and for the same reason: a close, a withdrawal, the purge
@@ -394,7 +396,14 @@ export class IssueReporterLinkService implements OnModuleInit {
      * then the ring-fence or the registry, so the locks cannot wait on each
      * other the other way round. The type is read first, unlocked: nothing
      * moves an issue to another type.
+     *
+     * The send is ended before the transaction's limit can end the
+     * transaction and let these locks go with the mail still on its way
+     * (`MAIL_HANDOFF_MS`): one deadline, started before the transaction is
+     * asked for, so the waits for a connection and for every lock spend it
+     * too, and checked again once the address is decrypted.
      */
+    const deadline = mailHandoffDeadline();
     const mailed = await this.prisma.$transaction(
       async (tx) => {
         await lockLegalHoldRegistry(tx);
@@ -441,6 +450,7 @@ export class IssueReporterLinkService implements OnModuleInit {
             // reporter without an account has no profile to name one.
             locale,
             template: issueReporterLinkMail,
+            signal: deadline,
             props: {
               typeName: issued.typeName,
               linkUrl: reporterLinkUrl(this.env.APP_URL, issued.token),

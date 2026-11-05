@@ -55,11 +55,33 @@ export async function lockIssueType(
 }
 
 /**
- * How long a transaction that holds a lock across a mail's handoff may run:
- * the mail driver's connection, greeting and socket timeouts (10 s, 10 s,
- * 20 s) with room over.
+ * How long a transaction that holds a lock across a mail's handoff may run
+ * before the database ends it and lets the lock go.
  */
 export const MAIL_TRANSACTION_MS = 60_000;
+
+/**
+ * How long a mail's handoff may take under the locks it holds, counted from
+ * before the transaction is asked for: the wait for a connection and for every
+ * lock spends it too.
+ *
+ * Shorter than the transaction's limit, by more than a busy process is late
+ * to a timer, so the send is ended before the transaction can be: the driver's
+ * connection, greeting and socket timeouts alone do not bound a whole
+ * exchange, and a lock let go while the send went on would let the board
+ * ring-fence the type, or a restriction be granted, before the mail server had
+ * the message.
+ */
+export const MAIL_HANDOFF_MS = 45_000;
+
+/**
+ * The deadline of one mail's handoff: started before its transaction, handed
+ * to `MailService.send` as its signal, and aborted after `MAIL_HANDOFF_MS`,
+ * which closes the connection to the mail server wherever the exchange stands.
+ */
+export function mailHandoffDeadline(): AbortSignal {
+  return AbortSignal.timeout(MAIL_HANDOFF_MS);
+}
 
 /**
  * The lock a change of an issue type's ring-fence takes, which every mail

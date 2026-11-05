@@ -36,6 +36,7 @@ import {
   lockIssue,
   lockMessageBudget,
   MAIL_TRANSACTION_MS,
+  mailHandoffDeadline,
 } from "./issue-lock";
 
 /**
@@ -922,6 +923,12 @@ export class IssueMailer implements OnModuleInit {
     // number and type (and the priority, to a handler) and no free text can
     // still go out; the issue's lock is not held, because it would stay held
     // across the mail service's rendering, sender lookup and network call.
+    //
+    // The send is ended before the transaction's limit can end the
+    // transaction and let the ring-fence go with the mail still on its way
+    // (`MAIL_HANDOFF_MS`): one deadline, started before the transaction is
+    // asked for, so the waits for a connection and for the lock spend it too.
+    const deadline = mailHandoffDeadline();
     const handoffAt = new Date(Math.max(now.getTime(), Date.now()));
     return this.prisma.$transaction(
       async (tx): Promise<Delivery> => {
@@ -943,6 +950,7 @@ export class IssueMailer implements OnModuleInit {
               to,
               locale: recipient.preferredLocale,
               template: issueReporterNoticeMail,
+              signal: deadline,
               props: {
                 recipientName,
                 number: current.number,
@@ -954,6 +962,7 @@ export class IssueMailer implements OnModuleInit {
               to,
               locale: recipient.preferredLocale,
               template: issueHandlerNoticeMail,
+              signal: deadline,
               props: {
                 recipientName,
                 event: job.event,

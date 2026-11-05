@@ -90,7 +90,8 @@ export class HttpApiMailDriver implements MailDriver {
 
   constructor(private readonly config: MailApiConfig) {}
 
-  async send(mail: OutgoingMail): Promise<SentMail> {
+  async send(mail: OutgoingMail, signal?: AbortSignal): Promise<SentMail> {
+    signal?.throwIfAborted();
     const controller = new AbortController();
     const deadline = setTimeout(() => {
       controller.abort();
@@ -108,7 +109,11 @@ export class HttpApiMailDriver implements MailDriver {
         // One address the operator configured. A redirect would carry the key
         // and the recipient to wherever the answer pointed.
         redirect: "manual",
-        signal: controller.signal,
+        // The caller's signal too, which ends the request where it stands.
+        signal:
+          signal === undefined
+            ? controller.signal
+            : AbortSignal.any([controller.signal, signal]),
       });
 
       if (!response.ok) {
@@ -136,6 +141,9 @@ export class HttpApiMailDriver implements MailDriver {
     } catch (cause) {
       if (cause instanceof MailApiError) {
         throw cause;
+      }
+      if (signal?.aborted === true) {
+        throw signal.reason;
       }
       throw new MailApiError(
         controller.signal.aborted

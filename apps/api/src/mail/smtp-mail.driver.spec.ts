@@ -110,6 +110,35 @@ describe("the mail transport", () => {
   });
 });
 
+describe("a send with the caller's signal", () => {
+  it("gets a transport of its own, which opens the socket the signal closes", async () => {
+    // The shared transport opens its sockets out of reach of any signal.
+    const driver = new SmtpMailDriver(SERVER);
+    transport.createTransport.mockClear();
+
+    await driver.send(MAIL, new AbortController().signal);
+
+    expect(transport.createTransport).toHaveBeenCalledTimes(1);
+    expect(transport.createTransport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: "smtp.exempel.se",
+        getSocket: expect.any(Function),
+      }),
+    );
+    expect(transport.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("builds no transport on a signal that is already aborted", async () => {
+    const driver = new SmtpMailDriver(SERVER);
+    transport.createTransport.mockClear();
+    const aborted = AbortSignal.abort();
+
+    await expect(driver.send(MAIL, aborted)).rejects.toBe(aborted.reason);
+    expect(transport.createTransport).not.toHaveBeenCalled();
+    expect(transport.sendMail).not.toHaveBeenCalled();
+  });
+});
+
 describe("the message handed to the server", () => {
   it("passes a bare sender as it always has", async () => {
     await new SmtpMailDriver(SERVER).send(MAIL);
@@ -236,6 +265,28 @@ describe("a server the board entered", () => {
     expect(transport.sendMail).toHaveBeenCalledTimes(1);
     // A transport built for one send is closed after it.
     expect(transport.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("is not connected to once the caller's deadline passed during the lookup", async () => {
+    // A lookup that never answers: the system resolver cannot be cancelled,
+    // so the send is ended beside it and nothing is connected to afterwards.
+    const resolve = vi.fn<ResolveAddresses>(
+      () => new Promise<readonly ResolvedAddress[]>(() => undefined),
+    );
+    const driver = new SmtpMailDriver(
+      { ...SERVER, allowPrivateHosts: false },
+      resolve,
+    );
+    const deadline = AbortSignal.timeout(50);
+
+    const failure = await driver
+      .send(MAIL, deadline)
+      .catch((error: unknown) => error);
+
+    // The caller's own reason, not a host refused.
+    expect(failure).toBe(deadline.reason);
+    expect(transport.createTransport).not.toHaveBeenCalled();
+    expect(transport.sendMail).not.toHaveBeenCalled();
   });
 
   it("is resolved again at every send", async () => {
