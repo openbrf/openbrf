@@ -1,4 +1,4 @@
--- A mail error on a work order or on an answer from the board's shared mailbox
+-- A mail error on a work order or on an answer from the board mailbox
 -- was recorded as "send-failed" whatever the mail driver could tell of it, and
 -- the code now means the error came before the message was handed to the mail
 -- server. A row written under the old reading may be one the server took (a
