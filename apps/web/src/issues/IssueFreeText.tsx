@@ -64,15 +64,27 @@ export function PurgedMark({
 /**
  * The description, or what became of it: the purge's notice once the free
  * text is gone, the mark once a handler removed it.
+ *
+ * The notice says the photographs went too, so it waits for them. A photograph
+ * attached while the purge ran stands after the text is marked as removed,
+ * until the run that takes it; meanwhile the description says only that the
+ * free text was removed, as the location does.
  */
 export function IssueDescription({
   issue,
 }: {
   issue: Pick<
     OwnIssue,
-    "description" | "descriptionRedactedAt" | "freeTextRemovedAt"
+    "description" | "descriptionRedactedAt" | "freeTextRemovedAt" | "photos"
   >;
 }): ReactElement {
+  if (issue.freeTextRemovedAt !== null && issue.photos.length > 0) {
+    return (
+      <p>
+        <PurgedMark at={issue.freeTextRemovedAt} />
+      </p>
+    );
+  }
   if (issue.freeTextRemovedAt !== null) {
     return (
       <Notice tone="info">

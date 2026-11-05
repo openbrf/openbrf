@@ -7,6 +7,7 @@ import { IssueConversationService } from "./issue-conversation.service";
 import { IssueFitService } from "./issue-fit.service";
 import { IssuePlaceService } from "./issue-place.service";
 import { IssueErasureService } from "./issue-erasure.service";
+import { IssueFileSweepService } from "./issue-file-sweep.service";
 import { IssueFreeTextService } from "./issue-free-text.service";
 import { IssueMailer } from "./issue-mailer.service";
 import { IssuePurgeService } from "./issue-purge.service";
@@ -64,7 +65,9 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
  *
  * IssuePurgeService is a provider and not exported: it is a scheduled job with
  * nobody to call it, and the integration suite reaches it through the module
- * reference the way it reaches every other purge in the band.
+ * reference the way it reaches every other purge in the band. So is
+ * IssueFileSweepService, which removes the files an upload stored and never
+ * put on an issue or a work order.
  */
 @Module({
   imports: [ActionsModule, MediaModule],
@@ -93,6 +96,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueReporterLinkService,
     IssueFreeTextService,
     IssueTextPurgeService,
+    IssueFileSweepService,
     IssueErasureService,
     IssueRedactionService,
     IssueRetentionSettingService,

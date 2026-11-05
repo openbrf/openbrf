@@ -219,6 +219,15 @@ whole conversation and every note on it, so the issues the reader handles are
 that boundary too. Any other text added to an issue later follows the same
 rule.
 
+A word is found anywhere in a text, not only at its start, which an ordinary
+index cannot answer. Messages and notes are the texts that grow with every
+issue, so each is read through a trigram index (the `pg_trgm` extension): a
+search no longer reads every message and note in the database for each word.
+The index finds the rows that may hold the word, and the database checks each
+against the word itself, so what a search matches is the same with the index
+as without it. A word shorter than three characters has no trigram, and for it
+the database still reads every message and note.
+
 The views and the search are the board's screen alone. No action reads a view or
 searches the queue, because a new read on `mcp` or `ai` needs a decision of its
 own (ADR 0040).
@@ -442,3 +451,8 @@ handling change had taken.
   issues.
 - The AI package's triage moves from four priorities to three (decision 35), in
   its own repository.
+- The database server has to offer `pg_trgm`, for the search's indexes. It
+  ships with PostgreSQL's contrib modules, in the image the bundled database
+  runs and on the common managed servers, and it is a trusted extension, so the
+  schema owner creates it without being a superuser
+  ([docs/deployment.md](../deployment.md)).

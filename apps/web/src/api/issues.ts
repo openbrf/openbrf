@@ -206,7 +206,9 @@ export interface IssueRow {
   locationRedactedAt: string | null;
   /**
    * When the nightly purge removed the free text, the conversation and the
-   * photographs after the issue closed, or null while they stand.
+   * photographs after the issue closed, or null while they stand. A
+   * photograph attached while the purge ran can stand after this is set, until
+   * the next run takes it and moves the date.
    */
   freeTextRemovedAt: string | null;
   createdAt: string;

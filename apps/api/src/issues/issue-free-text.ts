@@ -18,8 +18,8 @@ import type { Prisma } from "../generated/prisma/client";
  * every photograph and file a handler attached, and every note and photograph
  * a contractor sent through a work order's link (ADR 0055). It is removed on the
  * board's clock after the issue closes, unless a legal hold stands on the issue
- * or on its reporter; on the reporter's granted erasure request; and, a piece
- * at a time, whenever a handler redacts it.
+ * or a legal hold or a restriction on its reporter; on the reporter's granted
+ * erasure request; and, a piece at a time, whenever a handler redacts it.
  *
  * The free-text location goes with the rest because decision 33 removes free
  * text, and "the bathroom in 1101, the neighbour's dog" is free text whatever

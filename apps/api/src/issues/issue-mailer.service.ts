@@ -206,7 +206,7 @@ export const NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR = 10;
 const HOUR_MS = 60 * 60 * 1000;
 
 /** The length of the clock-hour slot within which one person is told of one assignment or reopening once. */
-const REPEATED_NOTICE_SECONDS = 60 * 60;
+export const REPEATED_NOTICE_SECONDS = 60 * 60;
 
 /**
  * How many times a delivery that found its notice owed again under the
@@ -315,6 +315,18 @@ const ISSUE_SELECT = {
 } as const;
 
 type NoticeIssue = Prisma.IssueGetPayload<{ select: typeof ISSUE_SELECT }>;
+
+/** What a notice reads of the person it goes to. */
+const RECIPIENT_SELECT = {
+  firstName: true,
+  lastName: true,
+  emailCipher: true,
+  preferredLocale: true,
+} as const;
+
+type NoticeRecipient = Prisma.PersonGetPayload<{
+  select: typeof RECIPIENT_SELECT;
+}>;
 
 type Db = Prisma.TransactionClient | PrismaService;
 
@@ -906,12 +918,7 @@ export class IssueMailer implements OnModuleInit {
     at: Date,
   ): Promise<{
     issue: NoticeIssue;
-    recipient: {
-      firstName: string;
-      lastName: string;
-      emailCipher: string | null;
-      preferredLocale: string | null;
-    } | null;
+    recipient: NoticeRecipient | null;
   } | null> {
     const issue = await this.readIssue(this.prisma, job.issueId);
     if (
@@ -923,12 +930,7 @@ export class IssueMailer implements OnModuleInit {
     }
     const recipient = await this.prisma.person.findFirst({
       where: recipientWhereOf(issue, job, at),
-      select: {
-        firstName: true,
-        lastName: true,
-        emailCipher: true,
-        preferredLocale: true,
-      },
+      select: RECIPIENT_SELECT,
     });
     return { issue, recipient };
   }
@@ -963,8 +965,18 @@ export class IssueMailer implements OnModuleInit {
     // that holds the lock.
     const handoffAt = new Date(Math.max(now.getTime(), Date.now()));
     const again = await this.lookUp(job, handoffAt);
-    // An address changed while it was decrypted is not the one decrypted.
-    if (again?.recipient?.emailCipher !== cipher) {
+    // Each way the notice can have stopped being owed since the first look,
+    // one at a time, so a change to what `lookUp` answers cannot turn one of
+    // them into a silent skip: no longer owed (`null`), nobody left to receive
+    // it, or an address changed while it was decrypted, which is not the one
+    // decrypted.
+    if (again === null) {
+      this.logger.log(
+        `Mail about issue ${job.issueId} (${job.event}) skipped: it is no longer owed.`,
+      );
+      return "notOwed";
+    }
+    if (again.recipient === null || again.recipient.emailCipher !== cipher) {
       this.logger.log(
         `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
       );
