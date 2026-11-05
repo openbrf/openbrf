@@ -624,10 +624,18 @@ afterAll(async () => {
   const issues = await prisma.issue.findMany({
     where: { typeId: { in: typeIds() } },
     select: {
+      id: true,
       photos: { select: { fileId: true } },
       workOrders: { select: { files: { select: { fileId: true } } } },
     },
   });
+  // The notice jobs the suite's issues queued; the jobs of other suites stay.
+  if (issues.length > 0) {
+    await prisma.$executeRawUnsafe(
+      "DELETE FROM pgboss.job WHERE data->>'issueId' = ANY($1::text[])",
+      issues.map((issue) => issue.id),
+    );
+  }
   const fileIds = issues.flatMap((issue) => [
     ...issue.photos.map((photo) => photo.fileId),
     ...issue.workOrders.flatMap((order) => order.files.map((f) => f.fileId)),
