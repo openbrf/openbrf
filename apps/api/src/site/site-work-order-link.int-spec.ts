@@ -933,9 +933,35 @@ describe("A. the token", () => {
     const { url } = response.json<{ url: string }>();
     const token = url.slice(url.lastIndexOf("/") + 1);
     expect(sent.slice(mailBefore)).toEqual([]);
-    const jobs = await prisma.$queryRaw<{ data: unknown }[]>`
-      SELECT data FROM pgboss.job WHERE data->>'issueId' = ${ids.issueId}`;
-    expect(JSON.stringify(jobs)).not.toContain(token);
+    const jobsOf = () =>
+      prisma.$queryRaw<{ name: string; data: IssueNoticeJob }[]>`
+        SELECT name, data FROM pgboss.job
+        WHERE data->>'issueId' = ${ids.issueId} ORDER BY created_on`;
+    expect(JSON.stringify(await jobsOf())).not.toContain(token);
+    expect(JSON.stringify(sent)).not.toContain(token);
+
+    // Then the contractor's own activity and the answer that ends the link
+    // queue notices to the handlers; none of them, nor the mail made from
+    // them, carries the address.
+    expect(
+      (await act(token, { act: "note", body: `K1 ${suffix}` })).statusCode,
+    ).toBe(303);
+    expect((await act(token, { act: "done" })).statusCode).toBe(200);
+    const notices = (await jobsOf()).filter(
+      (job) => job.name === "issue-notice",
+    );
+    expect(notices.map((job) => [job.data.event, job.data.contractor])).toEqual(
+      [
+        ["contractor", "activity"],
+        ["contractor", "answer"],
+      ],
+    );
+    expect(JSON.stringify(await jobsOf())).not.toContain(token);
+    const delivered = sent.length;
+    for (const notice of notices) {
+      expect(await app.get(IssueMailer).deliver(notice.data)).toBe(true);
+    }
+    expect(sent.slice(delivered)).toHaveLength(2);
     expect(JSON.stringify(sent)).not.toContain(token);
     // The handlers' listing never gives it back; it is shown the once.
     expect(JSON.stringify(await listed(ids.issueId))).not.toContain(token);
@@ -2134,7 +2160,10 @@ describe("E. what a request may do", () => {
       // A page, not a redirect: a redirect to the link would meet the refusal.
       expect(ended.statusCode, answer).toBe(200);
       expect(ended.headers.location, answer).toBeUndefined();
-      expect(ended.body, answer).toContain(headings[answer]);
+      // The heading element itself, not the words anywhere on the page.
+      expect(/<h1[^>]*>([^<]*)<\/h1>/.exec(ended.body)?.[1], answer).toBe(
+        headings[answer],
+      );
       expect(ended.body, answer).toContain("Länken fungerar inte längre.");
       expect(ended.body, answer).not.toContain(ids.token);
       expect(ended.body, answer).not.toContain("/arbetsorder/");
