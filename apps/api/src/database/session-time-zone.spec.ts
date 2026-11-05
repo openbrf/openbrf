@@ -93,6 +93,19 @@ describe("pinnedSessionConfig", () => {
     expect(parameters.options).toBe("-c TimeZone=UTC");
   });
 
+  it("keeps a user named like the stand-in host", () => {
+    vi.stubEnv("PGHOST", "/var/run/postgresql");
+    for (const url of [
+      "postgres://empty-host.invalid@/openbrf",
+      "postgres://empty-host.invalid:secret@/openbrf",
+      "postgres://empty-host.invalid:@/openbrf",
+    ]) {
+      const parameters = new ConnectionParameters(pinnedSessionConfig(url));
+      expect(parameters.user).toBe("empty-host.invalid");
+      expect(parameters.host).toBe("/var/run/postgresql");
+    }
+  });
+
   it("keeps PGOPTIONS when the connection string's options are blank", () => {
     vi.stubEnv("PGOPTIONS", "-c statement_timeout=5s");
     expect(sentOptions("postgres://u:p@db/openbrf?options=")).toBe(

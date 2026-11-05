@@ -30,7 +30,9 @@ const PIN = `-c TimeZone=${SESSION_TIME_ZONE}`;
  * parsed with this host after the `@` and the host is taken out again.
  */
 const STAND_IN_HOST = "empty-host.invalid";
-const STAND_IN_AFTER = new RegExp(`(@|//)${STAND_IN_HOST.replace(".", "\\.")}`);
+// The stand-in is a whole host, so it ends at the path, query, fragment or end
+// of the string: a user named like it, followed by `@` or `:`, is not matched.
+const STAND_IN_AFTER = /(@|\/\/)empty-host\.invalid(?=[/?#]|$)/;
 const EMPTY_HOST = /^(postgres(?:ql)?:\/\/[^/?#]*@)(?=[/?#]|$)/i;
 
 /**
