@@ -4270,7 +4270,7 @@
       "toDuplicatesTitle": "Anmälarna till de sammanslagna anmälningarna",
       "toDuplicates": "Meddelande till alla som anmälde de sammanslagna anmälningarna",
       "toDuplicatesNamed": "{{type}}: meddelande till anmälarna till de sammanslagna anmälningarna",
-      "toDuplicatesHint_one": "Går till den som anmälde den {{count}} sammanslagna anmälan, i deras egen anmälan, undertecknat som styrelsen eller förvaltaren. Bara en anmälare med konto får det. Det når inte det här ärendets egen anmälare.",
+      "toDuplicatesHint_one": "Går till den som anmälde den sammanslagna anmälan, i deras egen anmälan, undertecknat som styrelsen eller förvaltaren. Bara en anmälare med konto får det. Det når inte det här ärendets egen anmälare.",
       "toDuplicatesHint_other": "Går till dem som anmälde de {{count}} sammanslagna anmälningarna, var och en i sin egen anmälan, undertecknat som styrelsen eller förvaltaren. Ingen av dem ser någon annans anmälan. Bara anmälare med konto får det, och det når inte det här ärendets egen anmälare.",
       "toDuplicatesSent_one": "Skickat till {{count}} anmälare.",
       "toDuplicatesSent_other": "Skickat till {{count}} anmälare.",
@@ -4309,7 +4309,7 @@
         "mergeLimit": "Det ärendet har redan så många dubletter som det får ha. Slå samman med ett annat ärende, eller svara anmälarna med ett känt fel. Kön har lästs om.",
         "mergeIntoClosed": "Det ärendet är avslutat. Öppna det igen först, eller slå samman med ett som fortfarande hanteras. Kön har lästs om.",
         "mergeHasDuplicates": "Andra ärenden har slagits samman med det här. Slå i stället samman det andra ärendet med det här. Kön har lästs om.",
-        "mergeAlreadyDuplicate": "Det ärendet är redan en dublett av ett annat. Öppna det igen för att slå samman det med något annat. Kön har lästs om.",
+        "mergeAlreadyDuplicate": "Det här ärendet är redan en dublett av ett annat. Öppna det igen för att slå samman det med något annat. Kön har lästs om.",
         "personalIdentityNumber": "Texten innehåller ett personnummer. Ta bort det och försök igen.",
         "noDuplicateReporter": "Ingen kan läsa ett svar i de sammanslagna anmälningarna: anmälarna har inget konto att läsa det i.",
         "unknown": "Det gick inte att spara just nu. Försök igen."
