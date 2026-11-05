@@ -330,7 +330,8 @@ function transportOptions(
  * so the connection is opened here and handed to it as a proxy's would be.
  * Destroying it is what ends the send where it stands: TLS, which nodemailer
  * still sets up over it, runs on this socket, and once it is destroyed no
- * further byte of the conversation leaves this process. The connect is bounded
+ * further byte of the conversation leaves this process (the deadline spec runs
+ * both implicit TLS and STARTTLS over it). The connect is bounded
  * as nodemailer bounds its own.
  */
 function connectUntil(
