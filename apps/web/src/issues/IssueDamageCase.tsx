@@ -6,6 +6,7 @@ import {
 import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { ApiFailure } from "../api/client";
 import {
   type IssueDamageCase,
   markIssueDamageCase,
@@ -85,14 +86,28 @@ export function IssueDamageCaseSection({
   const behind = !sameCase(base, current);
   /** What the last write did, while the draft is still the one it wrote. */
   const [outcome, setOutcome] = useState<"saved" | "removed" | null>(null);
-  const mark = useSaveAction(markIssueDamageCase, () => {
-    setOutcome("saved");
-    onChanged();
-  });
-  const remove = useSaveAction(removeIssueDamageCase, () => {
-    setOutcome("removed");
-    onChanged();
-  });
+  /** A refusal because the mark moved is the cue to re-read it. */
+  const reread = (failure: ApiFailure): void => {
+    if (failure.reason === "damage-case-changed") {
+      onChanged();
+    }
+  };
+  const mark = useSaveAction(
+    markIssueDamageCase,
+    () => {
+      setOutcome("saved");
+      onChanged();
+    },
+    reread,
+  );
+  const remove = useSaveAction(
+    removeIssueDamageCase,
+    () => {
+      setOutcome("removed");
+      onChanged();
+    },
+    reread,
+  );
   const busy = mark.pending || remove.pending;
   const takeCurrent = (): void => {
     setBase(current);

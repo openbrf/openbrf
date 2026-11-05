@@ -149,11 +149,9 @@ describe("the damage case form", () => {
       failure: { status: 409, reason: "damage-case-changed" },
     });
     const session = userEvent.setup();
+    const onChanged = vi.fn();
     render(
-      <IssueDamageCaseSection
-        issue={issue(CLAIM)}
-        onChanged={() => undefined}
-      />,
+      <IssueDamageCaseSection issue={issue(CLAIM)} onChanged={onChanged} />,
     );
     await session.click(
       screen.getByRole("button", { name: "Spara skadeärendet för ärende 12" }),
@@ -161,6 +159,47 @@ describe("the damage case form", () => {
     await waitFor(() => {
       expect(screen.getByText(/ändrades av någon annan/i)).toBeTruthy();
     });
+    // The screen asks for the mark again, so it can offer the current one.
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-reads the mark when taking it off is refused because it changed", async () => {
+    removeIssueDamageCase.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "damage-case-changed" },
+    });
+    const session = userEvent.setup();
+    const onChanged = vi.fn();
+    render(
+      <IssueDamageCaseSection issue={issue(CLAIM)} onChanged={onChanged} />,
+    );
+    await session.click(
+      screen.getByRole("button", {
+        name: "Ta bort skadeärendemarkeringen från ärende 12",
+      }),
+    );
+    await waitFor(() => {
+      expect(onChanged).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("does not re-read the mark for another refusal", async () => {
+    markIssueDamageCase.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "personal-identity-number" },
+    });
+    const session = userEvent.setup();
+    const onChanged = vi.fn();
+    render(
+      <IssueDamageCaseSection issue={issue(CLAIM)} onChanged={onChanged} />,
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Spara skadeärendet för ärende 12" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeTruthy();
+    });
+    expect(onChanged).not.toHaveBeenCalled();
   });
 
   it("says the hold stays when the mark comes off", async () => {
