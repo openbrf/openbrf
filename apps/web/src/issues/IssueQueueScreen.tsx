@@ -506,12 +506,14 @@ export function IssueQueueScreen({
       ) : null}
 
       {/*
-       * Not drawn over a failed read: an empty queue says nothing is waiting,
-       * which is a claim the notice above would not undo. While a newer read
+       * The list is not drawn over a failed read: an empty queue says nothing
+       * is waiting, which is a claim the notice above would not undo. The
+       * panel stays mounted (`listWithheld`), because the status save it owns
+       * may still be out, and its refusal is shown there. While a newer read
        * is out the earlier list stays, marked busy, rather than the page
        * jumping empty under each word typed into the search.
        */}
-      {ready && !loadFailed ? (
+      {ready ? (
         <div aria-busy={reading} className={reading ? "opacity-60" : ""}>
           <IssueQueuePanel
             emptyMessage={
@@ -528,6 +530,7 @@ export function IssueQueueScreen({
             focusTypesRetry={typesRead.by === "retry"}
             rereading={rereading}
             reading={reading}
+            listWithheld={loadFailed}
             canManageCharges={viewer.capabilities.includes(
               "memberCharges:manage",
             )}

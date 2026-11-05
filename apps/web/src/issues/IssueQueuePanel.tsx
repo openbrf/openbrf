@@ -123,6 +123,15 @@ export interface IssueQueuePanelProps {
    * it outlives its row and the form stays on.
    */
   reading?: boolean;
+  /**
+   * Whether the read of the queue failed, so the list on screen would answer
+   * nothing: an empty list says nothing is waiting, a claim the caller's
+   * notice would not undo. The panel stays mounted all the same, because the
+   * status save it owns may still be out when the read fails, and a refusal
+   * of it would go with the panel. It draws nothing until a save has been
+   * refused, and then only that refusal.
+   */
+  listWithheld?: boolean;
 }
 
 /**
@@ -159,6 +168,7 @@ export function IssueQueuePanel({
   canManageCharges = false,
   rereading = false,
   reading = false,
+  listWithheld = false,
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
   const move = useSaveAction(setIssueStatus, onChanged, (failure) => {
@@ -185,6 +195,10 @@ export function IssueQueuePanel({
   >({});
   const saving = move.state.kind === "saving";
   const typeById = new Map((types ?? []).map((type) => [type.id, type]));
+
+  if (listWithheld && move.state.kind !== "failed") {
+    return <></>;
+  }
 
   return (
     <Panel
@@ -222,7 +236,7 @@ export function IssueQueuePanel({
         </>
       }
     >
-      {issues.length === 0 ? (
+      {listWithheld ? null : issues.length === 0 ? (
         <p className="text-body text-ink-muted">
           {emptyMessage ?? t("issues.queue.empty")}
         </p>

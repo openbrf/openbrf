@@ -783,6 +783,55 @@ describe("a save that finishes under another view or filter", () => {
     ).toBeTruthy();
   });
 
+  it("keeps the refusal of a status saved during a filter read when that read fails", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+
+    let answerFiltered: (value: unknown) => void = () => undefined;
+    fetchIssueQueueSnapshot.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answerFiltered = resolve;
+        }),
+    );
+    let refuseStatus: (value: unknown) => void = () => undefined;
+    setIssueStatus.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          refuseStatus = resolve;
+        }),
+    );
+    await userEvent.selectOptions(field("Prioritet"), "URGENT");
+    await screen.findByText("Hämtar ärendena...");
+    await userEvent.selectOptions(
+      screen.getByLabelText("Vatten anmält 2026-08-20: status"),
+      "s-doing",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Spara status" }));
+    await waitFor(() => {
+      expect(setIssueStatus).toHaveBeenCalledTimes(1);
+    });
+
+    // The read fails, which takes the list off the screen, and the save is
+    // refused after it: the refusal is not lost with the list.
+    answerFiltered({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await screen.findByText("Ärendena kunde inte läsas just nu.");
+    expect(screen.queryByText("Det droppar i taket.")).toBeNull();
+    refuseStatus({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    expect(
+      await screen.findByText(
+        "Ärendet kunde inte ändras just nu. Försök igen.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Det droppar i taket.")).toBeNull();
+  });
+
   it("keeps the types' retry beside the notice of a save that failed", async () => {
     render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
     await screen.findByText("Det droppar i taket.");
