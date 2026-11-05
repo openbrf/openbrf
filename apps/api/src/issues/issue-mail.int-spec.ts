@@ -709,7 +709,7 @@ describe("a report is filed", () => {
         enteredByHandler: false,
         createdAt: { gte: new Date(Date.now() - HOUR_MS) },
       },
-      select: { id: true, createdAt: true },
+      select: { id: true, createdAt: true, updatedAt: true },
     });
     const filed: string[] = [];
     try {
@@ -770,7 +770,9 @@ describe("a report is filed", () => {
       for (const other of others) {
         await prisma.issue.updateMany({
           where: { id: other.id },
-          data: { createdAt: other.createdAt },
+          // Both columns in one write: the `@updatedAt` column takes the time
+          // of a write that leaves it out.
+          data: { createdAt: other.createdAt, updatedAt: other.updatedAt },
         });
       }
     }
