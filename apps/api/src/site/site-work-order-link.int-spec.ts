@@ -2201,16 +2201,31 @@ describe("F. response headers", () => {
         method: "GET",
         url: `/arbetsorder/${ids.token}/foto/${ids.chosenFileId}`,
       }),
+      await inject({
+        method: "GET",
+        url: `/arbetsorder/${ids.token}/foto/${ids.chosenFileId}`,
+        headers: { origin: "https://elsewhere.test" },
+      }),
       await act(ids.token, { act: "accept" }),
       await page(unknownToken()),
+      await inject({
+        method: "GET",
+        url: `/arbetsorder/${unknownToken()}`,
+        headers: { origin: "https://elsewhere.test" },
+      }),
       await inject({
         method: "GET",
         url: `/arbetsorder/${ids.token}`,
         headers: { origin: "https://elsewhere.test" },
       }),
+      await act(
+        ids.token,
+        { act: "accept" },
+        { headers: { origin: "https://elsewhere.test" } },
+      ),
     ];
     expect(answers.map((answer) => answer.statusCode)).toEqual([
-      200, 200, 303, 404, 200,
+      200, 200, 200, 303, 404, 404, 200, 404,
     ]);
     for (const answer of answers) {
       expectNoValidatorOrGrant(answer.headers);
@@ -2534,7 +2549,8 @@ describe("G. the contractor's photographs", () => {
 
   it("G11: a photograph the contractor sent is listed by a media address and read through it, never inline", async () => {
     const ids = await linked();
-    await upload(ids.token, jpegBytes(8, 8));
+    const bytes = jpegBytes(8, 8);
+    await upload(ids.token, bytes);
     const order = await listedOrder(ids.issueId, ids.workOrderId);
     const url = order.contractorLink.files[0]?.url ?? "";
     expect(url).toMatch(/^\/api\/media\//);
@@ -2551,7 +2567,7 @@ describe("G. the contractor's photographs", () => {
     ]);
     const served = await inject({ method: "GET", url, cookie: as(board) });
     expect(served.statusCode).toBe(200);
-    expect(served.rawPayload.length).toBeGreaterThan(0);
+    expect(served.rawPayload).toEqual(bytes);
   });
 
   it("G12: a handler removing a contractor's photograph or note removes it, the object from storage", async () => {
