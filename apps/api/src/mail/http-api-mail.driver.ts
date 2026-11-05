@@ -81,8 +81,9 @@ export interface MailApiConfig {
 /**
  * The system codes, on the cause of a request that got no answer, that only a
  * connection never made can raise: refused, a name that did not resolve, no
- * route, a certificate not accepted, or the connect running out of time. The request was never sent. Not a reset, or
- * the deadline below, which can come after the service read the request.
+ * route, a certificate not accepted, or the connect running out of time. The
+ * request was never sent. Not a reset, or the deadline below, which can come
+ * after the service read the request.
  */
 const NEVER_CONNECTED_CODES: ReadonlySet<string> = new Set([
   ...NEVER_CONNECTED_SYSTEM_CODES,
