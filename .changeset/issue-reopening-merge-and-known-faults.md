@@ -56,6 +56,5 @@ that there is a new message. The reporter is never mailed about their own reply.
 A reply through a private link mails that the issue is open again and nothing
 more, since a link has no person to count the message against. A message to the
 reporters of merged reports mails each reporter it can reach (one with an
-address and no restriction on processing, and not again inside the notice
-throttle window) that there is a new message. None of these mails says what the
-message says. A known fault is mailed to nobody.
+address and no restriction on processing) that there is a new message. None of
+these mails says what the message says. A known fault is mailed to nobody.

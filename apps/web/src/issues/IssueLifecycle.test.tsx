@@ -471,6 +471,73 @@ describe("merging", () => {
     });
   });
 
+  it("does not tell a send that finished after the duplicates changed beside the new duplicates", async () => {
+    const duplicate = (id: string) => ({
+      kind: "issue" as const,
+      id,
+      typeName: "Hiss",
+      meaning: "DONE" as const,
+      createdAt: "2026-08-19T08:00:00.000Z",
+    });
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: {
+        ...NO_LINKS,
+        duplicateCount: 1,
+        duplicates: [duplicate("issue-2")],
+      },
+    });
+    let finish: (value: unknown) => void = () => undefined;
+    sendToDuplicateReporters.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const session = userEvent.setup();
+    const { rerender } = render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[]}
+        queueRead={1}
+        onChanged={() => undefined}
+      />,
+    );
+    await session.type(
+      await screen.findByLabelText(
+        "Hiss: meddelande till anmälarna till de sammanslagna anmälningarna",
+      ),
+      "Tekniker kommer torsdag.",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    // While the send is in flight another issue is merged into this one.
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: {
+        ...NO_LINKS,
+        duplicateCount: 2,
+        duplicates: [duplicate("issue-2"), duplicate("issue-3")],
+      },
+    });
+    rerender(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[]}
+        queueRead={2}
+        onChanged={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      expect(fetchIssueLinks).toHaveBeenCalledTimes(2);
+    });
+
+    finish({ ok: true, value: { sent: 2, skipped: 0 } });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Skicka" })).toBeTruthy();
+    });
+    expect(screen.queryByText(/Skickat till 2 anmälare\./)).toBeNull();
+  });
+
   it("says how many follow-ups there are when only a page of them is listed", async () => {
     fetchIssueLinks.mockResolvedValue({
       ok: true,

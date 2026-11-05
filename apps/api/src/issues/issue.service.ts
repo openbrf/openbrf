@@ -1405,7 +1405,10 @@ export class IssueService {
         throw new IssueError("No such status.", "status-not-found");
       }
 
-      const next = nextState(existing, target, move);
+      // The database's clock, as the window a reply may reopen in is judged
+      // (`replyModeOf`): a `closedAt` from this process's clock would shift
+      // that window's edge by the two clocks' difference.
+      const next = nextState(existing, target, move, await databaseNow(tx));
 
       /*
        * Who moved it, between which meanings and which statuses, and the reason
@@ -1938,7 +1941,8 @@ export class IssueService {
           outcome: "DUPLICATE",
           // A duplicate merged after it closed keeps the day it closed, which
           // the purge clock runs on (`nextState`).
-          closedAt: existing.closedAt ?? new Date(),
+          // On the database's clock, as `nextState` writes it.
+          closedAt: existing.closedAt ?? (await databaseNow(tx)),
           mergedIntoIssueId: intoIssueId,
           ...KNOWN_FAULT_CLEARED,
           // Closing clears the entry permission (decision 29), as `nextState`
@@ -3270,6 +3274,10 @@ function afterWithinMeaning(cursor: IssueQueueCursor): Prisma.IssueWhereInput {
  * or closed again with an outcome of its own, it is no longer a duplicate, and
  * its reporter follows it again rather than the other issue. Closing clears a
  * known fault, which a fault nobody still has stops being.
+ *
+ * @param now The database's clock (`databaseNow`), read after the issue's
+ *   locks: the closing date is written from it because a reply's window is
+ *   judged on that clock.
  */
 function nextState(
   existing: {
@@ -3280,6 +3288,7 @@ function nextState(
   },
   target: { id: string; meaning: IssueStatusMeaning },
   move: IssueStatusMove,
+  now: Date,
 ): {
   statusId: string;
   waitingReason: IssueWaitingReason | null;
@@ -3318,7 +3327,7 @@ function nextState(
     statusId: target.id,
     waitingReason: move.waitingReason ?? null,
     outcome,
-    closedAt: closing ? (existing.closedAt ?? new Date()) : null,
+    closedAt: closing ? (existing.closedAt ?? now) : null,
     mergedIntoIssueId:
       closing && outcome === "DUPLICATE" ? existing.mergedIntoIssueId : null,
     ...(closing ? KNOWN_FAULT_CLEARED : {}),

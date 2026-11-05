@@ -191,7 +191,11 @@ export function IssueLifecycle({
                   setToDuplicates({ ...sent, duplicates: sentTo.current });
                 }}
               />
-              {toDuplicates === null ? null : (
+              {toDuplicates === null ||
+              // A send that finished after the links were read again told of
+              // the duplicates it was sent to, not of these.
+              toDuplicates.duplicates !==
+                duplicatesOf(issue.id, links) ? null : (
                 <Notice tone={toDuplicates.skipped > 0 ? "warn" : "ok"} live>
                   {t("issues.lifecycle.toDuplicatesSent", {
                     count: toDuplicates.sent,

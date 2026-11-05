@@ -735,6 +735,36 @@ describe("a reply on a closed issue", () => {
     expect(await noticesOf(issueId)).toEqual(queuedBefore);
   });
 
+  it("dates the closing, by a status change and by a merge, on the database's clock whatever the process's says", async () => {
+    const closedIssue = await filed(plain);
+    const duplicate = await filed(plain);
+    const into = await filed(plain, neighbour);
+    // The API's clock is ten days ahead of the database's; the window a reply
+    // may reopen in is judged on the database's, so the closing is dated on it.
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    try {
+      vi.setSystemTime(new Date(Date.now() + 10 * DAY_MS));
+      await close(closedIssue, plain);
+      const merged = await as(
+        board,
+        "POST",
+        `/api/issue-queue/${duplicate}/merge`,
+        { intoIssueId: into },
+      );
+      expect(merged.statusCode).toBe(201);
+    } finally {
+      vi.useRealTimers();
+    }
+    const [row] = await prisma.$queryRaw<{ skew: number }[]>`
+      SELECT GREATEST(
+        ABS(EXTRACT(EPOCH FROM (clock_timestamp() - a."closedAt"))),
+        ABS(EXTRACT(EPOCH FROM (clock_timestamp() - b."closedAt")))
+      )::float AS skew
+      FROM "issue" a, "issue" b
+      WHERE a."id" = ${closedIssue} AND b."id" = ${duplicate}`;
+    expect(row?.skew).toBeLessThan(300);
+  });
+
   it("reopens through the reporter's route the moment after it closed", async () => {
     const issueId = await filed(plain);
     await close(issueId, plain);
