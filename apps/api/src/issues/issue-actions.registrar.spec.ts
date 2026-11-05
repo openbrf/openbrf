@@ -65,6 +65,7 @@ const QUEUED: QueuedIssueView = {
   overdue: false,
   assignee: null,
   enteredBy: null,
+  knownFault: null,
   boardOnly: false,
   finding: null,
   legalHoldAt: null,

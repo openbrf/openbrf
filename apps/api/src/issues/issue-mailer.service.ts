@@ -493,8 +493,10 @@ export class IssueMailer implements OnModuleInit {
    * queued again too, for an issue whose target date is set: a job that came
    * while the issue was closed found nothing owed.
    *
-   * `actorPersonId` is null for a reopening nobody chose, such as a reporter's
-   * reply.
+   * `actorPersonId` is who reopened it, and is not mailed: a handler's move,
+   * or a signed-in reporter's reply, so a reporter who is also the assignee of
+   * their own issue is not told of their own act. It is null for a reply
+   * through a private link, which has no person behind it.
    */
   async reopenedInTransaction(
     tx: Prisma.TransactionClient,

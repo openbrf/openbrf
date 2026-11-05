@@ -6,6 +6,7 @@ import {
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import { databaseNow } from "../database/database-clock";
 import { PrismaService } from "../database/prisma.service";
 import { readAuthors } from "../feed/feed-author";
 import type { Prisma } from "../generated/prisma/client";
@@ -14,14 +15,20 @@ import { holdsBoardSeat } from "../mail/board-recipients";
 import { readImageHeader } from "../media/image-bytes";
 import { mediaUrl, MediaService } from "../media/media.service";
 import { lockErasureEligibility } from "../retention/erasure-lock";
-import { requireHandledIssue } from "./issue-handlers";
-import { lockIssue, lockIssueForHandling } from "./issue-lock";
+import {
+  issueReaderScope,
+  issuesHandledWhere,
+  requireHandledIssue,
+  requireHandlerRole,
+} from "./issue-handlers";
+import { lockIssueForHandling, lockIssuesForHandling } from "./issue-lock";
 import {
   extendReporterLink,
   liveReporterLinkOfIssue,
 } from "./issue-reporter-link";
 import { IssueMailer } from "./issue-mailer.service";
 import { IssueError, type IssueTextLocation } from "./issue.error";
+import { reopenIssueByReply, replyModeOf } from "./issue-reopening";
 import type { IssueHandlerView } from "./issue.service";
 
 /**
@@ -87,6 +94,25 @@ export interface IssueAttachmentView {
 }
 
 /**
+ * The budget of the transaction that writes to every merged reporter.
+ *
+ * It writes a message and an audit entry per duplicate, and nothing caps how
+ * many issues merge into one, so Prisma's default of five seconds could roll
+ * back the whole broadcast on a large merged set. It stays one transaction so
+ * that the reporters all hear it or none does, and the issue lock it holds is
+ * the one merging takes. Thirty seconds, as the reports hold theirs.
+ */
+const DUPLICATE_MESSAGE_TRANSACTION_TIMEOUT_MS = 30_000;
+
+/**
+ * How many times that transaction starts over when an issue is merged into the
+ * one written from while it takes its locks (`replyToDuplicates`). A merge is a
+ * handler's deliberate act, so a second one inside the same moment is rare and
+ * a third rarer still.
+ */
+const DUPLICATE_MESSAGE_ATTEMPTS = 3;
+
+/**
  * The conversation on an issue: the issue messages between its reporter and
  * its handlers, and the internal notes and files the handlers keep beside it
  * (decisions 18 and 19).
@@ -149,27 +175,51 @@ export class IssueConversationService {
   /**
    * The reporter writes on their own issue.
    *
-   * Refused on an issue that is done: whether a reply reopens it, or offers a
-   * new report instead, is the reopening rule's (ADR 0054), and until that is
-   * built a message on a closed issue would be one nobody is shown is waiting.
-   * Under the issue's lock, which a status move takes too, so a message cannot
-   * land on an issue closing at the same moment.
+   * On an issue that is done, the reopening rule decides (ADR 0054, decision
+   * 8). Within `ISSUE_REOPEN_WINDOW_DAYS` of its closing, the reply reopens it:
+   * it moves to its type's default in-progress status, its outcome and its
+   * closing date are cleared, and the message lands on it, so the reply is
+   * one the queue shows is waiting rather than one on a closed issue nobody
+   * looks at. Its assignee stays, and is who is told. After the window, and
+   * on an issue merged into another, the reply is refused (`issue-closed`)
+   * and the reporter's screen offers a new report linked to the old one
+   * instead.
+   *
+   * Under the locks a status move takes (`lockIssueForHandling`), so a reply
+   * and a handler's move cannot both decide what the closing date is.
    */
   async replyAsReporter(
     reporterPersonId: string,
     issueId: string,
     body: string,
   ): Promise<ReporterIssueMessageView> {
+    let reopened = false;
     // Before the transaction: a queue is made on the backend's own connection.
     await this.mailer.ensureQueues();
     const message = await this.prisma.$transaction(async (tx) => {
-      await lockIssue(tx, issueId);
+      await lockIssueForHandling(tx, issueId);
       const issue = await this.requireReported(tx, issueId, reporterPersonId);
-      if (issue.status.meaning === "DONE") {
+      // The database's clock, after the locks: the window is judged on the
+      // clock `closedAt` and a private link's reply are, whichever process
+      // answers (`replyModeOf`).
+      const mode = replyModeOf(issue, await databaseNow(tx));
+      if (mode === "NEW_REPORT") {
         throw new IssueError(
           "This issue is closed and takes no more messages.",
           "issue-closed",
         );
+      }
+      if (mode === "REOPENS") {
+        await reopenIssueByReply(
+          { audit: this.audit, mailer: this.mailer },
+          tx,
+          issue,
+          {
+            channel: "WEB",
+            reporterPersonId,
+          },
+        );
+        reopened = true;
       }
       const written = await tx.issueMessage.create({
         data: {
@@ -188,8 +238,167 @@ export class IssueConversationService {
       return written;
     });
 
-    this.logger.log(`Issue ${issueId} has a message from its reporter`);
+    this.logger.log(
+      reopened
+        ? `Issue ${issueId} was reopened by a message from its reporter`
+        : `Issue ${issueId} has a message from its reporter`,
+    );
     return toReporterView(message);
+  }
+
+  /**
+   * A handler writes to the reporters of every issue merged into this one
+   * (decision 22): the same message, signed with the role they write in, on
+   * each duplicate's own conversation, which its own reporter alone reads.
+   *
+   * This is how every reporter of a merged fault still hears from the board.
+   * One message per duplicate rather than one shared thread, because the
+   * reporters are different people: none of them reads the others' reports,
+   * replies or names, and a protected reporter stays masked as on any issue.
+   * The handler writes it knowing that it goes to all of them, and it is
+   * scanned for a personal identity number as every message is.
+   *
+   * Only to a duplicate this handler handles, and whose reporter can read a
+   * thread, by the rule `replyAsHandler` holds a single message to. Refused
+   * with `no-reporter` when there is nobody to read it.
+   *
+   * Under the handling locks of the issue merged into and of every duplicate,
+   * taken together (`lockIssuesForHandling`), so a duplicate the board keeps to
+   * itself meanwhile, under its own type's lock, is not written to after the
+   * read that found it handled. The duplicates are read unlocked first, to know
+   * which locks to take, and again once they are held. The lock of the issue
+   * merged into keeps any further merge out from then on, but one may land
+   * between the two reads, on a type not locked; the transaction then starts
+   * over rather than take that type's lock out of order. Merges landing in the
+   * moment of each of `DUPLICATE_MESSAGE_ATTEMPTS` attempts leave a plain
+   * `Error` rather than an `IssueError`, deliberately: nothing the handler sent
+   * was refused, so the screen shows an unknown failure and the same message
+   * can simply be sent again.
+   */
+  async replyToDuplicates(
+    handlerPersonId: string,
+    issueId: string,
+    body: string,
+  ): Promise<{ sent: number; skipped: number }> {
+    refusePersonalIdentityNumbers({ body });
+    // Before the transaction: a queue is made on the backend's own connection.
+    await this.mailer.ensureQueues();
+    let result: { sent: number; skipped: number } | null = null;
+    for (
+      let attempt = 0;
+      result === null && attempt < DUPLICATE_MESSAGE_ATTEMPTS;
+      attempt += 1
+    ) {
+      result = await this.prisma.$transaction(
+        (tx) => this.writeToDuplicates(tx, handlerPersonId, issueId, body),
+        { timeout: DUPLICATE_MESSAGE_TRANSACTION_TIMEOUT_MS },
+      );
+    }
+    if (result === null) {
+      // Deliberately not an `IssueError`: it takes a merge landing in the
+      // moment of each of the attempts, which is not a refusal of anything the
+      // handler sent, and the answer is a failure they can simply repeat.
+      throw new Error(
+        `Issues kept merging into ${issueId} while a message to their reporters was written.`,
+      );
+    }
+
+    this.logger.log(
+      `Issue ${issueId} has a message to the reporters of ${result.sent} duplicates`,
+    );
+    return result;
+  }
+
+  /**
+   * One attempt at `replyToDuplicates`: `null` when an issue was merged into
+   * this one between the unlocked read and the locks, which the caller answers
+   * by starting over.
+   */
+  private async writeToDuplicates(
+    tx: Prisma.TransactionClient,
+    handlerPersonId: string,
+    issueId: string,
+    body: string,
+  ): Promise<{ sent: number; skipped: number } | null> {
+    await lockErasureEligibility(tx, handlerPersonId);
+    const candidates = await tx.issue.findMany({
+      where: { mergedIntoIssueId: issueId },
+      select: { id: true },
+    });
+    const locked = new Set(candidates.map((candidate) => candidate.id));
+    await lockIssuesForHandling(tx, [issueId, ...locked]);
+    // Read the clock after the lock waits: a board seat that ended during one
+    // must not leave board-only duplicates in reach or the signature on BOARD.
+    const now = new Date();
+    await this.requireHandled(tx, issueId, handlerPersonId, now);
+    // The signature below would sign for a person who handles nothing as the
+    // board: a role withdrawn since the route's check must not write.
+    await requireHandlerRole(tx, handlerPersonId, now);
+    const merged = await tx.issue.findMany({
+      where: { mergedIntoIssueId: issueId },
+      select: { id: true },
+    });
+    if (merged.some((duplicate) => !locked.has(duplicate.id))) {
+      return null;
+    }
+    const scope = await issueReaderScope(tx, handlerPersonId, now);
+    const duplicates = await tx.issue.findMany({
+      where: {
+        mergedIntoIssueId: issueId,
+        ...issuesHandledWhere(scope),
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, reporterPersonId: true },
+    });
+    // A duplicate with no reporter, or one without an account, is reached by
+    // nobody; both count as skipped, so the total matches the merged reports.
+    const accounts = await tx.user.findMany({
+      where: {
+        personId: {
+          in: duplicates.flatMap((duplicate) =>
+            duplicate.reporterPersonId === null
+              ? []
+              : [duplicate.reporterPersonId],
+          ),
+        },
+      },
+      select: { personId: true },
+    });
+    const readers = new Set(accounts.map((account) => account.personId));
+    const readable = duplicates.filter(
+      (duplicate) =>
+        duplicate.reporterPersonId !== null &&
+        readers.has(duplicate.reporterPersonId),
+    );
+    if (readable.length === 0) {
+      throw new IssueError(
+        "Nobody can read an answer on the issues merged into this one.",
+        "no-reporter",
+      );
+    }
+    const signature = await signatureOf(tx, handlerPersonId, now);
+    for (const duplicate of readable) {
+      const written = await tx.issueMessage.create({
+        data: {
+          issueId: duplicate.id,
+          side: "HANDLER",
+          authorPersonId: handlerPersonId,
+          signature,
+          body,
+        },
+        select: { id: true },
+      });
+      await this.recordMessage(tx, written.id, duplicate.id, handlerPersonId);
+      await this.mailer.messageInTransaction(tx, duplicate.id, {
+        kind: "handler",
+        personId: handlerPersonId,
+        messageId: written.id,
+      });
+    }
+    return {
+      sent: readable.length,
+      skipped: duplicates.length - readable.length,
+    };
   }
 
   /** The conversation with the reporter, as a handler reads it. */
@@ -234,10 +443,21 @@ export class IssueConversationService {
     // Before the transaction: a queue is made on the backend's own connection.
     await this.mailer.ensureQueues();
     const message = await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
       await lockErasureEligibility(tx, handlerPersonId);
       await lockIssueForHandling(tx, issueId);
-      const issue = await this.requireHandled(tx, issueId, handlerPersonId);
+      // Read the clock after the lock waits, as the message to duplicates does:
+      // a board seat that ended during one must not leave the message signed
+      // as the board. One instant for access and for the signature.
+      const now = new Date();
+      const issue = await this.requireHandled(
+        tx,
+        issueId,
+        handlerPersonId,
+        now,
+      );
+      // The signature below would sign for a person who handles nothing as
+      // the board: a role withdrawn since the route's check must not write.
+      await requireHandlerRole(tx, handlerPersonId, now);
       // A person with no sign-in account cannot open the conversation either.
       const reporterAccount =
         issue.reporterPersonId === null
@@ -482,7 +702,13 @@ export class IssueConversationService {
   ) {
     const issue = await db.issue.findFirst({
       where: { id: issueId, reporterPersonId },
-      select: { id: true, status: { select: { meaning: true } } },
+      select: {
+        id: true,
+        typeId: true,
+        closedAt: true,
+        mergedIntoIssueId: true,
+        status: { select: { id: true, meaning: true } },
+      },
     });
     if (issue === null) {
       throw new IssueError("No such issue.", "issue-not-found");
@@ -495,12 +721,19 @@ export class IssueConversationService {
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
+    now: Date = new Date(),
   ) {
-    return requireHandledIssue(db, issueId, readerPersonId, {
-      id: true,
-      reporterPersonId: true,
-      _count: { select: { attachments: true } },
-    });
+    return requireHandledIssue(
+      db,
+      issueId,
+      readerPersonId,
+      {
+        id: true,
+        reporterPersonId: true,
+        _count: { select: { attachments: true } },
+      },
+      now,
+    );
   }
 
   /**

@@ -5,6 +5,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { databaseNow } from "../database/database-clock";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import {
@@ -21,6 +22,7 @@ import {
 } from "./issue-conversation.service";
 import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
 import { lockIssue, lockIssueForHandling } from "./issue-lock";
+import { IssueMailer } from "./issue-mailer.service";
 import {
   extendReporterLink,
   type LiveReporterLink,
@@ -31,6 +33,7 @@ import {
   mintReporterLinkToken,
   reporterLinkDigest,
 } from "./issue-reporter-link-token";
+import { reopenIssueByReply, replyModeOf } from "./issue-reopening";
 import { IssueError } from "./issue.error";
 
 /**
@@ -107,8 +110,14 @@ export interface ReporterLinkPageView {
   /** Whether the page offers a field to write in. */
   acceptsMessages: boolean;
   /**
-   * Whether an open issue has all the messages a link takes: the page then
-   * offers no field and says so, rather than saying the issue is closed.
+   * Whether the issue is closed and a message now reopens it (within the
+   * reopening window, ADR 0054): the page says so beside the field.
+   */
+  reopensOnMessage: boolean;
+  /**
+   * Whether an issue that takes messages has all the messages a link takes:
+   * the page then offers no field and says so, rather than saying the issue is
+   * closed.
    */
   messageLimitReached: boolean;
   messages: ReporterIssueMessageView[];
@@ -161,6 +170,7 @@ export class IssueReporterLinkService implements OnModuleInit {
     private readonly mail: MailService,
     private readonly jobs: JobQueueService,
     private readonly audit: AuditLogService,
+    private readonly mailer: IssueMailer,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -563,12 +573,16 @@ export class IssueReporterLinkService implements OnModuleInit {
     }
     const digest = reporterLinkDigest(token);
 
+    // Before the transaction: a queue is made on the backend's own connection.
+    await this.mailer.ensureQueues();
     const outcome = await this.prisma.$transaction(async (tx) => {
       const first = await liveReporterLinkByDigest(tx, digest);
       if (first === null) {
         return { kind: "not-found" as const };
       }
-      await lockIssue(tx, first.issueId);
+      // The locks a status move takes: a reply that reopens the issue and a
+      // handler's move must not both decide what its closing date is.
+      await lockIssueForHandling(tx, first.issueId);
       const link = await liveReporterLinkByDigest(tx, digest);
       if (link === null) {
         return { kind: "not-found" as const };
@@ -576,28 +590,41 @@ export class IssueReporterLinkService implements OnModuleInit {
 
       const issue = await tx.issue.findUniqueOrThrow({
         where: { id: link.issueId },
-        select: { status: { select: { meaning: true } } },
+        select: {
+          id: true,
+          typeId: true,
+          closedAt: true,
+          mergedIntoIssueId: true,
+          status: { select: { id: true, meaning: true } },
+        },
       });
-      if (issue.status.meaning === "DONE") {
+      // The database's clock, as the link's own liveness is judged on: an API
+      // clock ahead of it must not refuse a reply to a link that still opens.
+      const mode = replyModeOf(issue, await databaseNow(tx));
+      if (mode === "NEW_REPORT") {
         return { kind: "closed" as const };
       }
 
-      const [counts] = await tx.$queryRaw<
-        { lastHour: bigint; total: bigint }[]
-      >`
-        SELECT
-          count(*) FILTER (WHERE "createdAt" > now() - interval '1 hour') AS "lastHour",
-          count(*) AS "total"
-        FROM "issue_message"
-        WHERE "issueId" = ${link.issueId} AND "side" = 'REPORTER'`;
+      const counts = await reporterMessageCounts(tx, link.issueId);
       // The total first: it never drops, so it is the answer that stays true.
-      if (Number(counts?.total ?? 0) >= REPORTER_LINK_MESSAGES_PER_ISSUE) {
+      if (counts.total >= REPORTER_LINK_MESSAGES_PER_ISSUE) {
         return { kind: "full" as const };
       }
-      if (Number(counts?.lastHour ?? 0) >= REPORTER_LINK_MESSAGES_PER_HOUR) {
+      if (counts.lastHour >= REPORTER_LINK_MESSAGES_PER_HOUR) {
         return { kind: "limited" as const };
       }
 
+      const reopens = mode === "REOPENS";
+      if (reopens) {
+        // Within the reopening window the reply reopens the issue, as a
+        // signed-in reporter's does (ADR 0054), and alerts its assignee.
+        await reopenIssueByReply(
+          { audit: this.audit, mailer: this.mailer },
+          tx,
+          issue,
+          { channel: "LINK", linkId: link.linkId },
+        );
+      }
       const message = await tx.issueMessage.create({
         data: {
           issueId: link.issueId,
@@ -621,12 +648,14 @@ export class IssueReporterLinkService implements OnModuleInit {
         },
         tx,
       );
-      return { kind: "sent" as const, issueId: link.issueId };
+      return { kind: "sent" as const, issueId: link.issueId, reopens };
     });
 
     if (outcome.kind === "sent") {
       this.logger.log(
-        `Issue ${outcome.issueId} has a message through its reporter's link`,
+        outcome.reopens
+          ? `Issue ${outcome.issueId} was reopened by a message through its reporter's link`
+          : `Issue ${outcome.issueId} has a message through its reporter's link`,
       );
     }
     return outcome.kind;
@@ -693,6 +722,8 @@ export class IssueReporterLinkService implements OnModuleInit {
       where: { id: link.issueId },
       select: {
         createdAt: true,
+        closedAt: true,
+        mergedIntoIssueId: true,
         type: { select: { name: true } },
         status: { select: { meaning: true } },
         messages: {
@@ -709,17 +740,24 @@ export class IssueReporterLinkService implements OnModuleInit {
         },
       },
     });
-    const reporterMessages = issue.messages.filter(
-      (message) => message.side === "REPORTER",
-    ).length;
+    const counts = await reporterMessageCounts(tx, link.issueId);
+    // Judged on the database's clock, as the link is (see `databaseNow`).
+    const mode = replyModeOf(issue, await databaseNow(tx));
+    // A closed issue takes a message only while one still reopens it.
+    const takesMessages = mode !== "NEW_REPORT";
     const messageLimitReached =
-      issue.status.meaning !== "DONE" &&
-      reporterMessages >= REPORTER_LINK_MESSAGES_PER_ISSUE;
+      takesMessages && counts.total >= REPORTER_LINK_MESSAGES_PER_ISSUE;
+    // The notice promises a reopening, which the hourly limit would refuse.
+    const hourlyLimitReached =
+      counts.lastHour >= REPORTER_LINK_MESSAGES_PER_HOUR;
+    const reopensOnMessage = mode === "REOPENS";
     return {
       typeName: issue.type.name,
       meaning: issue.status.meaning,
       createdAt: issue.createdAt,
-      acceptsMessages: issue.status.meaning !== "DONE" && !messageLimitReached,
+      acceptsMessages: takesMessages && !messageLimitReached,
+      reopensOnMessage:
+        reopensOnMessage && !messageLimitReached && !hourlyLimitReached,
       messageLimitReached,
       messages: issue.messages.map(toReporterView),
     };
@@ -757,6 +795,28 @@ export class IssueReporterLinkService implements OnModuleInit {
     }
     return false;
   }
+}
+
+/**
+ * The messages a link's reporter has written on an issue: all of them, and
+ * those of the last hour on the database's clock. Read by the reply, which
+ * refuses past either limit, and by the page, which promises nothing the reply
+ * would refuse.
+ */
+async function reporterMessageCounts(
+  tx: Prisma.TransactionClient,
+  issueId: string,
+): Promise<{ lastHour: number; total: number }> {
+  const [counts] = await tx.$queryRaw<{ lastHour: bigint; total: bigint }[]>`
+    SELECT
+      count(*) FILTER (WHERE "createdAt" > now() - interval '1 hour') AS "lastHour",
+      count(*) AS "total"
+    FROM "issue_message"
+    WHERE "issueId" = ${issueId} AND "side" = 'REPORTER'`;
+  return {
+    lastHour: Number(counts?.lastHour ?? 0),
+    total: Number(counts?.total ?? 0),
+  };
 }
 
 /** The address of the page a token opens: the instance's own, token in the path. */

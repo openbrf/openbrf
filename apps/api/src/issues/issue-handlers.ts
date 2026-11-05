@@ -147,8 +147,9 @@ export async function requireHandledIssue<S extends Prisma.IssueSelect>(
   issueId: string,
   readerPersonId: string,
   select: S,
+  now: Date = new Date(),
 ): Promise<Prisma.IssueGetPayload<{ select: S }>> {
-  const scope = await issueReaderScope(db, readerPersonId, new Date());
+  const scope = await issueReaderScope(db, readerPersonId, now);
   const issue = await db.issue.findFirst({
     where: { id: issueId, ...issuesHandledWhere(scope) },
     select,
@@ -157,6 +158,27 @@ export async function requireHandledIssue<S extends Prisma.IssueSelect>(
     throw new IssueError("No such issue.", "issue-not-found");
   }
   return issue;
+}
+
+/**
+ * Refuses, as an issue that does not exist, a person who holds no
+ * `issues:handle` role at `now`.
+ *
+ * For a write that signs with the role the writer holds (`signatureOf`), asked
+ * inside its transaction once its locks are held and with the instant the
+ * signature is judged at. {@link requireHandledIssue} answers the narrower
+ * scope for a person who handles nothing, which admits every issue an
+ * every-handler type has, and `signatureOf` falls back to the board: a role
+ * withdrawn since the route's check must not write or sign as the board.
+ */
+export async function requireHandlerRole(
+  db: FeedDbClient,
+  personId: string,
+  now: Date,
+): Promise<void> {
+  if (!(await handlesIssues(db, personId, "EVERY_HANDLER", now))) {
+    throw new IssueError("No such issue.", "issue-not-found");
+  }
 }
 
 /** The types a reader who is let into types of this scope handles. */

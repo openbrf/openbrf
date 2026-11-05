@@ -21,6 +21,7 @@ import {
   issueReaderScope,
   scopeHandlesIssue,
 } from "../issues/issue-handlers";
+import { readKnownFaults } from "../issues/issue-known-fault";
 import { holdsBoardSeat } from "../mail/board-recipients";
 import { MediaService, mediaUrl } from "../media/media.service";
 import {
@@ -1172,6 +1173,13 @@ export class FeedService {
         ? await issueReaderScope(this.prisma, reader.personId, now)
         : "EVERY_HANDLER";
 
+    // The known faults on the issues this page's posts were reported from,
+    // by the issue module's one rule for where a notice is shown.
+    const knownFaults = await readKnownFaults(
+      this.prisma,
+      rows.flatMap((row) => (row.issueId === null ? [] : [row.issueId])),
+    );
+
     return rows.map((row) => {
       const withheld =
         row.struckAt !== null &&
@@ -1236,6 +1244,10 @@ export class FeedService {
                   row.issue.reporterPersonId === reader.personId,
               }
             : null,
+        knownFault:
+          row.issueId === null || row.erasedAt !== null
+            ? null
+            : (knownFaults.get(row.issueId) ?? null),
         mayReportIssue:
           row.erasedAt === null &&
           row.issueId === null &&

@@ -8,7 +8,7 @@ import {
   sendOwnIssueMessage,
 } from "../api/issues";
 import type { TranslationKey } from "../i18n/translation-key";
-import { HINT } from "../ui/controls";
+import { HINT, SECONDARY_BUTTON } from "../ui/controls";
 import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
 import { ConversationComposer } from "./ConversationComposer";
@@ -29,23 +29,51 @@ const REPLY_FAILURES: Readonly<Record<string, TranslationKey>> = {
  * manager, and never with a name (decision 19): that is the server's answer,
  * and nothing here could name a handler if it wanted to.
  *
- * A closed report takes no more messages; what a reply to a closed report does
- * is the reopening rule's (ADR 0054).
+ * What the field below the messages does is the server's answer
+ * (`replyMode`, ADR 0054): on an open report it sends a message; on one closed
+ * within the reopening window it says that the message reopens the report;
+ * after that, and on a report merged into another, it gives way to a new
+ * report that follows this one up.
  */
 export function OwnIssueConversation({
   issue,
-  onClosed,
+  onChanged,
+  onFollowUp,
 }: {
   issue: OwnIssue;
   /**
-   * Told when the server says the report is closed, which the list on screen
-   * does not yet know: the caller reads the list again, and the composer gives
-   * way to the closed report's notice.
+   * Told when the report changed: a reply reopened it, or the server says it
+   * is closed where the list on screen did not yet know. The caller reads the
+   * list again, and the field follows what it then says.
    */
-  onClosed: () => void;
+  onChanged: () => void;
+  /**
+   * Told when the reporter asks for a new report following this one up, with
+   * the reply the server refused as closed, when there was one, so the new
+   * report can start from it.
+   */
+  onFollowUp: (refusedReply: string) => void;
 }): ReactElement {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  /*
+   * The reply the server refused as closed. Past the reopening window the
+   * field gives way to the follow-up button and its draft goes with it, so
+   * the text is kept here, beside `open`: collapsing the conversation unmounts
+   * the thread, and the text must outlive that.
+   */
+  const [refusedReply, setRefusedReply] = useState("");
+  const takesReplies = issue.replyMode !== "NEW_REPORT";
+  const [couldReply, setCouldReply] = useState(takesReplies);
+  if (takesReplies !== couldReply) {
+    // Whenever the reply field is back (the report was reopened, or read again
+    // as open), the text it once refused is not a follow-up to carry on to a
+    // later report. Here and not in the thread, which collapsing unmounts.
+    setCouldReply(takesReplies);
+    if (takesReplies) {
+      setRefusedReply("");
+    }
+  }
   return (
     <details
       className="flex flex-col gap-3"
@@ -56,17 +84,31 @@ export function OwnIssueConversation({
       <summary className="flex min-h-11 cursor-pointer items-center text-small font-semibold">
         {t("issues.conversation.openOwn", { type: issue.typeName })}
       </summary>
-      {open ? <Thread issue={issue} onClosed={onClosed} /> : null}
+      {open ? (
+        <Thread
+          issue={issue}
+          onChanged={onChanged}
+          onFollowUp={onFollowUp}
+          refusedReply={refusedReply}
+          onRefusedReply={setRefusedReply}
+        />
+      ) : null}
     </details>
   );
 }
 
 function Thread({
   issue,
-  onClosed,
+  onChanged,
+  onFollowUp,
+  refusedReply,
+  onRefusedReply,
 }: {
   issue: OwnIssue;
-  onClosed: () => void;
+  onChanged: () => void;
+  onFollowUp: (refusedReply: string) => void;
+  refusedReply: string;
+  onRefusedReply: (refusedReply: string) => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const [messages, setMessages] = useState<OwnIssueMessage[] | null>(null);
@@ -92,8 +134,6 @@ function Thread({
       active = false;
     };
   }, [issue.id, reads]);
-
-  const closed = issue.meaning === "DONE";
 
   return (
     <div className="flex flex-col gap-3 pt-2">
@@ -137,26 +177,55 @@ function Thread({
         </ol>
       )}
 
-      {closed ? (
-        <p className={HINT}>{t("issues.conversation.closedOwn")}</p>
+      {issue.replyMode === "NEW_REPORT" ? (
+        <div className="flex flex-col gap-2">
+          <p className={HINT}>
+            {issue.mergedIntoMeaning === null
+              ? t("issues.conversation.closedOwn")
+              : t("issues.conversation.mergedOwn")}
+          </p>
+          <div>
+            <button
+              type="button"
+              className={SECONDARY_BUTTON}
+              onClick={() => {
+                onFollowUp(refusedReply);
+              }}
+            >
+              {t("issues.conversation.followUp")}
+            </button>
+          </div>
+        </div>
       ) : (
         <ConversationComposer
           label={t("issues.conversation.message")}
           ariaLabel={t("issues.conversation.messageNamed", {
             type: issue.typeName,
           })}
-          hint={t("issues.conversation.ownHint")}
+          hint={
+            issue.replyMode === "REOPENS"
+              ? t("issues.conversation.reopensHint")
+              : t("issues.conversation.ownHint")
+          }
           sendLabel={t("issues.conversation.send")}
           sendingLabel={t("issues.conversation.sending")}
           failures={REPLY_FAILURES}
           fallback="issues.conversation.errors.unknown"
           send={(body) => sendOwnIssueMessage({ issueId: issue.id, body })}
           onSent={() => {
+            // A refused text that was not followed up has been answered by a
+            // message that went through; it is not carried to a later report.
+            onRefusedReply("");
             setReads((count) => count + 1);
+            // A reply may have reopened the issue, as the screen expected or
+            // because it closed while the screen was open; the list says so
+            // once it is read again.
+            onChanged();
           }}
-          onRefused={(reason) => {
+          onRefused={(reason, body) => {
             if (reason === "issue-closed") {
-              onClosed();
+              onRefusedReply(body);
+              onChanged();
             }
           }}
         />

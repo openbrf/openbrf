@@ -18,6 +18,7 @@ import {
   ISSUE_FINDING_KINDS,
   ISSUE_FIT_LIMITS,
   ISSUE_HANDLED_BY,
+  ISSUE_KNOWN_FAULT_LIMITS,
   ISSUE_PRIORITIES,
   ISSUE_QUEUE_VIEWS,
   ISSUE_REPORT_LIMITS,
@@ -65,6 +66,7 @@ import {
   IssueTypeService,
   type ReportableIssueTypeView,
 } from "./issue-type.service";
+import type { KnownFaultView } from "./issue-known-fault";
 import {
   type IssueResidentChoice,
   IssueResidentsService,
@@ -73,6 +75,7 @@ import {
   type IssueApartmentView,
   type IssueBoardFilter,
   type IssueHandlerView,
+  type IssueLinksView,
   type IssuePhotoView,
   type IssueQueueCounts,
   type IssueQueueSnapshot,
@@ -95,6 +98,8 @@ const reportSchema = z.object({
   description: z.string().min(1).max(ISSUE_REPORT_LIMITS.description),
   /** The post in the feed the report is made from, when it is. */
   postId: z.string().min(1).max(64).nullish(),
+  /** One's own closed issue this report follows up, when it does. */
+  followsIssueId: z.string().min(1).max(64).nullish(),
 });
 
 /**
@@ -176,6 +181,16 @@ const savedReplySchema = z.strictObject({
     .max(ISSUE_CONVERSATION_LIMITS.savedReplyTitle),
   body: z.string().trim().min(1).max(ISSUE_CONVERSATION_LIMITS.body),
   sortOrder: z.coerce.number().int().min(0).max(999).optional(),
+});
+
+/** Merging into another issue (decision 22). */
+const mergeSchema = z.strictObject({
+  intoIssueId: z.string().min(1).max(64),
+});
+
+/** A known fault's notice: the handler's own words, never only whitespace. */
+const knownFaultSchema = z.strictObject({
+  body: z.string().trim().min(1).max(ISSUE_KNOWN_FAULT_LIMITS.body),
 });
 
 const assignSchema = z.object({
@@ -383,6 +398,18 @@ export class IssueReportController {
   @Get("mine")
   async listOwn(@Req() request: RequestWithPrincipal): Promise<OwnIssueView[]> {
     return this.issues.listOwn(requirePrincipal(request).personId);
+  }
+
+  /**
+   * The known faults the house is told of (decision 22), for the report form
+   * and the resident's own page. Never read by the site layer: a known fault
+   * is for signed-in residents and never on the public website.
+   */
+  @Get("known-faults")
+  async knownFaults(
+    @Req() request: RequestWithPrincipal,
+  ): Promise<KnownFaultView[]> {
+    return this.issues.knownFaults(requirePrincipal(request));
   }
 
   @Post()
@@ -677,6 +704,24 @@ export class IssueQueueController {
   }
 
   /**
+   * Writes to the reporters of every issue merged into this one, one message
+   * on each duplicate's own conversation (decision 22).
+   */
+  @Post(":id/duplicate-messages")
+  @HttpCode(201)
+  async replyToDuplicates(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<{ sent: number; skipped: number }> {
+    return this.conversation.replyToDuplicates(
+      actingPersonId(request),
+      id,
+      conversationSchema.parse(body).body,
+    );
+  }
+
+  /**
    * Withdraws the private link mailed to the issue's reporter (ADR 0055). It
    * opens nothing from the next request on, and nobody is mailed.
    */
@@ -913,6 +958,52 @@ export class IssueQueueController {
       statusMoveSchema.parse(body),
       actingPersonId(request),
     );
+  }
+
+  /** Merges this issue into another as its duplicate (decision 22). */
+  @Post(":id/merge")
+  async merge(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.issues.merge(
+      id,
+      mergeSchema.parse(body).intoIssueId,
+      actingPersonId(request),
+    );
+  }
+
+  /** The issues this one is merged into, merged from, follows or is followed by. */
+  @Get(":id/links")
+  async links(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssueLinksView> {
+    return this.issues.links(actingPersonId(request), id);
+  }
+
+  /** Publishes or rewrites the issue's known fault (decision 22). */
+  @Put(":id/known-fault")
+  async publishKnownFault(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.issues.publishKnownFault(
+      id,
+      knownFaultSchema.parse(body).body,
+      actingPersonId(request),
+    );
+  }
+
+  /** Withdraws the issue's known fault. */
+  @Delete(":id/known-fault")
+  async withdrawKnownFault(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    return this.issues.withdrawKnownFault(id, actingPersonId(request));
   }
 }
 
