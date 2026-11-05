@@ -8,6 +8,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import { IssueError } from "./issue.error";
+import { revokeWorkOrderLinks } from "./work-order-link";
 
 /** A contractor as the board's register shows them. */
 export interface ContractorView {
@@ -176,6 +177,12 @@ export class ContractorService {
         where: { contractorId: id },
         data: { recipientName: null, recipientEmailCipher: null },
       });
+      // A contractor erased from their work orders holds no link to them
+      // either (ADR 0055). After the work orders' update, so this takes the
+      // work order rows before the link rows as issuing a link does, and two
+      // handlers working on one work order cannot each hold what the other
+      // needs.
+      await revokeWorkOrderLinks(tx, { contractorId: id });
       await tx.contractor.delete({ where: { id } }).catch(notFound);
       await this.recordChange(tx, actorPersonId, id, "removed", [], count);
       return count;

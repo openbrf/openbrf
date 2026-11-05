@@ -369,8 +369,10 @@ function requirePrincipal(request: RequestWithPrincipal): Principal {
  * server-rendered by the site layer, which calls the services directly, and
  * the ways to an issue without a session are the site layer's link controllers
  * alone: the reporter's private link (`SiteIssueLinkController`), and the
- * contractor's once it is built. Each resolves its token before it reads
- * anything else and reaches one issue's own part, never a principal's.
+ * contractor's link to a work order (`SiteWorkOrderLinkController`), which is
+ * behind a switch that is off until its legal review clears it. Each resolves
+ * its token before it reads anything else and reaches one issue's own part,
+ * never a principal's.
  */
 @Controller("api/issues")
 @RequireCapability("issues:report")

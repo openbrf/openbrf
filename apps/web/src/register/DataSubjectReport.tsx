@@ -620,6 +620,18 @@ const AUDIT_ACTION_LABEL = {
   ISSUE_RESIDENTS_LISTED:
     "register.person.report.action.ISSUE_RESIDENTS_LISTED",
   ISSUE_WORK_ORDER_SENT: "register.person.report.action.ISSUE_WORK_ORDER_SENT",
+  ISSUE_WORK_ORDER_LINK_ISSUED:
+    "register.person.report.action.ISSUE_WORK_ORDER_LINK_ISSUED",
+  ISSUE_WORK_ORDER_LINK_REVOKED:
+    "register.person.report.action.ISSUE_WORK_ORDER_LINK_REVOKED",
+  ISSUE_WORK_ORDER_ANSWERED:
+    "register.person.report.action.ISSUE_WORK_ORDER_ANSWERED",
+  ISSUE_WORK_ORDER_NOTE_ADDED:
+    "register.person.report.action.ISSUE_WORK_ORDER_NOTE_ADDED",
+  ISSUE_WORK_ORDER_PHOTO_ADDED:
+    "register.person.report.action.ISSUE_WORK_ORDER_PHOTO_ADDED",
+  ISSUE_WORK_ORDER_PHOTOS_CHOSEN:
+    "register.person.report.action.ISSUE_WORK_ORDER_PHOTOS_CHOSEN",
   CONTRACTOR_LIST_CHANGED:
     "register.person.report.action.CONTRACTOR_LIST_CHANGED",
   ISSUE_TYPE_RING_FENCE_CHANGED:
@@ -1789,6 +1801,12 @@ export function DataSubjectReport({
                                     : order.deliveryStatus
                                 ],
                               )}
+                              {order.linkGiven
+                                ? ` · ${t(
+                                    "register.person.report.field.workOrderLinkGiven",
+                                    { count: order.photosShared },
+                                  )}`
+                                : null}
                             </span>
                           ))}
                     </td>

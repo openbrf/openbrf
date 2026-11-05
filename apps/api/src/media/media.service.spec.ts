@@ -355,6 +355,9 @@ function build(
     }),
   };
 
+  // A contractor's photograph on a work order (ADR 0055): none here.
+  const workOrderFile = { findUnique: vi.fn(async () => null) };
+
   // Whether a person handles issues the board keeps to itself
   // (`issueReaderScope`), the one person read the media route makes.
   const person = {
@@ -375,6 +378,7 @@ function build(
     residency,
     issuePhoto,
     issueAttachment,
+    workOrderFile,
     person,
     postImage,
     /*
