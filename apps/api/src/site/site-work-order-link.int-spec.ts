@@ -4,6 +4,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
@@ -65,6 +66,7 @@ import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
+import { clearOfTheSlotTurn, TEST_TIMEOUT_MS } from "../testing/notice-slot";
 import { WORK_ORDER_LINK_READS_PER_MINUTE } from "./site-work-order-link.controller";
 
 /**
@@ -743,27 +745,37 @@ describe("a contractor with a link", () => {
     expect(JSON.stringify(mailed[0]?.props)).not.toContain(ids.token);
   });
 
-  it("H7: notes in an hour are told of once, and the answer that ends the link after them is told of too", async () => {
-    const ids = await linked();
-    await act(ids.token, { act: "note", body: `Kommer klockan tio ${suffix}` });
-    await act(ids.token, { act: "note", body: `Blir lite sen ${suffix}` });
-    const done = await act(ids.token, { act: "done" });
-    expect(done.statusCode).toBe(200);
+  describe("within one slot of the queue's throttle", () => {
+    // The second note is dropped only within the clock hour of the first.
+    beforeEach(async () => {
+      await clearOfTheSlotTurn(prisma);
+    }, TEST_TIMEOUT_MS + 15_000);
 
-    const jobs = await prisma.$queryRaw<{ data: IssueNoticeJob }[]>`
-      SELECT data FROM pgboss.job
-      WHERE name = 'issue-notice' AND data->>'issueId' = ${ids.issueId}
-      ORDER BY created_on`;
-    // One for the notes, the second note throttled; one for done.
-    expect(jobs.map((job) => [job.data.event, job.data.contractor])).toEqual([
-      ["contractor", "activity"],
-      ["contractor", "answer"],
-    ]);
-    const before = sent.length;
-    for (const job of jobs) {
-      expect(await app.get(IssueMailer).deliver(job.data)).toBe(true);
-    }
-    expect(sent.slice(before)).toHaveLength(2);
+    it("H7: notes in an hour are told of once, and the answer that ends the link after them is told of too", async () => {
+      const ids = await linked();
+      await act(ids.token, {
+        act: "note",
+        body: `Kommer klockan tio ${suffix}`,
+      });
+      await act(ids.token, { act: "note", body: `Blir lite sen ${suffix}` });
+      const done = await act(ids.token, { act: "done" });
+      expect(done.statusCode).toBe(200);
+
+      const jobs = await prisma.$queryRaw<{ data: IssueNoticeJob }[]>`
+        SELECT data FROM pgboss.job
+        WHERE name = 'issue-notice' AND data->>'issueId' = ${ids.issueId}
+        ORDER BY created_on`;
+      // One for the notes, the second note throttled; one for done.
+      expect(jobs.map((job) => [job.data.event, job.data.contractor])).toEqual([
+        ["contractor", "activity"],
+        ["contractor", "answer"],
+      ]);
+      const before = sent.length;
+      for (const job of jobs) {
+        expect(await app.get(IssueMailer).deliver(job.data)).toBe(true);
+      }
+      expect(sent.slice(before)).toHaveLength(2);
+    });
   });
 });
 
@@ -1321,6 +1333,81 @@ describe("H5b. a photograph chosen once the link opens nothing is not counted", 
 
     // The link opens nothing now, so the new photograph was never shown.
     expect(await exposures()).toBe(before);
+  });
+
+  it("counts nothing for a choice made while the household is protected, though the link's row was never revoked", async () => {
+    const ids = await linked();
+    const addressId = `wl-address5-${suffix}`;
+    const apartmentId = `wl-apartment5-${suffix}`;
+    const neighbourId = `wl-neighbour5-${suffix}`;
+    const exposures = () =>
+      prisma.workOrderPhotoExposure.count({
+        where: { workOrderId: ids.workOrderId },
+      });
+    await prisma.address.create({
+      data: {
+        id: addressId,
+        street: "Länkgatan",
+        number: `${suffix}e`,
+        postalCode: "11122",
+        city: "Stockholm",
+        sortOrder: 925,
+      },
+    });
+    await prisma.apartment.create({
+      data: { id: apartmentId, addressId, number: "1205", floor: 5 },
+    });
+    await prisma.issue.update({
+      where: { id: ids.issueId },
+      data: { apartmentId },
+    });
+    try {
+      // A protected household recorded ahead of its move-in date by a write
+      // that ends no link: only the check on the household stands between
+      // the choice and the count.
+      await prisma.person.create({
+        data: {
+          id: neighbourId,
+          firstName: "Nora",
+          lastName: `Granne5${suffix}`,
+          protectedPersonalData: true,
+        },
+      });
+      await prisma.residency.create({
+        data: {
+          personId: neighbourId,
+          apartmentId,
+          role: "RESIDENT",
+          movedInOn: new Date("2999-01-01T00:00:00.000Z"),
+        },
+      });
+      expect(
+        await prisma.workOrderLink.count({
+          where: { workOrderId: ids.workOrderId, revokedAt: null },
+        }),
+      ).toBe(1);
+      const before = await exposures();
+
+      expect(
+        (
+          await choose(ids.issueId, ids.workOrderId, [
+            ids.chosenFileId,
+            ids.unchosenFileId,
+          ])
+        ).statusCode,
+      ).toBe(204);
+
+      expect(await exposures()).toBe(before);
+    } finally {
+      await prisma.residency.deleteMany({ where: { personId: neighbourId } });
+      await prisma.person.deleteMany({ where: { id: neighbourId } });
+      await prisma.issue.update({
+        where: { id: ids.issueId },
+        data: { apartmentId: null },
+      });
+      await prisma.apartment.deleteMany({ where: { id: apartmentId } });
+      await prisma.address.deleteMany({ where: { id: addressId } });
+    }
   });
 });
 
