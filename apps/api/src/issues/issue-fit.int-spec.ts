@@ -1102,6 +1102,56 @@ describe("permission to enter", () => {
     ).toBe(0);
   });
 
+  it("is refused when it lands after a purge detached the reporter", async () => {
+    const issueId = await filed(plain);
+
+    // The person purge under way: it has the issue's row and takes the
+    // reporter off it, and does not hold the issue's advisory lock, as for an
+    // issue filed after it chose its issues. The reporter's write reads the
+    // issue as it stood before and then waits for that row.
+    const purge = await heldOpen((tx) =>
+      tx.issue.update({
+        where: { id: issueId },
+        data: { reporterPersonId: null },
+      }),
+    );
+    // Awaited inside, so the request is sent now and not when it is awaited.
+    const answer = (async () =>
+      call(resident, "PUT", `/api/issues/${issueId}/entry-permission`, {
+        answer: "YES",
+        note: "Ring på",
+        pets: true,
+        masterKey: true,
+      }))();
+    try {
+      expect(await blockedBehind(purge.pid)).toBe(true);
+      purge.release();
+      await purge.done;
+
+      const refused = await answer;
+      expect(refused.statusCode).toBe(404);
+      expect(refused.json()).toMatchObject({ reason: "issue-not-found" });
+      expect(await stored(issueId)).toMatchObject({
+        entryAnswer: null,
+        entryNote: null,
+        entryPets: null,
+        entryMasterKey: null,
+      });
+      expect(
+        await prisma.auditLogEntry.count({
+          where: {
+            targetId: issueId,
+            action: "ISSUE_ENTRY_PERMISSION_SET",
+          },
+        }),
+      ).toBe(0);
+    } finally {
+      purge.release();
+      await purge.done.catch(() => undefined);
+      await answer.catch(() => undefined);
+    }
+  });
+
   it("keeps a half-filled yes out of the table", async () => {
     const issueId = await filed(plain);
 

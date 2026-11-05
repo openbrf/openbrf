@@ -4683,8 +4683,9 @@ model Issue {
 
   /// When the nightly purge removed the issue's free-text layer, on its clock
   /// or on its reporter's granted erasure request (ADR 0057). The board's
-  /// screen says so with the date rather than showing an empty issue. Not a
-  /// selector: what the purge reaches is whatever free text still stands, so
+  /// screen says so with the date rather than showing an empty issue. Written
+  /// when the text goes, also while a file attached during the run stands,
+  /// and again by the run that takes that file. Not a selector: what the purge reaches is whatever free text still stands, so
   /// text written after a reopening is reached on the next closing's clock.
   freeTextRemovedAt DateTime?
 
@@ -5046,6 +5047,9 @@ model IssueMessage {
 
   @@index([issueId, createdAt])
   @@index([authorPersonId])
+  // The queue's search (`IssueService.searchWhere`) matches a word anywhere in
+  // the text, which a B-tree cannot answer and a trigram index can (`pg_trgm`).
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin, map: "issue_message_body_trgm_idx")
   @@map("issue_message")
 }
 
@@ -5081,6 +5085,8 @@ model IssueNote {
 
   @@index([issueId, createdAt])
   @@index([authorPersonId])
+  // For the queue's search, as on an issue message.
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin, map: "issue_note_body_trgm_idx")
   @@map("issue_note")
 }
 

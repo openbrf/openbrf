@@ -81,6 +81,15 @@ describe("findDoorCode", () => {
     expect(findDoorCode(digits)).toEqual({ offset: digits.indexOf("1234") });
   });
 
+  // The accepted cost of letting a time span through (see `findDoorCode`): a
+  // code that reads as two hours of the day, alone or split around one, passes.
+  it.each(["Porten 12-23", "12-23", "11-22", "12 14-16", "12-14 16"])(
+    "lets %j through, as it reads as a time span",
+    (text) => {
+      expect(findDoorCode(text)).toBeNull();
+    },
+  );
+
   it("reads a four-digit year without a month as a possible code", () => {
     expect(findDoorCode("Kommer 2026")).not.toBeNull();
   });

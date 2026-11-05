@@ -15,6 +15,7 @@ import { AuthService } from "../auth/auth.service";
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { NORMALIZATION_VERSION } from "../crypto/personal-data";
 import { registerMultipart } from "../http/multipart";
 import { PrismaService } from "../database/prisma.service";
 import { IssueConversationService } from "../issues/issue-conversation.service";
@@ -1249,6 +1250,76 @@ describe("D. rate limits and abuse", () => {
         where: { id: personId },
         data: { processingRestrictedAt: null },
       });
+    }
+  });
+
+  it("D6: a restricted person is found when the report gives their address in other letters' case", async () => {
+    const email = `rl-restricted-case-${suffix}@exempel.se`;
+    const sealed = await encryption.encrypt("person.email", email);
+    const personId = `rl-restricted-case-${suffix}`;
+    await prisma.person.create({
+      data: {
+        id: personId,
+        firstName: "Rakel",
+        lastName: `Versal${suffix}`,
+        emailCipher: sealed.cipher,
+        emailIndex: sealed.index,
+        processingRestrictedAt: new Date(),
+      },
+    });
+    try {
+      const { id } = await issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Begränsad, med versaler",
+        reporterName: null,
+        reporterEmail: email.toUpperCase(),
+      });
+      const before = sent.length;
+      expect(await links.deliver(id)).toBe(false);
+      expect(sent.length).toBe(before);
+      expect(
+        await prisma.issueReporterLink.count({ where: { issueId: id } }),
+      ).toBe(0);
+    } finally {
+      await prisma.person.delete({ where: { id: personId } });
+    }
+  });
+
+  it("D6: a restricted person whose index predates the normalisation rules is still not mailed", async () => {
+    const email = `rl-restricted-stale-${suffix}@exempel.se`;
+    const sealed = await encryption.encrypt("person.email", email);
+    const personId = `rl-restricted-stale-${suffix}`;
+    // An index that matches no address, as one computed under older rules
+    // would until the reindex rewrites it.
+    await prisma.person.create({
+      data: {
+        id: personId,
+        firstName: "Rut",
+        lastName: `Gammal${suffix}`,
+        emailCipher: sealed.cipher,
+        emailIndex: `stale-${suffix}`,
+        blindIndexVersion: NORMALIZATION_VERSION - 1,
+        processingRestrictedAt: new Date(),
+      },
+    });
+    try {
+      const { id } = await issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Begränsad, gammalt index",
+        reporterName: null,
+        reporterEmail: email,
+      });
+      const before = sent.length;
+      expect(await links.deliver(id)).toBe(false);
+      expect(sent.length).toBe(before);
+      expect(
+        await prisma.issueReporterLink.count({ where: { issueId: id } }),
+      ).toBe(0);
+    } finally {
+      // Deleted rather than lifted: its index matches nothing.
+      await prisma.person.delete({ where: { id: personId } });
     }
   });
 

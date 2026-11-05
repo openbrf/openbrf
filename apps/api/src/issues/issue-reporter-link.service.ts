@@ -5,6 +5,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { NORMALIZATION_VERSION } from "../crypto/personal-data";
 import { databaseNow } from "../database/database-clock";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
@@ -310,7 +311,12 @@ export class IssueReporterLinkService implements OnModuleInit {
         await this.releaseEarlier(tx, existing);
         return null;
       }
-      if (await this.isRestricted(tx, issue.reporterEmailIndex)) {
+      if (
+        await this.isRestricted(tx, {
+          emailCipher: issue.reporterEmailCipher,
+          emailIndex: issue.reporterEmailIndex,
+        })
+      ) {
         await this.releaseEarlier(tx, existing);
         return null;
       }
@@ -319,6 +325,13 @@ export class IssueReporterLinkService implements OnModuleInit {
        * The address's budget, counted under a lock on the address, so two
        * reports from one address delivered at once count each other. The
        * blind index rather than the address, so the key names nobody.
+       *
+       * Links issued, not mails sent: a link is mailed after this transaction
+       * commits, so a count of `mailedAt` would miss one whose mail is on its
+       * way, and two deliveries to one address could each find a slot free. A
+       * link that will not be mailed is deleted and gives its slot back
+       * (`releaseUnsent`, `releaseEarlier`, `abandon`), so what counts is
+       * mailed or still being tried (ADR 0055).
        */
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`issue-reporter-link-address:${issue.reporterEmailIndex}`}))`;
       const sentToday = await tx.$queryRaw<{ count: bigint }[]>`
@@ -399,7 +412,7 @@ export class IssueReporterLinkService implements OnModuleInit {
       async (tx) => {
         await lockLegalHoldRegistry(tx);
         await lockIssue(tx, issueId);
-        if (await this.isRestricted(tx, issued.emailIndex)) {
+        if (await this.isRestricted(tx, issued)) {
           await this.releaseUnsent(tx, issued);
           return false;
         }
@@ -766,15 +779,37 @@ export class IssueReporterLinkService implements OnModuleInit {
   /**
    * Whether the address is that of a person who restricted processing (GDPR
    * art. 18): the association may store their data and must not mail them.
+   *
+   * Asked under the issue's lock on every delivery, so it reads the people at
+   * this one address rather than every restricted person. The two blind
+   * indexes are not comparable (`field-encryption.service.ts`), so the
+   * reporter's address is decrypted and indexed as a person's address, and the
+   * register is asked for that index. A person whose indexes predate the
+   * current normalisation rules (`blindIndexVersion`) may hold an index that
+   * no longer matches their address until `PersonReindexService` rewrites it,
+   * so a restricted one is read too. Every candidate's address is indexed
+   * under the reporter's field and compared, as a 32-bit index can collide.
    */
   private async isRestricted(
     tx: Prisma.TransactionClient,
-    emailIndex: string,
+    reporter: { emailCipher: string; emailIndex: string },
   ): Promise<boolean> {
+    const address = await this.encryption.decrypt(
+      "issue.reporterEmail",
+      reporter.emailCipher,
+    );
+    const personIndex = await this.encryption.computeIndex(
+      "person.email",
+      address,
+    );
     const restricted = await tx.person.findMany({
       where: {
         processingRestrictedAt: { not: null },
         emailCipher: { not: null },
+        OR: [
+          ...(personIndex === null ? [] : [{ emailIndex: personIndex }]),
+          { blindIndexVersion: { lt: NORMALIZATION_VERSION } },
+        ],
       },
       select: { emailCipher: true },
     });
@@ -782,13 +817,15 @@ export class IssueReporterLinkService implements OnModuleInit {
       if (person.emailCipher === null) {
         continue;
       }
-      const address = await this.encryption.decrypt(
+      const candidate = await this.encryption.decrypt(
         "person.email",
         person.emailCipher,
       );
       if (
-        (await this.encryption.computeIndex("issue.reporterEmail", address)) ===
-        emailIndex
+        (await this.encryption.computeIndex(
+          "issue.reporterEmail",
+          candidate,
+        )) === reporter.emailIndex
       ) {
         return true;
       }

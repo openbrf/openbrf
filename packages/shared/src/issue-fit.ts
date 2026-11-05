@@ -167,6 +167,12 @@ const MONTH_BEFORE =
  * Likely, not certain: a number the check passes may still be a code, and a
  * four-digit number it refuses may be an apartment written without the word
  * "lgh". Refusing is the safe side, and the resident can say it in words.
+ * Letting "16-18" through has a cost that is accepted: a code written as two
+ * pairs of valid hours ("12-23", "11-22", or "Porten 12-23") reads as a time
+ * span and passes, and so does one split around a span ("12 14-16",
+ * "12-14 16"), since the span is blanked before the digits around it are
+ * joined. A time and a code of that shape cannot be told apart by their
+ * digits, and `issue-fit.spec.ts` pins these as passing.
  *
  * @returns The first position, or null.
  */
