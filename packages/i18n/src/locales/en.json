@@ -4640,7 +4640,7 @@
       }
     },
     "ringFence": {
-      "formWarning": "Only the board reads this - never the property manager, a contractor or a connected app - and nothing about it is sent by email. Its text is removed one year after the issue is closed, unless a legal hold stands on the issue, or a legal hold or a restriction on the person who reported it. Describe what happened, where and when. Do not write who you think did it, or anything about anybody's health or about a crime. Formal steps under the Tenant-Ownership Act are not taken here.",
+      "formWarning": "Only the board reads this - never the property manager, a contractor or a connected app - and nothing about it is sent by email. What you write, the conversation and the photographs are removed one year after the issue is closed, unless a legal hold stands on the issue, or a legal hold or a restriction on the person who reported it. Describe what happened, where and when. Do not write who you think did it, or anything about anybody's health or about a crime. Formal steps under the Tenant-Ownership Act are not taken here.",
       "caseNotice": "Ring-fenced issue. Only the board reads it. Nothing about it goes to the property manager, a contractor, a connected app or out by email, and its free text is removed one year after it is closed, unless a legal hold stands on it, or a legal hold or a restriction on the person who reported it. Formal steps under the Tenant-Ownership Act are taken outside Open BRF."
     },
     "damageCase": {
