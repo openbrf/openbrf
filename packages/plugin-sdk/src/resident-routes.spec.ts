@@ -23,6 +23,7 @@ describe("PluginResidentRouteError", () => {
     "addressBook.residents",
     "addressBook.apartments",
     "addressBook.summary",
+    "addressBook.nonResidents",
   ] as const)("says that %s reads the register", (member) => {
     expect(new PluginResidentRouteError("parking-share", member).message).toBe(
       `Plugin "parking-share" called ${member} on a resident route, where the register is not read.`,
@@ -64,6 +65,7 @@ describe("PluginResidentRouteError", () => {
       "addressBook.residents",
       "addressBook.apartments",
       "addressBook.summary",
+      "addressBook.nonResidents",
       "addressBook.caller",
       "actions.list",
       "actions.invoke",

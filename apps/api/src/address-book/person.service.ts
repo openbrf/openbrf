@@ -406,6 +406,7 @@ export class PersonService {
           residencies: person.residencies,
           boardPositions: person.boardPositions,
           systemRoles: person.systemRoles,
+          pluginAccesses: person.pluginAccesses,
           withheld:
             person.legalHolds.length > 0 ||
             person.processingRestrictedAt !== null,

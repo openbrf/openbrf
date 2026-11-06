@@ -153,14 +153,16 @@ const personIds = Object.values(actors).map((actor) => actor.personId);
 const TRANSFER_ID = `rep-transfer-${suffix}`;
 
 let createdAssociation = false;
-let previousDesignation: string | null = null;
-let previousOrganizationNumber: string | null = null;
+let previous: {
+  propertyDesignation: string | null;
+  organizationNumber: string | null;
+} | null = null;
 
 /**
- * The organisation number this suite exports under. Another suite on this
- * worker may leave the association singleton without one, and the supply is
- * refused on a blank number, so the suite sets its own and puts back what it
- * found.
+ * The organisation number the file names the association by. Set on an
+ * association another suite left behind as well, which may have none: the
+ * suites a worker runs share its database, and without one every supply is
+ * refused.
  */
 const ORGANIZATION_NUMBER = "769600-0101";
 
@@ -424,8 +426,7 @@ beforeAll(async () => {
     });
     createdAssociation = true;
   } else {
-    previousDesignation = association.propertyDesignation;
-    previousOrganizationNumber = association.organizationNumber;
+    previous = association;
     await prisma.association.update({
       where: { id: 1 },
       data: {
@@ -494,14 +495,8 @@ afterAll(async () => {
   });
   if (createdAssociation) {
     await prisma.association.deleteMany({ where: { id: 1 } });
-  } else {
-    await prisma.association.update({
-      where: { id: 1 },
-      data: {
-        propertyDesignation: previousDesignation,
-        organizationNumber: previousOrganizationNumber,
-      },
-    });
+  } else if (previous !== null) {
+    await prisma.association.update({ where: { id: 1 }, data: previous });
   }
   // The statutory archive is append-only, so the transfer, the termination, the
   // lien notes, the obligations and every audit entry this suite wrote stay, and

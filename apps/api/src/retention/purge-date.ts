@@ -73,8 +73,9 @@ export interface PersonPurgeFacts extends StandingTieFacts {
  * something stands in its way.
  *
  * The purge acts on the person, not on one residency: it waits for the last
- * residency to end, and leaves a person alone while they hold a board seat or a
- * system role, or while a legal hold or a restriction stands. A date taken from
+ * residency to end, and leaves a person alone while they hold a board seat, a
+ * system role or a plugin access, or while a legal hold or a restriction
+ * stands. A date taken from
  * one residency's move-out promised an erasure that was not coming, for a
  * person who had moved to another apartment. The conditions are the ones
  * `purgeRefusal` applies to the scheduled run, and the ties are read from the
