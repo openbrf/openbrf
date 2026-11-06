@@ -58,6 +58,7 @@ import {
 } from "../media/testing/image-fixtures";
 import { MoveService } from "../moves/move.service";
 import { StorageService } from "../storage/storage.service";
+import { advisoryLockCount } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
   restoreEnvironmentVariable,
@@ -290,11 +291,10 @@ let arranged = 0;
 async function waitForProtectionLockWaiter(): Promise<void> {
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
-    const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
-      SELECT count(*) AS waiting FROM pg_locks
-      WHERE locktype = 'advisory' AND NOT granted
-        AND objid::bigint = (hashtext('work-order-link-protection')::bigint & 4294967295)`;
-    if (row !== undefined && row.waiting > 0n) {
+    if (
+      (await advisoryLockCount(prisma, "work-order-link-protection", false)) >
+      0n
+    ) {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 20));

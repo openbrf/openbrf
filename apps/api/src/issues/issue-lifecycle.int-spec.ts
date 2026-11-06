@@ -17,6 +17,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { MailService, type SendMailInput } from "../mail/mail.service";
+import { advisoryLockCount } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   createIssueTypeFixture,
@@ -280,11 +281,7 @@ async function renderedNoticesTo(
 async function waitForLockWaiter(key: string): Promise<void> {
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
-    const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
-      SELECT count(*) AS waiting FROM pg_locks
-      WHERE locktype = 'advisory' AND NOT granted
-        AND objid::bigint = (hashtext(${key})::bigint & 4294967295)`;
-    if (row !== undefined && row.waiting > 0n) {
+    if ((await advisoryLockCount(prisma, key, false)) > 0n) {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
