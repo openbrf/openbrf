@@ -40,13 +40,13 @@ import {
   normalizeSingleLineText,
   parseLocalDay,
   scanForPersonalIdentityNumbers,
-  replyReopensIssue,
 } from "@openbrf/shared";
 
 import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { databaseNow } from "../database/database-clock";
 import { PrismaService } from "../database/prisma.service";
 import { readAuthors } from "../feed/feed-author";
 import { type IssueLinkOutcome, linkIssueToPost } from "../feed/feed-issue";
@@ -61,6 +61,7 @@ import {
   issuesHandledWhere,
   readIssueHandlers,
   requireHandledIssue,
+  requireHandlerRole,
   typesHandledWhere,
 } from "./issue-handlers";
 import {
@@ -86,6 +87,7 @@ import {
   type KnownFaultView,
   typeNameForTheHouse,
 } from "./issue-known-fault";
+import { replyModeOf } from "./issue-reopening";
 import { type IssueTypeView, IssueTypeService } from "./issue-type.service";
 import {
   holdOfferedPlace,
@@ -1134,7 +1136,9 @@ export class IssueService {
       include: ISSUE_INCLUDE,
     });
 
-    const now = new Date();
+    // The database's clock, as a reply is judged on, so the field the screen
+    // offers is the one the reply will get (`replyModeOf`).
+    const now = await databaseNow(this.prisma);
     return issues.map((issue) => toOwnView(issue, now));
   }
 
@@ -1499,7 +1503,9 @@ export class IssueService {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
 
-      const scope = await this.readerScope(tx, actorPersonId, new Date());
+      const now = new Date();
+      const scope = await this.readerScope(tx, actorPersonId, now);
+      await requireHandlerRole(tx, actorPersonId, now);
       const existing = await tx.issue.findFirst({
         where: { id: issueId, ...issuesHandledWhere(scope) },
         select: {
@@ -1530,7 +1536,10 @@ export class IssueService {
         throw new IssueError("No such status.", "status-not-found");
       }
 
-      const next = nextState(existing, target, move);
+      // The database's clock, as the window a reply may reopen in is judged
+      // (`replyModeOf`): a `closedAt` from this process's clock would shift
+      // that window's edge by the two clocks' difference.
+      const next = nextState(existing, target, move, await databaseNow(tx));
 
       /*
        * Who moved it, between which meanings and which statuses, and the reason
@@ -2149,9 +2158,7 @@ export class IssueService {
       // narrower scope, which admits every issue an every-handler type has: a
       // role withdrawn since the route's check must not merge.
       const now = new Date();
-      if (!(await handlesIssues(tx, actorPersonId, "EVERY_HANDLER", now))) {
-        throw new IssueError("No such issue.", "issue-not-found");
-      }
+      await requireHandlerRole(tx, actorPersonId, now);
       const scope = await this.readerScope(tx, actorPersonId, now);
       const [existing, into] = await Promise.all(
         [issueId, intoIssueId].map((id) =>
@@ -2281,7 +2288,8 @@ export class IssueService {
           outcome: "DUPLICATE",
           // A duplicate merged after it closed keeps the day it closed, which
           // the purge clock runs on (`nextState`).
-          closedAt: existing.closedAt ?? new Date(),
+          // On the database's clock, as `nextState` writes it.
+          closedAt: existing.closedAt ?? (await databaseNow(tx)),
           mergedIntoIssueId: intoIssueId,
           ...KNOWN_FAULT_CLEARED,
           // Closing clears the entry permission (decision 29), as `nextState`
@@ -2319,13 +2327,16 @@ export class IssueService {
       // After the lock wait: a board seat that ended during it must not sign
       // the notice as BOARD.
       const now = new Date();
-      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      const existing = await this.requireHandled(
+        tx,
+        issueId,
+        actorPersonId,
+        now,
+      );
       // `requireHandled` answers the narrower scope for a person who handles
       // nothing, and `signatureOf` would sign for them as the board: a role
       // withdrawn since the route's check must not publish a notice.
-      if (!(await handlesIssues(tx, actorPersonId, "EVERY_HANDLER", now))) {
-        throw new IssueError("No such issue.", "issue-not-found");
-      }
+      await requireHandlerRole(tx, actorPersonId, now);
       if (existing.status.meaning === "DONE") {
         throw new IssueError(
           "This issue is closed; a fault that is fixed is not a known fault.",
@@ -2375,14 +2386,18 @@ export class IssueService {
   ): Promise<QueuedIssueView> {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      // After the lock wait, one instant for both questions, as publishing
+      // takes it.
+      const now = new Date();
+      const existing = await this.requireHandled(
+        tx,
+        issueId,
+        actorPersonId,
+        now,
+      );
       // As publishing does: a role withdrawn since the route's check must not
       // clear a notice the board put up.
-      if (
-        !(await handlesIssues(tx, actorPersonId, "EVERY_HANDLER", new Date()))
-      ) {
-        throw new IssueError("No such issue.", "issue-not-found");
-      }
+      await requireHandlerRole(tx, actorPersonId, now);
       if (existing.knownFaultPublishedAt === null) {
         return tx.issue.findUniqueOrThrow({
           where: { id: issueId },
@@ -3014,21 +3029,28 @@ export class IssueService {
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
+    now: Date = new Date(),
   ) {
-    return requireHandledIssue(db, issueId, readerPersonId, {
-      id: true,
-      typeId: true,
-      boardOnly: true,
-      assigneePersonId: true,
-      priority: true,
-      targetDate: true,
-      costResponsibility: true,
-      createdAt: true,
-      knownFaultPublishedAt: true,
-      status: { select: { meaning: true } },
-      type: { select: { handledBy: true } },
-      finding: { select: { kind: true, inspectedOn: true } },
-    });
+    return requireHandledIssue(
+      db,
+      issueId,
+      readerPersonId,
+      {
+        id: true,
+        typeId: true,
+        boardOnly: true,
+        assigneePersonId: true,
+        priority: true,
+        targetDate: true,
+        costResponsibility: true,
+        createdAt: true,
+        knownFaultPublishedAt: true,
+        status: { select: { meaning: true } },
+        type: { select: { handledBy: true } },
+        finding: { select: { kind: true, inspectedOn: true } },
+      },
+      now,
+    );
   }
 
   /**
@@ -3685,6 +3707,10 @@ function afterWithinMeaning(cursor: IssueQueueCursor): Prisma.IssueWhereInput {
  * or closed again with an outcome of its own, it is no longer a duplicate, and
  * its reporter follows it again rather than the other issue. Closing clears a
  * known fault, which a fault nobody still has stops being.
+ *
+ * @param now The database's clock (`databaseNow`), read after the issue's
+ *   locks: the closing date is written from it because a reply's window is
+ *   judged on that clock.
  */
 function nextState(
   existing: {
@@ -3695,6 +3721,7 @@ function nextState(
   },
   target: { id: string; meaning: IssueStatusMeaning },
   move: IssueStatusMove,
+  now: Date,
 ): {
   statusId: string;
   waitingReason: IssueWaitingReason | null;
@@ -3733,7 +3760,7 @@ function nextState(
     statusId: target.id,
     waitingReason: move.waitingReason ?? null,
     outcome,
-    closedAt: closing ? (existing.closedAt ?? new Date()) : null,
+    closedAt: closing ? (existing.closedAt ?? now) : null,
     mergedIntoIssueId:
       closing && outcome === "DUPLICATE" ? existing.mergedIntoIssueId : null,
     ...(closing ? KNOWN_FAULT_CLEARED : {}),
@@ -3797,6 +3824,10 @@ async function requireFollowable(
     await lockIssueType(tx, typeId);
   }
   await lockIssue(tx, issueId);
+  // The status, read under the lock. The reporter is asked again with it: the
+  // first read took only the type the locks are ordered by, and a purge of a
+  // closed report clears its reporter, which the lock of the issue itself
+  // does not hold back.
   const earlier = await tx.issue.findFirst({
     where: { id: issueId, reporterPersonId },
     select: { status: { select: { meaning: true } } },
@@ -4017,13 +4048,7 @@ function toQueuedView(
 function toOwnView(issue: IssueRecord, now: Date): OwnIssueView {
   return {
     ...toIssueRowView(issue, localDayOf(now)),
-    replyMode:
-      issue.status.meaning !== "DONE"
-        ? "MESSAGE"
-        : issue.mergedIntoIssueId === null &&
-            replyReopensIssue(issue.closedAt, now)
-          ? "REOPENS"
-          : "NEW_REPORT",
+    replyMode: replyModeOf(issue, now),
     mergedIntoMeaning:
       issue.mergedIntoIssueId === null
         ? null

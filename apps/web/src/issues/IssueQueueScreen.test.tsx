@@ -383,6 +383,53 @@ describe("a read that fails", () => {
     );
   });
 
+  it("leaves the focus alone when the notice of the types is drawn again after the queue's own retry", async () => {
+    fetchHandlerIssueTypes.mockReset().mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    const unavailable =
+      "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.";
+
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText(unavailable);
+    screen.getByRole("button", { name: "Försök igen" }).focus();
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => {
+      expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByText(unavailable).closest("[role='alert']"),
+      ).not.toBeNull();
+    });
+    // The failed retry took the focus, as it should.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Försök igen" }),
+    );
+
+    // A later read of the queue fails, which takes the panel and its notice
+    // off the page, and the queue's own retry brings them back.
+    fetchIssueQueueSnapshot.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await userEvent.selectOptions(field("Prioritet"), "URGENT");
+    await screen.findByText("Ärendena kunde inte läsas just nu.");
+    expect(screen.queryByText(unavailable)).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(3);
+    });
+    await screen.findByText(unavailable);
+
+    // The queue's retry went with its notice and left the focus on the page.
+    // The types' retry was not pressed, so it does not take it.
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it("does not announce a standing failure of the types that a later read finds again", async () => {
     fetchIssueQueueSnapshot.mockResolvedValueOnce({
       ok: false,

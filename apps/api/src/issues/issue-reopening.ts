@@ -1,6 +1,38 @@
+import { type IssueReplyMode, replyReopensIssue } from "@openbrf/shared";
+
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { IssueMailer } from "./issue-mailer.service";
+
+/**
+ * What a reply on an issue does, as the one rule every path reads: the
+ * reporter's screen (`OwnIssueView.replyMode`), a signed-in reporter's reply,
+ * and the page and the reply of a private link (ADR 0055) all ask it, so they
+ * cannot drift apart.
+ *
+ * A message on an issue that is not done; a reopening on one that is done, is
+ * not merged into another and closed within the reopening window; a new report
+ * otherwise (ADR 0054). `now` is the instant the window is judged at: a path
+ * that decides inside a transaction passes the database's clock
+ * (`databaseNow`), after its locks, so every path judges one column on one
+ * clock.
+ */
+export function replyModeOf(
+  issue: {
+    status: { meaning: string };
+    mergedIntoIssueId: string | null;
+    closedAt: Date | null;
+  },
+  now: Date,
+): IssueReplyMode {
+  if (issue.status.meaning !== "DONE") {
+    return "MESSAGE";
+  }
+  return issue.mergedIntoIssueId === null &&
+    replyReopensIssue(issue.closedAt, now)
+    ? "REOPENS"
+    : "NEW_REPORT";
+}
 
 /** Who reopens an issue by replying: a signed-in reporter or a private link. */
 export type ReopeningReply =
@@ -26,7 +58,7 @@ export type ReopeningReply =
  * link, as its messages do.
  *
  * The caller holds the locks a status move takes (`lockIssueForHandling`) and
- * has decided that the reply may reopen the issue (`replyReopensIssue`). The
+ * has decided that the reply may reopen the issue (`replyModeOf`). The
  * assignee, or every handler of an issue nobody has, is mailed that it is open
  * again, never what the reply says. The reply's own message is mailed after
  * this one.

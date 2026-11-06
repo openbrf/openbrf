@@ -24,6 +24,7 @@ import {
   ISSUE_NOTICE_QUEUE,
   ISSUE_OVERDUE_QUEUE,
 } from "../issues/issue-mailer.service";
+import { lockIssueForHandling } from "../issues/issue-lock";
 import { IssuePurgeService } from "../issues/issue-purge.service";
 import {
   REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY,
@@ -742,6 +743,144 @@ describe("B. lifetime and revocation", () => {
     });
     expect((await page(token)).statusCode).toBe(404);
     expect((await post(token, "För sent")).statusCode).toBe(404);
+  });
+
+  it("B4: the reopening window is judged on the database's clock, whatever the API process's reads", async () => {
+    const { issueId, token } = await reported();
+    // Closed 29 days ago on the database's clock, the one `closedAt` and the
+    // link's own liveness are judged on.
+    await prisma.$executeRaw`
+      UPDATE "issue"
+      SET "statusId" = ${publicType.statusIds.DONE},
+          "outcome" = 'FIXED',
+          "closedAt" = clock_timestamp() - interval '29 days',
+          "assigneePersonId" = ${board.personId}
+      WHERE "id" = ${issueId}`;
+
+    // The API process's clock two days ahead: read against it the issue closed
+    // 31 days ago, and the page and the reply would call it closed.
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000));
+    try {
+      const reading = await page(token);
+      expect(reading.statusCode).toBe(200);
+      expect(reading.body).toContain("<textarea");
+      expect(reading.body).toContain("öppnas det igen");
+
+      const sentReply = await post(token, "Det läcker igen");
+      expect(sentReply.headers.location).toBe(`/arende/${token}?svar=sent`);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: { statusId: true, closedAt: true },
+      }),
+    ).toEqual({ statusId: publicType.statusIds.IN_PROGRESS, closedAt: null });
+  });
+
+  it("B4: the page does not promise a reopening that the hour's limit would refuse", async () => {
+    const { issueId, token } = await reported();
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      },
+    });
+    expect((await page(token)).body).toContain("öppnas det igen");
+
+    await prisma.issueMessage.createMany({
+      data: Array.from({ length: REPORTER_LINK_MESSAGES_PER_HOUR }, () => ({
+        issueId,
+        side: "REPORTER" as const,
+        authorPersonId: null,
+        body: "Ett tidigare svar",
+      })),
+    });
+    const limited = await page(token);
+    expect(limited.statusCode).toBe(200);
+    expect(limited.body).not.toContain("öppnas det igen");
+    // What the page does not promise, the reply does not do.
+    const refused = await post(token, "En sak till");
+    expect(refused.headers.location).toBe(`/arende/${token}?svar=limited`);
+    expect(
+      (
+        await prisma.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          select: { statusId: true },
+        })
+      ).statusId,
+    ).toBe(publicType.statusIds.DONE);
+  });
+
+  it("B4: the hour's limit is counted when the reply decides, not when its transaction began", async () => {
+    const { issueId, token } = await reported();
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      },
+    });
+    // The link's ten messages are two seconds inside the hour when the reply
+    // starts, and out of it once the reply has waited for the issue's locks.
+    await prisma.issueMessage.createMany({
+      data: Array.from({ length: REPORTER_LINK_MESSAGES_PER_HOUR }, () => ({
+        issueId,
+        side: "REPORTER" as const,
+        authorPersonId: null,
+        body: "Ett tidigare svar",
+        createdAt: new Date(Date.now() - (3600 - 2) * 1000),
+      })),
+    });
+
+    let letGo: () => void = () => undefined;
+    const letGoSignal = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    let held: () => void = () => undefined;
+    const holding = new Promise<void>((resolve) => {
+      held = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await lockIssueForHandling(tx, issueId);
+        held();
+        await letGoSignal;
+      },
+      { timeout: 30_000 },
+    );
+    try {
+      await Promise.race([holding, holder]);
+      const replying = post(token, "En sak till");
+      replying.catch(() => undefined);
+      await waitFor(
+        async () =>
+          (await advisoryLockCount(
+            prisma,
+            `issue-type:${publicType.id}`,
+            false,
+          )) > 0n,
+        10_000,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 3500));
+      letGo();
+      await holder;
+      const answer = await replying;
+      expect(answer.headers.location).toBe(`/arende/${token}?svar=sent`);
+    } finally {
+      letGo();
+      await holder.catch(() => undefined);
+    }
+    expect(
+      await prisma.issueMessage.count({
+        where: { issueId, side: "REPORTER" },
+      }),
+    ).toBe(REPORTER_LINK_MESSAGES_PER_HOUR + 1);
   });
 
   it("B4: a message on an issue merged into another is refused as closed, and the page offers no field", async () => {
@@ -2153,6 +2292,22 @@ describe("the board's side of the link", () => {
 
     await prisma.issueReporterLink.delete({ where: { issueId } });
     expect(await stateOf()).toMatchObject({ kind: "external", link: "none" });
+  });
+
+  it("does not let a person who holds no issues:handle role withdraw a link", async () => {
+    const { issueId } = await reported();
+    // Past the route's guard, as a role withdrawn in between.
+    await expect(
+      links.revoke(`rl-nobody-${suffix}`, issueId),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    expect(
+      (
+        await prisma.issueReporterLink.findUniqueOrThrow({
+          where: { issueId },
+          select: { revokedAt: true },
+        })
+      ).revokedAt,
+    ).toBeNull();
   });
 
   it("refuses to withdraw a link that was never mailed, and withdraws a link once", async () => {

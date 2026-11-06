@@ -4,7 +4,10 @@ import type { Env } from "../config/env";
 import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
+import { MailApiError } from "../mail/http-api-mail.driver";
+import { withHandover } from "../mail/mail-driver";
 import { MailNotConfiguredError, type MailService } from "../mail/mail.service";
+import { MailServerNotPublicError } from "../mail/smtp-mail.driver";
 import { MeetingNoticeMailerService } from "./meeting-notice-mailer.service";
 
 /**
@@ -44,7 +47,7 @@ function build(
     pending?: { id: string; personId: string }[];
     person?: typeof PERSON | null;
     claims?: number;
-    sendFails?: Error;
+    sendFails?: unknown;
   } = {},
 ) {
   const order: string[] = [];
@@ -213,7 +216,7 @@ describe("sending one notice", () => {
   it("records a mail server's refusal as a code and never in its own words", async () => {
     const refusal = "550 5.1.1 <astrid@eksemplet.test> unknown";
     const { service, meetingNoticeDelivery } = build({
-      sendFails: new Error(refusal),
+      sendFails: withHandover(new Error(refusal), "not-handed-over"),
     });
 
     await service.runSending("notice-1");
@@ -225,6 +228,87 @@ describe("sending one notice", () => {
     expect(
       JSON.stringify(meetingNoticeDelivery.update.mock.calls),
     ).not.toContain("astrid@eksemplet.test");
+  });
+
+  it.each([
+    [
+      "a server this instance may not connect to",
+      new MailServerNotPublicError({ cause: null }),
+    ],
+    [
+      "the mail API refusing the request",
+      new MailApiError("refused", 422, "not-handed-over"),
+    ],
+  ])(
+    "records %s, which the driver says came before the handover, as not sent",
+    async (_what, error) => {
+      const { service, meetingNoticeDelivery } = build({ sendFails: error });
+
+      expect(await service.runSending("notice-1")).toEqual({
+        sent: 0,
+        failed: 1,
+      });
+      expect(meetingNoticeDelivery.update).toHaveBeenCalledWith({
+        where: { id: "delivery-1" },
+        data: { status: "FAILED", failureReason: "send-failed", sentAt: null },
+      });
+    },
+  );
+
+  /**
+   * Unconfirmed, and failed all the same: the board's screen lists every failed
+   * row as a member to call another way, and a member whose copy nobody
+   * confirmed may not have been summoned (EFL 6 kap. 21 §).
+   */
+  it.each([
+    [
+      "the mail API failing after it read the request",
+      new MailApiError("refused", 502, "may-have-been-handed-over"),
+    ],
+    [
+      "an SMTP connection that went quiet with the message on its way",
+      Object.assign(new Error("Timeout"), {
+        code: "ETIMEDOUT",
+        handover: "may-have-been-handed-over",
+      }),
+    ],
+    [
+      "a failure that does not say how far it got",
+      new Error("Connection closed unexpectedly"),
+    ],
+  ])(
+    "records %s as unconfirmed, and still as a member not reached",
+    async (_what, error) => {
+      const { service, meetingNoticeDelivery } = build({ sendFails: error });
+
+      expect(await service.runSending("notice-1")).toEqual({
+        sent: 0,
+        failed: 1,
+      });
+      expect(meetingNoticeDelivery.update).toHaveBeenCalledWith({
+        where: { id: "delivery-1" },
+        data: {
+          status: "FAILED",
+          failureReason: "delivery-unconfirmed",
+          sentAt: null,
+        },
+      });
+    },
+  );
+
+  it("records an address it cannot read back as not sent, and offers nothing to a mail server", async () => {
+    const { service, meetingNoticeDelivery, encryption, mail } = build();
+    encryption.decrypt.mockRejectedValueOnce(new Error("bad tag"));
+
+    expect(await service.runSending("notice-1")).toEqual({
+      sent: 0,
+      failed: 1,
+    });
+    expect(mail.send).not.toHaveBeenCalled();
+    expect(meetingNoticeDelivery.update).toHaveBeenCalledWith({
+      where: { id: "delivery-1" },
+      data: { status: "FAILED", failureReason: "send-failed", sentAt: null },
+    });
   });
 
   it("carries on past one unreachable member, so the rest are still called", async () => {
