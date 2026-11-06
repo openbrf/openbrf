@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import {
   ADDRESSES,
   ADMINISTRATOR,
@@ -110,6 +112,16 @@ export type Target = Where & {
    * has lost its entry, so this says it is the menu's entry that is meant.
    */
   readonly inNavigation?: true;
+  /**
+   * Look only inside the list row that shows this text.
+   *
+   * A list of reports holds the reports of every earlier walk on a stack that
+   * was already up, and neither the type, which every one of them names, nor
+   * where a row sits can tell this walk's report from theirs: the board's
+   * queue is oldest first inside a status, the resident's own list newest
+   * first. Text only this walk wrote can.
+   */
+  readonly inRowWith?: string;
 };
 
 /**
@@ -724,6 +736,13 @@ const PUBLIC_REPORT_ANSWER =
 const PUBLIC_REPORT_NOTE = "Elektrikern har nyckel till elcentralen.";
 
 /**
+ * What tells this walk's reports from those of earlier walks against a stack
+ * that was already up, fixed once when the file is loaded. Written into a
+ * report's description, so a screen can find its own report by it.
+ */
+const WALK_STAMP = randomBytes(3).toString("hex");
+
+/**
  * A fault a resident reports on the house's page, under a type a new instance
  * starts with that only residents report, and the board's answer to it. About
  * the building, and nobody's own words.
@@ -731,8 +750,14 @@ const PUBLIC_REPORT_NOTE = "Elektrikern har nyckel till elcentralen.";
 const RESIDENT_REPORT = {
   type: "Tvättstuga",
   location: "Tvättstugan i källaren",
-  description: "Torktumlare två startar inte, displayen visar F12.",
+  description: `Torktumlare två startar inte, displayen visar F12. Referens ${WALK_STAMP}.`,
 } as const;
+/**
+ * What the screens that open this walk's own report select its row by: the
+ * report's description ends in it, and the board's queue and the resident's
+ * list both show the description.
+ */
+const RESIDENT_REPORT_ROW = `Referens ${WALK_STAMP}.`;
 const RESIDENT_REPORT_ANSWER =
   "Tack! Serviceteknikern kommer på torsdag. Använd torktumlare ett så länge.";
 
@@ -2873,24 +2898,31 @@ export const SCREENS: readonly Screen[] = [
     // Alla: the type a new instance starts with gives its reports to nobody.
     goto: appPath("/board/issues?view=all"),
     prepare: [
-      // The first: a walk against a stack that is already up holds the
-      // reports of earlier walks, and the newest is at the top.
+      // This walk's own report: a stack that is already up holds the reports
+      // of earlier walks under the same type.
       {
         click: {
           text: new RegExp(`^Hantera ${RESIDENT_REPORT.type}:`),
-          first: true,
+          inRowWith: RESIDENT_REPORT_ROW,
         },
       },
       {
         fill: {
           label: `${RESIDENT_REPORT.type}: meddelande till anmälaren`,
-          first: true,
+          inRowWith: RESIDENT_REPORT_ROW,
         },
         value: RESIDENT_REPORT_ANSWER,
       },
-      { click: { button: "Skicka", first: true } },
+      {
+        click: {
+          button: "Skicka",
+          inRowWith: RESIDENT_REPORT_ROW,
+          // The handling offers the same button to more than one of its forms.
+          first: true,
+        },
+      },
     ],
-    waitFor: { text: RESIDENT_REPORT_ANSWER, first: true },
+    waitFor: { text: RESIDENT_REPORT_ANSWER, inRowWith: RESIDENT_REPORT_ROW },
     capture: "page",
   },
   {
@@ -2905,11 +2937,11 @@ export const SCREENS: readonly Screen[] = [
       {
         click: {
           text: new RegExp(`^Meddelanden om ${RESIDENT_REPORT.type}`),
-          first: true,
+          inRowWith: RESIDENT_REPORT_ROW,
         },
       },
     ],
-    waitFor: { text: RESIDENT_REPORT_ANSWER, first: true },
+    waitFor: { text: RESIDENT_REPORT_ANSWER, inRowWith: RESIDENT_REPORT_ROW },
     capture: "page",
   },
   {
@@ -2925,13 +2957,13 @@ export const SCREENS: readonly Screen[] = [
       {
         click: {
           text: new RegExp(`^Hantera ${RESIDENT_REPORT.type}:`),
-          first: true,
+          inRowWith: RESIDENT_REPORT_ROW,
         },
       },
       {
         click: {
           link: `${RESIDENT_REPORT.type}: skapa debitering`,
-          first: true,
+          inRowWith: RESIDENT_REPORT_ROW,
         },
       },
     ],

@@ -487,7 +487,8 @@ locally the application runs from source beside the PostgreSQL that
       without an account, an internal note neither reporter sees, a work order
       to a contractor and a charge made from the issue, to its closing and its
       reopening by the resident's reply. The same flow checks that a reporter
-      with protected personal data stays masked on every screen it passes,
+      with protected personal data stays masked on the queue, the handling,
+      the work order form and the issue's charges panel,
       that an issue of a ring-fenced type never reaches the property manager
       or a proposal of the AI package, and that no mail it caused carries
       anything anybody wrote, the work order mail carrying the handler's own

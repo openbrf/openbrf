@@ -19,7 +19,10 @@ import {
   messageContent,
   waitForMessage,
 } from "../src/mailpit";
-import { holdPendingChange } from "../src/pending-changes";
+import {
+  holdPendingChange,
+  releasePendingChange,
+} from "../src/pending-changes";
 import {
   ADMINISTRATOR,
   ensureAccountFor,
@@ -49,7 +52,7 @@ import { appPath } from "../src/stack";
  *
  *  - A reporter with protected personal data stays masked throughout: on the
  *    queue the board and the property manager read, in the handling, on the
- *    work order form and on the charges.
+ *    work order form and on the issue's charges panel.
  *  - A ring-fenced case never reaches the property manager, nor the `ai`
  *    surface: a proposal the AI package would hold for it reads as gone and
  *    confirming it is refused. The `mcp` half runs through the MCP Connector,
@@ -269,7 +272,10 @@ test("an issue goes from a report to a reopened case, and nothing leaks on the w
    * fixture person would spend it across reruns on a kept stack.
    */
   const shielded = {
-    firstName: "Greta",
+    // This run's own first name too: the mail scan below fails a mail to the
+    // shared administrator that names the protected reporter, and another
+    // spec's delayed mail may name a Greta.
+    firstName: own("Greta"),
     lastName: own("Skyddad"),
     email: ownEmail("greta"),
     password: "kallarforrad-sopkarl-2026",
@@ -974,16 +980,22 @@ test("an issue goes from a report to a reopened case, and nothing leaks on the w
           change.actionName === "issue_set_priority" &&
           change.target?.id === fencedIssue.id,
       );
-      expect(held?.target?.state).toBe("missing");
       if (held === undefined) {
         throw new Error("the proposal for the ring-fenced issue was not held");
       }
-      expect(
-        await api.confirmPendingChange(board, stack.baseUrl, held.id),
-      ).toEqual({ status: 404, reason: "issue-not-found" });
-      expect((await queuedByDescription(board, FENCED_TEXT)).priority).toBe(
-        fencedIssue.priority,
-      );
+      try {
+        expect(held.target?.state).toBe("missing");
+        expect(
+          await api.confirmPendingChange(board, stack.baseUrl, held.id),
+        ).toEqual({ status: 404, reason: "issue-not-found" });
+        expect((await queuedByDescription(board, FENCED_TEXT)).priority).toBe(
+          fencedIssue.priority,
+        );
+      } finally {
+        // The administrator is shared by every spec, and the change is held
+        // for seven days: this one, by its id, and not what else they hold.
+        await releasePendingChange(held.id);
+      }
     });
 
     // --- no mail carries free text -------------------------------------------
