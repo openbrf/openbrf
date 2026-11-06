@@ -3772,7 +3772,7 @@
       "closedNotice": "Ärendet är avslutat och tar inte emot fler meddelanden. Har du något nytt att anmäla gör du en ny anmälan på föreningens webbplats.",
       "private": "Länken är personlig, så dela den inte. Den slutar fungera 30 dagar efter att ärendet har avslutats eller ett år efter det senaste meddelandet i det, det som inträffar först. Innan något meddelande har skrivits räknas året från den dag länken utfärdades.",
       "notFoundTitle": "Länken öppnar inget ärende",
-      "notFoundBody": "Länken kan ha gått ut eller dragits tillbaka. Kontakta föreningen via webbplatsen om du behöver hjälp med ditt ärende.",
+      "notFoundBody": "Länken kan ha gått ut eller dragits tillbaka. Tar föreningens webbplats emot anmälningar kan du göra en ny anmälan där. Kontakta föreningen via webbplatsen om du behöver hjälp med ditt ärende.",
       "notice": {
         "sent": "Ditt meddelande har skickats till föreningen.",
         "refused": "Meddelandet kunde inte läsas. Skriv en text på högst 4 000 tecken och försök igen.",
