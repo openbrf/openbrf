@@ -868,6 +868,48 @@ describe("a write held as a pending change", () => {
     ).toContainEqual({ fact: "outcome", now: "NO_FAULT", after: "NO_FAULT" });
   });
 
+  it("shows nothing beside the status for a move `setStatus` refuses on its detail", async () => {
+    const { held, statusOfType } = build();
+    const target = held("issue_set_status").target;
+    const aStatus = (meaning: "WAITING" | "DONE" | "IN_PROGRESS") => ({
+      label: "Ny status",
+      meaning,
+      active: true,
+    });
+    const refused = [
+      // A waiting reason on a status that does not mean WAITING.
+      [aStatus("IN_PROGRESS"), { waitingReason: "PARTS" }],
+      // An outcome on a status that does not mean DONE.
+      [aStatus("WAITING"), { waitingReason: "PARTS", outcome: "FIXED" }],
+      // A WAITING move without its reason.
+      [aStatus("WAITING"), {}],
+      // A first closing without an outcome.
+      [aStatus("DONE"), {}],
+    ] as const;
+
+    for (const [status, detail] of refused) {
+      statusOfType.mockResolvedValueOnce(status);
+      const facts = await target?.read(
+        { id: "issue-1", statusId: "status-water-next", ...detail },
+        "person-viewer",
+      );
+      // The status is named by its label, and no fact beside it has an
+      // `after`: what confirming would set is not shown, since it sets none.
+      expect(facts).toContainEqual({
+        fact: "issueStatus",
+        now: "Ny",
+        after: "Ny status",
+      });
+      expect(
+        facts?.filter(
+          (fact) =>
+            (fact.fact === "waitingReason" || fact.fact === "outcome") &&
+            "after" in fact,
+        ),
+      ).toEqual([]);
+    }
+  });
+
   it("names a status confirming would refuse by its id alone, and sets nothing beside it", async () => {
     const { held, statusOfType } = build();
     const target = held("issue_set_status").target;
