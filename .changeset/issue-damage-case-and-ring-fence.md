@@ -30,11 +30,11 @@ leaves it.
   person who reported it; a mail that is being handed to the mail server when
   the board ring-fences the type is decided first, and the change waits for it.
   A handoff that stalls is cut off at a deadline and retried later: the
-  connection to the mail server is closed at the deadline and nothing more is
-  handed over after it, though a message the server had already taken stays
-  taken. An issue is not merged as a duplicate across the
-  ring-fence, in either direction, so no reporter follows or is told of a
-  report on the other side.
+  connection to the mail server is closed at the deadline and no more message
+  data is sent. A message the server had already taken stays taken, and one
+  already sent in full may still be accepted after the deadline. An issue is not
+  merged as a duplicate across the ring-fence, in either direction, so no
+  reporter follows or is told of a report on the other side.
   A connected app and the AI package are offered
   neither its issues nor the type. No report under it is made from a post, and
   the website's form offers none: a type on the form is taken off it before it
