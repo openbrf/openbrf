@@ -98,12 +98,15 @@ function build(
       delete: vi.fn().mockResolvedValue({ id: "apartment-1" }),
     },
     issue: {
+      findMany: vi.fn().mockResolvedValue([] as { id: string }[]),
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     // The issues of the apartment, read under their row locks.
     $queryRaw: vi
       .fn()
       .mockResolvedValue([] as { id: string; entryAnswer: string | null }[]),
+    // `lockIssue`: the advisory lock of each issue.
+    $executeRaw: vi.fn().mockResolvedValue(1),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
 
@@ -426,6 +429,27 @@ describe("removing an apartment", () => {
     expect(clear).toBeLessThan(remove ?? 0);
     const [query] = tx.$queryRaw.mock.calls[0] ?? [];
     expect((query as TemplateStringsArray).join("?")).toContain("FOR UPDATE");
+  });
+
+  it("takes each issue's own lock, in identifier order, before it reads the rows", async () => {
+    const { service, tx } = build({
+      apartment: { id: "apartment-1", number: "1101" },
+    });
+    tx.issue.findMany.mockResolvedValue([{ id: "issue-a" }, { id: "issue-b" }]);
+
+    await service.removeApartment("apartment-1", BOARD);
+
+    expect(tx.issue.findMany).toHaveBeenCalledWith({
+      where: { apartmentId: "apartment-1" },
+      select: { id: true },
+      orderBy: { id: "asc" },
+    });
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
+    const keys = tx.$executeRaw.mock.calls.map(([, key]) => key as unknown);
+    expect(keys).toEqual(["issue:issue-a", "issue:issue-b"]);
+    const [lastLock] = tx.$executeRaw.mock.invocationCallOrder.slice(-1);
+    const [read] = tx.$queryRaw.mock.invocationCallOrder;
+    expect(lastLock).toBeLessThan(read ?? 0);
   });
 
   it("records each answer it takes off as withdrawn by whoever removed the apartment", async () => {
