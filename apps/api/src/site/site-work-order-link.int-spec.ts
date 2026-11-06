@@ -303,6 +303,78 @@ async function waitForProtectionLockWaiter(): Promise<void> {
 }
 
 /**
+ * Runs `act` for a handler who holds `PROPERTY_MANAGER` while a second
+ * transaction holds the work order's row lock, withdraws the role once `act`
+ * waits on that lock, then releases it, and answers what `act` was refused
+ * with. The waiter is found by the holder's own backend, so no other test's
+ * lock waits count.
+ */
+async function withRoleWithdrawnBehindWorkOrderLock(
+  handlerId: string,
+  workOrderId: string,
+  act: () => Promise<unknown>,
+): Promise<unknown> {
+  await prisma.person.create({
+    data: { id: handlerId, firstName: "Lars", lastName: `Roll${suffix}` },
+  });
+  await prisma.systemRole.create({
+    data: { personId: handlerId, role: "PROPERTY_MANAGER" },
+  });
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let entered: (pid: number) => void = () => undefined;
+  const inside = new Promise<number>((resolve) => {
+    entered = resolve;
+  });
+  try {
+    const holding = prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "work_order" WHERE "id" = ${workOrderId} FOR UPDATE`;
+        const [backend] = await tx.$queryRaw<
+          { pid: number }[]
+        >`SELECT pg_backend_pid() AS "pid"`;
+        if (backend === undefined) {
+          throw new Error("The holder's backend could not be read");
+        }
+        entered(backend.pid);
+        await held;
+      },
+      { timeout: 20_000 },
+    );
+    const holder = await inside;
+    const acting = act().then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+        SELECT count(*) AS "waiting" FROM pg_stat_activity
+        WHERE ${holder}::int = ANY(pg_blocking_pids("pid"))`;
+      if (row !== undefined && row.waiting > 0n) {
+        break;
+      }
+      if (Date.now() > deadline) {
+        throw new Error("Nothing queued on the work order's lock");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    // The role is asked again once the lock is got: a check made before the
+    // wait alone would let the act through.
+    await prisma.systemRole.deleteMany({ where: { personId: handlerId } });
+    release();
+    await holding;
+    return await acting;
+  } finally {
+    release();
+    await prisma.systemRole.deleteMany({ where: { personId: handlerId } });
+    await prisma.person.deleteMany({ where: { id: handlerId } });
+  }
+}
+
+/**
  * An issue a resident reported, with every sensitive field filled with a
  * canary (control H1), two photographs, a note, a message, and two work
  * orders: the one a link is issued for, and another.
@@ -1100,6 +1172,50 @@ describe("B. lifetime and revocation", () => {
       await prisma.systemRole.deleteMany({ where: { personId: handlerId } });
       await prisma.person.deleteMany({ where: { id: handlerId } });
     }
+  });
+
+  it("B1: chooses no photographs for a handler whose role is withdrawn while the choice waits on the work order's lock", async () => {
+    const ids = await linked();
+    const handlerId = `wl-lapsing-choose-${suffix}`;
+    const before = await snapshot(ids.issueId, ids.workOrderId);
+    const refused = await withRoleWithdrawnBehindWorkOrderLock(
+      handlerId,
+      ids.workOrderId,
+      () =>
+        links.choosePhotos(handlerId, ids.issueId, ids.workOrderId, [
+          ids.unchosenFileId,
+        ]),
+    );
+    expect(refused).toMatchObject({ reason: "issue-not-found" });
+    expect(await snapshot(ids.issueId, ids.workOrderId)).toEqual(before);
+    expect(
+      (
+        await prisma.workOrderPhoto.findMany({
+          where: { workOrderId: ids.workOrderId },
+          select: { fileId: true },
+        })
+      ).map((photo) => photo.fileId),
+    ).toEqual([ids.chosenFileId]);
+    // The link is live: a choice let through would have shown the photograph.
+    expect(
+      await prisma.workOrderPhotoExposure.count({
+        where: { workOrderId: ids.workOrderId, fileId: ids.unchosenFileId },
+      }),
+    ).toBe(0);
+  });
+
+  it("B1: is not withdrawn by a handler whose role is withdrawn while the withdrawal waits on the work order's lock", async () => {
+    const ids = await linked();
+    const handlerId = `wl-lapsing-revoke-${suffix}`;
+    const before = await snapshot(ids.issueId, ids.workOrderId);
+    const refused = await withRoleWithdrawnBehindWorkOrderLock(
+      handlerId,
+      ids.workOrderId,
+      () => links.revoke(handlerId, ids.issueId, ids.workOrderId),
+    );
+    expect(refused).toMatchObject({ reason: "issue-not-found" });
+    expect(await snapshot(ids.issueId, ids.workOrderId)).toEqual(before);
+    expect((await page(ids.token)).statusCode).toBe(200);
   });
 
   it("B2: ends 30 days after it was issued, on the database's clock", async () => {

@@ -426,6 +426,9 @@ export class WorkOrderLinkService {
       await lockIssueForHandling(tx, issueId);
       await this.requireHandledForWrite(tx, issueId, handlerPersonId);
       await this.lockWorkOrder(tx, issueId, workOrderId);
+      // The wait for the work order's lock may have outlasted the handler's
+      // role or board seat: asked again now that it is held.
+      await this.requireHandledForWrite(tx, issueId, handlerPersonId);
       const links = await tx.workOrderLink.findMany({
         where: { workOrderId, revokedAt: null },
         select: { id: true },
@@ -488,6 +491,10 @@ export class WorkOrderLinkService {
         );
       }
       await this.lockWorkOrder(tx, issueId, workOrderId);
+      // The wait for the work order's lock may have outlasted the handler's
+      // role or board seat: asked again now that it is held. The ring-fence
+      // read above still holds, as it changes only under the type's lock.
+      await this.requireHandledForWrite(tx, issueId, handlerPersonId);
       const choosable = new Set(
         (await this.choosableOf(tx, issueId)).map((photo) => photo.fileId),
       );
