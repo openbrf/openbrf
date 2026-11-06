@@ -347,7 +347,8 @@ export function IssueQueuePanel({
                   </span>
                   <span>
                     {t("issues.mine.apartment")}{" "}
-                    {issue.reporter.kind === "protected" ? (
+                    {issue.reporter.kind === "protected" &&
+                    issue.aboutApartment ? (
                       <span>{t("issues.queue.apartmentProtected")}</span>
                     ) : issue.apartment === null ? (
                       <NotRecorded meaning={t("issues.mine.noApartment")} />

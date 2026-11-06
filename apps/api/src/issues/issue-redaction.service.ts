@@ -14,8 +14,7 @@ import { withheldAddressIndexes } from "../retention/withheld-addresses";
 import { isPersonWithheld } from "../retention/withheld-persons";
 import { ISSUE_FREE_TEXT_STANDING_UNREDACTED } from "./issue-free-text";
 import {
-  issueReaderScope,
-  issuesHandledWhere,
+  requireHandledIssue,
   requireHandledIssueForWrite,
 } from "./issue-handlers";
 import { lockIssueForHandling } from "./issue-lock";
@@ -545,22 +544,16 @@ export class IssueRedactionService {
 
 /**
  * An issue this person handles, or the refusal that answers one that does not
- * exist: the rule every issue read and write goes by (`issuesHandledWhere`).
+ * exist (`requireHandledIssue`).
  */
 async function requireHandled(
   db: PrismaService | Prisma.TransactionClient,
   issueId: string,
   handlerPersonId: string,
 ): Promise<{ legalHoldAt: Date | null }> {
-  const scope = await issueReaderScope(db, handlerPersonId, new Date());
-  const issue = await db.issue.findFirst({
-    where: { id: issueId, ...issuesHandledWhere(scope) },
-    select: { legalHoldAt: true },
+  return requireHandledIssue(db, issueId, handlerPersonId, {
+    legalHoldAt: true,
   });
-  if (issue === null) {
-    throw new IssueError("No such issue.", "issue-not-found");
-  }
-  return issue;
 }
 
 /**
