@@ -980,9 +980,12 @@ whether the request on its route came with a session or with a connected app's
 token. It is what keeps a plugin that has not declared names from being handed
 names by an action a board member on its route may call: `motion_queue_list` and
 the news comment actions return the names of members. The MCP Connector is a
-plugin too, and is held to the same rule: it is offered the issue actions only
-once its manifest declares `name`, `apartment`, `freeText` and `health`, what
-`issue_list` and `issue_get` carry
+plugin too, and is held to the same rule, action by action: it is offered
+`issue_list` and `issue_get` once its manifest declares `name`, `apartment`,
+`freeText` and `health`, `issue_handler_list` and `issue_assign` once it
+declares `name`, and `issue_type_list` and `issue_set_status` once it declares
+`freeText`, while `issue_set_priority` and `issue_set_target_date` carry no
+personal data and are offered to it as to every plugin
 ([ADR 0056](adr/0056-issue-handling-on-mcp-and-ai.md#why-the-connector-is-offered-no-issue-action)). It does not reach
 categories the plugin has declared and the board consented to. A plugin that
 declares `name` can call those actions while an authorised board member uses

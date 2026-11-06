@@ -41,9 +41,10 @@ import {
  * shown against a real database in `issue-actions.int-spec.ts` and
  * `ring-fence.int-spec.ts`.
  *
- * And why the MCP Connector was offered none of these: a plugin is offered
- * only the actions whose personal data its manifest declares, asked of a real
- * registry at the end of this file.
+ * And why the MCP Connector was offered none of these that carry personal
+ * data: a plugin is offered only the actions whose personal data its manifest
+ * declares, action by action, asked of a real registry at the end of this
+ * file.
  */
 
 const QUEUED: QueuedIssueView = {
@@ -207,13 +208,14 @@ function build(issues: QueuedIssueView[] = [QUEUED, EXTERNAL]) {
         closedAt: "2027-02-01T08:00:00.000Z",
       }),
   );
-  const handlerNamesOf = vi.fn(async (personIds: readonly string[]) =>
-    Object.fromEntries(
-      personIds
-        .filter((id) => id === "person-board")
-        .map((id) => [id, "Bea Styrelse"]),
-    ),
-  );
+  const statusOfType = vi.fn(async (typeId: string, statusId: string) => {
+    const status = TYPES.find((type) => type.id === typeId)?.statuses.find(
+      (entry) => entry.id === statusId,
+    );
+    return status === undefined
+      ? null
+      : { label: status.label, meaning: status.meaning, active: status.active };
+  });
   const service = {
     pageOfQueue,
     queuedIssue,
@@ -223,7 +225,7 @@ function build(issues: QueuedIssueView[] = [QUEUED, EXTERNAL]) {
     setPriority,
     setTargetDate,
     setStatus,
-    handlerNamesOf,
+    statusOfType,
   };
 
   const registered: CoreActionDefinition[] = [];
@@ -807,19 +809,92 @@ describe("a write held as a pending change", () => {
     ]);
   });
 
-  it("names the status a move is to by the board's label", async () => {
-    const { held, handledTypes } = build();
+  it("names the status a move is to by the board's label, with what the move sets beside it", async () => {
+    const { held, statusOfType } = build();
+    statusOfType.mockResolvedValueOnce({
+      label: "Väntar på reservdelar",
+      meaning: "WAITING",
+      active: true,
+    });
 
     const facts = await held("issue_set_status").target?.read(
       { id: "issue-1", statusId: "status-water-parts", waitingReason: "PARTS" },
       "person-viewer",
     );
 
-    expect(handledTypes).toHaveBeenCalledWith("person-viewer", "omit");
-    expect(facts).toContainEqual({
+    // Looked up by the issue's own type, which the viewer has just read.
+    expect(statusOfType).toHaveBeenCalledWith(
+      "type-water",
+      "status-water-parts",
+    );
+    expect(facts).toEqual([
+      { fact: "number", now: "7" },
+      { fact: "type", now: "Vatten" },
+      { fact: "issueStatus", now: "Ny", after: "Väntar på reservdelar" },
+      { fact: "waitingReason", now: "", after: "PARTS" },
+      { fact: "outcome", now: "", after: "" },
+      { fact: "priority", now: "NORMAL" },
+      { fact: "targetDate", now: "" },
+    ]);
+  });
+
+  it("shows the outcome a closing sets, and the one a move between two DONE statuses keeps", async () => {
+    const { held, statusOfType, queuedIssue } = build();
+    statusOfType.mockResolvedValue({
+      label: "Klar",
+      meaning: "DONE",
+      active: true,
+    });
+    const target = held("issue_set_status").target;
+
+    expect(
+      await target?.read(
+        { id: "issue-1", statusId: "status-water-done", outcome: "FIXED" },
+        "person-viewer",
+      ),
+    ).toContainEqual({ fact: "outcome", now: "", after: "FIXED" });
+
+    queuedIssue.mockResolvedValueOnce({
+      ...QUEUED,
+      meaning: "DONE",
+      status: { id: "status-water-closed", label: "Stängd" },
+      outcome: "NO_FAULT",
+    });
+    expect(
+      await target?.read(
+        { id: "issue-1", statusId: "status-water-done" },
+        "person-viewer",
+      ),
+    ).toContainEqual({ fact: "outcome", now: "NO_FAULT", after: "NO_FAULT" });
+  });
+
+  it("names a status confirming would refuse by its id alone, and sets nothing beside it", async () => {
+    const { held, statusOfType } = build();
+    const target = held("issue_set_status").target;
+
+    // Switched off, and not the status the issue stands in.
+    const switchedOff = await target?.read(
+      { id: "issue-1", statusId: "status-water-parts", waitingReason: "PARTS" },
+      "person-viewer",
+    );
+    expect(switchedOff).toContainEqual({
       fact: "issueStatus",
       now: "Ny",
-      after: "Väntar på reservdelar",
+      after: "status-water-parts",
+    });
+    expect(switchedOff).toContainEqual({ fact: "waitingReason", now: "" });
+
+    // Not one of the type's.
+    statusOfType.mockResolvedValueOnce(null);
+    expect(
+      await target?.read(
+        { id: "issue-1", statusId: "status-other-type" },
+        "person-viewer",
+      ),
+    ).toContainEqual({
+      fact: "issueStatus",
+      now: "Ny",
+      after: "status-other-type",
     });
   });
 
@@ -837,9 +912,12 @@ describe("a write held as a pending change", () => {
     ).toBeNull();
   });
 
-  it("names an assignee the picker would name, and nobody else", async () => {
-    const { inputNames } = build();
-    const viewer = { capabilities: new Set(["issues:handle"]) } as never;
+  it("names an assignee this issue's picker would name for the viewer, and nobody else", async () => {
+    const { inputNames, handlers } = build();
+    const viewer = {
+      personId: "person-viewer",
+      capabilities: new Set(["issues:handle"]),
+    } as never;
 
     expect(
       await inputNames.namesOf(
@@ -848,21 +926,40 @@ describe("a write held as a pending change", () => {
         viewer,
       ),
     ).toEqual({ "person-board": { text: "Bea Styrelse", kind: "text" } });
-    expect(
-      await inputNames.namesOf(
-        "issue_assign",
-        { id: "issue-1", assigneePersonId: "person-hidden" },
-        viewer,
-      ),
-    ).toEqual({});
-    // Nobody is asked for a viewer who no longer handles issues.
+    // Read as the viewer, for this issue, as issue_handler_list reads it.
+    expect(handlers).toHaveBeenCalledWith("person-viewer", "issue-1", "omit");
+    // A handler whose name is withheld, and somebody who does not handle this
+    // issue, are left as their identifier.
+    for (const assigneePersonId of ["person-hidden", "person-elsewhere"]) {
+      expect(
+        await inputNames.namesOf(
+          "issue_assign",
+          { id: "issue-1", assigneePersonId },
+          viewer,
+        ),
+      ).toEqual({});
+    }
+    // An issue the viewer may not open names nobody.
+    handlers.mockRejectedValueOnce(
+      new IssueError("No such issue.", "issue-not-found"),
+    );
     expect(
       await inputNames.namesOf(
         "issue_assign",
         { id: "issue-1", assigneePersonId: "person-board" },
-        { capabilities: new Set<string>() } as never,
+        viewer,
       ),
     ).toEqual({});
+    // Nobody is asked for a viewer who no longer handles issues.
+    handlers.mockClear();
+    expect(
+      await inputNames.namesOf(
+        "issue_assign",
+        { id: "issue-1", assigneePersonId: "person-board" },
+        { personId: "person-viewer", capabilities: new Set<string>() } as never,
+      ),
+    ).toEqual({});
+    expect(handlers).not.toHaveBeenCalled();
   });
 });
 
@@ -875,9 +972,10 @@ describe("a write held as a pending change", () => {
  * connected app's token. The registry offers a plugin only the actions whose
  * `personalData` its manifest declares, and refuses the others with
  * `forbidden-surface`. The connector's manifest declared none, so it was
- * offered no action that declares any, which is every issue read. Asked here
- * of a real registry holding the real definitions: the day the connector's
- * manifest declares what these carry, it is offered them.
+ * offered no action that declares any: every issue read, `issue_assign` and
+ * `issue_set_status`. Asked here of a real registry holding the real
+ * definitions: the day the connector's manifest declares what an action
+ * carries, it is offered that action.
  */
 describe("what the MCP Connector is offered", () => {
   const CONNECTOR = { id: "mcp-connector", ai: false } as const;
@@ -976,5 +1074,30 @@ describe("what the MCP Connector is offered", () => {
       "issue-1",
       "omit",
     );
+  });
+
+  it("is offered each issue action by the categories that action carries alone", async () => {
+    const name = registryWith(["name"]);
+    expect(
+      (await name.registry.list(name.caller))
+        .map((action) => action.name)
+        .sort(),
+    ).toEqual([
+      "issue_assign",
+      "issue_handler_list",
+      "issue_set_priority",
+      "issue_set_target_date",
+    ]);
+    const freeText = registryWith(["freeText"]);
+    expect(
+      (await freeText.registry.list(freeText.caller))
+        .map((action) => action.name)
+        .sort(),
+    ).toEqual([
+      "issue_set_priority",
+      "issue_set_status",
+      "issue_set_target_date",
+      "issue_type_list",
+    ]);
   });
 });

@@ -2,6 +2,10 @@ import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { TranslationKey } from "../i18n/translation-key";
+import {
+  ISSUE_OUTCOME_LABEL,
+  ISSUE_WAITING_REASON_LABEL,
+} from "../issues/issue-labels";
 import { Notice } from "../ui/Notice";
 import type {
   PendingChangeTarget as Target,
@@ -34,6 +38,8 @@ const FACT: Readonly<Record<string, TranslationKey>> = {
   number: "pendingChanges.target.fact.number",
   type: "pendingChanges.target.fact.type",
   issueStatus: "pendingChanges.target.fact.issueStatus",
+  waitingReason: "pendingChanges.target.fact.waitingReason",
+  outcome: "pendingChanges.target.fact.outcome",
   priority: "pendingChanges.target.fact.priority",
   targetDate: "pendingChanges.target.fact.targetDate",
 };
@@ -57,14 +63,19 @@ const VALUE: Readonly<
     NORMAL: "pendingChanges.target.value.priority.NORMAL",
     LOW: "pendingChanges.target.value.priority.LOW",
   },
+  waitingReason: ISSUE_WAITING_REASON_LABEL,
+  outcome: ISSUE_OUTCOME_LABEL,
 };
 
 /**
  * The facts the API leaves empty when there is nothing, by the word for that:
- * an issue's target date, which is optional and never an empty day.
+ * an issue's target date, which is optional and never an empty day, and the
+ * waiting reason and outcome of an issue that is not waiting or not done.
  */
 const EMPTY: Readonly<Record<string, TranslationKey>> = {
   targetDate: "pendingChanges.target.value.noTargetDate",
+  waitingReason: "pendingChanges.target.value.noWaitingReason",
+  outcome: "pendingChanges.target.value.noOutcome",
 };
 
 /** The facts that are register data, read character by character. */

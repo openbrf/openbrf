@@ -1,7 +1,9 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
 import {
   type AuthorView,
+  type IssueClosingOutcome,
   type IssuePriority,
+  type IssueWaitingReason,
   ISSUE_CLOSING_OUTCOMES,
   ISSUE_HANDLED_BY,
   ISSUE_OUTCOMES,
@@ -68,6 +70,11 @@ import {
  * a reporter, an internal note, a work order or anything sent to a
  * contractor, the resident's entry permission, a common-area place or the
  * mark of an inspection finding: each needs a decision of its own (ADR 0056).
+ * Closing an issue through `issue_set_status` still does what closing does on
+ * the board's screen (`IssueService.setStatus`): it ends every contractor's
+ * link to the issue's work orders and clears the entry permission and the
+ * known fault, and reopening it brings none of them back. Its description
+ * says so.
  *
  * **What is left out.** An issue a reporter with protected personal data filed
  * is not in any answer at all, and every action answers its identifier as an
@@ -97,10 +104,13 @@ import {
  * **Why the MCP Connector was offered none of them.** The connector lists and
  * calls actions through `host.actions`, as a plugin, and the registry offers a
  * plugin only the actions whose `personalData` its own manifest declares
- * (`ActionRegistryService.list`). The connector declared none, so it was
- * offered no action that declares any. Nothing here was wrong: the connector
- * reaches these once its manifest declares the categories they carry and the
- * board consents (ADR 0056). `issue-actions.registrar.spec.ts` holds it.
+ * (`ActionRegistryService.list`), action by action. The connector declared
+ * none, so it was offered no action that declares any: of these, only
+ * `issue_set_priority` and `issue_set_target_date`, which declare none.
+ * Nothing here was wrong: the connector reaches each of the others once its
+ * manifest declares the categories that action declares and the board
+ * consents (ADR 0056), `name` alone for `issue_assign`, for instance.
+ * `issue-actions.registrar.spec.ts` holds it.
  */
 
 /** The id of a row this platform handed out, bounded because it is published. */
@@ -375,7 +385,10 @@ function shared(name: string) {
   } as const;
 }
 
-/** What the four reads declare the same way. */
+/**
+ * What the four reads declare the same way. `issue_type_list` and
+ * `issue_handler_list` narrow `personalData` to what they carry.
+ */
 function readAction(name: string) {
   return {
     ...shared(name),
@@ -394,8 +407,14 @@ function readAction(name: string) {
  *
  * `write` and not `additive`: each overwrites what a handler chose. Idempotent,
  * because sending the same value again changes nothing and records nothing.
- * `needsConfirmation` is false, as for the news writes: the act is undone by
- * the same act, and on `ai` the pending change already holds it for a person.
+ * `needsConfirmation` is false because decision 34 of the issue module's plan
+ * lands these four at once on `mcp`, as the person who connected the app; on
+ * `ai` the pending change already holds them for a person. Not because each is
+ * undone by the same act: an assignee, a priority and a target date are, but a
+ * move into a status that means DONE is not. Closing ends every contractor's
+ * link to the issue's work orders and clears the entry permission and the
+ * known fault, and reopening brings none of them back, which
+ * `issue_set_status`'s description tells the caller.
  * Each declares its own `personalData` and `errors`.
  */
 function writeAction(name: string) {
@@ -487,7 +506,8 @@ function published(issue: QueuedIssueView) {
 /**
  * What the pending-change screen shows of an issue a held write names (ADR
  * 0039, section 5): its number, type, status, priority and target date as they
- * stand now, and what confirming sets.
+ * stand now, and what confirming sets. A status move shows the waiting reason
+ * and the outcome as well, which it sets beside the status.
  *
  * Read as the person viewing the change and with `omit`, as the write itself
  * will be: an issue they may not open, a ring-fenced one, and one a person
@@ -498,9 +518,20 @@ function published(issue: QueuedIssueView) {
  * A target date that is not set is the empty string, which no day is; the
  * screen names it.
  */
-type IssueFact = "number" | "type" | "issueStatus" | "priority" | "targetDate";
+type IssueFact =
+  | "number"
+  | "type"
+  | "issueStatus"
+  | "waitingReason"
+  | "outcome"
+  | "priority"
+  | "targetDate";
 
-const NO_TARGET_DATE = "";
+/** The facts only a status move shows, beside the status. */
+type StatusDetailFact = "waitingReason" | "outcome";
+
+/** A target date, waiting reason or outcome that is not set. */
+const NOTHING_SET = "";
 
 function issueTarget<Input extends { id: string }>(
   issues: IssueService,
@@ -509,6 +540,7 @@ function issueTarget<Input extends { id: string }>(
     issue: QueuedIssueView,
     readerPersonId: string,
   ) => Promise<Partial<Record<IssueFact, string>>>,
+  details: readonly StatusDetailFact[] = [],
 ): ActionTarget<Input> {
   return {
     kind: "issue",
@@ -520,12 +552,18 @@ function issueTarget<Input extends { id: string }>(
       if (issue === null) {
         return null;
       }
-      const facts: Record<IssueFact, string> = {
+      const facts: Partial<Record<IssueFact, string>> = {
         number: String(issue.number),
         type: issue.typeName,
         issueStatus: issue.status.label,
+        ...(details.includes("waitingReason")
+          ? { waitingReason: issue.waitingReason ?? NOTHING_SET }
+          : {}),
+        ...(details.includes("outcome")
+          ? { outcome: issue.outcome ?? NOTHING_SET }
+          : {}),
         priority: issue.priority,
-        targetDate: issue.targetDate ?? NO_TARGET_DATE,
+        targetDate: issue.targetDate ?? NOTHING_SET,
       };
       return targetFacts(facts, await sets(input, issue, readerPersonId));
     },
@@ -541,6 +579,7 @@ function nullWhenGone(cause: unknown): null {
 
 /** The input `issue_assign` holds, as the namer reads it back. */
 const heldAssignSchema = z.object({
+  id: z.string(),
   assigneePersonId: z.string().nullable(),
 });
 
@@ -555,19 +594,32 @@ export class IssueActionsRegistrar implements OnModuleInit {
   onModuleInit(): void {
     // A held assignment is previewed with the assignee's name beside their id
     // (ADR 0039, section 5), for a viewer who handles issues now, and only
-    // where the assignee picker would name them.
-    this.inputNames.register("issue_assign", "issues:handle", async (input) => {
-      const held = heldAssignSchema.safeParse(input);
-      const personId = held.success ? held.data.assigneePersonId : null;
-      if (personId === null) {
-        return {};
-      }
-      const names = await this.issues.handlerNamesOf([personId]);
-      const name = names[personId];
-      return name === undefined
-        ? {}
-        : { [personId]: { text: name, kind: "text" as const } };
-    });
+    // where this issue's assignee picker would name them for that viewer: from
+    // `handlers`, read as the viewer and with `omit`, as `issue_handler_list`
+    // reads it. Anybody else, and every name on an issue the viewer may not
+    // open, is left as the identifier alone.
+    this.inputNames.register(
+      "issue_assign",
+      "issues:handle",
+      async (input, readerPersonId) => {
+        const held = heldAssignSchema.safeParse(input);
+        if (!held.success || held.data.assigneePersonId === null) {
+          return {};
+        }
+        const personId = held.data.assigneePersonId;
+        const named = (
+          await this.issues
+            .handlers(readerPersonId, held.data.id, "omit")
+            .catch(nullWhenGone)
+        )?.find(
+          (handler) =>
+            handler.kind === "person" && handler.personId === personId,
+        );
+        return named?.kind === "person"
+          ? { [personId]: { text: named.name, kind: "text" as const } }
+          : {};
+      },
+    );
 
     this.registrar.register("issues", [
       typedAction({
@@ -815,7 +867,7 @@ export class IssueActionsRegistrar implements OnModuleInit {
         target: issueTarget(
           this.issues,
           async (input: { id: string; targetDate: string | null }) => ({
-            targetDate: input.targetDate ?? NO_TARGET_DATE,
+            targetDate: input.targetDate ?? NOTHING_SET,
           }),
         ),
         handler: async (input, context) => {
@@ -887,19 +939,42 @@ export class IssueActionsRegistrar implements OnModuleInit {
         target: issueTarget(
           this.issues,
           async (
-            input: { id: string; statusId: string },
+            input: {
+              id: string;
+              statusId: string;
+              waitingReason?: IssueWaitingReason;
+              outcome?: IssueClosingOutcome;
+            },
             issue,
-            readerPersonId,
           ) => {
-            const status = (
-              await this.issues.handledTypes(readerPersonId, "omit")
-            )
-              .find((type) => type.id === issue.typeId)
-              ?.statuses.find((entry) => entry.id === input.statusId);
-            // A status that is not the type's is named by its id: confirming
-            // it is refused as not found.
-            return { issueStatus: status?.label ?? input.statusId };
+            const status = await this.issues.statusOfType(
+              issue.typeId,
+              input.statusId,
+            );
+            // A status that is not the type's, or one switched off that the
+            // issue does not stand in, is named by its id alone: confirming
+            // it is refused as not found, so it sets nothing to show.
+            if (
+              status === null ||
+              (!status.active && input.statusId !== issue.status.id)
+            ) {
+              return { issueStatus: input.statusId };
+            }
+            // What `setStatus` sets beside the status: the waiting reason the
+            // move names, and the outcome a move into DONE names or, between
+            // two DONE statuses, keeps.
+            const outcome =
+              status.meaning === "DONE"
+                ? (input.outcome ??
+                  (issue.meaning === "DONE" ? issue.outcome : null))
+                : null;
+            return {
+              issueStatus: status.label,
+              waitingReason: input.waitingReason ?? NOTHING_SET,
+              outcome: outcome ?? NOTHING_SET,
+            };
           },
+          ["waitingReason", "outcome"],
         ),
         handler: async (input, context) => {
           const issue = await this.issues.setStatus(

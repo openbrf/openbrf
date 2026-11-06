@@ -174,6 +174,48 @@ describe("the preview", () => {
     expect(screen.getByText(/^Ärende/, { selector: "p" })).toBeTruthy();
   });
 
+  it("shows what a held status move sets beside the status", async () => {
+    fetchMyPendingChanges.mockResolvedValue(
+      listing([
+        {
+          ...NEWS,
+          action: {
+            title: "Flytta ett ärende till en annan status",
+            description: "Flyttar ett ärende till en annan status.",
+            effect: "write",
+            needsConfirmation: false,
+            errors: [],
+          },
+          actionName: "issue_set_status",
+          input: { id: "issue-7", statusId: "status-done", outcome: "FIXED" },
+          channel: "AI",
+          target: {
+            kind: "issue",
+            id: "issue-7",
+            state: "found",
+            facts: [
+              { fact: "number", now: "42" },
+              { fact: "issueStatus", now: "Väntar", after: "Klar" },
+              { fact: "waitingReason", now: "PARTS", after: "" },
+              { fact: "outcome", now: "", after: "FIXED" },
+            ],
+          },
+        },
+      ]),
+    );
+
+    render(<PendingChangesScreen />);
+
+    const factOf = async (label: string) =>
+      (await screen.findByText(label, { selector: "dt" })).nextElementSibling;
+    expect((await factOf("Väntar på"))?.textContent).toBe(
+      "Reservdelar → blir Inget",
+    );
+    expect((await factOf("Utfall"))?.textContent).toBe(
+      "Inget utfall → blir Åtgärdat",
+    );
+  });
+
   it("says when a fact the change sets is already so", async () => {
     fetchMyPendingChanges.mockResolvedValue(
       listing([

@@ -63,8 +63,11 @@ actions whose `personalData` its own manifest's `personalData` covers, as the
 board consented to it. The others are refused `forbidden-surface`, with the
 missing categories under `personalData` in the refusal's details
 ([Actions](plugin-contract.md#actions) in the plugin contract). The MCP
-Connector is a plugin, so this is why it was offered no issue action while its
-manifest declared no personal data ([ADR 0056](adr/0056-issue-handling-on-mcp-and-ai.md#why-the-connector-is-offered-no-issue-action)).
+Connector is a plugin, so while its manifest declared no personal data it was
+offered no issue action that carries any: of the issue actions only
+`issue_set_priority` and `issue_set_target_date`, which carry none. Each other
+issue action is offered to it once its manifest declares the categories that
+action carries ([ADR 0056](adr/0056-issue-handling-on-mcp-and-ai.md#why-the-connector-is-offered-no-issue-action)).
 
 ## The name
 
@@ -511,7 +514,13 @@ personal data filed ([ADR 0056](adr/0056-issue-handling-on-mcp-and-ai.md#what-is
 The writes land at once on `mcp`, recorded under the channel `MCP`, and are
 only proposed on `ai`; each answers with the issue's identifier and what it
 changed, never the reporter, the description or the location, and none of them
-writes to a reporter or reaches a contractor. They are offered on `ui` as well,
+writes to a reporter or sends anything to a contractor. Closing an issue with
+`issue_set_status` does what closing it on the board's screen does: it ends
+every link a contractor holds to the issue's work orders, and clears the
+resident's entry permission and the known fault, and reopening the issue brings
+none of them back
+([ADR 0055](adr/0055-links-for-reporters-and-contractors-without-an-account.md)).
+They are offered on `ui` as well,
 because a pending change is confirmed there, and the pending-change screen
 shows the issue they name as the person confirming it may read it.
 None of them carries the conversation on an issue: no action reads or writes an

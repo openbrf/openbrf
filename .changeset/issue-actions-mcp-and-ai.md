@@ -20,12 +20,18 @@ status, and the AI package can propose the same four changes (ADR 0056).
   in, and the audit log records that it came through a connected app. The AI
   package can only propose them, and the person confirms on the platform's own
   screen. That screen shows the issue's number, type, status, priority and
-  target date beside what the change sets, and the assignee's name beside
-  their identifier. Each write answers with the issue's identifier and what it
-  changed, never the reporter, the description or the location. None of them
-  writes to the reporter or reaches a contractor. An assignment, a raise to
-  urgent, a reopening and a passed target date are mailed to handlers as they
-  are when the board makes the same change on its own screen.
+  target date beside what the change sets, a status move's waiting reason and
+  outcome as well, and the assignee's name beside their identifier when this
+  issue may be given to them. Each write answers with the issue's identifier
+  and what it changed, never the reporter, the description or the location.
+  None of them writes to the reporter or sends anything to a contractor.
+  Closing an issue with `issue_set_status` does what closing it on the board's
+  own screen does: it ends every link a contractor holds to the issue's work
+  orders, and clears the resident's entry permission and the known fault.
+  Reopening the issue brings none of these back, and the action's description
+  says so. An assignment, a raise to urgent, a reopening and a passed target
+  date are mailed to handlers as they are when the board makes the same change
+  on its own screen.
 - **What stays inside.** An issue of a ring-fenced type, and an issue reported
   by a person with protected personal data, are answered by every one of these
   actions as if they did not exist, and so is a change already proposed for
@@ -33,6 +39,11 @@ status, and the AI package can propose the same four changes (ADR 0056).
   reporter, an internal note or a work order.
 - **The MCP Connector.** The connector is offered only the actions whose
   personal data its manifest declares. Its manifest declared none, so it was
-  offered none of the issue actions that carry personal data. It is offered
-  them once its manifest declares `name`, `apartment`, `freeText` and `health`
-  and the board consents.
+  offered none of the issue actions that carry personal data: every read,
+  `issue_assign` and `issue_set_status`. `issue_set_priority` and
+  `issue_set_target_date` carry none and are offered to it already. Each of
+  the others is offered once the manifest declares the categories that action
+  carries and the board consents: `issue_list` and `issue_get` need `name`,
+  `apartment`, `freeText` and `health`, `issue_handler_list` and
+  `issue_assign` need `name`, and `issue_type_list` and `issue_set_status`
+  need `freeText`.

@@ -2513,33 +2513,26 @@ export class IssueService {
   }
 
   /**
-   * The names of those of these people who handle issues, by identifier: what
-   * the pending-change screen shows beside the assignee an `issue_assign`
-   * proposal names (ADR 0039, section 5).
+   * One status of an issue type, by id, or null when it is not one of the
+   * type's: what the pending-change screen names a held `issue_set_status`
+   * move by (ADR 0039, section 5).
    *
-   * Read from everybody who handles issues of any scope, the widest list
-   * `handlers` answers from, so the screen names nobody the assignee picker
-   * would not. A handler whose name `readAuthors` withholds, and anybody who
-   * handles no issues, is left out, and the screen shows the identifier alone.
+   * Asked only for the type of an issue the caller has already read with
+   * `queuedIssue`, so it names nothing the caller may not open. A status's
+   * label is the board's own text and carries no person.
    */
-  async handlerNamesOf(
-    personIds: readonly string[],
-  ): Promise<Record<string, string>> {
-    const wanted = new Set(personIds);
-    if (wanted.size === 0) {
-      return {};
-    }
-    const names: Record<string, string> = {};
-    for (const handler of await readIssueHandlers(
-      this.prisma,
-      "EVERY_HANDLER",
-      new Date(),
-    )) {
-      if (handler.kind === "person" && wanted.has(handler.personId)) {
-        names[handler.personId] = handler.name;
-      }
-    }
-    return names;
+  async statusOfType(
+    typeId: string,
+    statusId: string,
+  ): Promise<{
+    label: string;
+    meaning: IssueStatusMeaning;
+    active: boolean;
+  } | null> {
+    return this.prisma.issueStatus.findFirst({
+      where: { id: statusId, typeId },
+      select: { label: true, meaning: true, active: true },
+    });
   }
 
   /**
@@ -3065,9 +3058,12 @@ export class IssueService {
    * out: an issue of a ring-fenced type, or one a person with protected
    * personal data reported (ADR 0056). Nothing with `show`.
    *
-   * Asked inside the write's transaction, after `lockForAssignment`: the
-   * ring-fence changes under the type's lock (`IssueTypeService`), so the
-   * answer holds until the write commits.
+   * Asked inside the write's transaction, after `lockForAssignment`. The
+   * ring-fence changes under the type's lock (`IssueTypeService`), so that part
+   * of the answer holds until the write commits. The protected reporters are
+   * read from the register without a lock of this write's: a person marked as
+   * protected while the write runs is not seen by it, as a read with `omit`
+   * that began before the mark does not see it either.
    */
   private async requireOffered(
     db: Prisma.TransactionClient | PrismaService,

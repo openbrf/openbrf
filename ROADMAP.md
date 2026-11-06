@@ -460,11 +460,14 @@ locally the application runs from source beside the PostgreSQL that
       came through a connected app; the AI package only proposes the same four,
       for that person to confirm on the platform's own screen, which shows the
       issue's number, type, status, priority and target date beside what the
-      change sets. No action writes to the reporter, reaches a contractor,
-      reads the conversation or an internal note, and an issue of a ring-fenced
-      type or one a person with protected personal data reported is answered
-      as one that does not exist. The MCP Connector is offered these once its
-      manifest declares the personal data they carry (ADR 0056)
+      change sets, and a status move's waiting reason and outcome. No action
+      writes to the reporter, sends anything to a contractor, reads the
+      conversation or an internal note; closing an issue ends its contractors'
+      work order links as it does on the board's screen.
+      An issue of a ring-fenced type or one a person with protected personal
+      data reported is answered as one that does not exist. The MCP Connector
+      is offered each of these once its manifest declares the personal data
+      that action carries (ADR 0056)
 - [x] What is particular to a Swedish house on an issue: on an issue about an
       apartment the resident answers whether the association or a contractor
       may enter - yes or no, pets, whether the master key may be used, a note on
