@@ -675,7 +675,7 @@
           "accepted": "Accepted",
           "deliveryChannel": "Sent as",
           "queued": "Queued",
-          "notSentBecause": "Why it was not sent",
+          "notSentBecause": "Why it was not confirmed as sent",
           "plugin": "Plugin",
           "recordCollection": "Kind of record",
           "recordKey": "Key",
@@ -1017,10 +1017,12 @@
           "SENT": "Handed over for delivery",
           "FAILED": "Not sent"
         },
+        "deliveryUnconfirmed": "Unconfirmed",
         "deliveryFailure": {
           "mail-not-configured": "The instance had no email server",
           "sms-not-configured": "The instance had no SMS provider",
-          "send-failed": "The email server or the SMS provider refused it",
+          "send-failed": "It could not be prepared, or the email server or the SMS provider could not be reached or refused it",
+          "delivery-unconfirmed": "The sending stopped before the email server confirmed it, so it is not known whether it reached you",
           "recipient-gone": "You were no longer in the register",
           "no-phone-number": "No telephone number was held for you",
           "no-email-address": "No email address was held for you",
@@ -6574,7 +6576,7 @@
       "when": "Time",
       "deliveries": "Sent: {{sent}}. Waiting: {{pending}}. Failed: {{failed}}.",
       "mailNotConfigured": "This instance has no mail server, so no copy could be sent. The notice is issued all the same, and the members below have to be called another way.",
-      "unreachedNotice": "The notice did not reach these members. A notice is a summons the association owes every member (EFL 6 kap. 21 §), so they have to be called another way."
+      "unreachedNotice": "The notice did not reach these members, or it is not known whether it did because the sending stopped before the mail server confirmed it. A notice is a summons the association owes every member (EFL 6 kap. 21 §), so they have to be called another way."
     },
     "proxies": {
       "title": "Proxy authorisations",

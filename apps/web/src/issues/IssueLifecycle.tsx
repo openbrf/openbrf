@@ -1,5 +1,5 @@
 import { ISSUE_KNOWN_FAULT_LIMITS } from "@openbrf/shared";
-import { useEffect, useId, useState, type ReactElement } from "react";
+import { useEffect, useId, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -93,10 +93,18 @@ export function IssueLifecycle({
   const [links, setLinks] = useState<IssueLinks | null>(null);
   const [readFailed, setReadFailed] = useState(false);
   const [reads, setReads] = useState(0);
+  /*
+   * The count of the latest message to the duplicates' reporters, with the
+   * duplicates it was about. It stands only beside those: another merge, or a
+   * duplicate reopened, makes it a count of something the screen no longer
+   * shows (`duplicatesOf`).
+   */
   const [toDuplicates, setToDuplicates] = useState<{
     sent: number;
     skipped: number;
+    duplicates: string;
   } | null>(null);
+  const sentTo = useRef("");
   const revision = `${issue.updatedAt}:${issue.status.id}`;
   /*
    * Every change made here may change the links - an issue merged into this
@@ -118,10 +126,15 @@ export function IssueLifecycle({
       if (read.ok) {
         setLinks(read.value);
         setReadFailed(false);
+        const duplicates = duplicatesOf(issue.id, read.value);
+        setToDuplicates((notice) =>
+          notice !== null && notice.duplicates !== duplicates ? null : notice,
+        );
       } else {
-        // Not the links of an earlier read beside the notice that this one
-        // failed: the forms that act on them stay hidden until one succeeds.
-        setLinks(null);
+        // The links of an earlier read are kept, but the forms that act on
+        // them are hidden until a read succeeds (below): a draft in one
+        // survives a transient failure, and nothing is offered on links that
+        // may be out of date.
         setReadFailed(true);
       }
     });
@@ -145,57 +158,87 @@ export function IssueLifecycle({
         onChanged={changed}
       />
 
-      {links === null ? null : <LinksSection links={links} />}
+      {links === null ? null : (
+        // Hidden rather than unmounted while the links cannot be read, so a
+        // half-written message or a chosen merge target is still there when
+        // they can.
+        <div hidden={readFailed} className="flex flex-col gap-4">
+          <LinksSection links={links} />
 
-      {links !== null && links.duplicates.length > 0 ? (
-        <section className="flex flex-col gap-2">
-          <h3 className="text-label text-ink-muted uppercase">
-            {t("issues.lifecycle.toDuplicatesTitle")}
-          </h3>
-          <ConversationComposer
-            label={t("issues.lifecycle.toDuplicates")}
-            ariaLabel={t("issues.lifecycle.toDuplicatesNamed", {
-              type: issue.typeName,
-            })}
-            hint={t("issues.lifecycle.toDuplicatesHint", {
-              count: links.duplicates.length,
-            })}
-            sendLabel={t("issues.conversation.send")}
-            sendingLabel={t("issues.conversation.sending")}
-            failures={DUPLICATE_MESSAGE_FAILURES}
-            fallback="issues.conversation.errors.unknown"
-            send={(body) => {
-              // The notice is the latest send's, so a refusal never stands
-              // beside the count an earlier one reached.
-              setToDuplicates(null);
-              return sendToDuplicateReporters({ issueId: issue.id, body });
-            }}
-            onSent={setToDuplicates}
-          />
-          {toDuplicates === null ? null : (
-            <Notice tone={toDuplicates.skipped > 0 ? "warn" : "ok"} live>
-              {t("issues.lifecycle.toDuplicatesSent", {
-                count: toDuplicates.sent,
-              })}
-              {toDuplicates.skipped > 0
-                ? ` ${t("issues.lifecycle.toDuplicatesSkipped", {
-                    count: toDuplicates.skipped,
-                  })}`
-                : ""}
-            </Notice>
-          )}
-        </section>
-      ) : null}
+          {links.duplicates.length > 0 ? (
+            <section className="flex flex-col gap-2">
+              <h3 className="text-label text-ink-muted uppercase">
+                {t("issues.lifecycle.toDuplicatesTitle")}
+              </h3>
+              <ConversationComposer
+                label={t("issues.lifecycle.toDuplicates")}
+                ariaLabel={t("issues.lifecycle.toDuplicatesNamed", {
+                  type: issue.typeName,
+                })}
+                hint={t("issues.lifecycle.toDuplicatesHint", {
+                  count: links.duplicates.length,
+                })}
+                sendLabel={t("issues.conversation.send")}
+                sendingLabel={t("issues.conversation.sending")}
+                failures={DUPLICATE_MESSAGE_FAILURES}
+                fallback="issues.conversation.errors.unknown"
+                send={(body) => {
+                  // The notice is the latest send's, so a refusal never
+                  // stands beside the count an earlier one reached.
+                  setToDuplicates(null);
+                  sentTo.current = duplicatesOf(issue.id, links);
+                  return sendToDuplicateReporters({ issueId: issue.id, body });
+                }}
+                onSent={(sent) => {
+                  setToDuplicates({ ...sent, duplicates: sentTo.current });
+                }}
+              />
+              {toDuplicates === null ||
+              // A send that finished after the links were read again told of
+              // the duplicates it was sent to, not of these.
+              toDuplicates.duplicates !==
+                duplicatesOf(issue.id, links) ? null : (
+                <Notice tone={toDuplicates.skipped > 0 ? "warn" : "ok"} live>
+                  {t("issues.lifecycle.toDuplicatesSent", {
+                    count: toDuplicates.sent,
+                  })}
+                  {toDuplicates.skipped > 0
+                    ? ` ${t("issues.lifecycle.toDuplicatesSkipped", {
+                        count: toDuplicates.skipped,
+                      })}`
+                    : ""}
+                </Notice>
+              )}
+            </section>
+          ) : null}
 
-      {links !== null &&
-      issue.outcome !== "DUPLICATE" &&
-      // Every merged issue, not only those this handler sees: the server
-      // refuses a merge of an issue anything was merged into.
-      links.duplicateCount === 0 ? (
-        <MergeForm issue={issue} candidates={candidates} onChanged={changed} />
-      ) : null}
+          {issue.outcome !== "DUPLICATE" &&
+          // Every merged issue, not only those this handler sees: the server
+          // refuses a merge of an issue anything was merged into.
+          links.duplicateCount === 0 ? (
+            <MergeForm
+              issue={issue}
+              candidates={candidates}
+              onChanged={changed}
+            />
+          ) : null}
+        </div>
+      )}
     </div>
   );
+}
+
+/**
+ * Which duplicates a count of messages sent was about: the issue and the
+ * issues merged into it, as it reads them. A different set, from another merge
+ * or a duplicate reopened, is a different count.
+ */
+function duplicatesOf(issueId: string, links: IssueLinks): string {
+  return [
+    issueId,
+    links.duplicateCount,
+    ...links.duplicates.map((duplicate) => duplicate.id),
+  ].join(":");
 }
 
 /**
@@ -461,6 +504,13 @@ function MergeForm({
     return null;
   }
   const busy = merge.state.kind === "saving";
+  // A target that left the list (it was closed, or merged elsewhere) is no
+  // longer chosen: the select has no option to show it, and confirming would
+  // send an issue the server refuses.
+  const selectedId = offered.some((candidate) => candidate.id === intoIssueId)
+    ? intoIssueId
+    : "";
+  const confirmingNow = confirming && selectedId !== "";
 
   return (
     <section className="flex flex-col gap-2">
@@ -486,7 +536,7 @@ function MergeForm({
         aria-label={t("issues.lifecycle.mergeIntoNamed", {
           type: issue.typeName,
         })}
-        value={intoIssueId}
+        value={selectedId}
         disabled={busy}
         onChange={(event) => {
           setIntoIssueId(event.target.value);
@@ -506,9 +556,9 @@ function MergeForm({
       </select>
       <p className={HINT}>{t("issues.lifecycle.mergeHint")}</p>
       <TwoPressConfirm
-        confirming={confirming}
+        confirming={confirmingNow}
         busy={busy}
-        askDisabled={busy || intoIssueId === ""}
+        askDisabled={busy || selectedId === ""}
         askText={t("issues.lifecycle.merge")}
         askClassName={SECONDARY_BUTTON}
         confirmText={t("issues.lifecycle.mergeConfirm")}
@@ -517,7 +567,7 @@ function MergeForm({
           setConfirming(true);
         }}
         onConfirm={() => {
-          void merge.submit(intoIssueId);
+          void merge.submit(selectedId);
         }}
         onKeep={() => {
           setConfirming(false);

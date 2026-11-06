@@ -675,7 +675,7 @@
           "accepted": "Accepterad",
           "deliveryChannel": "Skickad som",
           "queued": "Köad",
-          "notSentBecause": "Varför det inte skickades",
+          "notSentBecause": "Varför det inte bekräftades som skickat",
           "plugin": "Tillägg",
           "recordCollection": "Slag av uppgift",
           "recordKey": "Nyckel",
@@ -1017,10 +1017,12 @@
           "SENT": "Lämnat för leverans",
           "FAILED": "Inte skickat"
         },
+        "deliveryUnconfirmed": "Obekräftat",
         "deliveryFailure": {
           "mail-not-configured": "Instansen hade ingen e-postserver",
           "sms-not-configured": "Instansen hade ingen sms-leverantör",
-          "send-failed": "E-postservern eller sms-leverantören tog inte emot det",
+          "send-failed": "Det kunde inte förberedas, eller så gick e-postservern eller sms-leverantören inte att nå eller tog inte emot det",
+          "delivery-unconfirmed": "Utskicket avbröts innan e-postservern bekräftade det, så det går inte att veta om det nådde dig",
           "recipient-gone": "Du fanns inte längre i registret",
           "no-phone-number": "Inget telefonnummer fanns registrerat för dig",
           "no-email-address": "Ingen e-postadress fanns registrerad för dig",
@@ -6574,7 +6576,7 @@
       "when": "Tid",
       "deliveries": "Skickade: {{sent}}. Väntar: {{pending}}. Misslyckade: {{failed}}.",
       "mailNotConfigured": "Den här instansen har ingen e-postserver, så inget exemplar kunde skickas. Kallelsen är utfärdad ändå, och medlemmarna nedan måste kallas på annat sätt.",
-      "unreachedNotice": "Kallelsen nådde inte de här medlemmarna. Medlemmarna ska kallas till stämman (EFL 6 kap. 21 §), så de här måste kallas på annat sätt."
+      "unreachedNotice": "Kallelsen nådde inte de här medlemmarna, eller så går det inte att veta om den gjorde det eftersom utskicket avbröts innan e-postservern bekräftade den. Medlemmarna ska kallas till stämman (EFL 6 kap. 21 §), så de här måste kallas på annat sätt."
     },
     "proxies": {
       "title": "Fullmakter",

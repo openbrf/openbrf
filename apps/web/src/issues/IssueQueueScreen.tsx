@@ -6,7 +6,13 @@ import {
   type IssueQueueView,
 } from "@openbrf/shared";
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
@@ -119,16 +125,22 @@ type Types = readonly IssueTypeView[] | null | undefined;
  */
 type TypesAsk = "arrival" | "change" | "retry";
 
-/** A read of the types to make, numbered so the same ask twice reads twice. */
-interface TypesRequest {
-  count: number;
-  by: TypesAsk;
-}
-
-/** The types as they were last read, and what set that read off. */
+/**
+ * The types as they were last read, and what the read that answered asks of
+ * the notice that they could not be read.
+ */
 interface TypesRead {
   types: Types;
-  by: TypesAsk;
+  /** Whether that notice is announced: the read was not the reader's arrival. */
+  announce: boolean;
+  /**
+   * Whether the retry on that notice takes the focus as the notice is put on
+   * screen: the read was a retry. Held for the one render that puts the answer
+   * on screen and then cleared, so a notice that is mounted again later (the
+   * panel does not draw it while a failed read of the queue stands) is not
+   * handed a focus that was meant for the retry.
+   */
+  focus: boolean;
 }
 
 /**
@@ -189,19 +201,24 @@ export function IssueQueueScreen({
    */
   const [typesRead, setTypesRead] = useState<TypesRead>({
     types: undefined,
-    by: "arrival",
+    announce: false,
+    focus: false,
   });
   const { types } = typesRead;
+  /*
+   * What set off the read of the types that is out or next, kept here and
+   * nowhere else: the read takes it when it answers and leaves "change"
+   * behind. It is a ref because it is not drawn, and a newer read that
+   * supersedes an earlier one finds it still set.
+   */
+  const typesAsk = useRef<TypesAsk>("arrival");
   /*
    * Bumped to read the types again: with the queue after a change on it, or
    * alone on the retry beside the types' notice, so a queue already on screen
    * is not read again for that, and not replaced by a failure notice if that
    * read would fail. Not for a change of view or filter.
    */
-  const [typesRequest, setTypesRequest] = useState<TypesRequest>({
-    count: 0,
-    by: "arrival",
-  });
+  const [typesReads, setTypesReads] = useState(0);
   const [places, setPlaces] = useState<Places>(undefined);
   /*
    * Bumped to read the queue again under whatever view and filter are current
@@ -212,7 +229,16 @@ export function IssueQueueScreen({
   const [readCount, setReadCount] = useState(0);
   const reload = useCallback((): void => {
     setReadCount((count) => count + 1);
-    setTypesRequest(({ count }) => ({ count: count + 1, by: "change" }));
+    /*
+     * A change read that takes over while the types' retry is out leaves the
+     * retry's ask standing: the retry's answer was dropped with its read, and
+     * the notice the new read puts on screen is still the answer to what the
+     * reader pressed, which is announced and takes the focus back.
+     */
+    if (typesAsk.current !== "retry") {
+      typesAsk.current = "change";
+    }
+    setTypesReads((count) => count + 1);
   }, []);
   const retryTypes = useCallback((): void => {
     /*
@@ -222,8 +248,23 @@ export function IssueQueueScreen({
      * so the new notice's retry takes the focus back. Only offered while the
      * types are null, so no status form or draft goes with it.
      */
-    setTypesRead({ types: undefined, by: "retry" });
-    setTypesRequest(({ count }) => ({ count: count + 1, by: "retry" }));
+    setTypesRead({ types: undefined, announce: false, focus: false });
+    typesAsk.current = "retry";
+    setTypesReads((count) => count + 1);
+  }, []);
+
+  /*
+   * The focus is for the one render that puts a retry's answer on screen. The
+   * panel says when it has had its turn with it, which is after the notice
+   * drawn by that render took it (`LoadFailure` reads `focusRetry` as it
+   * mounts), and this clears it; a notice mounted again later, after the
+   * queue's own retry, finds it off and leaves the focus where the reader put
+   * it.
+   */
+  const settleTypesFocus = useCallback((): void => {
+    setTypesRead((before) =>
+      before.focus ? { ...before, focus: false } : before,
+    );
   }, []);
 
   /*
@@ -303,11 +344,12 @@ export function IssueQueueScreen({
       return;
     }
     let current = true;
-    const { by } = typesRequest;
     void fetchHandlerIssueTypes().then((read) => {
       if (!current) {
         return;
       }
+      const by = typesAsk.current;
+      typesAsk.current = "change";
       const next = read.ok ? read.value : null;
       /*
        * A failure that stands from an earlier read is not news, so it stays as
@@ -315,13 +357,15 @@ export function IssueQueueScreen({
        * alert role in place, which a screen reader need not announce.
        */
       setTypesRead((before) =>
-        next === null && before.types === null ? before : { types: next, by },
+        next === null && before.types === null
+          ? before
+          : { types: next, announce: by !== "arrival", focus: by === "retry" },
       );
     });
     return () => {
       current = false;
     };
-  }, [canHandle, typesRequest]);
+  }, [canHandle, typesReads]);
 
   /*
    * The places' counts, read again with the queue after a save, an issue
@@ -526,8 +570,9 @@ export function IssueQueueScreen({
           onChanged={reload}
           queueRead={loaded.readCount}
           onRetryTypes={retryTypes}
-          announceTypesFailure={typesRead.by !== "arrival"}
-          focusTypesRetry={typesRead.by === "retry"}
+          announceTypesFailure={typesRead.announce}
+          focusTypesRetry={typesRead.focus}
+          onTypesRetryFocused={settleTypesFocus}
           rereading={rereading}
           reading={reading}
           listWithheld={loadFailed}

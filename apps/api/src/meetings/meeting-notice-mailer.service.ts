@@ -10,6 +10,7 @@ import {
   type TransactionalSql,
 } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { mayHaveBeenHandedOver, withHandover } from "../mail/mail-driver";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { meetingNoticeMail } from "../mail/templates";
 import { NOTICE_DELIVERY_FAILURES } from "./meeting-notice-delivery";
@@ -60,8 +61,8 @@ const NOTICE_JOB_OPTIONS = {
   // A failed attempt resumes from the ledger rather than starting again, so a
   // retry costs only the rows nobody claimed. These retries are for the failures
   // a second attempt can change - a database that went away, a worker that was
-  // killed. A mail server refusing one address is not one of them: that is
-  // recorded on the row and the sending carries on.
+  // killed. A mail send that errors is not one of them: that is recorded on the
+  // row, as not sent or as unconfirmed, and the sending carries on.
   retryLimit: 5,
   retryDelay: 10,
   retryBackoff: true,
@@ -275,10 +276,13 @@ export class MeetingNoticeMailerService implements OnModuleInit {
     }
 
     try {
-      const to = await this.encryption.decrypt(
-        "person.email",
-        person.emailCipher,
-      );
+      const to = await this.encryption
+        .decrypt("person.email", person.emailCipher)
+        // An address that cannot be read back was never offered to a mail
+        // server, so it does not read as a send that may have gone.
+        .catch((error: unknown) => {
+          throw withHandover(error, "not-handed-over");
+        });
       await this.mail.send({
         to,
         // The recipient's own language, not the board's. What the board wrote -
@@ -296,11 +300,17 @@ export class MeetingNoticeMailerService implements OnModuleInit {
       });
       return "sent";
     } catch (error) {
+      // Not sent only where the driver says the copy never reached the mail
+      // server. A connection that broke after the copy was on its way may have
+      // left it with the server: recorded as unconfirmed, and failed all the
+      // same, so the board still calls the member another way.
       await this.fail(
         delivery.id,
         error instanceof MailNotConfiguredError
           ? NOTICE_DELIVERY_FAILURES.mailNotConfigured
-          : NOTICE_DELIVERY_FAILURES.refused,
+          : mayHaveBeenHandedOver(error)
+            ? NOTICE_DELIVERY_FAILURES.unconfirmed
+            : NOTICE_DELIVERY_FAILURES.refused,
       );
       // Named by delivery and by the class of the failure, never by address and
       // never in the mail server's own words: this decrypts an address and hands

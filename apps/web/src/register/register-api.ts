@@ -305,6 +305,7 @@ export type NewsDeliveryFailure =
   | "mail-not-configured"
   | "sms-not-configured"
   | "send-failed"
+  | "delivery-unconfirmed"
   | "recipient-gone"
   | "no-phone-number"
   | "mailing-interrupted"
@@ -314,6 +315,7 @@ export type NewsDeliveryFailure =
 export type MeetingNoticeDeliveryFailure =
   | "mail-not-configured"
   | "send-failed"
+  | "delivery-unconfirmed"
   | "recipient-gone"
   | "no-email-address"
   | "notice-sending-interrupted";
