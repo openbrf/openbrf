@@ -1037,7 +1037,7 @@
         "issueCostResponsibility": "Vem betalar: {{who}}",
         "issueEntry": "Tillträde: {{answer}}. {{details}}",
         "issuePlace": "Gemensamt utrymme: {{place}}",
-        "issueTextErasableFrom": "Fritexten gallras från <data>{{date}}</data>",
+        "issueTextErasableFrom": "Fritexten kan gallras från <data>{{date}}</data>",
         "issueLegalHold": "Fritexten sparas under ett rättsligt bevarandekrav på ärendet",
         "issueClosed": "Avslutat <data>{{date}}</data>"
       },
@@ -3647,8 +3647,8 @@
       "submit": "Skicka anmälan",
       "sent": "Tack. Anmälan har nått föreningen.",
       "refused": "Anmälan kunde inte läsas. Kontrollera att du har valt vad det gäller och beskrivit felet, och skicka sedan igen.",
-      "retention_one": "Ditt namn och din e-postadress tas bort ett år efter att ärendet har stängts, och det du skrev {{count}} år efter att det har stängts, om inte föreningen måste spara dem längre; föreningens integritetspolicy säger när.",
-      "retention_other": "Ditt namn och din e-postadress tas bort ett år efter att ärendet har stängts, och det du skrev {{count}} år efter att det har stängts, om inte föreningen måste spara dem längre; föreningens integritetspolicy säger när."
+      "retention_one": "Ditt namn och din e-postadress tas bort ett år efter att ärendet har stängts, och det du skrev och svaren du får {{count}} år efter att det har stängts, om inte föreningen måste spara dem längre; föreningens integritetspolicy säger när.",
+      "retention_other": "Ditt namn och din e-postadress tas bort ett år efter att ärendet har stängts, och det du skrev och svaren du får {{count}} år efter att det har stängts, om inte föreningen måste spara dem längre; föreningens integritetspolicy säger när."
     },
     "documents": {
       "heading": "Dokument",

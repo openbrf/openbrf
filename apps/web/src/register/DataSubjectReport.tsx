@@ -1838,27 +1838,33 @@ export function DataSubjectReport({
                       screen: a handler's message signed with a role, never a
                       name, and never an internal note (ADR 0057). */}
                     <td className={TEXT_CELL}>
-                      {issue.messages.length === 0
-                        ? nothing
-                        : issue.messages.map((message) => (
-                            <span key={message.id} className="mb-1 block">
-                              <span className="block">
-                                <span className="font-data text-data">
-                                  {day(message.createdAt)}
-                                </span>{" "}
-                                {message.side === "HANDLER"
-                                  ? t(ISSUE_SIGNATURE_LABEL[message.signature])
-                                  : t("issues.conversation.you")}
-                              </span>
-                              {message.redactedAt === null ? (
-                                <span className="block whitespace-pre-line">
-                                  {message.body}
-                                </span>
-                              ) : (
-                                <RedactedMark at={message.redactedAt} t={t} />
-                              )}
+                      {issue.messages.length === 0 ? (
+                        issue.freeTextRemovedAt !== null ? (
+                          <PurgedMark at={issue.freeTextRemovedAt} t={t} />
+                        ) : (
+                          nothing
+                        )
+                      ) : (
+                        issue.messages.map((message) => (
+                          <span key={message.id} className="mb-1 block">
+                            <span className="block">
+                              <span className="font-data text-data">
+                                {day(message.createdAt)}
+                              </span>{" "}
+                              {message.side === "HANDLER"
+                                ? t(ISSUE_SIGNATURE_LABEL[message.signature])
+                                : t("issues.conversation.you")}
                             </span>
-                          ))}
+                            {message.redactedAt === null ? (
+                              <span className="block whitespace-pre-line">
+                                {message.body}
+                              </span>
+                            ) : (
+                              <RedactedMark at={message.redactedAt} t={t} />
+                            )}
+                          </span>
+                        ))
+                      )}
                     </td>
                     <td className={DATA_CELL}>{String(issue.photographs)}</td>
                     {/* Whom the issue was sent to and when (art. 15(1)(c)):

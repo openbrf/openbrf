@@ -2104,7 +2104,7 @@ describe("what the document prints", () => {
     expect(row?.textContent).toContain("2026-01-06 Förvaltaren");
     expect(row?.textContent).toContain("2026-01-07 DuBorttaget av");
     expect(row?.textContent).toContain("Avslutat 2026-02-01");
-    expect(row?.textContent).toContain("Fritexten gallras från 2028-02-01");
+    expect(row?.textContent).toContain("Fritexten kan gallras från 2028-02-01");
   });
 
   it("says a hold on the issue keeps its text, in place of a date", async () => {
@@ -2120,7 +2120,7 @@ describe("what the document prints", () => {
     expect(row?.textContent).toContain(
       "Fritexten sparas under ett rättsligt bevarandekrav på ärendet",
     );
-    expect(row?.textContent).not.toContain("gallras från");
+    expect(row?.textContent).not.toContain("kan gallras från");
   });
 
   it("says an issue's text was removed instead of printing it blank", async () => {
@@ -2153,8 +2153,8 @@ describe("what the document prints", () => {
     expect(screen.getByText("2026-10-01")).toBeTruthy();
     expect(screen.getByText("2026-10-02")).toBeTruthy();
     expect(screen.getAllByText(/Borttaget av en handläggare/)).toHaveLength(2);
-    expect(screen.getAllByText("2026-11-03")).toHaveLength(2);
-    expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(2);
+    expect(screen.getAllByText("2026-11-03")).toHaveLength(3);
+    expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(3);
   });
 
   it("names the capacity somebody was present at a general meeting in", async () => {
@@ -2309,7 +2309,7 @@ describe("what the document prints", () => {
       expect(screen.getAllByText(/Borttaget av en handläggare/)).toHaveLength(
         2,
       );
-      expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(2);
+      expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(3);
       expect(screen.queryByText(/Removed by a handler/)).toBeNull();
       expect(screen.queryByText(/Free text removed on/)).toBeNull();
     } finally {
