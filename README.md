@@ -31,6 +31,7 @@ Open BRF är ännu inte släppt. I december 2026 körs det på ett testkonto med
 - GDPR engine: configurable retention and purging, data subject access reports, legal hold, consents, masking of protected personal data
 - The rest of what a controller has to do: the record of processing activities (art. 30), the personal data breach register with the 72-hour clock (art. 33), processor agreements with each recipient classified first (art. 28), a privacy notice checked against what art. 13 requires, and the requests a person makes about their own data - erasure, objection, restriction and a portable export (art. 17, 18, 20, 21)
 - News and mailings, document archive, issue reporting with photos
+- Issue handling for the board and the external property manager: issue types and statuses the board defines, an assignee, a priority and a target date on each issue, queue views for one's own, unassigned and overdue issues, a conversation with the reporter - with an account or through a private link - beside internal notes, work orders mailed to contractors, charges made from an issue, and ring-fenced types only the board reads
 - The association's public website with a page CMS: public and member-only pages in one menu, a broker information page generated from association facts, contact and issue report forms, and news that can email the members on publish
 - Roles for board members, residents, and external property managers
 - Sign-in with passwords, magic links, passkeys (WebAuthn), and TOTP

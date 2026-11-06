@@ -45,16 +45,35 @@ export async function listMessages(): Promise<readonly Message[]> {
   return list.messages;
 }
 
+/**
+ * Everything a message says: its subject, its plain-text part and its HTML
+ * part, joined. For an assertion about what a mail must never carry, which
+ * holds for every part a mail client might show, not only the plain one.
+ */
+export async function messageContent(id: string): Promise<string> {
+  const message = await readMessage(id);
+  return [message.Subject, message.Text, message.HTML].join("\n");
+}
+
 /** The plain-text part, which carries every link the HTML part carries. */
 export async function messageText(id: string): Promise<string> {
+  return (await readMessage(id)).Text;
+}
+
+interface MessageParts {
+  readonly Subject: string;
+  readonly Text: string;
+  readonly HTML: string;
+}
+
+async function readMessage(id: string): Promise<MessageParts> {
   const response = await fetch(`${stack.mailpitUrl}/api/v1/message/${id}`);
   if (!response.ok) {
     throw new Error(
       `mailpit message ${id} answered ${String(response.status)}`,
     );
   }
-  const message = (await response.json()) as { readonly Text: string };
-  return message.Text;
+  return (await response.json()) as MessageParts;
 }
 
 /**
