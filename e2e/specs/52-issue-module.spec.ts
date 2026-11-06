@@ -221,9 +221,12 @@ test("an issue goes from a report to a reopened case, and nothing leaks on the w
     uniqueSurname(
       `${name}${testInfo.retry === 0 ? "" : `r${String(testInfo.retry)}`}`,
     );
+  // The run id alone is shared by every spec, and others take the same first
+  // names ("elsa" signs up in 04, "greta" is imported in 07), so the spec's
+  // own prefix keeps its accounts and mailboxes apart from theirs.
   const ownEmail = (local: string): string =>
     uniqueEmail(
-      `${local}${testInfo.retry === 0 ? "" : `r${String(testInfo.retry)}`}`,
+      `issue-${local}${testInfo.retry === 0 ? "" : `r${String(testInfo.retry)}`}`,
     );
 
   // --- the instance ---------------------------------------------------------
