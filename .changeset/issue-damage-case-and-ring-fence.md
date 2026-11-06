@@ -39,6 +39,12 @@ leaves it.
   can be ring-fenced. The report form and the board's screen each say who reads
   such an issue and what not to write, and that formal steps under the
   Tenant-Ownership Act are taken outside Open BRF.
+- **Upgrading ring-fences nothing.** The types an instance already has keep
+  being handled by every handler, the property manager included, and none of
+  them is ring-fenced, since nothing tells the upgrade which of them is for
+  disturbances. A board that has such a type, and offers it on the website's
+  form, takes it off the form and ring-fences it in the settings; the issues
+  already reported under it are then ring-fenced with it.
 - **Its own clock.** The free text of a ring-fenced issue is purged one year
   after the issue closes, whatever the board set for other issues, unless a
   legal hold stands on it, a damage case included, or a legal hold or a
