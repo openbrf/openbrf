@@ -17,11 +17,11 @@ import { failureName } from "../logging/failure";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { issueReporterLinkMail } from "../mail/templates";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
+import { requireHandledIssue, requireHandlerRole } from "./issue-handlers";
 import {
   type ReporterIssueMessageView,
   toReporterView,
-} from "./issue-conversation.service";
-import { requireHandledIssue, requireHandlerRole } from "./issue-handlers";
+} from "./issue-message-view";
 import {
   holdIssueTypeRingFence,
   lockIssue,

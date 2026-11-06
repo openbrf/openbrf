@@ -46,8 +46,8 @@ import {
   type IssueAttachmentView,
   IssueConversationService,
   type IssueNoteView,
-  type ReporterIssueMessageView,
 } from "./issue-conversation.service";
+import type { ReporterIssueMessageView } from "./issue-message-view";
 import type { IssueEntryView } from "./issue-fit-views";
 import { IssueFitService } from "./issue-fit.service";
 import {

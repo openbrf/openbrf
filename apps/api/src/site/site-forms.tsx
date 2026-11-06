@@ -66,6 +66,8 @@ export function siteFormKind(value: string | undefined): SiteFormKind | null {
 export interface SiteIssueType {
   id: string;
   name: string;
+  /** Years after closing its free text is removed (`issueTextClockYears`). */
+  textRetentionYears: number;
 }
 
 /**
@@ -361,6 +363,18 @@ function issueFields(
       <label className="site-field">
         <span>{t("site.issueForm.email")}</span>
         <input type="email" name="email" maxLength={320} autoComplete="email" />
+        {/*
+         * How long what is asked for here is kept (GDPR art. 13(2)(a)), beside
+         * the fields that ask for it. The contact details' year is
+         * `ISSUE_RETENTION_DAYS`; the text's clock is the type's. A type the
+         * website offers is never ring-fenced, so every one is on the board's
+         * clock; the longest is named, so the line never understates it.
+         */}
+        <span className="site-field-hint">
+          {t("site.issueForm.retention", {
+            count: Math.max(...types.map((type) => type.textRetentionYears)),
+          })}
+        </span>
       </label>
 
       {formHoneypot()}

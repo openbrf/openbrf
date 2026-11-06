@@ -104,6 +104,8 @@ export interface ReportableIssueType {
   reporters: IssueReporterGroup[];
   /** Ring-fenced: the form warns before the reporter writes (decision 32). */
   ringFenced: boolean;
+  /** Years after closing an issue's free text is removed, on this type's clock. */
+  textRetentionYears: number;
 }
 
 export interface IssueApartment {

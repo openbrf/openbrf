@@ -28,25 +28,15 @@ import {
 } from "./issue-reporter-link";
 import { IssueMailer } from "./issue-mailer.service";
 import { IssueError, type IssueTextLocation } from "./issue.error";
+import {
+  ISSUE_MESSAGE_ORDER,
+  ISSUE_MESSAGE_SELECT,
+  type IssueMessageRecord,
+  type ReporterIssueMessageView,
+  toReporterView,
+} from "./issue-message-view";
 import { reopenIssueByReply, replyModeOf } from "./issue-reopening";
 import type { IssueHandlerView } from "./issue.service";
-
-/**
- * An issue message as the issue's reporter reads it (decisions 18 and 19).
- *
- * A handler's message carries the role it was signed with, the board or the
- * property manager, and never who wrote it: who works an issue is internal
- * (ADR 0054), and a reporter is told no handler's name. Their own messages
- * carry nothing but the text.
- */
-export type ReporterIssueMessageView = {
-  id: string;
-  /** Empty once a handler redacted it. */
-  body: string;
-  /** When a handler redacted it (ADR 0057), or null while it stands. */
-  redactedAt: string | null;
-  createdAt: string;
-} & ({ side: "REPORTER" } | { side: "HANDLER"; signature: IssueSignature });
 
 /**
  * An issue message as a handler reads it: a handler's with the role it was
@@ -166,8 +156,8 @@ export class IssueConversationService {
     await this.requireReported(this.prisma, issueId, reporterPersonId);
     const messages = await this.prisma.issueMessage.findMany({
       where: { issueId },
-      orderBy: MESSAGE_ORDER,
-      select: MESSAGE_SELECT,
+      orderBy: ISSUE_MESSAGE_ORDER,
+      select: ISSUE_MESSAGE_SELECT,
     });
     return messages.map(toReporterView);
   }
@@ -228,7 +218,7 @@ export class IssueConversationService {
           authorPersonId: reporterPersonId,
           body,
         },
-        select: MESSAGE_SELECT,
+        select: ISSUE_MESSAGE_SELECT,
       });
       await this.recordMessage(tx, written.id, issueId, reporterPersonId);
       await this.mailer.messageInTransaction(tx, issueId, {
@@ -409,8 +399,8 @@ export class IssueConversationService {
     const messages = await this.readHandled(issueId, readerPersonId, (tx) =>
       tx.issueMessage.findMany({
         where: { issueId },
-        orderBy: MESSAGE_ORDER,
-        select: MESSAGE_SELECT,
+        orderBy: ISSUE_MESSAGE_ORDER,
+        select: ISSUE_MESSAGE_SELECT,
       }),
     );
     return this.handlerViews(messages);
@@ -484,7 +474,7 @@ export class IssueConversationService {
           signature: await signatureOf(tx, handlerPersonId, now),
           body,
         },
-        select: MESSAGE_SELECT,
+        select: ISSUE_MESSAGE_SELECT,
       });
       if (link !== null) {
         // A conversation going on keeps the reporter's way to it open.
@@ -771,7 +761,7 @@ export class IssueConversationService {
   }
 
   private async handlerViews(
-    messages: readonly MessageRecord[],
+    messages: readonly IssueMessageRecord[],
   ): Promise<HandlerIssueMessageView[]> {
     const viewOf = await readAuthors(
       this.prisma,
@@ -889,26 +879,6 @@ function authorOf(
   return personId === null ? { kind: "unknown" } : viewOf(personId);
 }
 
-/** Oldest first, with the identifier to order two written at one instant. */
-const MESSAGE_ORDER = [
-  { createdAt: "asc" },
-  { id: "asc" },
-] as const satisfies Prisma.IssueMessageOrderByWithRelationInput[];
-
-const MESSAGE_SELECT = {
-  id: true,
-  side: true,
-  authorPersonId: true,
-  signature: true,
-  body: true,
-  redactedAt: true,
-  createdAt: true,
-} as const;
-
-type MessageRecord = Prisma.IssueMessageGetPayload<{
-  select: typeof MESSAGE_SELECT;
-}>;
-
 const NOTE_SELECT = {
   id: true,
   authorPersonId: true,
@@ -932,25 +902,6 @@ const ATTACHMENT_SELECT = {
     },
   },
 } as const;
-
-/**
- * A message as its reporter reads it: the writer's role on a handler's, and
- * no person on either. Built from the columns alone, so there is no person on
- * the row to leak.
- */
-export function toReporterView(
-  message: MessageRecord,
-): ReporterIssueMessageView {
-  const base = {
-    id: message.id,
-    body: message.body,
-    redactedAt: message.redactedAt?.toISOString() ?? null,
-    createdAt: message.createdAt.toISOString(),
-  };
-  return message.side === "HANDLER" && message.signature !== null
-    ? { ...base, side: "HANDLER", signature: message.signature }
-    : { ...base, side: "REPORTER" };
-}
 
 function toAttachmentView(
   attachment: Prisma.IssueAttachmentGetPayload<{

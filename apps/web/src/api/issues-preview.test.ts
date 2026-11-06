@@ -32,24 +32,28 @@ const AS_THE_BOARD_IS_OFFERED_THEM: ReportableIssueType[] = [
     name: "Hissen",
     reporters: ["PUBLIC", "RESIDENTS"],
     ringFenced: false,
+    textRetentionYears: 2,
   },
   {
     id: "type-budget",
     name: "Budgetuppföljning",
     reporters: ["HANDLERS"],
     ringFenced: false,
+    textRetentionYears: 2,
   },
   {
     id: "type-laundry",
     name: "Tvättstugan",
     reporters: ["RESIDENTS", "HANDLERS"],
     ringFenced: false,
+    textRetentionYears: 2,
   },
   {
     id: "type-gate",
     name: "Grinden",
     reporters: ["PUBLIC", "HANDLERS"],
     ringFenced: false,
+    textRetentionYears: 2,
   },
 ];
 

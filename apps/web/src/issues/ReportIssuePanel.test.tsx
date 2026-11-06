@@ -39,12 +39,14 @@ const TYPES: readonly ReportableIssueType[] = [
     name: "Vatten",
     reporters: ["RESIDENTS"],
     ringFenced: false,
+    textRetentionYears: 2,
   },
   {
     id: "type-heat",
     name: "Värme",
     reporters: ["RESIDENTS"],
     ringFenced: false,
+    textRetentionYears: 2,
   },
 ];
 
@@ -118,6 +120,7 @@ describe("the sensitive-data warning", () => {
           name: "Störningar",
           reporters: ["RESIDENTS"],
           ringFenced: true,
+          textRetentionYears: 1,
         },
       ],
     });
@@ -141,6 +144,48 @@ describe("the sensitive-data warning", () => {
     ).toBeTruthy();
   });
 
+  it("says how long the text is kept, on the clock of the type chosen", async () => {
+    // GDPR art. 13(2)(a), where the reporter writes. A ring-fenced type's
+    // warning states its own year, so the line is for an ordinary type.
+    const session = userEvent.setup();
+    renderPanel({
+      types: [
+        ...TYPES,
+        {
+          id: "type-noise",
+          name: "Störningar",
+          reporters: ["RESIDENTS"],
+          ringFenced: true,
+          textRetentionYears: 1,
+        },
+      ],
+    });
+    const [ordinary] = TYPES;
+    if (ordinary === undefined) throw new Error("the fixture holds a type");
+
+    await session.selectOptions(
+      screen.getByLabelText(/vad gäller det/i),
+      ordinary.id,
+    );
+    expect(
+      screen.getByText(/tas bort 2 år efter att ärendet har stängts/i),
+    ).toBeTruthy();
+    expect(screen.getByText(/aldrig själva anmälan/i)).toBeTruthy();
+
+    await session.selectOptions(
+      screen.getByLabelText(/vad gäller det/i),
+      "type-noise",
+    );
+    expect(screen.queryByText(/aldrig själva anmälan/i)).toBeNull();
+    // The ring-fence's own warning names the conversation and the photographs
+    // beside the text, since it is the only retention notice on this form.
+    expect(
+      screen.getByText(
+        /det du skriver, konversationen och fotografierna tas bort ett år efter/i,
+      ),
+    ).toBeTruthy();
+  });
+
   it("keeps the intro line for an ordinary type, and drops it for a ring-fenced one", async () => {
     const session = userEvent.setup();
     renderPanel({
@@ -151,6 +196,7 @@ describe("the sensitive-data warning", () => {
           name: "Störningar",
           reporters: ["RESIDENTS"],
           ringFenced: true,
+          textRetentionYears: 1,
         },
       ],
     });
@@ -666,6 +712,7 @@ describe("a report made from a post", () => {
             name: "Störningar",
             reporters: ["RESIDENTS"],
             ringFenced: true,
+            textRetentionYears: 1,
           },
         ]}
         apartments={APARTMENTS}
@@ -690,6 +737,7 @@ describe("a report made from a post", () => {
             name: "Störningar",
             reporters: ["RESIDENTS"],
             ringFenced: true,
+            textRetentionYears: 1,
           },
         ]}
         apartments={APARTMENTS}
@@ -733,6 +781,7 @@ describe("a report made from a post", () => {
             name: "Störningar",
             reporters: ["RESIDENTS"],
             ringFenced: true,
+            textRetentionYears: 1,
           },
         ]}
         apartments={APARTMENTS}

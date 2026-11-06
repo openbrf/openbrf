@@ -21,10 +21,12 @@ import {
   ISSUE_COST_RESPONSIBILITY_LABEL,
   ISSUE_MEANING_LABEL,
   ISSUE_OUTCOME_LABEL,
+  ISSUE_SIGNATURE_LABEL,
   ISSUE_WAITING_REASON_LABEL,
 } from "../issues/issue-labels";
 import { AUDIT_CHANNEL_LABEL } from "./audit-channel-label";
 import { PurgedMark, RedactedMark } from "../issues/IssueFreeText";
+import { DATA_TAGS } from "../ui/data-tags";
 import { ExtensionNote } from "./ExtensionNote";
 import {
   DATA_CELL,
@@ -1688,13 +1690,21 @@ export function DataSubjectReport({
                   "register.person.report.field.date",
                   "register.person.report.field.location",
                   "register.person.report.field.description",
+                  "register.person.report.field.conversation",
                   "register.person.report.field.photographs",
                   "register.person.report.field.workOrders",
                 ]}
               >
                 {report.issues.map((issue) => (
                   <tr key={issue.issueId} className={ROW}>
-                    <td className={TEXT_CELL}>{issue.typeName}</td>
+                    <td className={TEXT_CELL}>
+                      {/* The number the reporter's own screen and every mail
+                        name the issue by, so the copy can be matched to them. */}
+                      <span className="block font-data text-data">
+                        {t("issues.number", { number: issue.number })}
+                      </span>
+                      {issue.typeName}
+                    </td>
                     <td className={TEXT_CELL}>
                       {t(ISSUE_MEANING_LABEL[issue.meaning])}
                       {issue.outcome !== null && (
@@ -1719,7 +1729,36 @@ export function DataSubjectReport({
                         </span>
                       )}
                     </td>
-                    <td className={DATA_CELL}>{day(issue.reportedAt)}</td>
+                    <td className={DATA_CELL}>
+                      {day(issue.reportedAt)}
+                      {issue.closedAt === null ? null : (
+                        <span className="block">
+                          <Trans
+                            t={t}
+                            i18nKey="register.person.report.issueClosed"
+                            values={{ date: day(issue.closedAt) }}
+                            components={DATA_TAGS}
+                          />
+                        </span>
+                      )}
+                      {/* When the free text goes, or that a hold on the issue
+                        keeps it (ADR 0057); the person's own hold is stated
+                        under retention. */}
+                      {issue.onLegalHold ? (
+                        <span className="block">
+                          {t("register.person.report.issueLegalHold")}
+                        </span>
+                      ) : issue.freeTextErasableFrom === null ? null : (
+                        <span className="block">
+                          <Trans
+                            t={t}
+                            i18nKey="register.person.report.issueTextErasableFrom"
+                            values={{ date: issue.freeTextErasableFrom }}
+                            components={DATA_TAGS}
+                          />
+                        </span>
+                      )}
+                    </td>
                     <td className={TEXT_CELL}>
                       {/* The common area is a building record and outlives
                         the free text, so it is shown above whatever became
@@ -1795,6 +1834,38 @@ export function DataSubjectReport({
                             </>
                           )}
                         </span>
+                      )}
+                    </td>
+                    {/* The conversation as the reporter reads it on their own
+                      screen: a handler's message signed with a role, never a
+                      name, and never an internal note (ADR 0057). */}
+                    <td className={TEXT_CELL}>
+                      {issue.messages.length === 0 ? (
+                        issue.freeTextRemovedAt !== null ? (
+                          <PurgedMark at={issue.freeTextRemovedAt} t={t} />
+                        ) : (
+                          nothing
+                        )
+                      ) : (
+                        issue.messages.map((message) => (
+                          <span key={message.id} className="mb-1 block">
+                            <span className="block">
+                              <span className="font-data text-data">
+                                {day(message.createdAt)}
+                              </span>{" "}
+                              {message.side === "HANDLER"
+                                ? t(ISSUE_SIGNATURE_LABEL[message.signature])
+                                : t("issues.conversation.you")}
+                            </span>
+                            {message.redactedAt === null ? (
+                              <span className="block whitespace-pre-line">
+                                {message.body}
+                              </span>
+                            ) : (
+                              <RedactedMark at={message.redactedAt} t={t} />
+                            )}
+                          </span>
+                        ))
                       )}
                     </td>
                     <td className={DATA_CELL}>{String(issue.photographs)}</td>
