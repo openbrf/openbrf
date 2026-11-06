@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -1115,6 +1117,71 @@ describe("a handler's write against erasure and standing ties", () => {
       take: lockErasureEligibility,
     },
   ];
+
+  /**
+   * A handler's file and the withdrawal of the reporter's link write no row
+   * that names the handler, and take the same keys all the same: the audit
+   * entry names them, and a write that names a person is ordered against what
+   * erases them the same way whatever it writes.
+   */
+  it("is decided before the writer's erasure, for a file", async () => {
+    const issueId = await filed(erasure);
+    const upload = multipart(pngBytes(24, 24), "skada.png", "image/png");
+    const seen = await queuedBehindWrite({
+      typeId: erasure.id,
+      send: () =>
+        inject({
+          method: "POST",
+          url: `/api/issue-queue/${issueId}/attachments`,
+          payload: upload.payload,
+          headers: { ...upload.headers, cookie: cookieOf(manager) },
+        }),
+      contend: async (tx) => {
+        await lockErasureEligibility(tx, manager.personId);
+        return tx.issueAttachment.count({ where: { issueId } });
+      },
+    });
+
+    expect(seen.answer.statusCode).toBe(201);
+    expect(seen.read).toBe(1);
+  });
+
+  it("is decided before the writer's erasure, for a withdrawn reporter link", async () => {
+    const issueId = await filed(erasure);
+    await prisma.issueReporterLink.create({
+      data: {
+        issueId,
+        tokenDigest: randomBytes(32).toString("base64url"),
+        mailedAt: new Date(),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+    });
+    const seen = await queuedBehindWrite({
+      typeId: erasure.id,
+      send: () =>
+        inject({
+          method: "POST",
+          url: `/api/issue-queue/${issueId}/reporter-link/revoke`,
+          payload: {},
+          headers: {
+            cookie: cookieOf(manager),
+            origin: new URL(env.APP_URL).origin,
+          },
+        }),
+      contend: async (tx) => {
+        await lockErasureEligibility(tx, manager.personId);
+        return (
+          await tx.issueReporterLink.findUniqueOrThrow({
+            where: { issueId },
+            select: { revokedAt: true },
+          })
+        ).revokedAt;
+      },
+    });
+
+    expect(seen.answer.statusCode).toBe(204);
+    expect(seen.read).not.toBeNull();
+  });
 
   describe.each(writes)("$kind", ({ path, authored }) => {
     it.each(contenders)(

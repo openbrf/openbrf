@@ -945,6 +945,37 @@ describe("B. lifetime and revocation", () => {
     ).toBe("ended");
   });
 
+  it("B1: is not issued, chosen photographs for or withdrawn by a person who no longer holds issues:handle", async () => {
+    const ids = await linked();
+    // Past the route's guard, as a role withdrawn in between: the person reads
+    // as the narrower scope, which admits every issue of an every-handler
+    // type, so only the role check refuses.
+    const before = await snapshot(ids.issueId, ids.workOrderId);
+    const chosen = (await listedOrder(ids.issueId, ids.workOrderId))
+      .contractorLink.chosenFileIds;
+    expect(chosen).toEqual([ids.chosenFileId]);
+
+    await expect(
+      links.issue(resident.personId, ids.issueId, ids.workOrderId),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    await expect(
+      links.choosePhotos(resident.personId, ids.issueId, ids.workOrderId, [
+        ids.unchosenFileId,
+      ]),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    await expect(
+      links.revoke(resident.personId, ids.issueId, ids.workOrderId),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+
+    expect(await snapshot(ids.issueId, ids.workOrderId)).toEqual(before);
+    expect(
+      (await listedOrder(ids.issueId, ids.workOrderId)).contractorLink
+        .chosenFileIds,
+    ).toEqual(chosen);
+    // The link still opens.
+    expect((await page(ids.token)).statusCode).toBe(200);
+  });
+
   it("B2: ends 30 days after it was issued, on the database's clock", async () => {
     const ids = await linked();
     const [row] = await prisma.workOrderLink.findMany({

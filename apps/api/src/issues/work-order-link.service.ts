@@ -20,7 +20,7 @@ import {
   mediaUrl,
   type ServedFile,
 } from "../media/media.service";
-import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
+import { requireHandledIssueForWrite } from "./issue-handlers";
 import {
   HOUSEHOLD_PROTECTION_TRANSACTION,
   lockHouseholdProtection,
@@ -283,7 +283,11 @@ export class WorkOrderLinkService {
 
     const issued = await this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
-      const issue = await this.requireHandled(tx, issueId, handlerPersonId);
+      const issue = await this.requireHandledForWrite(
+        tx,
+        issueId,
+        handlerPersonId,
+      );
       if (issue.type.ringFenced) {
         throw new IssueError(
           "Nothing about an issue of this type may reach a contractor.",
@@ -416,7 +420,7 @@ export class WorkOrderLinkService {
   ): Promise<void> {
     const revoked = await this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
-      await this.requireHandled(tx, issueId, handlerPersonId);
+      await this.requireHandledForWrite(tx, issueId, handlerPersonId);
       await this.lockWorkOrder(tx, issueId, workOrderId);
       const links = await tx.workOrderLink.findMany({
         where: { workOrderId, revokedAt: null },
@@ -468,7 +472,11 @@ export class WorkOrderLinkService {
     }
     await this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
-      const issue = await this.requireHandled(tx, issueId, handlerPersonId);
+      const issue = await this.requireHandledForWrite(
+        tx,
+        issueId,
+        handlerPersonId,
+      );
       if (issue.type.ringFenced) {
         throw new IssueError(
           "Nothing about an issue of this type may reach a contractor.",
@@ -1187,26 +1195,26 @@ export class WorkOrderLinkService {
   }
 
   /**
-   * An issue this person handles, or the refusal that answers one that does
-   * not exist: one the reader may not open is not one they may learn of.
+   * An issue this person handles and holds `issues:handle` for, or the refusal
+   * that answers one that does not exist: one the writer may not open is not
+   * one they may learn of. Read under the locks of the write that asks, with
+   * the clock read here once they are held (`requireHandledIssueForWrite`).
    */
-  private async requireHandled(
+  private async requireHandledForWrite(
     tx: Prisma.TransactionClient,
     issueId: string,
     handlerPersonId: string,
   ) {
-    const scope = await issueReaderScope(tx, handlerPersonId, new Date());
-    const issue = await tx.issue.findFirst({
-      where: { id: issueId, ...issuesHandledWhere(scope) },
-      select: {
+    return requireHandledIssueForWrite(
+      tx,
+      issueId,
+      handlerPersonId,
+      {
         type: { select: { ringFenced: true } },
         status: { select: { meaning: true } },
       },
-    });
-    if (issue === null) {
-      throw new IssueError("No such issue.", "issue-not-found");
-    }
-    return issue;
+      new Date(),
+    );
   }
 
   /** Every act on a link is refused, as not found, while the switch is off. */

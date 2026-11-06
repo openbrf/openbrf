@@ -16,16 +16,13 @@ import {
 import { failureName } from "../logging/failure";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { issueReporterLinkMail } from "../mail/templates";
+import { lockErasureEligibility } from "../retention/erasure-lock";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import {
   type ReporterIssueMessageView,
   toReporterView,
 } from "./issue-conversation.service";
-import {
-  issueReaderScope,
-  issuesHandledWhere,
-  requireHandlerRole,
-} from "./issue-handlers";
+import { requireHandledIssueForWrite } from "./issue-handlers";
 import {
   holdIssueTypeRingFence,
   lockIssue,
@@ -722,21 +719,20 @@ export class IssueReporterLinkService implements OnModuleInit {
    */
   async revoke(handlerPersonId: string, issueId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // The writer's erasure lock first, as a note takes it.
+      await lockErasureEligibility(tx, handlerPersonId);
       await lockIssueForHandling(tx, issueId);
-      const now = new Date();
-      const scope = await issueReaderScope(tx, handlerPersonId, now);
-      await requireHandlerRole(tx, handlerPersonId, now);
-      const issue = await tx.issue.findFirst({
-        where: { id: issueId, ...issuesHandledWhere(scope) },
-        select: {
+      const issue = await requireHandledIssueForWrite(
+        tx,
+        issueId,
+        handlerPersonId,
+        {
           reporterLink: {
             select: { id: true, mailedAt: true, revokedAt: true },
           },
         },
-      });
-      if (issue === null) {
-        throw new IssueError("No such issue.", "issue-not-found");
-      }
+        new Date(),
+      );
       const link = issue.reporterLink;
       if (link === null || link.mailedAt === null) {
         throw new IssueError(

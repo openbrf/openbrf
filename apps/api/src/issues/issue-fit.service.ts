@@ -24,7 +24,7 @@ import {
   NO_ENTRY_PERMISSION,
   toEntryView,
 } from "./issue-fit-views";
-import { requireHandledIssue } from "./issue-handlers";
+import { requireHandledIssueForWrite } from "./issue-handlers";
 import {
   holdOfferedPlace,
   lockIssue,
@@ -200,7 +200,11 @@ export class IssueFitService {
     const data = entryData(input, true);
     return this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
-      const issue = await this.requireHandled(tx, issueId, handlerPersonId);
+      const issue = await this.requireHandledForWrite(
+        tx,
+        issueId,
+        handlerPersonId,
+      );
       return this.writeEntry(tx, issue, data, handlerPersonId, false);
     });
   }
@@ -212,7 +216,11 @@ export class IssueFitService {
   ): Promise<IssueEntryView | null> {
     return this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
-      const issue = await this.requireHandled(tx, issueId, handlerPersonId);
+      const issue = await this.requireHandledForWrite(
+        tx,
+        issueId,
+        handlerPersonId,
+      );
       return this.writeEntry(tx, issue, null, handlerPersonId, false);
     });
   }
@@ -225,7 +233,11 @@ export class IssueFitService {
   ): Promise<QueuedIssueView> {
     const written = await this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
-      const issue = await this.requireHandled(tx, issueId, handlerPersonId);
+      const issue = await this.requireHandledForWrite(
+        tx,
+        issueId,
+        handlerPersonId,
+      );
       if (placeId === issue.placeId) {
         return this.issues.writtenIssue(tx, issueId);
       }
@@ -273,7 +285,11 @@ export class IssueFitService {
     await this.mailer.ensureQueues();
     const written = await this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
-      const issue = await this.requireHandled(tx, issueId, handlerPersonId);
+      const issue = await this.requireHandledForWrite(
+        tx,
+        issueId,
+        handlerPersonId,
+      );
       if (issue.closedAt !== null || issue.status.meaning === "DONE") {
         throw new IssueError("The issue is done.", "issue-closed");
       }
@@ -401,7 +417,7 @@ export class IssueFitService {
   ): Promise<QueuedIssueView> {
     const written = await this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
-      await this.requireHandled(tx, issueId, handlerPersonId);
+      await this.requireHandledForWrite(tx, issueId, handlerPersonId);
       const { count } = await tx.issueFinding.deleteMany({
         where: { issueId },
       });
@@ -538,17 +554,23 @@ export class IssueFitService {
     return issue;
   }
 
-  /** An issue this person handles (`requireHandledIssue`). */
-  private async requireHandled(
+  /**
+   * An issue this person handles and holds `issues:handle` for, read under the
+   * locks of the write that asks (`requireHandledIssueForWrite`). The clock is
+   * read here, after those locks are held, and the role and the scope are
+   * judged at that one instant.
+   */
+  private async requireHandledForWrite(
     tx: Prisma.TransactionClient,
     issueId: string,
-    readerPersonId: string,
+    writerPersonId: string,
   ): Promise<EntryTarget> {
-    return requireHandledIssue(
+    return requireHandledIssueForWrite(
       tx,
       issueId,
-      readerPersonId,
+      writerPersonId,
       ENTRY_TARGET_SELECT,
+      new Date(),
     );
   }
 }

@@ -18,6 +18,7 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { IssueConversationService } from "./issue-conversation.service";
+import { IssueFitService } from "./issue-fit.service";
 import {
   ISSUE_NOTICE_QUEUE,
   ISSUE_OVERDUE_QUEUE,
@@ -25,6 +26,7 @@ import {
   type IssueNoticeJob,
 } from "./issue-mailer.service";
 import { lockIssue, lockIssuesForHandling } from "./issue-lock";
+import { IssueRedactionService } from "./issue-redaction.service";
 import { IssueService } from "./issue.service";
 
 /**
@@ -1655,6 +1657,137 @@ describe("a known fault", () => {
     expect(
       await prisma.issueMessage.count({ where: { issueId: duplicate } }),
     ).toBe(0);
+  });
+
+  describe("a handler's write by a person who no longer holds issues:handle", () => {
+    const WRITES: [
+      name: string,
+      write: (who: string, issueId: string) => Promise<unknown>,
+    ][] = [
+      ["assign", (who, id) => issues.assign(id, board.personId, who)],
+      ["setPriority", (who, id) => issues.setPriority(id, "URGENT", who)],
+      [
+        "setTargetDate",
+        (who, id) => issues.setTargetDate(id, "2026-12-24", who),
+      ],
+      [
+        "setCostResponsibility",
+        (who, id) => issues.setCostResponsibility(id, "ASSOCIATION", who),
+      ],
+      ["setBoardOnly", (who, id) => issues.setBoardOnly(id, true, who)],
+      [
+        "markDamageCase",
+        (who, id) =>
+          issues.markDamageCase(
+            id,
+            {
+              insurer: "Trygg",
+              claimNumber: "K-1",
+              occurredOn: "2025-01-10",
+              cause: "WATER",
+            },
+            null,
+            who,
+          ),
+      ],
+      [
+        "removeDamageCase",
+        (who, id) =>
+          issues.removeDamageCase(
+            id,
+            {
+              insurer: "Trygg",
+              claimNumber: "K-1",
+              occurredOn: "2025-01-10",
+              cause: "WATER",
+            },
+            who,
+          ),
+      ],
+      [
+        "answerEntryAsHandler",
+        (who, id) =>
+          app
+            .get(IssueFitService)
+            .answerEntryAsHandler(who, id, { answer: "YES" }),
+      ],
+      [
+        "withdrawEntryAsHandler",
+        (who, id) => app.get(IssueFitService).withdrawEntryAsHandler(who, id),
+      ],
+      [
+        "setPlace",
+        (who, id) => app.get(IssueFitService).setPlace(who, id, null),
+      ],
+      [
+        "markFinding",
+        (who, id) =>
+          app.get(IssueFitService).markFinding(who, id, {
+            kind: "OVK",
+            inspectedOn: "2026-01-10",
+            protocolAttachmentId: "no-such-file",
+            targetDate: "2026-02-10",
+          }),
+      ],
+      [
+        "removeFinding",
+        (who, id) => app.get(IssueFitService).removeFinding(who, id),
+      ],
+      [
+        "setLegalHold",
+        (who, id) => app.get(IssueRedactionService).setLegalHold(who, id, true),
+      ],
+      [
+        "redact",
+        (who, id) =>
+          app
+            .get(IssueRedactionService)
+            .redact(who, id, { target: "description" }),
+      ],
+    ];
+
+    /** The issue and its entries in the audit log, as a write would change them. */
+    async function standing(issueId: string) {
+      return {
+        issue: await prisma.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          include: { damageCase: true, finding: true },
+        }),
+        entries: await prisma.auditLogEntry.count({
+          where: { targetId: issueId },
+        }),
+      };
+    }
+
+    it.each(WRITES)(
+      "%s is refused as an issue that does not exist, past the route's guard",
+      async (_name, write) => {
+        const issueId = await filed(plain);
+        const before = await standing(issueId);
+        // The person reads as the narrower scope, which admits every issue of
+        // an every-handler type: only the role check refuses.
+        await expect(write(resident.personId, issueId)).rejects.toMatchObject({
+          reason: "issue-not-found",
+        });
+        expect(await standing(issueId)).toEqual(before);
+      },
+    );
+
+    it.each(WRITES)(
+      "%s is refused for a handler whose role is withdrawn while it waits on the locks",
+      async (_name, write) => {
+        const issueId = await filed(plain);
+        const before = await standing(issueId);
+        // The role is read after the waits: a check made before them would
+        // let the write through.
+        expect(
+          await actWithRoleWithdrawnWhileWaiting(outsider, [issueId], () =>
+            write(outsider.personId, issueId),
+          ),
+        ).toMatchObject({ reason: "issue-not-found" });
+        expect(await standing(issueId)).toEqual(before);
+      },
+    );
   });
 
   describe("when a board seat ends while a write waits on the locks", () => {

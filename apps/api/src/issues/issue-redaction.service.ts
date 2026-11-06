@@ -13,7 +13,11 @@ import {
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
 import { isPersonWithheld } from "../retention/withheld-persons";
 import { ISSUE_FREE_TEXT_STANDING_UNREDACTED } from "./issue-free-text";
-import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
+import {
+  issueReaderScope,
+  issuesHandledWhere,
+  requireHandledIssueForWrite,
+} from "./issue-handlers";
 import { lockIssueForHandling } from "./issue-lock";
 import {
   detachErasedReporter,
@@ -155,7 +159,7 @@ export class IssueRedactionService {
     const legalHoldAt = await this.prisma.$transaction(async (tx) => {
       changed = false;
       await lockIssueForHandling(tx, issueId);
-      const issue = await requireHandled(tx, issueId, handlerPersonId);
+      const issue = await requireHandledForWrite(tx, issueId, handlerPersonId);
       if ((issue.legalHoldAt !== null) === held) {
         return issue.legalHoldAt;
       }
@@ -462,7 +466,7 @@ export class IssueRedactionService {
     issueId: string,
     handlerPersonId: string,
   ): Promise<void> {
-    refuseHeld(await requireHandled(tx, issueId, handlerPersonId));
+    refuseHeld(await requireHandledForWrite(tx, issueId, handlerPersonId));
     const reporter = await tx.issue.findUnique({
       where: { id: issueId },
       select: { reporterPersonId: true, reporterEmailIndex: true },
@@ -557,6 +561,25 @@ async function requireHandled(
     throw new IssueError("No such issue.", "issue-not-found");
   }
   return issue;
+}
+
+/**
+ * The same issue for a write, read under its locks: the writer's
+ * `issues:handle` role is asked with their scope, at the instant read here once
+ * the locks are held (`requireHandledIssueForWrite`).
+ */
+async function requireHandledForWrite(
+  tx: Prisma.TransactionClient,
+  issueId: string,
+  handlerPersonId: string,
+): Promise<{ legalHoldAt: Date | null }> {
+  return requireHandledIssueForWrite(
+    tx,
+    issueId,
+    handlerPersonId,
+    { legalHoldAt: true },
+    new Date(),
+  );
 }
 
 function refuseHeld(issue: { legalHoldAt: Date | null }): void {

@@ -99,11 +99,9 @@ export function IssueLifecycle({
    * duplicate reopened, makes it a count of something the screen no longer
    * shows (`duplicatesOf`).
    */
-  const [toDuplicates, setToDuplicates] = useState<{
-    sent: number;
-    skipped: number;
-    duplicates: string;
-  } | null>(null);
+  const [toDuplicates, setToDuplicates] = useState<DuplicatesNotice | null>(
+    null,
+  );
   const sentTo = useRef("");
   const revision = `${issue.updatedAt}:${issue.status.id}`;
   /*
@@ -126,9 +124,8 @@ export function IssueLifecycle({
       if (read.ok) {
         setLinks(read.value);
         setReadFailed(false);
-        const duplicates = duplicatesOf(issue.id, read.value);
         setToDuplicates((notice) =>
-          notice !== null && notice.duplicates !== duplicates ? null : notice,
+          noticeStands(notice, issue.id, read.value) ? notice : null,
         );
       } else {
         // The links of an earlier read are kept, but the forms that act on
@@ -193,11 +190,9 @@ export function IssueLifecycle({
                   setToDuplicates({ ...sent, duplicates: sentTo.current });
                 }}
               />
-              {toDuplicates === null ||
-              // A send that finished after the links were read again told of
-              // the duplicates it was sent to, not of these.
-              toDuplicates.duplicates !==
-                duplicatesOf(issue.id, links) ? null : (
+              {/* A send that finished after the links were read again told of
+                  the duplicates it was sent to, not of these. */}
+              {noticeStands(toDuplicates, issue.id, links) ? (
                 <Notice tone={toDuplicates.skipped > 0 ? "warn" : "ok"} live>
                   {t("issues.lifecycle.toDuplicatesSent", {
                     count: toDuplicates.sent,
@@ -208,7 +203,7 @@ export function IssueLifecycle({
                       })}`
                     : ""}
                 </Notice>
-              )}
+              ) : null}
             </section>
           ) : null}
 
@@ -226,6 +221,27 @@ export function IssueLifecycle({
       )}
     </div>
   );
+}
+
+/** The count of the latest message to the duplicates' reporters. */
+interface DuplicatesNotice {
+  sent: number;
+  skipped: number;
+  /** The duplicates it was about (`duplicatesOf`). */
+  duplicates: string;
+}
+
+/**
+ * Whether a notice of messages sent is still about the duplicates these links
+ * show. The one answer for the render, which shows it only then, and for the
+ * read of the links, which drops it otherwise, so the two cannot drift.
+ */
+function noticeStands(
+  notice: DuplicatesNotice | null,
+  issueId: string,
+  links: IssueLinks,
+): notice is DuplicatesNotice {
+  return notice !== null && notice.duplicates === duplicatesOf(issueId, links);
 }
 
 /**
@@ -500,17 +516,22 @@ function MergeForm({
       // Never across the ring-fence (`merge-ring-fenced`).
       candidate.typeRingFenced === issue.typeRingFenced,
   );
+  const targetOffered = offered.some(
+    (candidate) => candidate.id === intoIssueId,
+  );
+  if (intoIssueId !== "" && !targetOffered) {
+    // A target that left the list (it was closed, or merged elsewhere) is no
+    // longer chosen, and is not chosen again when the list offers it later:
+    // the pick and the first press are cleared, so a press made for it cannot
+    // arm the confirm button for a target the handler has not looked at since.
+    // Set while rendering, which React then renders again before it paints.
+    setIntoIssueId("");
+    setConfirming(false);
+  }
   if (offered.length === 0) {
     return null;
   }
   const busy = merge.state.kind === "saving";
-  // A target that left the list (it was closed, or merged elsewhere) is no
-  // longer chosen: the select has no option to show it, and confirming would
-  // send an issue the server refuses.
-  const selectedId = offered.some((candidate) => candidate.id === intoIssueId)
-    ? intoIssueId
-    : "";
-  const confirmingNow = confirming && selectedId !== "";
 
   return (
     <section className="flex flex-col gap-2">
@@ -536,7 +557,7 @@ function MergeForm({
         aria-label={t("issues.lifecycle.mergeIntoNamed", {
           type: issue.typeName,
         })}
-        value={selectedId}
+        value={intoIssueId}
         disabled={busy}
         onChange={(event) => {
           setIntoIssueId(event.target.value);
@@ -556,9 +577,9 @@ function MergeForm({
       </select>
       <p className={HINT}>{t("issues.lifecycle.mergeHint")}</p>
       <TwoPressConfirm
-        confirming={confirmingNow}
+        confirming={confirming}
         busy={busy}
-        askDisabled={busy || selectedId === ""}
+        askDisabled={busy || intoIssueId === ""}
         askText={t("issues.lifecycle.merge")}
         askClassName={SECONDARY_BUTTON}
         confirmText={t("issues.lifecycle.mergeConfirm")}
@@ -567,7 +588,7 @@ function MergeForm({
           setConfirming(true);
         }}
         onConfirm={() => {
-          void merge.submit(selectedId);
+          void merge.submit(intoIssueId);
         }}
         onKeep={() => {
           setConfirming(false);
