@@ -12,6 +12,7 @@ import {
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import { databaseNow } from "../database/database-clock";
 import { PrismaService } from "../database/prisma.service";
 import {
   DELIVERY_RECEIPT_FIELDS,
@@ -37,7 +38,7 @@ import {
 } from "./fee-notice";
 import { financialYearStartMonthInForce } from "../retention/financial-year";
 import { feePurgeCutoff } from "./fee-retention";
-import { lockedNow, lockFeeNotifications } from "./fee-lock";
+import { lockFeeNotifications } from "./fee-lock";
 import { FeeError } from "./fee.error";
 import { MAX_NOTICES_PER_RUN, paymentReferenceFor } from "./payment-reference";
 
@@ -311,8 +312,8 @@ export class FeeNotificationService {
           // by. A later change to the setting does not reach back into them.
           financialYearStartMonth,
           // Stamped under the lock, after the rates it billed were committed,
-          // so removing a rate can tell this run billed it. See `lockedNow`.
-          issuedAt: await lockedNow(tx),
+          // so removing a rate can tell this run billed it. See `lockFeeNotifications`.
+          issuedAt: await databaseNow(tx),
         },
         select: { id: true, issuedAt: true },
       });

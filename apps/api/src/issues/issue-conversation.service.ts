@@ -19,7 +19,7 @@ import {
   issueReaderScope,
   issuesHandledWhere,
   requireHandledIssue,
-  requireHandlerRole,
+  requireHandledIssueToWrite,
 } from "./issue-handlers";
 import { lockIssueForHandling, lockIssuesForHandling } from "./issue-lock";
 import {
@@ -329,11 +329,10 @@ export class IssueConversationService {
     await lockIssuesForHandling(tx, [issueId, ...locked]);
     // Read the clock after the lock waits: a board seat that ended during one
     // must not leave board-only duplicates in reach or the signature on BOARD.
-    const now = new Date();
-    await this.requireHandled(tx, issueId, handlerPersonId, now);
     // The signature below would sign for a person who handles nothing as the
     // board: a role withdrawn since the route's check must not write.
-    await requireHandlerRole(tx, handlerPersonId, now);
+    const now = new Date();
+    await this.requireHandledToWrite(tx, issueId, handlerPersonId, now);
     const merged = await tx.issue.findMany({
       where: { mergedIntoIssueId: issueId },
       select: { id: true },
@@ -448,16 +447,15 @@ export class IssueConversationService {
       // Read the clock after the lock waits, as the message to duplicates does:
       // a board seat that ended during one must not leave the message signed
       // as the board. One instant for access and for the signature.
+      // The signature below would sign for a person who handles nothing as
+      // the board: a role withdrawn since the route's check must not write.
       const now = new Date();
-      const issue = await this.requireHandled(
+      const issue = await this.requireHandledToWrite(
         tx,
         issueId,
         handlerPersonId,
         now,
       );
-      // The signature below would sign for a person who handles nothing as
-      // the board: a role withdrawn since the route's check must not write.
-      await requireHandlerRole(tx, handlerPersonId, now);
       // A person with no sign-in account cannot open the conversation either.
       const reporterAccount =
         issue.reporterPersonId === null
@@ -532,9 +530,12 @@ export class IssueConversationService {
     const note = await this.prisma.$transaction(async (tx) => {
       await lockErasureEligibility(tx, handlerPersonId);
       await lockIssueForHandling(tx, issueId);
-      const now = new Date();
-      await this.requireHandled(tx, issueId, handlerPersonId, now);
-      await requireHandlerRole(tx, handlerPersonId, now);
+      await this.requireHandledToWrite(
+        tx,
+        issueId,
+        handlerPersonId,
+        new Date(),
+      );
       const written = await tx.issueNote.create({
         data: { issueId, authorPersonId: handlerPersonId, body },
         select: NOTE_SELECT,
@@ -637,14 +638,12 @@ export class IssueConversationService {
     try {
       attachment = await this.prisma.$transaction(async (tx) => {
         await lockIssueForHandling(tx, input.issueId);
-        const now = new Date();
-        await this.requireHandled(
+        await this.requireHandledToWrite(
           tx,
           input.issueId,
           input.handlerPersonId,
-          now,
+          new Date(),
         );
-        await requireHandlerRole(tx, input.handlerPersonId, now);
         const count = await tx.issueAttachment.count({
           where: { issueId: input.issueId },
         });
@@ -736,11 +735,27 @@ export class IssueConversationService {
       db,
       issueId,
       readerPersonId,
-      {
-        id: true,
-        reporterPersonId: true,
-        _count: { select: { attachments: true } },
-      },
+      HANDLED_ISSUE_SELECT,
+      now,
+    );
+  }
+
+  /**
+   * The issue as {@link requireHandled} reads it, for a write that signs or
+   * acts for a handler: the handler's role is asked at the same instant
+   * (`requireHandledIssueToWrite`).
+   */
+  private async requireHandledToWrite(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+    handlerPersonId: string,
+    now: Date,
+  ) {
+    return requireHandledIssueToWrite(
+      tx,
+      issueId,
+      handlerPersonId,
+      HANDLED_ISSUE_SELECT,
       now,
     );
   }
@@ -894,6 +909,13 @@ const MESSAGE_ORDER = [
   { createdAt: "asc" },
   { id: "asc" },
 ] as const satisfies Prisma.IssueMessageOrderByWithRelationInput[];
+
+/** What a handler's act on one issue reads of it (`requireHandled`). */
+const HANDLED_ISSUE_SELECT = {
+  id: true,
+  reporterPersonId: true,
+  _count: { select: { attachments: true } },
+} satisfies Prisma.IssueSelect;
 
 const MESSAGE_SELECT = {
   id: true,

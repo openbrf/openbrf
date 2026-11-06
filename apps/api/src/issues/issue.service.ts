@@ -60,6 +60,7 @@ import {
   issuesHandledWhere,
   readIssueHandlers,
   requireHandledIssue,
+  requireHandledIssueToWrite,
   requireHandlerRole,
   typesHandledWhere,
 } from "./issue-handlers";
@@ -1497,8 +1498,7 @@ export class IssueService {
       await this.lockForAssignment(tx, issueId);
 
       const now = new Date();
-      await requireHandlerRole(tx, actorPersonId, now);
-      const existing = await requireHandledIssue(
+      const existing = await requireHandledIssueToWrite(
         tx,
         issueId,
         actorPersonId,
@@ -2307,18 +2307,16 @@ export class IssueService {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
       // After the lock wait: a board seat that ended during it must not sign
-      // the notice as BOARD.
+      // the notice as BOARD. `signatureOf` would sign for a person who handles
+      // nothing as the board too, so a role withdrawn since the route's check
+      // must not publish a notice (`requireHandledIssueToWrite`).
       const now = new Date();
-      const existing = await this.requireHandled(
+      const existing = await this.requireHandledToWrite(
         tx,
         issueId,
         actorPersonId,
         now,
       );
-      // `requireHandled` answers the narrower scope for a person who handles
-      // nothing, and `signatureOf` would sign for them as the board: a role
-      // withdrawn since the route's check must not publish a notice.
-      await requireHandlerRole(tx, actorPersonId, now);
       if (existing.status.meaning === "DONE") {
         throw new IssueError(
           "This issue is closed; a fault that is fixed is not a known fault.",
@@ -2370,16 +2368,15 @@ export class IssueService {
       await this.lockForAssignment(tx, issueId);
       // After the lock wait, one instant for both questions, as publishing
       // takes it.
+      // As publishing does: a role withdrawn since the route's check must not
+      // clear a notice the board put up.
       const now = new Date();
-      const existing = await this.requireHandled(
+      const existing = await this.requireHandledToWrite(
         tx,
         issueId,
         actorPersonId,
         now,
       );
-      // As publishing does: a role withdrawn since the route's check must not
-      // clear a notice the board put up.
-      await requireHandlerRole(tx, actorPersonId, now);
       if (existing.knownFaultPublishedAt === null) {
         return tx.issue.findUniqueOrThrow({
           where: { id: issueId },
@@ -2990,20 +2987,27 @@ export class IssueService {
       db,
       issueId,
       readerPersonId,
-      {
-        id: true,
-        typeId: true,
-        boardOnly: true,
-        assigneePersonId: true,
-        priority: true,
-        targetDate: true,
-        costResponsibility: true,
-        createdAt: true,
-        knownFaultPublishedAt: true,
-        status: { select: { meaning: true } },
-        type: { select: { handledBy: true } },
-        finding: { select: { kind: true, inspectedOn: true } },
-      },
+      HANDLED_ISSUE_SELECT,
+      now,
+    );
+  }
+
+  /**
+   * The issue as {@link requireHandled} reads it, for a write that signs or
+   * acts for a handler: the handler's role is asked at the same instant
+   * (`requireHandledIssueToWrite`).
+   */
+  private async requireHandledToWrite(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+    handlerPersonId: string,
+    now: Date,
+  ) {
+    return requireHandledIssueToWrite(
+      tx,
+      issueId,
+      handlerPersonId,
+      HANDLED_ISSUE_SELECT,
       now,
     );
   }
@@ -3337,6 +3341,22 @@ export class IssueService {
     };
   }
 }
+
+/** What a handler's write on one issue reads of it (`requireHandled`). */
+const HANDLED_ISSUE_SELECT = {
+  id: true,
+  typeId: true,
+  boardOnly: true,
+  assigneePersonId: true,
+  priority: true,
+  targetDate: true,
+  costResponsibility: true,
+  createdAt: true,
+  knownFaultPublishedAt: true,
+  status: { select: { meaning: true } },
+  type: { select: { handledBy: true } },
+  finding: { select: { kind: true, inspectedOn: true } },
+} satisfies Prisma.IssueSelect;
 
 const APARTMENT_SELECT = {
   id: true,
