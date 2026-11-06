@@ -44,7 +44,8 @@ leaves it.
   them is ring-fenced, since nothing tells the upgrade which of them is for
   disturbances. A board that has such a type, and offers it on the website's
   form, takes it off the form and ring-fences it in the settings; the issues
-  already reported under it are then ring-fenced with it.
+  already reported under it are then ring-fenced with it, and since the type
+  has issues, the ring-fence cannot be lifted again.
 - **Its own clock.** The free text of a ring-fenced issue is purged one year
   after the issue closes, whatever the board set for other issues, unless a
   legal hold stands on it, a damage case included, or a legal hold or a
