@@ -147,10 +147,16 @@ interface ChromeSource {
   menu: SiteMenu;
 }
 
-/** The rate-limit page in every language this instance has. */
+/**
+ * Where a refused request was sent: an address of the website, or a link to an
+ * issue (a reporter's or a contractor's, ADR 0055), whose pages have no menu.
+ */
+export type RefusalPlace = "website" | "link";
+
+/** The rate-limit page in every language this instance has, for each place. */
 interface RefusalPages {
   defaultLocale: string | null;
-  html: ReadonlyMap<Locale, string>;
+  html: ReadonlyMap<RefusalPlace, ReadonlyMap<Locale, string>>;
 }
 
 /** What the visitor has just done on the page being rendered, if anything. */
@@ -501,19 +507,30 @@ export class SiteRenderer {
   }
 
   /**
-   * The refusal a website address answers when its public budget is spent.
+   * The refusal an address outside /api answers when its public budget is
+   * spent.
    *
    * With the anonymous menu, in the visitor's language, for the reasons the
    * not-found document above gives: the limit is checked before anything about
    * the request is read, so the refusal must not vary with the address, the
-   * session or what the association has published. Kept for a minute rather
-   * than drawn per request (REFUSAL_PAGE_TTL_MS), since every request it
+   * session or what the association has published. On a link to an issue it
+   * has the link's chrome instead, with no menu at all, for the reason
+   * issueLink() gives: a menu entry the board pointed at another host would be
+   * the one address on the page that leaves this origin. Kept for a minute
+   * rather than drawn per request (REFUSAL_PAGE_TTL_MS), since every request it
    * answers is one the limit turned away.
+   *
+   * The place carries no default, as hasSession does not: a caller that had
+   * not thought about which chrome it was asking for would silently be given
+   * the website's menu.
    */
-  async tooManyRequests(acceptLanguage: string | undefined): Promise<string> {
+  async tooManyRequests(
+    acceptLanguage: string | undefined,
+    place: RefusalPlace,
+  ): Promise<string> {
     const pages = await this.refusalPages();
     const locale = visitorLocale(acceptLanguage, pages.defaultLocale);
-    const html = pages.html.get(locale);
+    const html = pages.html.get(place)?.get(locale);
     if (html === undefined) {
       // Every supported locale was drawn, and visitorLocale returns only those.
       throw new Error(`No rate-limit page was drawn in ${locale}.`);
@@ -522,11 +539,13 @@ export class SiteRenderer {
   }
 
   /**
-   * The rate-limit page in each language, drawn at most once a TTL.
+   * The rate-limit page in each language and for each place, drawn at most
+   * once a TTL.
    *
-   * One read serves every refusal until it expires, and the requests that
-   * arrive while it is in flight wait on the same one, so a burst of refused
-   * requests asks the database once whatever its size. A failed read is not
+   * One read serves every refusal until it expires, the website's and the
+   * links' alike, and the requests that arrive while it is in flight wait on
+   * the same one, so a burst of refused requests asks the database once
+   * whatever its size or the addresses it was sent to. A failed read is not
    * kept: the requests already waiting on it share its failure, and the next
    * one asks again.
    */
@@ -536,15 +555,23 @@ export class SiteRenderer {
       return this.refusal.pages;
     }
 
-    const pages = this.chromeSource(false).then((source) => ({
-      defaultLocale: source.defaultLocale,
-      html: new Map(
-        SUPPORTED_LOCALES.map((locale) => [
-          locale,
-          renderTooManyRequests(this.chromeIn(source, locale)),
+    const pages = this.chromeSource(false).then((source) => {
+      const drawn = (menu: SiteMenu): ReadonlyMap<Locale, string> =>
+        new Map(
+          SUPPORTED_LOCALES.map((locale) => [
+            locale,
+            renderTooManyRequests({ ...this.chromeIn(source, locale), menu }),
+          ]),
+        );
+      return {
+        defaultLocale: source.defaultLocale,
+        html: new Map<RefusalPlace, ReadonlyMap<Locale, string>>([
+          ["website", drawn(source.menu)],
+          // The link's chrome (issueLinkChrome): no menu.
+          ["link", drawn([])],
         ]),
-      ),
-    }));
+      };
+    });
     const entry = { until: now + REFUSAL_PAGE_TTL_MS, pages };
     this.refusal = entry;
     pages.catch(() => {

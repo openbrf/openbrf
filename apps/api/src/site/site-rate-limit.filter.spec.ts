@@ -13,7 +13,11 @@ import { DomainExceptionFilter } from "../http/domain-exception.filter";
 import { PublicRateLimit } from "../http/public-rate-limit.decorator";
 import { PublicRateLimitGuard } from "../http/public-rate-limit.guard";
 import { SiteRateLimitFilter } from "./site-rate-limit.filter";
-import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
+import {
+  type RefusalPlace,
+  SITE_HTML_HEADERS,
+  SiteRenderer,
+} from "./site-renderer.service";
 
 /**
  * Who answers a spent public budget, and in which language.
@@ -26,12 +30,21 @@ import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
  * asked for and in which language.
  */
 
-/** A website form and an API route, each with room for one request a minute. */
+/**
+ * A website form, a link to an issue and an API route, each with room for one
+ * request a minute.
+ */
 @Controller()
 class LimitedController {
   @Post("en-sida/kontakt")
   @PublicRateLimit({ perMinute: 1 })
   form(this: void): { ok: boolean } {
+    return { ok: true };
+  }
+
+  @Post("arende/:token")
+  @PublicRateLimit({ perMinute: 1 })
+  link(this: void): { ok: boolean } {
     return { ok: true };
   }
 
@@ -42,8 +55,11 @@ class LimitedController {
   }
 }
 
-const tooManyRequests = vi.fn((acceptLanguage: string | undefined) =>
-  Promise.resolve(`<p>refused in ${acceptLanguage ?? "no language"}</p>`),
+const tooManyRequests = vi.fn(
+  (acceptLanguage: string | undefined, place: RefusalPlace) =>
+    Promise.resolve(
+      `<p>refused on the ${place} in ${acceptLanguage ?? "no language"}</p>`,
+    ),
 );
 
 let app: NestFastifyApplication;
@@ -104,7 +120,9 @@ describe("a spent budget on a website address", () => {
     expect(refused.headers["content-security-policy"]).toBe(
       SITE_HTML_HEADERS["content-security-policy"],
     );
-    expect(refused.body).toBe("<p>refused in en-GB,en;q=0.9</p>");
+    expect(refused.body).toBe(
+      "<p>refused on the website in en-GB,en;q=0.9</p>",
+    );
     // The delay the guard worked out survives the page drawn around it.
     expect(Number(refused.headers["retry-after"])).toBeGreaterThan(0);
   });
@@ -126,6 +144,18 @@ describe("a spent budget on a website address", () => {
     // A refusal, not a server fault, and nothing of the failure in the body.
     expect(refused.statusCode).toBe(429);
     expect(refused.body).toBe("");
+    expect(Number(refused.headers["retry-after"])).toBeGreaterThan(0);
+  });
+});
+
+describe("a spent budget on a link to an issue", () => {
+  it("is answered with the link's page, which has no menu", async () => {
+    const refused = await refusedAt(`/arende/obrf_rl_${"F".repeat(43)}`, {
+      "accept-language": "sv",
+    });
+
+    expect(refused.statusCode).toBe(429);
+    expect(refused.body).toBe("<p>refused on the link in sv</p>");
     expect(Number(refused.headers["retry-after"])).toBeGreaterThan(0);
   });
 });

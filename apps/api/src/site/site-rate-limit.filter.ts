@@ -12,6 +12,7 @@ import { DomainExceptionFilter } from "../http/domain-exception.filter";
 import { TooManyRequestsError } from "../http/public-rate-limit.guard";
 import { isApiRequest } from "../http/serve-single-page-app";
 import { failureFrames, failureName } from "../logging/failure";
+import { isLinkRequest } from "./site-issue-link-headers";
 import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
 
 /**
@@ -34,7 +35,12 @@ import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
  *
  * The page is the not-found page's sibling: drawn from the chrome alone, with
  * the anonymous menu, so it is the same for every address that keeps a budget.
- * The Retry-After the guard set on the reply is kept.
+ * A link to an issue (`/arende/<token>`, `/arbetsorder/<token>`, ADR 0055)
+ * gets it with the link's chrome instead, which has no menu, so that no entry
+ * the board pointed at another host is on a page whose address is a
+ * credential. The link's own headers are the header hooks' to set
+ * (site-issue-link-headers.ts), over the ones given here. The Retry-After the
+ * guard set on the reply is kept.
  */
 @Catch(TooManyRequestsError)
 @Injectable()
@@ -62,6 +68,7 @@ export class SiteRateLimitFilter implements ExceptionFilter {
     try {
       html = await this.renderer.tooManyRequests(
         typeof acceptLanguage === "string" ? acceptLanguage : undefined,
+        isLinkRequest(request) ? "link" : "website",
       );
     } catch (cause) {
       /*

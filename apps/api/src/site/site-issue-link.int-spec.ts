@@ -50,6 +50,7 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { LINK_READS_PER_MINUTE } from "./site-issue-link.controller";
+import { REFUSAL_PAGE_TTL_MS } from "./site-renderer.service";
 
 /**
  * The page a reporter's private link opens, through the application as it
@@ -1193,6 +1194,63 @@ describe("D. rate limits and abuse", () => {
       unknown.headers,
     );
     expect(liveRest).toEqual(unknownRest);
+  });
+
+  it("D2: a link's refusal has no menu, where a website address's has the board's", async () => {
+    // An entry the board pointed at another host: on a page whose address is a
+    // credential it would be the one way off this origin. Last in the menu, so
+    // a suite asserting what the menu starts with is not disturbed by it.
+    const external = `https://grannar-${suffix}.example/`;
+    const highest = await prisma.menuItem.aggregate({
+      where: { parentId: null },
+      _max: { sortOrder: true },
+    });
+    const entry = await prisma.menuItem.create({
+      data: {
+        label: `Grannföreningen ${suffix}`,
+        kind: "EXTERNAL",
+        url: external,
+        sortOrder: (highest._max.sortOrder ?? 0) + 1,
+      },
+    });
+    // Past the TTL of whatever refusal page an earlier test left kept, so both
+    // pages below are drawn after the entry was written.
+    const realNow = Date.now.bind(Date);
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockImplementation(() => realNow() + REFUSAL_PAGE_TTL_MS + 1);
+    try {
+      const websiteAddress = "10.211.250.2";
+      let website: Awaited<ReturnType<typeof inject>> | undefined;
+      for (let n = 0; n < 50 && website === undefined; n += 1) {
+        const answer = await inject({
+          method: "POST",
+          url: `/rl-no-page-${suffix}/kontakt`,
+          payload: new URLSearchParams({ message: "Hej" }).toString(),
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          address: websiteAddress,
+        });
+        if (answer.statusCode === 429) {
+          website = answer;
+        }
+      }
+      expect(website?.statusCode).toBe(429);
+      expect(website?.body).toContain(`href="${external}"`);
+
+      const linkAddress = "10.211.250.3";
+      for (let n = 0; n < LINK_READS_PER_MINUTE; n += 1) {
+        await page(`obrf_rl_${String(n).padStart(43, "M")}`, linkAddress);
+      }
+      const link = await page(`obrf_rl_${"N".repeat(43)}`, linkAddress);
+      expect(link.statusCode).toBe(429);
+      expect(link.body).toContain("För många försök");
+      expect(link.body).not.toContain(external);
+      expect(link.body).not.toContain(`Grannföreningen ${suffix}`);
+      expectLinkHeaders(link.headers);
+    } finally {
+      clock.mockRestore();
+      await prisma.menuItem.deleteMany({ where: { id: entry.id } });
+    }
   });
 
   it("D4: a link's messages share one budget whatever address they come from", async () => {
