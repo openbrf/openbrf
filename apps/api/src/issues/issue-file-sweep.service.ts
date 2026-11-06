@@ -53,6 +53,19 @@ export const UNATTACHED_ISSUE_FILE_HOURS = 24;
  */
 const MAX_FILES_PER_RUN = 500;
 
+/**
+ * How many removals in a row may fail before the run stops.
+ *
+ * Failures in a row are what storage that is down looks like: without a stop,
+ * a run over a large backlog would try every candidate, each in a transaction
+ * of its own with a call to storage and a line in the log, and hold the queue's
+ * worker for as long as that takes. A file that fails on its own every night
+ * does not stop the run, because the removal after it resets the count, so only
+ * this many such files one after the other at the front of the scan could keep
+ * the files behind them stored.
+ */
+const MAX_FAILURES_IN_A_ROW = 20;
+
 /** How many candidates one read of the scan selects. */
 const SCAN_PAGE_SIZE = 100;
 
@@ -60,12 +73,15 @@ const SCAN_PAGE_SIZE = 100;
 export interface IssueFileSweepLimits {
   /** The most files the run removes. */
   maxRemovals: number;
+  /** How many removals in a row may fail before the run stops. */
+  maxFailuresInARow: number;
   /** How many candidates one read of the scan selects. */
   pageSize: number;
 }
 
 const DEFAULT_LIMITS: IssueFileSweepLimits = {
   maxRemovals: MAX_FILES_PER_RUN,
+  maxFailuresInARow: MAX_FAILURES_IN_A_ROW,
   pageSize: SCAN_PAGE_SIZE,
 };
 
@@ -132,8 +148,13 @@ export function unattachedIssueFiles(
 }
 
 export interface IssueFileSweepRunSummary {
-  /** Files the scan found on nothing and past their age. */
-  considered: number;
+  /**
+   * Files the run tried to remove: those the scan found on nothing and past
+   * their age, up to where the run stopped. It counts the files the check under
+   * the row lock then kept ({@link IssueFileSweepService.keepsFile}), which are
+   * neither removed nor failed.
+   */
+  tried: number;
   /** Files removed, with their bytes. */
   removed: number;
   /**
@@ -141,6 +162,12 @@ export interface IssueFileSweepRunSummary {
    * behind them, and the next run selects them again.
    */
   failed: number;
+  /**
+   * Whether the run stopped because
+   * {@link IssueFileSweepLimits.maxFailuresInARow} removals in a row failed,
+   * rather than at its bound or the end of the candidates.
+   */
+  stoppedOnFailures: boolean;
 }
 
 /**
@@ -221,9 +248,17 @@ export class IssueFileSweepService implements OnModuleInit {
    * starting after the last file of the one before. A file the run could not
    * remove is therefore passed over rather than read again, and the run goes
    * on to the files behind it until it has removed
-   * {@link IssueFileSweepLimits.maxRemovals} or found no more. When storage
-   * refuses every removal, the run tries each candidate once and leaves them
-   * all to the next night.
+   * {@link IssueFileSweepLimits.maxRemovals} or found no more.
+   *
+   * It stops sooner when {@link IssueFileSweepLimits.maxFailuresInARow}
+   * removals in a row fail, as they do when storage is down, and leaves the
+   * rest to the next night rather than holding the queue's worker for a try at
+   * every candidate. A file the check under the lock keeps neither adds to the
+   * failures in a row nor clears them: only a removal shows that storage works.
+   *
+   * A file whose removal fails is logged as a warning, every night it fails.
+   * The run's stop on failures in a row is logged as an error, being what an
+   * outage of storage looks like.
    *
    * @param now The moment to judge the age at, passed in so a test can drive
    *   it instead of waiting a day.
@@ -251,9 +286,11 @@ export class IssueFileSweepService implements OnModuleInit {
           }
         : {};
 
-    let considered = 0;
+    let tried = 0;
     let removed = 0;
     let failed = 0;
+    let failedInARow = 0;
+    let stoppedOnFailures = false;
     let after: { createdAt: Date; id: string } | null = null;
     scan: while (removed < limits.maxRemovals) {
       const page: { createdAt: Date; id: string }[] =
@@ -281,7 +318,7 @@ export class IssueFileSweepService implements OnModuleInit {
         if (removed >= limits.maxRemovals) {
           break scan;
         }
-        considered += 1;
+        tried += 1;
         try {
           if (
             await this.media.remove(id, null, "SYSTEM", {
@@ -291,14 +328,20 @@ export class IssueFileSweepService implements OnModuleInit {
             })
           ) {
             removed += 1;
+            failedInARow = 0;
           }
         } catch (error) {
           // The id and the class of the failure: an id is opaque, and a file
           // name would be somebody's own words.
           failed += 1;
-          this.logger.error(
+          failedInARow += 1;
+          this.logger.warn(
             `Issue file sweep left the file ${id}: ${failureName(error)}`,
           );
+          if (failedInARow >= limits.maxFailuresInARow) {
+            stoppedOnFailures = true;
+            break scan;
+          }
         }
       }
 
@@ -309,12 +352,16 @@ export class IssueFileSweepService implements OnModuleInit {
       after = last;
     }
 
-    if (removed > 0 || failed > 0) {
+    if (stoppedOnFailures) {
+      this.logger.error(
+        `Issue file sweep stopped after ${String(failedInARow)} removals in a row failed; removed ${String(removed)}, failed ${String(failed)} of ${String(tried)} files tried`,
+      );
+    } else if (removed > 0 || failed > 0) {
       this.logger.log(
-        `Removed ${String(removed)} of ${String(considered)} issue files that were on nothing`,
+        `Issue file sweep removed ${String(removed)}, failed ${String(failed)} of ${String(tried)} files tried that were on nothing`,
       );
     }
-    return { considered, removed, failed };
+    return { tried, removed, failed, stoppedOnFailures };
   }
 
   /**
