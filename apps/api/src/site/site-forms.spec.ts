@@ -177,7 +177,7 @@ describe("the issue report form", () => {
     expect(html).toContain("Utelämna uppgifter om hälsa");
     // How long what it asks for is kept (art. 13(2)(a)), from the type's clock.
     expect(html).toContain(
-      "Ditt namn och din e-postadress tas bort ett år efter att ärendet har stängts, och det du skrev 2 år efter",
+      "Ditt namn och din e-postadress tas bort ett år efter att ärendet har stängts, och det du skrev och svaren du får 2 år efter",
     );
   });
 
