@@ -374,8 +374,8 @@ async function lastOverdueJob(
   targetDate: string,
 ): Promise<IssueOverdueJob> {
   const job = (await overdueJobs(issueId)).at(-1);
-  expect(job?.data).toEqual({ issueId, targetDate });
   if (!job) throw new Error("no overdue job is queued");
+  expect(job.data).toEqual({ issueId, targetDate });
   return job.data;
 }
 
@@ -1856,7 +1856,9 @@ describe("the overdue reminder", () => {
     await issues.assign(issueId, manager.personId, board.personId);
 
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
-    expect(await mailer.remindOverdue(job)).toBe(true);
+    expect(
+      await mailer.remindOverdue(await lastOverdueJob(issueId, yesterday)),
+    ).toBe(true);
     // Given on to somebody else: the date is claimed, so no second reminder.
     await issues.assign(issueId, admin.personId, board.personId);
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
@@ -1941,9 +1943,9 @@ describe("the overdue reminder", () => {
     );
 
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
-    expect(await mailer.remindOverdue({ issueId, targetDate: yesterday })).toBe(
-      true,
-    );
+    expect(
+      await mailer.remindOverdue(await lastOverdueJob(issueId, yesterday)),
+    ).toBe(true);
   });
 });
 
@@ -1991,7 +1993,9 @@ describe("an overdue reminder that is never sent", () => {
     expect(sent).toEqual([]);
     expect(await claimed(issueId)).toEqual([]);
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
-    expect(await mailer.remindOverdue({ issueId, targetDate })).toBe(true);
+    expect(
+      await mailer.remindOverdue(await lastOverdueJob(issueId, targetDate)),
+    ).toBe(true);
     expect((await notices(issueId)).at(-1)).toEqual({
       issueId,
       personId: admin.personId,
