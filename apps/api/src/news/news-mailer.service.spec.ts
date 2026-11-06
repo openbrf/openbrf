@@ -4,7 +4,10 @@ import type { Env } from "../config/env";
 import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
+import { MailApiError } from "../mail/http-api-mail.driver";
+import { withHandover } from "../mail/mail-driver";
 import { MailNotConfiguredError, type MailService } from "../mail/mail.service";
+import { MailServerNotPublicError } from "../mail/smtp-mail.driver";
 import { paragraphsContent } from "../site/page-content";
 import { NewsMailerService } from "./news-mailer.service";
 
@@ -39,7 +42,7 @@ function build(
     person?: typeof PERSON | null;
     post?: { id: string; audience: { kind: "ALL" | "BOARD" | "ADMIN" } } | null;
     claims?: number;
-    sendFails?: Error;
+    sendFails?: unknown;
   } = {},
 ) {
   const order: string[] = [];
@@ -207,16 +210,91 @@ describe("working through a mailing", () => {
 
   it("records a mail server's refusal without repeating what it said", async () => {
     const { service, newsDelivery } = build({
-      sendFails: new Error("550 5.1.1 <astrid@eksemplet.test> unknown"),
+      sendFails: withHandover(
+        new Error("550 5.1.1 <astrid@eksemplet.test> unknown"),
+        "not-handed-over",
+      ),
     });
 
     await service.runMailing("news-1");
 
-    expect(newsDelivery.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ failureReason: "send-failed" }),
+    expect(newsDelivery.update).toHaveBeenCalledWith({
+      where: { id: "delivery-1" },
+      data: { status: "FAILED", failureReason: "send-failed", sentAt: null },
+    });
+  });
+
+  it.each([
+    [
+      "a server this instance may not connect to",
+      new MailServerNotPublicError({ cause: null }),
+    ],
+    [
+      "the mail API refusing the request",
+      new MailApiError("refused", 422, "not-handed-over"),
+    ],
+  ])(
+    "records %s, which the driver says came before the handover, as not sent",
+    async (_what, error) => {
+      const { service, newsDelivery } = build({ sendFails: error });
+
+      expect(await service.runMailing("news-1")).toEqual({
+        sent: 0,
+        failed: 1,
+      });
+      expect(newsDelivery.update).toHaveBeenCalledWith({
+        where: { id: "delivery-1" },
+        data: { status: "FAILED", failureReason: "send-failed", sentAt: null },
+      });
+    },
+  );
+
+  it.each([
+    [
+      "the mail API failing after it read the request",
+      new MailApiError("refused", 502, "may-have-been-handed-over"),
+    ],
+    [
+      "an SMTP connection that went quiet with the message on its way",
+      Object.assign(new Error("Timeout"), {
+        code: "ETIMEDOUT",
+        handover: "may-have-been-handed-over",
       }),
-    );
+    ],
+    [
+      "a failure that does not say how far it got",
+      new Error("Connection closed unexpectedly"),
+    ],
+  ])(
+    "records %s as unconfirmed, not as a copy that did not go out",
+    async (_what, error) => {
+      const { service, newsDelivery } = build({ sendFails: error });
+
+      expect(await service.runMailing("news-1")).toEqual({
+        sent: 0,
+        failed: 1,
+      });
+      expect(newsDelivery.update).toHaveBeenCalledWith({
+        where: { id: "delivery-1" },
+        data: {
+          status: "FAILED",
+          failureReason: "delivery-unconfirmed",
+          sentAt: null,
+        },
+      });
+    },
+  );
+
+  it("records an address it cannot read back as not sent, and offers nothing to a mail server", async () => {
+    const { service, newsDelivery, encryption, mail } = build();
+    encryption.decrypt.mockRejectedValueOnce(new Error("bad tag"));
+
+    expect(await service.runMailing("news-1")).toEqual({ sent: 0, failed: 1 });
+    expect(mail.send).not.toHaveBeenCalled();
+    expect(newsDelivery.update).toHaveBeenCalledWith({
+      where: { id: "delivery-1" },
+      data: { status: "FAILED", failureReason: "send-failed", sentAt: null },
+    });
   });
 
   it("carries on past one unreachable recipient", async () => {

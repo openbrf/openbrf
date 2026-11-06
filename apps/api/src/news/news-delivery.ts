@@ -16,8 +16,28 @@ export const DELIVERY_FAILURES = {
   mailNotConfigured: "mail-not-configured",
   /** This instance has no SMS provider. The item is published all the same. */
   smsNotConfigured: "sms-not-configured",
-  /** The mail server or the SMS gateway refused the message. */
+  /**
+   * The copy did not go out, and was not handed over.
+   *
+   * For an email, the mail send ended in an error the mail driver places
+   * before the message reached the mail server: the message could not be
+   * prepared, or the mail server could not be reached or refused the sign-in,
+   * the address or the message (`MailHandover`). An error after which the
+   * server may hold the message is `unconfirmed` instead.
+   *
+   * For a text message, the SMS gateway answered with an error. The gateway
+   * says nothing of how far a failed send had got, so this code is all an SMS
+   * row has.
+   */
   refused: "send-failed",
+  /**
+   * Nobody knows whether the email went out: the mail send ended in an error
+   * after which the mail server may hold the message, such as a connection
+   * that broke or went quiet once the message was on its way. Failed rather
+   * than sent, as nothing confirmed it, and its own code rather than
+   * `send-failed`, which says it did not go out.
+   */
+  unconfirmed: "delivery-unconfirmed",
   /** The person is no longer in the register. */
   recipientGone: "recipient-gone",
   /**
