@@ -1632,7 +1632,7 @@ export class IssueService {
       await this.lockForAssignment(tx, issueId);
       // After the lock wait: a role withdrawn during it must not assign.
       const now = new Date();
-      const existing = await this.requireHandledWrite(
+      const existing = await this.requireHandledToWrite(
         tx,
         issueId,
         actorPersonId,
@@ -1702,10 +1702,11 @@ export class IssueService {
     await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandledWrite(
+      const existing = await this.requireHandledToWrite(
         tx,
         issueId,
         actorPersonId,
+        new Date(),
       );
       await this.requireOffered(tx, issueId, protectedReporters);
       if (existing.priority !== priority) {
@@ -1760,10 +1761,11 @@ export class IssueService {
     await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandledWrite(
+      const existing = await this.requireHandledToWrite(
         tx,
         issueId,
         actorPersonId,
+        new Date(),
       );
       await this.requireOffered(tx, issueId, protectedReporters);
       // The target date of a finding is held to the inspection's rule, and a
@@ -1824,10 +1826,11 @@ export class IssueService {
   ): Promise<QueuedIssueView> {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandledWrite(
+      const existing = await this.requireHandledToWrite(
         tx,
         issueId,
         actorPersonId,
+        new Date(),
       );
       if (existing.costResponsibility !== costResponsibility) {
         await this.audit.record(
@@ -1918,7 +1921,7 @@ export class IssueService {
 
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      await this.requireHandledWrite(tx, issueId, actorPersonId);
+      await this.requireHandledToWrite(tx, issueId, actorPersonId, new Date());
       const held = await tx.issue.findUniqueOrThrow({
         where: { id: issueId },
         select: {
@@ -2017,7 +2020,7 @@ export class IssueService {
   ): Promise<QueuedIssueView> {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      await this.requireHandledWrite(tx, issueId, actorPersonId);
+      await this.requireHandledToWrite(tx, issueId, actorPersonId, new Date());
       const stored = await tx.issueDamageCase.findUnique({
         where: { issueId },
         select: {
@@ -2075,12 +2078,15 @@ export class IssueService {
     actorPersonId: string,
   ): Promise<QueuedIssueView> {
     const issue = await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandledWrite(
+      // After the lock wait: a role withdrawn during it must not change who
+      // reads the issue, and the assignee is judged at the same instant.
+      const now = new Date();
+      const existing = await this.requireHandledToWrite(
         tx,
         issueId,
         actorPersonId,
+        now,
       );
       if (existing.boardOnly === boardOnly) {
         return tx.issue.findUniqueOrThrow({
@@ -2347,10 +2353,11 @@ export class IssueService {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
       // After the lock wait: a board seat that ended during it must not sign
-      // the notice as BOARD. `signatureOf` would sign for a person who handles
-      // nothing as the board too, so a role withdrawn since the route's check
-      // must not publish a notice (`requireHandledIssueToWrite`).
+      // the notice as BOARD.
       const now = new Date();
+      // `signatureOf` would sign for a person who handles nothing as the board
+      // too, so a role withdrawn since the route's check must not publish a
+      // notice (`requireHandledIssueToWrite`).
       const existing = await this.requireHandledToWrite(
         tx,
         issueId,
@@ -2408,9 +2415,9 @@ export class IssueService {
       await this.lockForAssignment(tx, issueId);
       // After the lock wait, one instant for both questions, as publishing
       // takes it.
+      const now = new Date();
       // As publishing does: a role withdrawn since the route's check must not
       // clear a notice the board put up.
-      const now = new Date();
       const existing = await this.requireHandledToWrite(
         tx,
         issueId,
@@ -3078,24 +3085,6 @@ export class IssueService {
       HANDLED_ISSUE_SELECT,
       now,
     );
-  }
-
-  /**
-   * `requireHandled` for a handler's write, asked inside its transaction once
-   * its locks are held: a person who holds no `issues:handle` role at `now` is
-   * refused first, as an issue that does not exist. `requireHandled` alone
-   * answers the narrower scope for a person who handles nothing, which admits
-   * every issue of an every-handler type, so a role withdrawn while the write
-   * waited on its locks would otherwise still write.
-   */
-  private async requireHandledWrite(
-    tx: Prisma.TransactionClient,
-    issueId: string,
-    actorPersonId: string,
-    now: Date = new Date(),
-  ) {
-    await requireHandlerRole(tx, actorPersonId, now);
-    return this.requireHandled(tx, issueId, actorPersonId, now);
   }
 
   /**

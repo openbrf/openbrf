@@ -173,8 +173,10 @@ export async function requireHandledIssue<S extends Prisma.IssueSelect>(
  *
  * For a handler's write, asked inside its transaction once its locks are held
  * and with the instant its scope is judged at: those that sign with the role
- * the writer holds (`signatureOf`), and the notes, attachments, status moves
- * and link withdrawals that act for a handler. {@link requireHandledIssue}
+ * the writer holds (`signatureOf`), and every other write that acts for a
+ * handler: a note, an attachment, a link withdrawal, and a change to an
+ * issue's status, assignee, priority, target date, cost responsibility,
+ * damage-case mark or board-only access. {@link requireHandledIssue}
  * answers the narrower scope for a person who handles nothing, which admits
  * every issue an every-handler type has, and `signatureOf` falls back to the
  * board: a role withdrawn since the route's check must not write or sign as

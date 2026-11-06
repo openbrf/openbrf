@@ -870,7 +870,8 @@ export class IssueReporterLinkService implements OnModuleInit {
  * written on an issue: all of them, and those of the last hour on that clock.
  * Read by the reply, which refuses past either limit, and by the page, which
  * promises nothing the reply would refuse; one query, so neither read pays a
- * second round trip for the clock.
+ * second round trip for the clock. The reply so counts even on an issue the
+ * clock then shows it may not write on, a cheap count it does not need.
  *
  * The total is exact. The hour is a rough guard, not a judged window: a
  * message's `createdAt` is filled by the clock of the API process that wrote

@@ -329,9 +329,9 @@ export class IssueConversationService {
     await lockIssuesForHandling(tx, [issueId, ...locked]);
     // Read the clock after the lock waits: a board seat that ended during one
     // must not leave board-only duplicates in reach or the signature on BOARD.
+    const now = new Date();
     // The signature below would sign for a person who handles nothing as the
     // board: a role withdrawn since the route's check must not write.
-    const now = new Date();
     await this.requireHandledToWrite(tx, issueId, handlerPersonId, now);
     const merged = await tx.issue.findMany({
       where: { mergedIntoIssueId: issueId },
@@ -447,9 +447,9 @@ export class IssueConversationService {
       // Read the clock after the lock waits, as the message to duplicates does:
       // a board seat that ended during one must not leave the message signed
       // as the board. One instant for access and for the signature.
+      const now = new Date();
       // The signature below would sign for a person who handles nothing as
       // the board: a role withdrawn since the route's check must not write.
-      const now = new Date();
       const issue = await this.requireHandledToWrite(
         tx,
         issueId,
