@@ -70,8 +70,27 @@ jobs:
       # can know which of the two a pull request will be merged by. So every
       # commit is linted as well, in this job rather than one of its own,
       # because this is the one the ruleset requires.
+      #
+      # Every commit the pull request brings that is not on the default branch
+      # already. Against main that is every commit between the base and the
+      # head. Against a long-lived branch such as an integration branch, a pull
+      # request that merges main in also brings main's own commits, which were
+      # linted by the pull requests that landed them and which no branch can
+      # rewrite: a squash commit's header gains " (#123)" on landing, so one
+      # that fitted as a title can be too long here.
       - name: Lint every commit with commitlint
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: pnpm exec commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --verbose
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        # The list is read before the loop, so a ref missing from the clone
+        # fails the step instead of leaving nothing to lint.
+        run: |
+          commits=$(git rev-list --reverse "$HEAD_SHA" "^$BASE_SHA" "^refs/remotes/origin/$DEFAULT_BRANCH")
+          status=0
+          while read -r sha; do
+            [ -n "$sha" ] || continue
+            echo "commit $sha"
+            git log -1 --format=%B "$sha" | pnpm exec commitlint --verbose || status=1
+          done <<< "$commits"
+          exit "$status"
