@@ -724,6 +724,19 @@ const PUBLIC_REPORT_ANSWER =
 const PUBLIC_REPORT_NOTE = "Elektrikern har nyckel till elcentralen.";
 
 /**
+ * A fault a resident reports on the house's page, under a type a new instance
+ * starts with that only residents report, and the board's answer to it. About
+ * the building, and nobody's own words.
+ */
+const RESIDENT_REPORT = {
+  type: "Tvättstuga",
+  location: "Tvättstugan i källaren",
+  description: "Torktumlare två startar inte, displayen visar F12.",
+} as const;
+const RESIDENT_REPORT_ANSWER =
+  "Tack! Serviceteknikern kommer på torsdag. Använd torktumlare ett så länge.";
+
+/**
  * A "YYYY-MM-DD" date some whole days from today.
  *
  * Read on the association's clock rather than on this machine's, for the reason
@@ -2830,6 +2843,100 @@ export const SCREENS: readonly Screen[] = [
     name: "site-issue-link-not-found",
     goto: `/arende/obrf_rl_${"A".repeat(43)}`,
     waitFor: { heading: "Länken öppnar inget ärende" },
+  },
+  {
+    /*
+     * A resident reports on the house's page, under one of the types a new
+     * instance starts with that only residents report. The receipt is drawn
+     * once the report is stored, so waiting for it waits for the queue.
+     */
+    name: "issues-resident-report",
+    as: "resident",
+    goto: appPath("/issues"),
+    prepare: [
+      { select: { combobox: "Vad gäller det" }, option: RESIDENT_REPORT.type },
+      { fill: { label: "Var i huset" }, value: RESIDENT_REPORT.location },
+      { fill: { label: "Vad har hänt" }, value: RESIDENT_REPORT.description },
+      { click: { button: "Skicka anmälan" } },
+    ],
+    waitFor: { text: "Anmälan är skickad och ligger nu i kön." },
+    capture: "page",
+  },
+  {
+    /*
+     * The board answers the resident from the handling. The resident is
+     * mailed that there is an answer, never what it says, and reads it on the
+     * screen below.
+     */
+    name: "board-issues-conversation",
+    as: "administrator",
+    // Alla: the type a new instance starts with gives its reports to nobody.
+    goto: appPath("/board/issues?view=all"),
+    prepare: [
+      // The first: a walk against a stack that is already up holds the
+      // reports of earlier walks, and the newest is at the top.
+      {
+        click: {
+          text: new RegExp(`^Hantera ${RESIDENT_REPORT.type}:`),
+          first: true,
+        },
+      },
+      {
+        fill: {
+          label: `${RESIDENT_REPORT.type}: meddelande till anmälaren`,
+          first: true,
+        },
+        value: RESIDENT_REPORT_ANSWER,
+      },
+      { click: { button: "Skicka", first: true } },
+    ],
+    waitFor: { text: RESIDENT_REPORT_ANSWER, first: true },
+    capture: "page",
+  },
+  {
+    /*
+     * The resident's own report, with the board's answer signed as the board
+     * and never with the name of whoever wrote it, and a field to answer back.
+     */
+    name: "issues-resident-conversation",
+    as: "resident",
+    goto: appPath("/issues"),
+    prepare: [
+      {
+        click: {
+          text: new RegExp(`^Meddelanden om ${RESIDENT_REPORT.type}`),
+          first: true,
+        },
+      },
+    ],
+    waitFor: { text: RESIDENT_REPORT_ANSWER, first: true },
+    capture: "page",
+  },
+  {
+    /*
+     * A charge made from the issue (decision 26): the charge form opens tied
+     * to the issue, its reason naming the type and nothing the resident
+     * wrote. Not recorded, so the walk leaves no charge behind.
+     */
+    name: "member-charge-from-issue",
+    as: "administrator",
+    goto: appPath("/board/issues?view=all"),
+    prepare: [
+      {
+        click: {
+          text: new RegExp(`^Hantera ${RESIDENT_REPORT.type}:`),
+          first: true,
+        },
+      },
+      {
+        click: {
+          link: `${RESIDENT_REPORT.type}: skapa debitering`,
+          first: true,
+        },
+      },
+    ],
+    waitFor: { text: /Debiteringen görs från ärendet/, first: true },
+    capture: "page",
   },
 
   // --- motions ---------------------------------------------------------------

@@ -51,7 +51,19 @@ const profile: (typeof PROFILES)[keyof typeof PROFILES] =
     ? PROFILES.screenshots
     : PROFILES.e2e;
 
-export const PROJECT_NAME = profile.project;
+/**
+ * The compose project, the profile's own unless OPENBRF_E2E_PROJECT names
+ * another.
+ *
+ * For a machine whose Docker other people's stacks share: a run then tears
+ * down and recreates the volumes of the project it was told to use, and never
+ * those of an `openbrf-e2e` that somebody else started. The ports are still
+ * the env file's, so two runs on one machine still take turns.
+ */
+export const PROJECT_NAME =
+  (process.env.OPENBRF_E2E_PROJECT ?? "") === ""
+    ? profile.project
+    : (process.env.OPENBRF_E2E_PROJECT as string);
 
 const ENV_FILE = resolve(e2eRoot, profile.envFile);
 

@@ -480,6 +480,18 @@ locally the application runs from source beside the PostgreSQL that
       OVK, lift or fire finding with its protocol and a target date, which a
       lift's holds to a month from the inspection (BFS 2025:11 1 kap. 17 §);
       the inspections' schedule stays with the 2027 reminders
+- [x] The issue module end to end: one browser flow against the production
+      image takes an issue from a resident's report, with its default assignee
+      mailed, through assigning and reassigning it, the Mine, Unassigned and
+      Overdue views, a conversation with the resident and one with a reporter
+      without an account, an internal note neither reporter sees, a work order
+      to a contractor and a charge made from the issue, to its closing and its
+      reopening by the resident's reply. The same flow checks that a reporter
+      with protected personal data stays masked on every screen it passes,
+      that an issue of a ring-fenced type never reaches the property manager
+      or a proposal of the AI package, and that no mail it caused carries
+      anything anybody wrote, the work order mail carrying the handler's own
+      text and nothing else
 - [x] One page, one audience: the board's work on its own pages under the
       Styrelsen section, each signed on its own heading, the overview as the
       house's notice board with one line for whoever works a queue, and a phone
