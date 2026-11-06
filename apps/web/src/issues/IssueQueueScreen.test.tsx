@@ -132,6 +132,13 @@ function answer(
   return { ok: true, value: { issues: [...issues], counts } };
 }
 
+/**
+ * How long a test waits for the screen to settle after a held read is answered.
+ * A loaded CI runner can take longer than waitFor's default second to re-render
+ * the screen after the read.
+ */
+const AFTER_READ = { timeout: 5000 };
+
 /** The external property manager: the queue, and nothing else of the board's. */
 const PROPERTY_MANAGER = ["issues:handle", "self:manage"];
 
@@ -705,7 +712,7 @@ describe("a save that finishes under another view or filter", () => {
     answerReread(answer([issue()]));
     await waitFor(() => {
       expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
-    });
+    }, AFTER_READ);
     expect(list?.getAttribute("aria-busy")).toBe("false");
   });
 
@@ -735,14 +742,9 @@ describe("a save that finishes under another view or filter", () => {
     expect(fieldset?.hasAttribute("disabled")).toBe(true);
 
     answerReread(answer([issue()]));
-    // A loaded CI runner can take longer than waitFor's default second to
-    // re-render the screen after the read.
-    await waitFor(
-      () => {
-        expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
-      },
-      { timeout: 5000 },
-    );
+    await waitFor(() => {
+      expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
+    }, AFTER_READ);
     expect(
       (
         screen.getByLabelText(
@@ -793,7 +795,7 @@ describe("a save that finishes under another view or filter", () => {
     answerFiltered(answer([issue()]));
     await waitFor(() => {
       expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
-    });
+    }, AFTER_READ);
     expect(
       document.querySelector("details fieldset")?.hasAttribute("disabled"),
     ).toBe(false);
@@ -953,7 +955,7 @@ describe("a save that finishes under another view or filter", () => {
     ).toEqual(["MINE", "ALL", "ALL"]);
     await waitFor(() => {
       expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
-    });
+    }, AFTER_READ);
     expect(screen.getByText("Hela kön.")).toBeTruthy();
     expect(screen.queryByText("Det droppar i taket.")).toBeNull();
     expect(viewNames()).toEqual([
@@ -986,7 +988,7 @@ describe("a save that finishes under another view or filter", () => {
     });
     await waitFor(() => {
       expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
-    });
+    }, AFTER_READ);
     expect(screen.getByText("Akut läcka.")).toBeTruthy();
     expect(screen.queryByText("Det droppar i taket.")).toBeNull();
   });
