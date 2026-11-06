@@ -42,6 +42,7 @@ import {
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
 
+import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -463,6 +464,11 @@ export interface IssueDamageCaseView {
  * ADR 0056), by the same omission and for the same callers: nothing about a
  * ring-fenced issue reaches `mcp` or `ai`, whoever reported it. The name is
  * the first rule's; both are what a read leaving the instance withholds.
+ *
+ * The writes the actions reach (`assign`, `setPriority`, `setTargetDate`,
+ * `setStatus`) and the list of who may be assigned (`handlers`) take it too,
+ * and with `omit` answer such an issue as one that does not exist (ADR 0056):
+ * a write that could find an issue a read leaves out would say there is one.
  */
 export type ProtectedReporters = "show" | "omit";
 
@@ -1491,12 +1497,17 @@ export class IssueService {
    * The target is one of the issue's own type's statuses and switched on; the
    * status an issue already stands in may be named again after the board
    * switched it off, to change the reason it waits for.
+   *
+   * The entry carries the channel the actor came by, as every write here does:
+   * `WEB` from the board's screen, `MCP` from a connected app (ADR 0056).
    */
   async setStatus(
     issueId: string,
     move: IssueStatusMove,
-    actorPersonId: string,
+    actor: ActorContext,
+    protectedReporters: ProtectedReporters,
   ): Promise<QueuedIssueView> {
+    const actorPersonId = actor.personId;
     /*
      * The read and the write in one transaction, under the row's own lock. The
      * closing date below is derived from what the row already holds, so a
@@ -1525,6 +1536,7 @@ export class IssueService {
         },
         new Date(),
       );
+      await this.requireOffered(tx, issueId, protectedReporters);
 
       const target = await tx.issueStatus.findFirst({
         where: {
@@ -1567,8 +1579,7 @@ export class IssueService {
         await this.audit.record(
           {
             action: "ISSUE_STATUS_CHANGED",
-            channel: "WEB",
-            actorPersonId,
+            ...auditActor(actor),
             targetKind: "issue",
             targetId: issueId,
             context: {
@@ -1627,8 +1638,10 @@ export class IssueService {
   async assign(
     issueId: string,
     assigneePersonId: string | null,
-    actorPersonId: string,
+    actor: ActorContext,
+    protectedReporters: ProtectedReporters,
   ): Promise<QueuedIssueView> {
+    const actorPersonId = actor.personId;
     await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
@@ -1641,6 +1654,7 @@ export class IssueService {
         actorPersonId,
         now,
       );
+      await this.requireOffered(tx, issueId, protectedReporters);
 
       if (
         assigneePersonId !== null &&
@@ -1660,7 +1674,7 @@ export class IssueService {
       if (existing.assigneePersonId !== assigneePersonId) {
         await this.recordAssignment(tx, {
           issueId,
-          actorPersonId,
+          actor,
           assigneePersonId,
           previousAssigneePersonId: existing.assigneePersonId,
         });
@@ -1697,8 +1711,10 @@ export class IssueService {
   async setPriority(
     issueId: string,
     priority: IssuePriority,
-    actorPersonId: string,
+    actor: ActorContext,
+    protectedReporters: ProtectedReporters,
   ): Promise<QueuedIssueView> {
+    const actorPersonId = actor.personId;
     await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
@@ -1709,12 +1725,12 @@ export class IssueService {
         actorPersonId,
         now,
       );
+      await this.requireOffered(tx, issueId, protectedReporters);
       if (existing.priority !== priority) {
         await this.audit.record(
           {
             action: "ISSUE_PRIORITY_CHANGED",
-            channel: "WEB",
-            actorPersonId,
+            ...auditActor(actor),
             targetKind: "issue",
             targetId: issueId,
             context: { from: existing.priority, to: priority },
@@ -1752,8 +1768,10 @@ export class IssueService {
   async setTargetDate(
     issueId: string,
     targetDate: string | null,
-    actorPersonId: string,
+    actor: ActorContext,
+    protectedReporters: ProtectedReporters,
   ): Promise<QueuedIssueView> {
+    const actorPersonId = actor.personId;
     const day = targetDate === null ? null : requireCalendarDay(targetDate);
     const column = day === null ? null : dateColumnOf(day);
 
@@ -1767,6 +1785,7 @@ export class IssueService {
         actorPersonId,
         now,
       );
+      await this.requireOffered(tx, issueId, protectedReporters);
       // The target date of a finding is held to the inspection's rule, and a
       // finding is never left without one.
       if (existing.finding !== null) {
@@ -1782,8 +1801,7 @@ export class IssueService {
         await this.audit.record(
           {
             action: "ISSUE_TARGET_DATE_CHANGED",
-            channel: "WEB",
-            actorPersonId,
+            ...auditActor(actor),
             targetKind: "issue",
             targetId: issueId,
             context: { from, to },
@@ -2119,7 +2137,7 @@ export class IssueService {
       if (assigneePersonId !== existing.assigneePersonId) {
         await this.recordAssignment(tx, {
           issueId,
-          actorPersonId,
+          actor: { personId: actorPersonId, channel: "WEB" },
           assigneePersonId,
           previousAssigneePersonId: existing.assigneePersonId,
         });
@@ -2535,10 +2553,14 @@ export class IssueService {
    * protected handler's withheld, and no address, telephone or apartment.
    * Read by `issueHandlersWhere`, the rule `assign` holds an assignee to, so
    * the list and the write cannot disagree about who is offered.
+   *
+   * With `omit`, an issue a read of that kind leaves out is answered as one
+   * that does not exist, as `queuedIssue` answers it (`issue_handler_list`).
    */
   async handlers(
     readerPersonId: string,
     issueId: string,
+    protectedReporters: ProtectedReporters,
   ): Promise<IssueHandlerView[]> {
     const now = new Date();
     const issue = await this.requireHandled(
@@ -2546,7 +2568,31 @@ export class IssueService {
       issueId,
       readerPersonId,
     );
+    await this.requireOffered(this.prisma, issueId, protectedReporters);
     return readIssueHandlers(this.prisma, issueHandledBy(issue), now);
+  }
+
+  /**
+   * One status of an issue type, by id, or null when it is not one of the
+   * type's: what the pending-change screen names a held `issue_set_status`
+   * move by (ADR 0039, section 5).
+   *
+   * Asked only for the type of an issue the caller has already read with
+   * `queuedIssue`, so it names nothing the caller may not open. A status's
+   * label is the board's own text and carries no person.
+   */
+  async statusOfType(
+    typeId: string,
+    statusId: string,
+  ): Promise<{
+    label: string;
+    meaning: IssueStatusMeaning;
+    active: boolean;
+  } | null> {
+    return this.prisma.issueStatus.findFirst({
+      where: { id: statusId, typeId },
+      select: { label: true, meaning: true, active: true },
+    });
   }
 
   /**
@@ -3083,12 +3129,46 @@ export class IssueService {
     await lockIssueForHandling(tx, issueId);
   }
 
+  /**
+   * Refuses, as an issue that does not exist, one a read with `omit` leaves
+   * out: an issue of a ring-fenced type, or one a person with protected
+   * personal data reported (ADR 0056). Nothing with `show`.
+   *
+   * Asked inside the write's transaction, after `lockForAssignment`. The
+   * ring-fence changes under the type's lock (`IssueTypeService`), so that part
+   * of the answer holds until the write commits. The protected reporters are
+   * read from the register without a lock of this write's: a person marked as
+   * protected while the write runs is not seen by it, as a read with `omit`
+   * that began before the mark does not see it either.
+   */
+  private async requireOffered(
+    db: Prisma.TransactionClient | PrismaService,
+    issueId: string,
+    protectedReporters: ProtectedReporters,
+  ): Promise<void> {
+    if (protectedReporters === "show") {
+      return;
+    }
+    const offered = await db.issue.count({
+      where: {
+        id: issueId,
+        AND: [
+          outsideRingFence(protectedReporters),
+          await this.notReportedByProtectedPersons(db),
+        ],
+      },
+    });
+    if (offered === 0) {
+      throw new IssueError("No such issue.", "issue-not-found");
+    }
+  }
+
   /** The entry for an assignment changing, by hand or by an access change. */
   private async recordAssignment(
     tx: Prisma.TransactionClient,
     act: {
       issueId: string;
-      actorPersonId: string;
+      actor: ActorContext;
       assigneePersonId: string | null;
       previousAssigneePersonId: string | null;
     },
@@ -3096,8 +3176,7 @@ export class IssueService {
     await this.audit.record(
       {
         action: "ISSUE_ASSIGNED",
-        channel: "WEB",
-        actorPersonId: act.actorPersonId,
+        ...auditActor(act.actor),
         targetPersonId: act.assigneePersonId,
         targetKind: "issue",
         targetId: act.issueId,

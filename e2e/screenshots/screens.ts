@@ -364,6 +364,15 @@ export type Action =
       };
     }
   /**
+   * Hold a proposal to raise the issue `reportIssuePublicly` filed from this
+   * address to urgent, as whoever is signed in, then reopen the screen.
+   *
+   * For the pending-changes screen with an issue write on it, as the AI
+   * package proposes one (ADR 0056). The address as `reportIssuePublicly` was
+   * given it; the walk adds the same suffix, so the issue is this walk's own.
+   */
+  | { readonly proposeUrgentIssue: string }
+  /**
    * Release every pending change whoever is signed in holds, then reopen the
    * screen.
    *
@@ -4009,6 +4018,28 @@ export const SCREENS: readonly Screen[] = [
     ],
     // The proposed agenda's heading exists only once the meeting has been read.
     waitFor: { text: "Den föreslagna dagordningen" },
+    capture: "page",
+  },
+  {
+    /*
+     * A proposal to raise an issue to urgent, as the person who asked for it
+     * reads it before confirming (ADR 0056): the issue's number, type, status,
+     * priority and target date as they stand now, the priority with what
+     * confirming sets beside it.
+     *
+     * The issue is the one the website's form filed above, so the walk holds
+     * the change for it by its reporter's address; the agenda's proposal is
+     * released first, so the card is the only one on the screen.
+     */
+    name: "pending-changes-issue",
+    as: "administrator",
+    goto: appPath("/pending-changes"),
+    prepare: [
+      { releasePendingChanges: true },
+      { proposeUrgentIssue: PUBLIC_REPORT.email },
+    ],
+    // The issue's facts exist only once the target has been read.
+    waitFor: { text: "Ärendenummer" },
     capture: "page",
   },
   // --- the apartment binder ------------------------------------------------

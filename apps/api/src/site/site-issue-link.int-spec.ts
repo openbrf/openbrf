@@ -1886,7 +1886,8 @@ describe("D. rate limits and abuse", () => {
         .setStatus(
           id,
           { statusId: publicType.statusIds.DONE, outcome: "FIXED" },
-          board.personId,
+          { personId: board.personId, channel: "WEB" },
+          "show",
         )
         .finally(() => {
           closeSettled = true;
