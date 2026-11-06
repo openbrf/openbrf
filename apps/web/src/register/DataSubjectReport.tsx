@@ -729,6 +729,22 @@ const DELIVERY_STATUS_LABEL = {
 >;
 
 /**
+ * The outcome of one copy, in words. A copy whose send ended in an error after
+ * which the mail server may hold it is failed in the ledger, as nothing
+ * confirmed it, but it is not known not to have gone out: the person is told
+ * it is unconfirmed rather than not sent.
+ */
+function deliveryOutcomeLabel(delivery: {
+  status: Report["newsDeliveries"][number]["status"];
+  failure: NewsDeliveryFailure | MeetingNoticeDeliveryFailure | null;
+}): TranslationKey {
+  return delivery.status === "FAILED" &&
+    delivery.failure === "delivery-unconfirmed"
+    ? "register.person.report.deliveryUnconfirmed"
+    : DELIVERY_STATUS_LABEL[delivery.status];
+}
+
+/**
  * Why a copy did not go out, in words addressed to the person the document is
  * about. Every code either ledger can hold, so a code added to one without a
  * sentence here fails to compile rather than printing a code on the page.
@@ -739,6 +755,8 @@ const DELIVERY_FAILURE_LABEL = {
   "sms-not-configured":
     "register.person.report.deliveryFailure.sms-not-configured",
   "send-failed": "register.person.report.deliveryFailure.send-failed",
+  "delivery-unconfirmed":
+    "register.person.report.deliveryFailure.delivery-unconfirmed",
   "recipient-gone": "register.person.report.deliveryFailure.recipient-gone",
   "no-phone-number": "register.person.report.deliveryFailure.no-phone-number",
   "no-email-address": "register.person.report.deliveryFailure.no-email-address",
@@ -2582,7 +2600,7 @@ export function DataSubjectReport({
                       {t(DELIVERY_CHANNEL_LABEL[delivery.channel])}
                     </td>
                     <td className={TEXT_CELL}>
-                      {t(DELIVERY_STATUS_LABEL[delivery.status])}
+                      {t(deliveryOutcomeLabel(delivery))}
                     </td>
                     <td className={TEXT_CELL}>
                       {delivery.failure === null
@@ -2947,7 +2965,7 @@ export function DataSubjectReport({
                       {t(DELIVERY_CHANNEL_LABEL[delivery.channel])}
                     </td>
                     <td className={TEXT_CELL}>
-                      {t(DELIVERY_STATUS_LABEL[delivery.status])}
+                      {t(deliveryOutcomeLabel(delivery))}
                     </td>
                     <td className={TEXT_CELL}>
                       {delivery.failure === null

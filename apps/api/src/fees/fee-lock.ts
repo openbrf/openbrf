@@ -1,3 +1,4 @@
+import { databaseNow } from "../database/database-clock";
 import type { Prisma } from "../generated/prisma/client";
 
 /**
@@ -90,11 +91,5 @@ export async function lockFeeNotifications(
  * side.
  */
 export async function lockedNow(tx: Prisma.TransactionClient): Promise<Date> {
-  const [row] = await tx.$queryRaw<
-    { now: Date }[]
-  >`SELECT clock_timestamp() AS now`;
-  if (row === undefined) {
-    throw new Error("The database returned no clock reading.");
-  }
-  return row.now;
+  return databaseNow(tx);
 }

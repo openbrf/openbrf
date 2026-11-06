@@ -63,6 +63,17 @@ export function OwnIssueConversation({
    * the thread, and the text must outlive that.
    */
   const [refusedReply, setRefusedReply] = useState("");
+  const takesReplies = issue.replyMode !== "NEW_REPORT";
+  const [couldReply, setCouldReply] = useState(takesReplies);
+  if (takesReplies !== couldReply) {
+    // Whenever the reply field is back (the report was reopened, or read again
+    // as open), the text it once refused is not a follow-up to carry on to a
+    // later report. Here and not in the thread, which collapsing unmounts.
+    setCouldReply(takesReplies);
+    if (takesReplies) {
+      setRefusedReply("");
+    }
+  }
   return (
     <details
       className="flex flex-col gap-3"
@@ -202,6 +213,9 @@ function Thread({
           fallback="issues.conversation.errors.unknown"
           send={(body) => sendOwnIssueMessage({ issueId: issue.id, body })}
           onSent={() => {
+            // A refused text that was not followed up has been answered by a
+            // message that went through; it is not carried to a later report.
+            onRefusedReply("");
             setReads((count) => count + 1);
             // A reply may have reopened the issue, as the screen expected or
             // because it closed while the screen was open; the list says so
