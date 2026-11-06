@@ -1,10 +1,12 @@
 import { createServer, type Server, type Socket } from "node:net";
 import type { AddressInfo } from "node:net";
+import { createServer as createTlsServer, TLSSocket } from "node:tls";
 
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import { mayHaveBeenHandedOver, type OutgoingMail } from "./mail-driver";
 import { SmtpMailDriver } from "./smtp-mail.driver";
+import { selfSignedCertificate } from "./testing/self-signed-certificate";
 
 /**
  * How far a failed send had got, as the driver states it on what the real
@@ -29,7 +31,15 @@ interface Behaviour {
   /** What the greeting says, where it is not the usual 220. */
   greetingLine?: string;
   afterData: AfterData;
+  /**
+   * TLS with a certificate the client does not trust: from the first byte
+   * (`implicit`), or once the client asks for it (`starttls`).
+   */
+  tls?: "implicit" | "starttls";
 }
+
+/** Made once: generating a key is the slow part of a TLS case. */
+const untrusted = selfSignedCertificate();
 
 const servers: Server[] = [];
 const sockets = new Set<Socket>();
@@ -37,7 +47,7 @@ const drivers: SmtpMailDriver[] = [];
 
 /** A submission server that answers `behaviour` and offers no AUTH. */
 async function listen(behaviour: Behaviour): Promise<number> {
-  const server = createServer((socket) => {
+  const converse = (socket: Socket): void => {
     sockets.add(socket);
     socket.on("close", () => {
       sockets.delete(socket);
@@ -73,7 +83,21 @@ async function listen(behaviour: Behaviour): Promise<number> {
         }
         const verb = line.split(" ")[0]?.toUpperCase() ?? "";
         if (verb === "EHLO") {
-          socket.write("250 relay.test\r\n");
+          socket.write(
+            behaviour.tls === "starttls"
+              ? "250-relay.test\r\n250 STARTTLS\r\n"
+              : "250 relay.test\r\n",
+          );
+        } else if (verb === "STARTTLS") {
+          // The rest of the conversation is the handshake, not lines.
+          socket.removeAllListeners("data");
+          socket.write("220 ready\r\n");
+          const secured = new TLSSocket(socket, {
+            isServer: true,
+            ...untrusted,
+          });
+          secured.on("error", () => undefined);
+          return;
         } else if (verb === "DATA") {
           inData = true;
           socket.write("354 go ahead\r\n");
@@ -84,7 +108,13 @@ async function listen(behaviour: Behaviour): Promise<number> {
         }
       }
     });
-  });
+  };
+  const server =
+    behaviour.tls === "implicit"
+      ? createTlsServer(untrusted, converse)
+      : createServer(converse);
+  // A client that refuses the certificate ends the handshake.
+  server.on("tlsClientError", () => undefined);
   servers.push(server);
   await new Promise<void>((resolve) => {
     server.listen(0, "127.0.0.1", resolve);
@@ -128,13 +158,16 @@ const MAIL: OutgoingMail = {
 async function failureAt(
   port: number,
   options?: { greetingTimeoutMs: number },
+  tls: { secure: boolean; requireTls: boolean } = {
+    secure: false,
+    requireTls: false,
+  },
 ): Promise<unknown> {
   const driver = new SmtpMailDriver(
     {
       host: "127.0.0.1",
       port,
-      secure: false,
-      requireTls: false,
+      ...tls,
       user: null,
       password: null,
       // The test server listens on loopback.
@@ -231,6 +264,29 @@ describe("a send that fails against a real SMTP conversation", () => {
     });
     expect(mayHaveBeenHandedOver(failure)).toBe(false);
   });
+
+  it.each([
+    { tls: "implicit" as const, secure: true, requireTls: false },
+    { tls: "starttls" as const, secure: false, requireTls: true },
+  ])(
+    "says a server whose certificate is not trusted was not handed over ($tls)",
+    async ({ tls, secure, requireTls }) => {
+      const failure = await failureAt(
+        await listen({ greeting: true, afterData: "accept", tls }),
+        undefined,
+        { secure, requireTls },
+      );
+
+      // nodemailer puts the TLS error's code under `originalCode`; a release
+      // that moved it would read as a connection lost on the way.
+      expect(failure).toMatchObject({
+        code: "ESOCKET",
+        originalCode: "DEPTH_ZERO_SELF_SIGNED_CERT",
+        handover: "not-handed-over",
+      });
+      expect(mayHaveBeenHandedOver(failure)).toBe(false);
+    },
+  );
 
   it("resolves for the same server when it accepts the message", async () => {
     // The control case: the failures above are about what the server did at
