@@ -4538,7 +4538,7 @@
       },
       "finding": {
         "title": "Besiktningsanmärkning",
-        "intro": "Markera ärendet som en anmärkning från en OVK-, hiss- eller brandbesiktning. Det kräver protokollet, bifogat under Filer, och ett senast klart-datum. Boende ser det inte.",
+        "intro": "Markera ärendet som en anmärkning från en OVK-, hiss- eller brandbesiktning. Det kräver protokollet, bifogat under Filer, och ett senast klart-datum. Boende ser det inte. Markeringen lägger ett rättsligt bevarandekrav på ärendet: dess text tas inte bort, gallras eller raderas förrän en handläggare hävt kravet. Att ändra markeringen därefter lägger inte ett hävt krav på igen.",
         "current": "Markerat som besiktningsanmärkning: {{kind}}.",
         "protocolIs": "Protokoll: {{name}}",
         "protocolGone": "Protokollet har tagits bort från ärendet.",

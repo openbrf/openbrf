@@ -523,9 +523,8 @@ export function fetchReportableTypes(): Promise<
   );
 }
 
-/** The common-area places a report may name. */
 /**
- * The places a reporter may name. Bounded as the place counts are, by
+ * The common-area places a report may name. Bounded as the place counts are, by
  * `ISSUE_PLACES_TIMEOUT_MS`: the issues screen waits for this read with the
  * others before it shows the report form, and files a report without a place
  * when it fails.

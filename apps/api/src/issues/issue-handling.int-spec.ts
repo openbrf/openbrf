@@ -655,9 +655,7 @@ describe("assigning, priority and target date", () => {
       targetDate: "2026-02-30",
     });
     expect(invalid.statusCode).toBe(422);
-    expect(invalid.json<{ reason: string }>().reason).toBe(
-      "target-date-invalid",
-    );
+    expect(invalid.json<{ reason: string }>().reason).toBe("date-invalid");
 
     const cleared = await act(cookie, id, "target-date", { targetDate: null });
     expect(cleared.json<QueuedRow>().targetDate).toBeNull();
