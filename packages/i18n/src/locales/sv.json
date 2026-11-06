@@ -1167,6 +1167,7 @@
           "onLegalHold": "Ett rättsligt bevarandekrav gäller för personen (art. 17.3 e).",
           "boardPositionCurrent": "Personen har kvar ett förtroendeuppdrag.",
           "systemRoleCurrent": "Personen administrerar fortfarande instansen.",
+          "pluginAccessCurrent": "Personen har kvar en tilläggsåtkomst. Ta bort den på personens sida först.",
           "processingRestricted": "Personen har begärt begränsning, vilket innebär att uppgifterna ska bevaras och inte användas.",
           "dateNotACalendarDate": "Det är inget kalenderdatum.",
           "requestedInFuture": "En begäran kan inte ha gjorts en dag som inte har inträffat.",
@@ -1315,7 +1316,8 @@
   "app": {
     "loading": "Laddar",
     "retry": "Försök igen",
-    "housingCooperative": "Bostadsrättsförening"
+    "housingCooperative": "Bostadsrättsförening",
+    "tooManyRequests": "Det har kommit för många försök från den här anslutningen den senaste minuten. Vänta en stund och försök igen."
   },
   "setup": {
     "title": "Kom i gång med Open BRF",
@@ -2452,7 +2454,7 @@
     },
     "callers": {
       "title": "Vilka det betjänar utöver de boende",
-      "description": "Administratören godkände var och en av de här vid installationen, efter styrelsens beslut. En grupp som dras tillbaka betjänas inte från nästa anrop, och tillägget förblir installerat. Godkänns den igen betjänas den från nästa anrop. En ny version behåller en tillbakadragen grupp tillbakadragen.",
+      "description": "Administratören godkände var och en av de här vid installationen, efter styrelsens beslut. En grupp som dras tillbaka ger inte längre tillgång från nästa anrop, och tillägget förblir installerat. En person betjänas ändå om en annan grupp som tillägget fortfarande betjänar, eller att bo här, ger tillgång. Godkänns gruppen igen ger den tillgång från nästa anrop. En ny version behåller en tillbakadragen grupp tillbakadragen.",
       "served": "Betjänas",
       "withdrawn": "Tillbakadragen",
       "withdraw": "Dra tillbaka",
@@ -3573,6 +3575,10 @@
     "notFound": {
       "title": "Sidan finns inte",
       "body": "Adressen kan vara stavad på ett annat sätt, eller så har sidan tagits bort."
+    },
+    "tooManyRequests": {
+      "title": "För många försök",
+      "body": "Det har kommit för många förfrågningar från den här anslutningen den senaste minuten. Vänta en stund och försök igen. Om du skickade ett formulär kom det inte fram, så skicka det igen."
     },
     "seed": {
       "home": {

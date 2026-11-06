@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import { TOO_MANY_REQUESTS } from "../api/client";
 import { signInWithPassword } from "../auth/sign-in-methods";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
@@ -118,11 +119,15 @@ export function ActivateScreen({
 
     const accepted = await acceptInvitation({ token, password });
     if (!accepted.ok) {
-      const known = FAILURES[accepted.failure.reason];
+      const { reason } = accepted.failure;
+      const known = FAILURES[reason];
       setStatus(
-        known === undefined
-          ? { kind: "retryable", messageKey: "activate.errors.unknown" }
-          : { kind: "stopped", ...known },
+        // Retryable: the invitation is untouched, it only has to wait.
+        reason === TOO_MANY_REQUESTS
+          ? { kind: "retryable", messageKey: "app.tooManyRequests" }
+          : known === undefined
+            ? { kind: "retryable", messageKey: "activate.errors.unknown" }
+            : { kind: "stopped", ...known },
       );
       return;
     }

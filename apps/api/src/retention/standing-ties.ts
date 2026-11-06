@@ -2,12 +2,16 @@ import type { Prisma } from "../generated/prisma/client";
 
 /**
  * What keeps a person in the register while it stands, whatever they asked for
- * and however long ago they moved out: a role the association gave them that
- * has not ended.
+ * and however long ago they moved out: a role or an access the association
+ * gave them that has not ended.
  *
- * A board seat that has not ended, and a system role. Neither is a residency,
- * and neither depends on one: an external board member and an administrator
- * who never lived here are kept by them as much as a resident is. A legal hold
+ * A board seat that has not ended, a system role, and a plugin access (ADR
+ * 0053). None is a residency, and none depends on one: an external board
+ * member, an administrator and a garage renter who never lived here are kept
+ * by them as much as a resident is. A plugin access is only ever held by a
+ * person who has never had a residency, so once the board withdraws it, such
+ * a person has no move-out to anchor a purge date on, and an erasure request
+ * is what removes them, as for an external board member whose term ended. A legal hold
  * and a restriction keep a person too, but for another reason - somebody asked
  * for the data to be kept - and they also stop the other purges, so they are
  * answered in `withheld-persons.ts`. A residency is the retention period's
@@ -24,7 +28,8 @@ import type { Prisma } from "../generated/prisma/client";
  * erased whom the others keep. A new kind of tie is added here, with its lock
  * in `erasure-lock.ts`, and all five ask it.
  */
-export type StandingTie = "board-position-current" | "system-role-current";
+export type StandingTie =
+  "board-position-current" | "system-role-current" | "plugin-access-current";
 
 /** What a person's row has to answer for {@link standingTie}. */
 export interface StandingTieFacts {
@@ -32,12 +37,15 @@ export interface StandingTieFacts {
   boardPositions: readonly { endedOn: Date | null }[];
   /** Granted system roles. */
   systemRoles: readonly unknown[];
+  /** Plugin accesses the board has granted and not withdrawn. */
+  pluginAccesses: readonly unknown[];
 }
 
 /** The fields of a person {@link standingTie} reads. */
 export const STANDING_TIE_SELECT = {
   boardPositions: { select: { endedOn: true } },
   systemRoles: { select: { role: true } },
+  pluginAccesses: { select: { id: true } },
 } as const satisfies Prisma.PersonSelect;
 
 /**
@@ -63,6 +71,9 @@ export function standingTie(
   if (person.systemRoles.length > 0) {
     return "system-role-current";
   }
+  if (person.pluginAccesses.length > 0) {
+    return "plugin-access-current";
+  }
   return null;
 }
 
@@ -73,5 +84,6 @@ export function holdsNoStandingTie(now: Date): Prisma.PersonWhereInput {
       none: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
     },
     systemRoles: { none: {} },
+    pluginAccesses: { none: {} },
   };
 }

@@ -1491,6 +1491,7 @@ export type ErasureRefusal =
   | "board-position-current"
   | "on-legal-hold"
   | "system-role-current"
+  | "plugin-access-current"
   | "currently-resident"
   | "person-not-found";
 

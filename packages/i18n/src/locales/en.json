@@ -1167,6 +1167,7 @@
           "onLegalHold": "A legal hold stands against this person (art. 17(3)(e)).",
           "boardPositionCurrent": "This person still holds a position of trust.",
           "systemRoleCurrent": "This person still administers the instance.",
+          "pluginAccessCurrent": "This person still holds a plugin access. Withdraw it on their page first.",
           "processingRestricted": "This person has asked for a restriction, which means the data is kept and not used.",
           "dateNotACalendarDate": "That is not a calendar date.",
           "requestedInFuture": "A request cannot have been made on a day that has not arrived.",
@@ -1315,7 +1316,8 @@
   "app": {
     "loading": "Loading",
     "retry": "Try again",
-    "housingCooperative": "Housing cooperative"
+    "housingCooperative": "Housing cooperative",
+    "tooManyRequests": "Too many attempts have come from this connection in the last minute. Wait a moment and try again."
   },
   "setup": {
     "title": "Set up Open BRF",
@@ -2452,7 +2454,7 @@
     },
     "callers": {
       "title": "Who it serves besides residents",
-      "description": "The administrator consented to each of these with the install, on the board's decision. A withdrawn class is not served from the next request on, and the plugin stays installed. Consenting again serves it from the next request. A new version keeps a withdrawn class withdrawn.",
+      "description": "The administrator consented to each of these with the install, on the board's decision. A withdrawn class stops granting access from the next request on, and the plugin stays installed. A person is still served if another class this plugin still serves, or living here, gives them access. Consenting again lets the class grant access from the next request. A new version keeps a withdrawn class withdrawn.",
       "served": "Served",
       "withdrawn": "Withdrawn",
       "withdraw": "Withdraw",
@@ -3573,6 +3575,10 @@
     "notFound": {
       "title": "The page does not exist",
       "body": "The address may have been written differently, or the page may have been taken down."
+    },
+    "tooManyRequests": {
+      "title": "Too many attempts",
+      "body": "Too many requests have come from this connection in the last minute. Wait a moment and try again. If you were sending a form, it did not arrive, so send it again."
     },
     "seed": {
       "home": {
