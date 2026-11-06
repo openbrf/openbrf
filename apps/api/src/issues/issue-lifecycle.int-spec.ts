@@ -1603,7 +1603,8 @@ describe("a known fault", () => {
       issues.setStatus(
         issueId,
         { statusId: plain.statusIds.IN_PROGRESS },
-        resident.personId,
+        { personId: resident.personId, channel: "WEB" },
+        "show",
       ),
     ).rejects.toMatchObject({ reason: "issue-not-found" });
     expect(
