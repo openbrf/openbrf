@@ -747,6 +747,8 @@ export type QueuedIssueRow = {
   readonly reporter: {
     readonly kind: string;
     readonly name?: string;
+    /** For an external reporter: the address they left, or null. */
+    readonly email?: string | null;
     /** For an external reporter: where their private link stands. */
     readonly link?: "live" | "ended" | "none";
   };

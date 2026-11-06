@@ -45,16 +45,18 @@ own route, as the person on the other end of the request. For a listing a plugin
 makes, `ActionRegistryService.list` leaves out every action whose `personalData`
 names a category missing from the plugin's own `personalData`, and `invoke`
 refuses the same actions with `forbidden-surface` (`docs/plugin-contract.md`,
-"Nor can it reach personal data it has not declared"). The issue reads declare
-`name`, `apartment`, `freeText` and `health`. The connector's manifest, version
-0.1.0, declares no personal data at all.
+"Nor can it reach personal data it has not declared"). `issue_list` and
+`issue_get` declare `name`, `apartment`, `freeText` and `health`. The
+connector's manifest, version 0.1.0, declares no personal data at all.
 
 So the plan's guess is right, and it is wider than issues: the connector is
 offered no action that declares any personal data, the motion queue and the news
-comments included. Nothing in the core is wrong. The connector reaches these
-actions once its manifest declares the categories they carry, with a processing
-declaration, and the board consents to it. That change is the connector's, in
-its own repository, and it is listed among the consequences.
+comments included. Nothing in the core is wrong. The connector reaches each of
+these actions once its manifest declares the categories that action carries,
+with a processing declaration, and the board consents to it; an action that
+carries none, as two of the writes below do, is offered to it already. That
+change is the connector's, in its own repository, and it is listed among the
+consequences.
 
 ## Decision
 
@@ -110,6 +112,16 @@ the audit channel `MCP`, exactly as the same act on the board's screen is
 recorded under `WEB`. On `ai` each is a pending change the AI package proposes
 and a person confirms on the platform's own screen (ADR 0039).
 
+A move into a status that means DONE closes the case, and does what closing it
+on the board's screen does: it clears the resident's permission to enter and the
+known fault, starts the retention clock
+([ADR 0057](0057-purging-issues-in-two-layers.md)), and ends every link a
+contractor holds to the case's work orders
+([ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md)).
+Reopening the case brings none of these back. `issue_set_status` lands at once on
+`mcp` all the same, because decision 34 says the status does; its description
+says what closing ends, so a caller deciding whether to close reads it first.
+
 Each answers with the case's identifier and the fields it changed, the assignee
 as the branch above, and nothing else: not the reporter, the description, the
 location or the conversation. That keeps the writes out of ADR 0040's exception,
@@ -129,8 +141,9 @@ the naming rules there.
   MCP" as it is written. The three reads ADR 0040 registered do this already:
   `IssueService` leaves a ring-fenced type's issues and the type out of every
   read it is asked for with `omit`, the argument the reads pass for a protected
-  reporter. The writes this record adds, once they are registered, answer a
-  ring-fenced case as not found by the same omission.
+  reporter. The writes this record adds, and `issue_handler_list`, answer a
+  ring-fenced case as not found by the same omission, as they answer a case a
+  reporter with protected personal data filed.
 - **An internal note**, read or written.
 - **The resident's permission to enter** (decision 29), **the common-area place**
   of a case (decision 30) and **the mark of an inspection finding with its
@@ -139,7 +152,9 @@ the naming rules there.
   not offered either until a decision of their own offers them.
 - **A reply to a reporter**, and **anything that reaches a contractor**: issuing a
   work order, sending it, issuing or revoking its link. Each leaves the instance
-  or reaches a person, and decision 34 keeps them on the board's screen.
+  or reaches a person, and decision 34 keeps them on the board's screen. Closing
+  a case ends its links as a consequence of the closing, as it does on the
+  screen, and no action offers that end on its own.
 - **A case closed to all but the board** is offered to a board member and never to
   a property manager, on these surfaces as on the screen.
 
@@ -167,9 +182,10 @@ wrote this record:
 
 - The catalogue's contract test pins five more actions, and the exact list of
   actions offered on `ai` grows by the four writes and `issue_handler_list`.
-- The MCP Connector is offered these actions only once its manifest declares the
-  personal data they carry and the board consents; until then it is offered no
-  person-bearing action at all. A change to the connector, in its own repository.
+- The MCP Connector is offered each of these actions only once its manifest
+  declares the personal data that action carries and the board consents; until
+  then it is offered no person-bearing action at all, and of these only
+  `issue_set_priority` and `issue_set_target_date`, which carry none. A change to the connector, in its own repository.
 - The AI package's triage reads the three priorities and the new fields, and its
   dependencies on `issue.type` and `reporter.personId` in the published output are
   checked (decision 35), in its own repository.

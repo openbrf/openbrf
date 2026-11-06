@@ -8,6 +8,9 @@ import {
   CONTACT_ACTION_ERRORS,
   FACTS_ACTION_ERRORS,
   ISSUE_ACTION_ERRORS,
+  ISSUE_ASSIGN_ACTION_ERRORS,
+  ISSUE_STATUS_ACTION_ERRORS,
+  ISSUE_TARGET_DATE_ACTION_ERRORS,
   MENU_ACTION_ERRORS,
   MOTION_ACTION_ERRORS,
   NEWS_ACTION_ERRORS,
@@ -24,6 +27,9 @@ const EVERY_LIST = [
   NEWS_COMMENT_ACTION_ERRORS,
   MOTION_ACTION_ERRORS,
   ISSUE_ACTION_ERRORS,
+  ISSUE_ASSIGN_ACTION_ERRORS,
+  ISSUE_TARGET_DATE_ACTION_ERRORS,
+  ISSUE_STATUS_ACTION_ERRORS,
   CONTACT_ACTION_ERRORS,
 ];
 
@@ -121,6 +127,46 @@ describe("what a caller is told about a refusal", () => {
       expect(reasons).toContain(reason);
     }
     expect(declared(ISSUE_ACTION_ERRORS)).toEqual(["issue-not-found"]);
+  });
+
+  it.each([
+    [
+      "issue_assign",
+      ISSUE_ASSIGN_ACTION_ERRORS,
+      ["assignee-not-a-handler", "issue-not-found"],
+    ],
+    [
+      "issue_set_target_date",
+      ISSUE_TARGET_DATE_ACTION_ERRORS,
+      [
+        "date-invalid",
+        "finding-needs-target-date",
+        "finding-target-date-too-late",
+        "issue-not-found",
+      ],
+    ],
+    [
+      "issue_set_status",
+      ISSUE_STATUS_ACTION_ERRORS,
+      [
+        "issue-not-found",
+        "outcome-required",
+        "status-detail-not-applicable",
+        "status-not-found",
+        "waiting-reason-required",
+      ],
+    ],
+  ])("covers the reasons %s can raise", (_name, specs, expected) => {
+    // What `IssueService` raises on the way through each write (ADR 0056),
+    // each still a reason the service declares.
+    const reasons = reasonsOf(
+      "apps/api/src/issues/issue.error.ts",
+      "IssueReason",
+    );
+    for (const reason of declared(specs)) {
+      expect(reasons).toContain(reason);
+    }
+    expect(declared(specs)).toEqual(expected);
   });
 
   it("covers the one reason the contact form inbox's read can raise", () => {

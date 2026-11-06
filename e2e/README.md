@@ -763,7 +763,9 @@ The pieces:
   meeting held on the day the board arranged it for, written straight into the database because
   nothing in the stack proposes a change (the selection is `src/agenda-proposal.ts`, covered by
   its `.test.ts`); `pending-changes-agenda` photographs
-  the card that shows it. `{ installPlugin }` installs a plugin from the stack's catalog as the
+  the card that shows it. `{ proposeUrgentIssue }` holds a proposal to raise
+  the issue the website's form filed from an address to urgent, the same way,
+  for `pending-changes-issue`. `{ installPlugin }` installs a plugin from the stack's catalog as the
   board does and waits for the restart that ends the install; the entries that
   need the plugin come last. A screen needing a kind that is not there adds it
   to the `Action` union and to `perform` in `capture.spec.ts`, once, and every

@@ -254,7 +254,11 @@ function registerEveryCoreAction(registrar: CoreActionRegistrar): void {
     registrar,
     new ActionInputNames(),
   ).onModuleInit();
-  new IssueActionsRegistrar(service as never, registrar).onModuleInit();
+  new IssueActionsRegistrar(
+    service as never,
+    registrar,
+    new ActionInputNames(),
+  ).onModuleInit();
   new ContactActionsRegistrar(service as never, registrar).onModuleInit();
   new DocumentActionsRegistrar(
     service as never,
@@ -299,7 +303,7 @@ function catalogue(): ActionDefinition[] {
 }
 
 /**
- * The thirty-seven, written out.
+ * The forty-five, written out.
  *
  * Exposure is opt-in, so the set is pinned rather than read back from the
  * registry: a test that only asked the registry what it holds would pass for
@@ -346,11 +350,16 @@ const NAMES = [
   "issue_list",
   "issue_get",
   "issue_type_list",
+  "issue_handler_list",
+  "issue_assign",
+  "issue_set_priority",
+  "issue_set_target_date",
+  "issue_set_status",
   "contact_message_list",
 ] as const;
 
 describe("what the catalogue offers", () => {
-  it("is exactly these thirty-seven actions", () => {
+  it("is exactly these forty-five actions", () => {
     expect(
       catalogue()
         .map((action) => action.name)
@@ -497,6 +506,7 @@ describe("what a plugin that asks for site:blocks is handed", () => {
     "document_list",
     "issue_get",
     "issue_list",
+    "issue_set_status",
     "issue_type_list",
     "meeting_get",
     "meeting_set_agenda",
@@ -713,7 +723,9 @@ describe("the annotations a client decides with", () => {
      * order of the pages and the menu. ADR 0040 offers the reads of the issue
      * queue and the contact form inbox: text people wrote to the board, which
      * is what issue triage needs, and the issue types it suggests a category
-     * from.
+     * from. ADR 0056 offers the list of who an issue may be assigned to and
+     * the four writes of an issue's handling, which the AI package can only
+     * propose.
      */
     const offered = actions
       .filter((action) => action.surfaces.includes("ai"))
@@ -723,8 +735,13 @@ describe("the annotations a client decides with", () => {
       "contact_message_list",
       "document_get",
       "document_list",
+      "issue_assign",
       "issue_get",
+      "issue_handler_list",
       "issue_list",
+      "issue_set_priority",
+      "issue_set_status",
+      "issue_set_target_date",
       "issue_type_list",
       "meeting_get",
       "meeting_list",
@@ -750,13 +767,17 @@ describe("the annotations a client decides with", () => {
   it("offers the reads of issues and contact messages beyond the instance only", () => {
     /*
      * Not on `ui`: the board's screens read the queue and the inbox through
-     * their own routes, and an in-process action would be a second way to the
-     * same rows with nobody asking for it (ADR 0040).
+     * their own routes, and an in-process read would be a second way to the
+     * same rows with nobody asking for it (ADR 0040). An issue write is on
+     * `ui` as well, where a pending change proposed on `ai` is confirmed: it
+     * is the screen's own act, so `ui` adds no reach (ADR 0056).
      */
     for (const action of actions.filter(
       (held) => held.group === "issues" || held.group === "contact",
     )) {
-      expect([...action.surfaces].sort(), action.name).toEqual(["ai", "mcp"]);
+      expect([...action.surfaces].sort(), action.name).toEqual(
+        action.effect === "read" ? ["ai", "mcp"] : ["ai", "mcp", "ui"],
+      );
     }
   });
 });

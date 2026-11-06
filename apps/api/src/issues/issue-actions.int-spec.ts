@@ -26,7 +26,10 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import { MediaService } from "../media/media.service";
-import { createIssueTypeFixture } from "../testing/issue-fixtures";
+import {
+  createIssueTypeFixture,
+  type IssueTypeFixture,
+} from "../testing/issue-fixtures";
 import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import { IssueTypeService } from "./issue-type.service";
 import { IssueService } from "./issue.service";
@@ -120,6 +123,8 @@ const contactId = `ia-contact-${suffix}`;
 const CONTACT_EMAIL = `avsandare-${suffix}@exempel.se`;
 
 let associationCreatedHere = false;
+/** The statuses of the residents' type, which the shielded report is of. */
+let memberStatusIds: IssueTypeFixture["statusIds"];
 let boardCookie = "";
 
 let ipCounter = 0;
@@ -159,6 +164,26 @@ function connectedApp(personId: string): ActionCaller {
   };
   const request = {
     id: `request-${suffix}`,
+    principal: { personId, capabilities: new Set<string>() },
+    token,
+  } as unknown as RequestWithToken;
+  markAuthenticated(request, new LiveResponse(), {
+    personId,
+    token,
+    requestId: request.id,
+  });
+  return callers.forRequest(request);
+}
+
+/** A connected app whose token may write as well as read. */
+function writingApp(personId: string): ActionCaller {
+  const token = {
+    clientId: `client-write-${suffix}`,
+    clientHost: "app.example",
+    scopes: ["mcp:read", "mcp:write"],
+  };
+  const request = {
+    id: `request-write-${suffix}`,
     principal: { personId, capabilities: new Set<string>() },
     token,
   } as unknown as RequestWithToken;
@@ -425,6 +450,7 @@ beforeAll(async () => {
     reporters: ["RESIDENTS"],
     sortOrder: 1,
   });
+  memberStatusIds = memberType.statusIds;
   const internalType = await createIssueTypeFixture(prisma, {
     id: typeIds.boardInternal,
     name: `Internt ${suffix}`,
@@ -645,10 +671,12 @@ describe("who may read the queue and the inbox", () => {
   });
 
   it("is not offered in the web interface, whoever asks", async () => {
+    // The reads. A write is offered there, for confirming a pending change.
     for (const name of [
       "issue_list",
       "issue_get",
       "issue_type_list",
+      "issue_handler_list",
       "contact_message_list",
     ]) {
       await expect(
@@ -1019,5 +1047,56 @@ describe("an issue a reporter with protected personal data filed", () => {
 
     expect(withheld.reason).toBe("issue-not-found");
     expect(withheld).toEqual(missing);
+  });
+
+  it("is answered as an issue that does not exist by every write and by the list of who may take it", async () => {
+    const handling = {
+      assigneePersonId: true,
+      priority: true,
+      targetDate: true,
+      statusId: true,
+    } as const;
+    const before = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueIds.shielded },
+      select: handling,
+    });
+    const recorded = () =>
+      prisma.auditLogEntry.count({
+        where: { targetKind: "issue", targetId: issueIds.shielded },
+      });
+    const recordedBefore = await recorded();
+
+    for (const [name, input] of [
+      ["issue_handler_list", {}],
+      ["issue_assign", { assigneePersonId: board.personId }],
+      ["issue_set_priority", { priority: "URGENT" }],
+      ["issue_set_target_date", { targetDate: "2031-05-30" }],
+      // A move the issue's status allows: NEW to IN_PROGRESS.
+      ["issue_set_status", { statusId: memberStatusIds.IN_PROGRESS }],
+    ] as const) {
+      const withheld = await refusalOf(
+        registry.invoke(writingApp(board.personId), name, {
+          ...input,
+          id: issueIds.shielded,
+        }),
+      );
+      const missing = await refusalOf(
+        registry.invoke(writingApp(board.personId), name, {
+          ...input,
+          id: `ia-issue-never-${suffix}`,
+        }),
+      );
+      expect(withheld.reason, name).toBe("issue-not-found");
+      expect(withheld, name).toEqual(missing);
+    }
+
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issueIds.shielded },
+        select: handling,
+      }),
+    ).toEqual(before);
+    // Nothing was recorded against it.
+    expect(await recorded()).toBe(recordedBefore);
   });
 });
