@@ -174,11 +174,21 @@ beforeAll(async () => {
         "-addext",
         "subjectAltName=IP:127.0.0.1",
       ],
-      { stdio: "ignore" },
+      { stdio: ["ignore", "ignore", "pipe"] },
     );
   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(
+        "This suite makes its TLS certificate with the `openssl` command, which could not be run: install OpenSSL and put it on the PATH.",
+        { cause: error },
+      );
+    }
+    // The command ran and refused: its own diagnostic says why.
+    const diagnostic = String(
+      (error as { stderr?: Buffer | string }).stderr ?? "",
+    ).trim();
     throw new Error(
-      "This suite makes its TLS certificate with the `openssl` command, which could not be run: install OpenSSL and put it on the PATH.",
+      `The \`openssl\` command failed to make this suite's TLS certificate: ${diagnostic || "it printed nothing"}`,
       { cause: error },
     );
   }
@@ -291,15 +301,22 @@ describe("a send whose signal is aborted", () => {
     // connection there, so the message itself never reaches it, and no
     // reply the server sends later could be answered with it.
     stallAt = "RCPT";
-    const deadline = AbortSignal.timeout(200);
+    const controller = new AbortController();
+    let abortedAt = 0;
+    onStall = () => {
+      abortedAt = Date.now();
+      controller.abort(new Error("deadline"));
+    };
 
     const failure = await driver()
-      .send(MAIL, deadline)
+      .send(MAIL, controller.signal)
       .catch((error: unknown) => error);
 
-    expect(failure).toBe(deadline.reason);
+    expect(failure).toBe(controller.signal.reason);
     await closedOn(1);
     expect(closed).toBe(1);
+    // The server sees the connection go at once, not at its own timeout.
+    expect(closedAt - abortedAt).toBeLessThan(500);
     expect(received.some((line) => line.startsWith("RCPT"))).toBe(true);
     expect(received.some((line) => line === "DATA")).toBe(false);
   }, 5000);
