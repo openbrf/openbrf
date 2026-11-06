@@ -139,10 +139,10 @@ describe("what a caller is told about a refusal", () => {
       "issue_set_target_date",
       ISSUE_TARGET_DATE_ACTION_ERRORS,
       [
+        "date-invalid",
         "finding-needs-target-date",
         "finding-target-date-too-late",
         "issue-not-found",
-        "target-date-invalid",
       ],
     ],
     [

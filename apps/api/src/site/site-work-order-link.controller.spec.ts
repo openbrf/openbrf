@@ -44,7 +44,7 @@ function routes(): { name: string; method: RequestMethod; path: string }[] {
 }
 
 describe("the contractor's link controller", () => {
-  it("puts every route behind a per-address budget", () => {
+  it("D1: puts every route behind a per-address budget", () => {
     const budgets = Object.fromEntries(
       routes().map(({ name }) => [
         name,

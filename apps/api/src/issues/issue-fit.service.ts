@@ -8,7 +8,6 @@ import {
   type IssueFindingKind,
   localDayOf,
   localDayOfColumn,
-  parseLocalDay,
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
@@ -31,7 +30,11 @@ import {
   lockIssueForHandling,
 } from "./issue-lock";
 import { IssueMailer } from "./issue-mailer.service";
-import { IssueError, placeWithApartment } from "./issue.error";
+import {
+  IssueError,
+  placeWithApartment,
+  requireCalendarDay,
+} from "./issue.error";
 import { IssueService, type QueuedIssueView } from "./issue.service";
 
 /**
@@ -80,10 +83,11 @@ export interface IssueFindingInput {
  *   (`findDoorCode`), with where it starts and never the value, because a code
  *   in a note is read by every handler and kept in every copy.
  *
- * The entry names the person who acted and the facts - the answer, whether pets
- * and the master key were stated, the expiry day - and never the note. By the
- * reporter themselves it is flagged `byReporter`, so the timeline can show it
- * without naming the reporter.
+ * The entry names the person who acted and the answer, yes or no, and never
+ * the note, the pets, the master key or the expiry day: those are about
+ * somebody's home and go when the issue closes, which the audit log does not.
+ * By the reporter themselves it is flagged `byReporter`, so the timeline can
+ * show it without naming the reporter.
  *
  * ## Place
  *
@@ -266,8 +270,8 @@ export class IssueFitService {
     issueId: string,
     input: IssueFindingInput,
   ): Promise<QueuedIssueView> {
-    const inspectedOn = requireDay(input.inspectedOn);
-    const targetDate = requireDay(input.targetDate);
+    const inspectedOn = requireCalendarDay(input.inspectedOn);
+    const targetDate = requireCalendarDay(input.targetDate);
     requireFindingTargetDate(input.kind, input.inspectedOn, input.targetDate);
 
     await this.mailer.ensureQueues();
@@ -315,11 +319,13 @@ export class IssueFitService {
       /*
        * A finding places a legal hold (ADR 0057), so neither the clock nor a
        * granted erasure request removes the protocol and the free text the
-       * association may have to show for a statutory inspection. Only on the
-       * first mark and only where none stands: a hold already placed keeps its
-       * date, and one a handler released after the mark was their decision,
-       * which changing the mark does not undo. Taking the mark off leaves the
-       * hold (`removeFinding`).
+       * association may have to show for a statutory inspection. Only when the
+       * issue is not marked yet and no hold stands: a hold already placed
+       * keeps its date, and one a handler released after the mark was their
+       * decision, which changing the mark does not undo. A mark put on again
+       * after it was taken off is a new finding and places the hold again; the
+       * issue does not remember a release, only the audit log does. Taking the
+       * mark off leaves the hold (`removeFinding`).
        */
       if (existing === null && issue.legalHoldAt === null) {
         await tx.issue.update({
@@ -474,17 +480,16 @@ export class IssueFitService {
           actorPersonId,
           targetKind: "issue",
           targetId: issue.id,
-          // Facts, never the note: it is about somebody's home.
+          /*
+           * That an answer was given, which, and by whom: the timeline reads
+           * no more. Not the note, nor whether there are pets, the master key
+           * or the last day - they are about somebody's home, cleared when the
+           * issue closes, and the audit log outlives that.
+           */
           context:
             data === null
               ? { byReporter }
-              : {
-                  answer: data.entryAnswer,
-                  pets: data.entryPets,
-                  masterKey: data.entryMasterKey,
-                  until: formatDateColumn(data.entryUntil),
-                  byReporter,
-                },
+              : { answer: data.entryAnswer, byReporter },
         },
         tx,
       );
@@ -613,7 +618,9 @@ function entryData(input: IssueEntryInput, byHandler: boolean): EntryData {
   }
 
   const until =
-    input.until == null || input.until === "" ? null : requireDay(input.until);
+    input.until == null || input.until === ""
+      ? null
+      : requireCalendarDay(input.until);
   return {
     entryAnswer: "YES",
     entryNote: note,
@@ -621,15 +628,4 @@ function entryData(input: IssueEntryInput, byHandler: boolean): EntryData {
     entryMasterKey: input.masterKey ?? false,
     entryUntil: until === null ? null : dateColumnOf(until),
   };
-}
-
-/** A calendar day the calendar has, or the refusal. */
-function requireDay(
-  value: string,
-): NonNullable<ReturnType<typeof parseLocalDay>> {
-  const day = parseLocalDay(value);
-  if (day === null) {
-    throw new IssueError("That is not a date.", "date-invalid");
-  }
-  return day;
 }

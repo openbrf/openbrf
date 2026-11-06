@@ -281,7 +281,7 @@ export const ISSUE_ASSIGN_ACTION_ERRORS: readonly ActionErrorSpec[] = [
  */
 export const ISSUE_TARGET_DATE_ACTION_ERRORS: readonly ActionErrorSpec[] = [
   ...ISSUE_ACTION_ERRORS,
-  spec("target-date-invalid", "after-edit", "actions.errors.targetDateInvalid"),
+  spec("date-invalid", "after-edit", "actions.errors.targetDateInvalid"),
   spec(
     "finding-needs-target-date",
     "after-edit",

@@ -202,17 +202,13 @@ const assignSchema = z.object({
 
 const prioritySchema = z.object({ priority: z.enum(ISSUE_PRIORITIES) });
 
-/** A calendar date, or null for none; the service reads it as one. */
-const targetDateSchema = z.object({
-  targetDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .nullable(),
-});
-
 const accessSchema = z.object({ boardOnly: z.boolean() });
 
+/** A calendar date's form; the service reads it as one (`requireCalendarDay`). */
 const calendarDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/** A calendar date, or null for none. */
+const targetDateSchema = z.object({ targetDate: calendarDay.nullable() });
 
 /**
  * The resident's answer to the entry question (decision 29). Strict, so a field
