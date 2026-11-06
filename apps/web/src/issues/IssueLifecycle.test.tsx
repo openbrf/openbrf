@@ -645,6 +645,26 @@ describe("merging", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
+
+    // The issue is offered again: it is neither chosen nor confirmed again
+    // without a first press made for it.
+    rerender(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER, third]}
+        onChanged={() => undefined}
+      />,
+    );
+    expect(
+      (
+        screen.getByLabelText(
+          "Hiss: slå samman med ett annat ärende",
+        ) as HTMLSelectElement
+      ).value,
+    ).toBe("");
+    expect(
+      screen.queryByRole("button", { name: "Ja, avsluta som dublett" }),
+    ).toBeNull();
     expect(mergeIssue).not.toHaveBeenCalled();
   });
 

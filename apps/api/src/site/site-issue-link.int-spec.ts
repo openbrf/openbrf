@@ -826,17 +826,24 @@ describe("B. lifetime and revocation", () => {
         closedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
       },
     });
-    // The link's ten messages are two seconds inside the hour when the reply
-    // starts, and out of it once the reply has waited for the issue's locks.
     await prisma.issueMessage.createMany({
       data: Array.from({ length: REPORTER_LINK_MESSAGES_PER_HOUR }, () => ({
         issueId,
         side: "REPORTER" as const,
         authorPersonId: null,
         body: "Ett tidigare svar",
-        createdAt: new Date(Date.now() - (3600 - 2) * 1000),
       })),
     });
+    // The link's ten messages are two seconds inside the hour when the reply
+    // starts, and out of it once the reply has waited for the issue's locks.
+    // Dated in SQL, on the clock the hour is judged on: from this process's
+    // clock the margin would be two seconds less or more by however far the
+    // two clocks differ, and the test would pass without the guard or fail
+    // with it.
+    await prisma.$executeRaw`
+      UPDATE "issue_message"
+      SET "createdAt" = clock_timestamp() - interval '3598 seconds'
+      WHERE "issueId" = ${issueId}`;
 
     let letGo: () => void = () => undefined;
     const letGoSignal = new Promise<void>((resolve) => {

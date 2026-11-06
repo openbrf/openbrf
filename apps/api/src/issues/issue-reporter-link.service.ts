@@ -21,7 +21,7 @@ import {
   type ReporterIssueMessageView,
   toReporterView,
 } from "./issue-conversation.service";
-import { requireHandledIssue, requireHandlerRole } from "./issue-handlers";
+import { requireHandledIssueForWrite } from "./issue-handlers";
 import {
   holdIssueTypeRingFence,
   lockIssue,
@@ -718,10 +718,11 @@ export class IssueReporterLinkService implements OnModuleInit {
    */
   async revoke(handlerPersonId: string, issueId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // No erasure lock, unlike a note: a withdrawn link names nobody, and
+      // the lock orders a row the person purge detaches from its writer
+      // against that purge.
       await lockIssueForHandling(tx, issueId);
-      const now = new Date();
-      await requireHandlerRole(tx, handlerPersonId, now);
-      const issue = await requireHandledIssue(
+      const issue = await requireHandledIssueForWrite(
         tx,
         issueId,
         handlerPersonId,
@@ -730,7 +731,7 @@ export class IssueReporterLinkService implements OnModuleInit {
             select: { id: true, mailedAt: true, revokedAt: true },
           },
         },
-        now,
+        new Date(),
       );
       const link = issue.reporterLink;
       if (link === null || link.mailedAt === null) {
