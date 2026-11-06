@@ -7,7 +7,9 @@ import {
   ISSUE_WAITING_REASON_LABEL,
 } from "../issues/issue-labels";
 import { Notice } from "../ui/Notice";
+import { PendingChangeInput } from "./PendingChangeInput";
 import type {
+  InputName,
   PendingChangeTarget as Target,
   PendingChangeTargetFact,
 } from "./pending-changes-api";
@@ -42,6 +44,7 @@ const FACT: Readonly<Record<string, TranslationKey>> = {
   outcome: "pendingChanges.target.fact.outcome",
   priority: "pendingChanges.target.fact.priority",
   targetDate: "pendingChanges.target.fact.targetDate",
+  assignee: "pendingChanges.target.fact.assignee",
 };
 
 /** The values of the facts that are a choice of a few, by fact. */
@@ -69,14 +72,22 @@ const VALUE: Readonly<
 
 /**
  * The facts the API leaves empty when there is nothing, by the word for that:
- * an issue's target date, which is optional and never an empty day, and the
- * waiting reason and outcome of an issue that is not waiting or not done.
+ * an issue's target date, which is optional and never an empty day, the
+ * waiting reason and outcome of an issue that is not waiting or not done, and
+ * the assignee of an issue nobody has.
  */
 const EMPTY: Readonly<Record<string, TranslationKey>> = {
   targetDate: "pendingChanges.target.value.noTargetDate",
   waitingReason: "pendingChanges.target.value.noWaitingReason",
   outcome: "pendingChanges.target.value.noOutcome",
+  assignee: "pendingChanges.target.value.noAssignee",
 };
+
+/**
+ * The facts that are a person's id, shown as the input preview shows one: with
+ * the name the API gives for it beside it, or alone where it gives none.
+ */
+const PERSON_FACTS: ReadonlySet<string> = new Set(["assignee"]);
 
 /** The facts that are register data, read character by character. */
 const DATA_FACTS: ReadonlySet<string> = new Set([
@@ -97,8 +108,11 @@ const DATA_FACTS: ReadonlySet<string> = new Set([
  */
 export function PendingChangeTarget({
   target,
+  names = {},
 }: {
   target: Target;
+  /** What the person ids among the facts stand for, by id. */
+  names?: Record<string, InputName>;
 }): ReactElement {
   const { t } = useTranslation();
 
@@ -133,7 +147,7 @@ export function PendingChangeTarget({
                     )}
                   </dt>
                   <dd className="text-body">
-                    <FactChange fact={fact} />
+                    <FactChange fact={fact} names={names} />
                   </dd>
                 </div>
               );
@@ -146,9 +160,15 @@ export function PendingChangeTarget({
 }
 
 /** One fact as it is, and what confirming sets it to when it sets it. */
-function FactChange({ fact }: { fact: PendingChangeTargetFact }): ReactElement {
+function FactChange({
+  fact,
+  names,
+}: {
+  fact: PendingChangeTargetFact;
+  names: Record<string, InputName>;
+}): ReactElement {
   const { t } = useTranslation();
-  const now = <FactValue fact={fact.fact} value={fact.now} />;
+  const now = <FactValue fact={fact.fact} value={fact.now} names={names} />;
 
   if (fact.after === undefined) {
     return now;
@@ -168,7 +188,7 @@ function FactChange({ fact }: { fact: PendingChangeTargetFact }): ReactElement {
       {now} <span aria-hidden="true">→</span>{" "}
       <span className="sr-only">{t("pendingChanges.target.becomes")}</span>{" "}
       <strong className="font-semibold">
-        <FactValue fact={fact.fact} value={fact.after} />
+        <FactValue fact={fact.fact} value={fact.after} names={names} />
       </strong>
     </>
   );
@@ -177,9 +197,11 @@ function FactChange({ fact }: { fact: PendingChangeTargetFact }): ReactElement {
 function FactValue({
   fact,
   value,
+  names,
 }: {
   fact: string;
   value: string | boolean;
+  names: Record<string, InputName>;
 }): ReactElement {
   const { t } = useTranslation();
 
@@ -193,6 +215,9 @@ function FactValue({
   const label = value === "" ? EMPTY[fact] : VALUE[fact]?.[value];
   if (label !== undefined) {
     return <span>{t(label)}</span>;
+  }
+  if (PERSON_FACTS.has(fact)) {
+    return <PendingChangeInput value={value} names={names} />;
   }
   if (DATA_FACTS.has(fact)) {
     // An address, an issue number and a day are register data.

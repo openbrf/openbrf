@@ -507,7 +507,8 @@ function published(issue: QueuedIssueView) {
  * What the pending-change screen shows of an issue a held write names (ADR
  * 0039, section 5): its number, type, status, priority and target date as they
  * stand now, and what confirming sets. A status move shows the waiting reason
- * and the outcome as well, which it sets beside the status.
+ * and the outcome as well, which it sets beside the status, and an assignment
+ * shows who has the issue now and who confirming gives it to.
  *
  * Read as the person viewing the change and with `omit`, as the write itself
  * will be: an issue they may not open, a ring-fenced one, and one a person
@@ -516,7 +517,10 @@ function published(issue: QueuedIssueView) {
  * or the conversation, which the write does not touch.
  *
  * A target date that is not set is the empty string, which no day is; the
- * screen names it.
+ * screen names it. An assignee is their person id, as the held input names
+ * one, or the empty string for nobody, and the screen puts beside it the name
+ * `issue_assign`'s namer gives. An assignee the register no longer holds has
+ * no id to show, and the fact is left out rather than said to be nobody.
  */
 type IssueFact =
   | "number"
@@ -525,12 +529,16 @@ type IssueFact =
   | "waitingReason"
   | "outcome"
   | "priority"
-  | "targetDate";
+  | "targetDate"
+  | "assignee";
 
-/** The facts only a status move shows, beside the status. */
-type StatusDetailFact = "waitingReason" | "outcome";
+/**
+ * The facts only some writes show: the waiting reason and the outcome beside a
+ * status move, and the assignee beside an assignment.
+ */
+type DetailFact = "waitingReason" | "outcome" | "assignee";
 
-/** A target date, waiting reason or outcome that is not set. */
+/** A target date, waiting reason, outcome or assignee that is not set. */
 const NOTHING_SET = "";
 
 function issueTarget<Input extends { id: string }>(
@@ -540,7 +548,7 @@ function issueTarget<Input extends { id: string }>(
     issue: QueuedIssueView,
     readerPersonId: string,
   ) => Promise<Partial<Record<IssueFact, string>>>,
-  details: readonly StatusDetailFact[] = [],
+  details: readonly DetailFact[] = [],
 ): ActionTarget<Input> {
   return {
     kind: "issue",
@@ -564,6 +572,9 @@ function issueTarget<Input extends { id: string }>(
           : {}),
         priority: issue.priority,
         targetDate: issue.targetDate ?? NOTHING_SET,
+        ...(details.includes("assignee") && issue.assignee?.kind !== "unknown"
+          ? { assignee: issue.assignee?.personId ?? NOTHING_SET }
+          : {}),
       };
       return targetFacts(facts, await sets(input, issue, readerPersonId));
     },
@@ -592,32 +603,53 @@ export class IssueActionsRegistrar implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    // A held assignment is previewed with the assignee's name beside their id
-    // (ADR 0039, section 5), for a viewer who handles issues now, and only
-    // where this issue's assignee picker would name them for that viewer: from
-    // `handlers`, read as the viewer and with `omit`, as `issue_handler_list`
-    // reads it. Anybody else, and every name on an issue the viewer may not
-    // open, is left as the identifier alone.
+    // A held assignment is previewed with the names of the assignee it sets
+    // and of the one it replaces beside their ids (ADR 0039, section 5), for a
+    // viewer who handles issues now, and only where this issue's assignee
+    // picker would name them for that viewer: from `handlers`, read as the
+    // viewer and with `omit`, as `issue_handler_list` reads it. Anybody else,
+    // and every name on an issue the viewer may not open, is left as the
+    // identifier alone.
     this.inputNames.register(
       "issue_assign",
       "issues:handle",
       async (input, readerPersonId) => {
         const held = heldAssignSchema.safeParse(input);
-        if (!held.success || held.data.assigneePersonId === null) {
+        if (!held.success) {
           return {};
         }
-        const personId = held.data.assigneePersonId;
-        const named = (
-          await this.issues
+        const issue = await this.issues
+          .queuedIssue(readerPersonId, held.data.id, "omit")
+          .catch(nullWhenGone);
+        if (issue === null) {
+          return {};
+        }
+        const wanted = new Set<string>();
+        if (held.data.assigneePersonId !== null) {
+          wanted.add(held.data.assigneePersonId);
+        }
+        if (issue.assignee !== null && issue.assignee.kind !== "unknown") {
+          wanted.add(issue.assignee.personId);
+        }
+        if (wanted.size === 0) {
+          return {};
+        }
+        const handlers =
+          (await this.issues
             .handlers(readerPersonId, held.data.id, "omit")
-            .catch(nullWhenGone)
-        )?.find(
-          (handler) =>
-            handler.kind === "person" && handler.personId === personId,
+            .catch(nullWhenGone)) ?? [];
+        return Object.fromEntries(
+          handlers.flatMap((handler) =>
+            handler.kind === "person" && wanted.has(handler.personId)
+              ? [
+                  [
+                    handler.personId,
+                    { text: handler.name, kind: "text" as const },
+                  ],
+                ]
+              : [],
+          ),
         );
-        return named?.kind === "person"
-          ? { [personId]: { text: named.name, kind: "text" as const } }
-          : {};
       },
     );
 
@@ -792,7 +824,13 @@ export class IssueActionsRegistrar implements OnModuleInit {
               "Who it is given to now, in one of three shapes, or null when nobody is.",
             ),
         }),
-        target: issueTarget(this.issues, async () => ({})),
+        target: issueTarget(
+          this.issues,
+          async (input: { id: string; assigneePersonId: string | null }) => ({
+            assignee: input.assigneePersonId ?? NOTHING_SET,
+          }),
+          ["assignee"],
+        ),
         handler: async (input, context) => {
           const issue = await this.issues.assign(
             input.id,

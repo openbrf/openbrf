@@ -208,11 +208,68 @@ describe("the preview", () => {
 
     const factOf = async (label: string) =>
       (await screen.findByText(label, { selector: "dt" })).nextElementSibling;
+    expect((await factOf("Status"))?.textContent).toBe("Väntar → blir Klar");
     expect((await factOf("Väntar på"))?.textContent).toBe(
       "Reservdelar → blir Inget",
     );
     expect((await factOf("Utfall"))?.textContent).toBe(
       "Inget utfall → blir Åtgärdat",
+    );
+  });
+
+  it("shows who has the issue now and who an assignment gives it to", async () => {
+    fetchMyPendingChanges.mockResolvedValue(
+      listing([
+        {
+          ...NEWS,
+          action: {
+            title: "Ge ett ärende till en ansvarig",
+            description: "Ger ett ärende till en ansvarig.",
+            effect: "write",
+            needsConfirmation: false,
+            errors: [],
+          },
+          actionName: "issue_assign",
+          input: { id: "issue-7", assigneePersonId: "person-board" },
+          channel: "AI",
+          // The one replaced has a withheld name, so is named by id alone.
+          names: { "person-board": { text: "Bea Styrelse", kind: "text" } },
+          target: {
+            kind: "issue",
+            id: "issue-7",
+            state: "found",
+            facts: [
+              { fact: "number", now: "42" },
+              { fact: "assignee", now: "person-hidden", after: "person-board" },
+            ],
+          },
+        },
+        {
+          ...NEWS,
+          id: "change-2",
+          actionName: "issue_assign",
+          input: { id: "issue-8", assigneePersonId: null },
+          channel: "AI",
+          target: {
+            kind: "issue",
+            id: "issue-8",
+            state: "found",
+            facts: [{ fact: "assignee", now: "", after: "" }],
+          },
+        },
+      ]),
+    );
+
+    render(<PendingChangesScreen />);
+
+    const [given, left] = await screen.findAllByText("Ansvarig", {
+      selector: "dt",
+    });
+    expect(given?.nextElementSibling?.textContent).toBe(
+      "person-hidden → blir Bea Styrelse person-board",
+    );
+    expect(left?.nextElementSibling?.textContent).toBe(
+      "Ej tilldelat (oförändrad)",
     );
   });
 

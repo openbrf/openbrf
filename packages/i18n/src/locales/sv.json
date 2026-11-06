@@ -7730,7 +7730,7 @@
       "missing": {
         "news": "Nyheten som ändringen gäller finns inte längre, så det går inte att bekräfta den. Du kan avvisa den.",
         "page": "Sidan som ändringen gäller finns inte längre, så det går inte att bekräfta den. Du kan avvisa den.",
-        "issue": "Ärendet som ändringen gäller finns inte längre, eller hanteras inte av dig, så det går inte att bekräfta den. Du kan avvisa den."
+        "issue": "Ärendet som ändringen gäller går inte att nå med den: det finns inte längre, du hanterar det inte längre, eller så hålls det borta från anslutna appar och AI-paketet. Det går inte att bekräfta den, men du kan avvisa den."
       },
       "withheld": "Du kan inte längre göra det ändringen gör, så det den gäller visas inte. Det går inte att bekräfta den, men du kan avvisa den.",
       "becomes": "blir",
@@ -7748,7 +7748,8 @@
         "priority": "Prioritet",
         "targetDate": "Senast klart",
         "waitingReason": "Väntar på",
-        "outcome": "Utfall"
+        "outcome": "Utfall",
+        "assignee": "Ansvarig"
       },
       "value": {
         "status": {
@@ -7768,7 +7769,8 @@
         },
         "noTargetDate": "Inget datum",
         "noWaitingReason": "Inget",
-        "noOutcome": "Inget utfall"
+        "noOutcome": "Inget utfall",
+        "noAssignee": "Ej tilldelat"
       }
     },
     "confirm": "Bekräfta och genomför",

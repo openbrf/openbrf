@@ -898,6 +898,53 @@ describe("a write held as a pending change", () => {
     });
   });
 
+  it("shows who has an issue now and who confirming an assignment gives it to", async () => {
+    const { held, queuedIssue } = build();
+    const target = held("issue_assign").target;
+
+    // Given from nobody.
+    expect(
+      await target?.read(
+        { id: "issue-1", assigneePersonId: "person-board" },
+        "person-viewer",
+      ),
+    ).toContainEqual({ fact: "assignee", now: "", after: "person-board" });
+
+    // Taken from a handler whose name is withheld, by their id alone.
+    queuedIssue.mockResolvedValueOnce({
+      ...QUEUED,
+      assignee: { kind: "protected", personId: "person-hidden" },
+    });
+    expect(
+      await target?.read(
+        { id: "issue-1", assigneePersonId: null },
+        "person-viewer",
+      ),
+    ).toContainEqual({ fact: "assignee", now: "person-hidden", after: "" });
+
+    // An assignee the register no longer holds has no id, and is not said to
+    // be nobody: the fact is left out.
+    queuedIssue.mockResolvedValueOnce({
+      ...QUEUED,
+      assignee: { kind: "unknown" },
+    });
+    const facts = await target?.read(
+      { id: "issue-1", assigneePersonId: "person-board" },
+      "person-viewer",
+    );
+    expect(facts?.map((fact) => fact.fact)).not.toContain("assignee");
+
+    // Only an assignment shows it.
+    expect(
+      (
+        await held("issue_set_priority").target?.read(
+          { id: "issue-1", priority: "LOW" },
+          "person-viewer",
+        )
+      )?.map((fact) => fact.fact),
+    ).not.toContain("assignee");
+  });
+
   it("says an issue the viewer may not open, or one left out, is gone", async () => {
     const { held, queuedIssue } = build();
     queuedIssue.mockRejectedValueOnce(
@@ -913,7 +960,7 @@ describe("a write held as a pending change", () => {
   });
 
   it("names an assignee this issue's picker would name for the viewer, and nobody else", async () => {
-    const { inputNames, handlers } = build();
+    const { inputNames, handlers, queuedIssue } = build();
     const viewer = {
       personId: "person-viewer",
       capabilities: new Set(["issues:handle"]),
@@ -939,7 +986,41 @@ describe("a write held as a pending change", () => {
         ),
       ).toEqual({});
     }
+    // The assignee it replaces is named on the same terms, beside the one it
+    // sets; one whose name is withheld is left as their identifier.
+    queuedIssue.mockResolvedValueOnce({
+      ...QUEUED,
+      assignee: { kind: "person", personId: "person-board", name: "Bea" },
+    });
+    expect(
+      await inputNames.namesOf(
+        "issue_assign",
+        { id: "issue-1", assigneePersonId: null },
+        viewer,
+      ),
+    ).toEqual({ "person-board": { text: "Bea Styrelse", kind: "text" } });
+    queuedIssue.mockResolvedValueOnce({
+      ...QUEUED,
+      assignee: { kind: "protected", personId: "person-hidden" },
+    });
+    expect(
+      await inputNames.namesOf(
+        "issue_assign",
+        { id: "issue-1", assigneePersonId: null },
+        viewer,
+      ),
+    ).toEqual({});
     // An issue the viewer may not open names nobody.
+    queuedIssue.mockRejectedValueOnce(
+      new IssueError("No such issue.", "issue-not-found"),
+    );
+    expect(
+      await inputNames.namesOf(
+        "issue_assign",
+        { id: "issue-1", assigneePersonId: "person-board" },
+        viewer,
+      ),
+    ).toEqual({});
     handlers.mockRejectedValueOnce(
       new IssueError("No such issue.", "issue-not-found"),
     );

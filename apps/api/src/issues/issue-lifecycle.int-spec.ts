@@ -1617,6 +1617,58 @@ describe("a known fault", () => {
     ).toBe(plain.statusIds.NEW);
   });
 
+  it("does not assign, prioritise, date or mark an issue for a person who no longer holds issues:handle", async () => {
+    const issueId = await filed(plain);
+    const handling = {
+      assigneePersonId: true,
+      priority: true,
+      targetDate: true,
+      costResponsibility: true,
+      boardOnly: true,
+    } as const;
+    const before = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: handling,
+    });
+    const actor = { personId: resident.personId, channel: "WEB" } as const;
+    // Past the route's guard, as a role withdrawn in between: the narrower
+    // scope admits the issue, so only the role check refuses each write.
+    for (const [name, write] of [
+      ["assign", () => issues.assign(issueId, null, actor, "show")],
+      [
+        "setPriority",
+        () => issues.setPriority(issueId, "URGENT", actor, "show"),
+      ],
+      [
+        "setTargetDate",
+        () => issues.setTargetDate(issueId, "2031-05-30", actor, "show"),
+      ],
+      [
+        "setCostResponsibility",
+        () =>
+          issues.setCostResponsibility(
+            issueId,
+            "ASSOCIATION",
+            resident.personId,
+          ),
+      ],
+      [
+        "setBoardOnly",
+        () => issues.setBoardOnly(issueId, true, resident.personId),
+      ],
+    ] as const) {
+      await expect(write(), name).rejects.toMatchObject({
+        reason: "issue-not-found",
+      });
+    }
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: handling,
+      }),
+    ).toEqual(before);
+  });
+
   it("does not write to the reporter as a person who no longer holds issues:handle", async () => {
     const issueId = await filed(plain, neighbour);
     // Past the route's guard, as a role withdrawn in between: the narrower

@@ -26,7 +26,10 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import { MediaService } from "../media/media.service";
-import { createIssueTypeFixture } from "../testing/issue-fixtures";
+import {
+  createIssueTypeFixture,
+  type IssueTypeFixture,
+} from "../testing/issue-fixtures";
 import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import { IssueTypeService } from "./issue-type.service";
 import { IssueService } from "./issue.service";
@@ -120,6 +123,8 @@ const contactId = `ia-contact-${suffix}`;
 const CONTACT_EMAIL = `avsandare-${suffix}@exempel.se`;
 
 let associationCreatedHere = false;
+/** The statuses of the residents' type, which the shielded report is of. */
+let memberStatusIds: IssueTypeFixture["statusIds"];
 let boardCookie = "";
 
 let ipCounter = 0;
@@ -445,6 +450,7 @@ beforeAll(async () => {
     reporters: ["RESIDENTS"],
     sortOrder: 1,
   });
+  memberStatusIds = memberType.statusIds;
   const internalType = await createIssueTypeFixture(prisma, {
     id: typeIds.boardInternal,
     name: `Internt ${suffix}`,
@@ -1044,16 +1050,29 @@ describe("an issue a reporter with protected personal data filed", () => {
   });
 
   it("is answered as an issue that does not exist by every write and by the list of who may take it", async () => {
+    const handling = {
+      assigneePersonId: true,
+      priority: true,
+      targetDate: true,
+      statusId: true,
+    } as const;
     const before = await prisma.issue.findUniqueOrThrow({
       where: { id: issueIds.shielded },
-      select: { assigneePersonId: true, priority: true, targetDate: true },
+      select: handling,
     });
+    const recorded = () =>
+      prisma.auditLogEntry.count({
+        where: { targetKind: "issue", targetId: issueIds.shielded },
+      });
+    const recordedBefore = await recorded();
 
     for (const [name, input] of [
       ["issue_handler_list", {}],
       ["issue_assign", { assigneePersonId: board.personId }],
       ["issue_set_priority", { priority: "URGENT" }],
       ["issue_set_target_date", { targetDate: "2031-05-30" }],
+      // A move the issue's status allows: NEW to IN_PROGRESS.
+      ["issue_set_status", { statusId: memberStatusIds.IN_PROGRESS }],
     ] as const) {
       const withheld = await refusalOf(
         registry.invoke(writingApp(board.personId), name, {
@@ -1074,8 +1093,10 @@ describe("an issue a reporter with protected personal data filed", () => {
     expect(
       await prisma.issue.findUniqueOrThrow({
         where: { id: issueIds.shielded },
-        select: { assigneePersonId: true, priority: true, targetDate: true },
+        select: handling,
       }),
     ).toEqual(before);
+    // Nothing was recorded against it.
+    expect(await recorded()).toBe(recordedBefore);
   });
 });

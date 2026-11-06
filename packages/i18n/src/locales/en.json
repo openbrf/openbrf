@@ -7730,7 +7730,7 @@
       "missing": {
         "news": "The news item this change is to no longer exists, so confirming it will be refused. You can reject it.",
         "page": "The page this change is to no longer exists, so confirming it will be refused. You can reject it.",
-        "issue": "The issue this change is to no longer exists, or is not one you handle, so confirming it will be refused. You can reject it."
+        "issue": "The issue this change is to cannot be reached by it: it no longer exists, you no longer handle it, or it is kept from connected apps and the AI package. Confirming it will be refused. You can reject it."
       },
       "withheld": "You can no longer do what this change does, so what it is to is not shown. Confirming it would be refused; you can reject it.",
       "becomes": "becomes",
@@ -7748,7 +7748,8 @@
         "priority": "Priority",
         "targetDate": "Target date",
         "waitingReason": "Waiting for",
-        "outcome": "Outcome"
+        "outcome": "Outcome",
+        "assignee": "Assignee"
       },
       "value": {
         "status": {
@@ -7768,7 +7769,8 @@
         },
         "noTargetDate": "None",
         "noWaitingReason": "Nothing",
-        "noOutcome": "None"
+        "noOutcome": "None",
+        "noAssignee": "Unassigned"
       }
     },
     "confirm": "Confirm and carry out",

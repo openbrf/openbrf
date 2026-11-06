@@ -21,8 +21,9 @@ status, and the AI package can propose the same four changes (ADR 0056).
   package can only propose them, and the person confirms on the platform's own
   screen. That screen shows the issue's number, type, status, priority and
   target date beside what the change sets, a status move's waiting reason and
-  outcome as well, and the assignee's name beside their identifier when this
-  issue may be given to them. Each write answers with the issue's identifier
+  outcome as well, and for an assignment who has the issue now and who
+  confirming gives it to, each by name beside their identifier when this issue
+  may be given to them. Each write answers with the issue's identifier
   and what it changed, never the reporter, the description or the location.
   None of them writes to the reporter or sends anything to a contractor.
   Closing an issue with `issue_set_status` does what closing it on the board's
