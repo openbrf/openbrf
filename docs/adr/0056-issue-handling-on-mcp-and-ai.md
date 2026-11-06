@@ -28,7 +28,7 @@ reporter, internal notes, work orders and contractors
 ([ADR 0054](0054-issue-types-statuses-and-outcomes.md)), so every new read and
 write needs that decision.
 
-The owner decided (decision 34) that an MCP client may assign a case and change
+The owner decided (decision 34) that an MCP client may assign an issue and change
 its priority, target date and status, landing at once and acting as the signed-in
 person, as the news actions do. Replies to a reporter and anything sent to a
 contractor stay off it by default, because those leave the instance. The `ai`
@@ -67,12 +67,12 @@ surfaces, and carry the new fields:
 
 - the status, as its meaning and the board's label, and the waiting reason or
   the outcome where there is one;
-- the priority and the target date, and whether the case is overdue;
+- the priority and the target date, and whether the issue is overdue;
 - the assignee, as a discriminated union over strict branches: a person with
   their identifier and name, a person whose name is withheld with their
   identifier alone (`{ kind: "protected", personId }`, as `docs/actions.md`
   publishes a protected author), or nobody;
-- whether a handler entered the case, and that the case is closed to all but the
+- whether a handler entered the issue, and that the issue is closed to all but the
   board, where it is.
 
 The withheld branch is built inside `IssueService`, by the same function that
@@ -85,7 +85,7 @@ its default priority and who handles it. Not its default assignee: a type's
 setting naming a person is configuration, and the catalogue reads no person
 today.
 
-One new read, **`issue_handler_list`**: the people a given case may be assigned
+One new read, **`issue_handler_list`**: the people a given issue may be assigned
 to, by identifier and name, with a withheld name as the branch above. A names-only
 read, and its own, so an MCP client can assign without reading the address book:
 the product decision log's decision 11 keeps the property manager out of it, and
@@ -112,17 +112,17 @@ the audit channel `MCP`, exactly as the same act on the board's screen is
 recorded under `WEB`. On `ai` each is a pending change the AI package proposes
 and a person confirms on the platform's own screen (ADR 0039).
 
-A move into a status that means DONE closes the case, and does what closing it
+A move into a status that means DONE closes the issue, and does what closing it
 on the board's screen does: it clears the resident's permission to enter and the
 known fault, starts the retention clock
 ([ADR 0057](0057-purging-issues-in-two-layers.md)), and ends every link a
-contractor holds to the case's work orders
+contractor holds to the issue's work orders
 ([ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md)).
-Reopening the case brings none of these back. `issue_set_status` lands at once on
+Reopening the issue brings none of these back. `issue_set_status` lands at once on
 `mcp` all the same, because decision 34 says the status does; its description
 says what closing ends, so a caller deciding whether to close reads it first.
 
-Each answers with the case's identifier and the fields it changed, the assignee
+Each answers with the issue's identifier and the fields it changed, the assignee
 as the branch above, and nothing else: not the reporter, the description, the
 location or the conversation. That keeps the writes out of ADR 0040's exception,
 which they do not need, and keeps a write from being a second way to read.
@@ -133,7 +133,7 @@ the naming rules there.
 
 ### What is never offered on `mcp` or `ai`
 
-- **A ring-fenced type.** Its cases are left out of every read and answered as
+- **A ring-fenced type.** Its issues are left out of every read and answered as
   not found by every write, by the same omission inside `IssueService` that ADR
   0040 makes for a protected reporter: not on any page of `issue_list`, not by
   `issue_get`, not counted, and never named by a cursor. The type itself is left
@@ -142,28 +142,28 @@ the naming rules there.
   `IssueService` leaves a ring-fenced type's issues and the type out of every
   read it is asked for with `omit`, the argument the reads pass for a protected
   reporter. The writes this record adds, and `issue_handler_list`, answer a
-  ring-fenced case as not found by the same omission, as they answer a case a
+  ring-fenced issue as not found by the same omission, as they answer an issue a
   reporter with protected personal data filed.
 - **An internal note**, read or written.
 - **The resident's permission to enter** (decision 29), **the common-area place**
-  of a case (decision 30) and **the mark of an inspection finding with its
+  of an issue (decision 30) and **the mark of an inspection finding with its
   protocol** (decision 31), read or written. The first is the resident's answer
-  about their home, kept only until the case closes; the other two are
+  about their home, kept only until the issue closes; the other two are
   not offered either until a decision of their own offers them.
 - **A reply to a reporter**, and **anything that reaches a contractor**: issuing a
   work order, sending it, issuing or revoking its link. Each leaves the instance
   or reaches a person, and decision 34 keeps them on the board's screen. Closing
-  a case ends its links as a consequence of the closing, as it does on the
+  an issue ends its links as a consequence of the closing, as it does on the
   screen, and no action offers that end on its own.
-- **A case closed to all but the board** is offered to a board member and never to
+- **An issue closed to all but the board** is offered to a board member and never to
   a property manager, on these surfaces as on the screen.
 
 ### What is not decided here, and not offered
 
-No action reads the conversation with a reporter, and none opens a case, moves a
-case to another type, merges two cases, redacts text, removes a photograph or
-publishes a known fault. Each would need a decision of its own; none relies on
-this record by analogy.
+No action reads the conversation with a reporter, and none opens an issue, moves
+an issue to another type, merges two issues, redacts text, removes a photograph
+or publishes a known fault. Each would need a decision of its own; none relies
+on this record by analogy.
 
 ## Open questions
 

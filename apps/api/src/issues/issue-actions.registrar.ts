@@ -1006,6 +1006,23 @@ export class IssueActionsRegistrar implements OnModuleInit {
                 ? (input.outcome ??
                   (issue.meaning === "DONE" ? issue.outcome : null))
                 : null;
+            // A move `nextState` refuses sets nothing beside the status
+            // either: a waiting reason on a status that does not mean
+            // WAITING, or none into one that does; an outcome on a status that
+            // does not mean DONE; and a first closing without one. The input
+            // schema accepts all of them, so a held move can name them, and
+            // "Waiting for: Parts" shown for a move that confirming then
+            // refuses would be a promise nobody can keep.
+            const refused =
+              (status.meaning === "WAITING") !==
+                (input.waitingReason !== undefined) ||
+              (status.meaning !== "DONE" && input.outcome !== undefined) ||
+              (status.meaning === "DONE" &&
+                issue.meaning !== "DONE" &&
+                outcome === null);
+            if (refused) {
+              return { issueStatus: status.label };
+            }
             return {
               issueStatus: status.label,
               waitingReason: input.waitingReason ?? NOTHING_SET,
