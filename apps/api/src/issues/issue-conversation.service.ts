@@ -633,8 +633,10 @@ export class IssueConversationService {
     }>;
     try {
       attachment = await this.prisma.$transaction(async (tx) => {
-        // The writer's erasure lock first, as a note takes it.
-        await lockErasureEligibility(tx, input.handlerPersonId);
+        // No erasure lock, unlike a note: the attachment row names nobody, and
+        // the file's uploader was written by the upload above, on its own.
+        // The lock orders a row the person purge detaches from its writer
+        // against that purge, and this transaction writes none.
         await lockIssueForHandling(tx, input.issueId);
         await this.requireHandledForWrite(
           tx,

@@ -16,7 +16,6 @@ import {
 import { failureName } from "../logging/failure";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { issueReporterLinkMail } from "../mail/templates";
-import { lockErasureEligibility } from "../retention/erasure-lock";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import {
   type ReporterIssueMessageView,
@@ -719,8 +718,9 @@ export class IssueReporterLinkService implements OnModuleInit {
    */
   async revoke(handlerPersonId: string, issueId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
-      // The writer's erasure lock first, as a note takes it.
-      await lockErasureEligibility(tx, handlerPersonId);
+      // No erasure lock, unlike a note: a withdrawn link names nobody, and
+      // the lock orders a row the person purge detaches from its writer
+      // against that purge.
       await lockIssueForHandling(tx, issueId);
       const issue = await requireHandledIssueForWrite(
         tx,

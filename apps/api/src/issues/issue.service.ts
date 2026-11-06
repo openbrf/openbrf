@@ -1493,12 +1493,12 @@ export class IssueService {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
 
-      const now = new Date();
-      const scope = await this.readerScope(tx, actorPersonId, now);
-      await requireHandlerRole(tx, actorPersonId, now);
-      const existing = await tx.issue.findFirst({
-        where: { id: issueId, ...issuesHandledWhere(scope) },
-        select: {
+      // After the lock wait: one instant for the writer's role and scope.
+      const existing = await requireHandledIssueForWrite(
+        tx,
+        issueId,
+        actorPersonId,
+        {
           id: true,
           typeId: true,
           closedAt: true,
@@ -1508,10 +1508,8 @@ export class IssueService {
           entryAnswer: true,
           status: { select: { id: true, meaning: true } },
         },
-      });
-      if (existing === null) {
-        throw new IssueError("No such issue.", "issue-not-found");
-      }
+        new Date(),
+      );
 
       const target = await tx.issueStatus.findFirst({
         where: {
@@ -2173,7 +2171,9 @@ export class IssueService {
       await lockIssuesForHandling(tx, [issueId, intoIssueId]);
       // After the lock waits. A person who handles nothing is read as the
       // narrower scope, which admits every issue an every-handler type has: a
-      // role withdrawn since the route's check must not merge.
+      // role withdrawn since the route's check must not merge. Two issues are
+      // read under the one scope, so the role is asked here beside them rather
+      // than through `requireHandledIssueForWrite`, which reads one.
       const now = new Date();
       await requireHandlerRole(tx, actorPersonId, now);
       const scope = await this.readerScope(tx, actorPersonId, now);

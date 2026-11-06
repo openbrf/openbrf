@@ -177,9 +177,11 @@ export async function requireHandledIssue<S extends Prisma.IssueSelect>(
  * type has, and `signatureOf` falls back to the board: a role withdrawn since
  * the route's check must not write or sign as the board.
  *
- * A write that reads an issue asks {@link requireHandledIssueForWrite}, which
- * asks this first, so it cannot be left out; this stands alone for a write that
- * reads its issue by another path.
+ * A write that reads one issue asks {@link requireHandledIssueForWrite}, which
+ * asks this first, so it cannot be left out. This stands alone only where a
+ * write reads more than one issue under the one scope: `IssueService.merge`
+ * reads the duplicate and the issue it is merged into, and asks it beside
+ * those reads.
  */
 export async function requireHandlerRole(
   db: FeedDbClient,
@@ -197,10 +199,15 @@ export async function requireHandlerRole(
  * ({@link requireHandlerRole}).
  *
  * The one read every handler write on a single issue starts from, after the
- * locks it takes. `now` has no default: the caller reads the clock once the
- * locks are held and judges the role and the scope at that one instant, so a
- * board seat or a role that ended during a lock wait is not read as it stood
- * before.
+ * locks it takes: the writes of `IssueService` (`setStatus` with its own
+ * select), `IssueConversationService`, `IssueFitService`,
+ * `IssueRedactionService`, `IssueReporterLinkService.revoke`,
+ * `WorkOrderLinkService` and `WorkOrderService.send`. `merge`, which reads two
+ * issues, asks {@link requireHandlerRole} beside its reads instead.
+ *
+ * `now` has no default: the caller reads the clock once the locks are held and
+ * judges the role and the scope at that one instant, so a board seat or a role
+ * that ended during a lock wait is not read as it stood before.
  */
 export async function requireHandledIssueForWrite<S extends Prisma.IssueSelect>(
   db: FeedDbClient,
