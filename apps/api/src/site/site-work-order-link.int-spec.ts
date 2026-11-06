@@ -286,6 +286,22 @@ interface Arranged {
 
 let arranged = 0;
 
+/** Waits until a transaction is queued on the household protection's lock. */
+async function waitForProtectionLockWaiter(): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+      SELECT count(*) AS waiting FROM pg_locks
+      WHERE locktype = 'advisory' AND NOT granted
+        AND objid::bigint = (hashtext('work-order-link-protection')::bigint & 4294967295)`;
+    if (row !== undefined && row.waiting > 0n) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("Nothing queued on the household protection's lock");
+}
+
 /**
  * An issue a resident reported, with every sensitive field filled with a
  * canary (control H1), two photographs, a note, a message, and two work
@@ -1034,6 +1050,56 @@ describe("B. lifetime and revocation", () => {
     ).toEqual(chosen);
     // The link still opens.
     expect((await page(ids.token)).statusCode).toBe(200);
+  });
+
+  it("B1: is not issued to a handler whose role is withdrawn while the issuing waits on the household protection's lock", async () => {
+    const ids = await arrange();
+    const handlerId = `wl-lapsing-${suffix}`;
+    await prisma.person.create({
+      data: { id: handlerId, firstName: "Lars", lastName: `Roll${suffix}` },
+    });
+    await prisma.systemRole.create({
+      data: { personId: handlerId, role: "PROPERTY_MANAGER" },
+    });
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const inside = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    try {
+      const holding = prisma.$transaction(
+        async (tx) => {
+          await lockHouseholdProtection(tx);
+          entered();
+          await held;
+        },
+        { timeout: 20_000 },
+      );
+      await inside;
+      const issuing = links.issue(handlerId, ids.issueId, ids.workOrderId).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      await waitForProtectionLockWaiter();
+      // The role is asked again once the lock is got: a check made before the
+      // wait alone would let the link be issued.
+      await prisma.systemRole.deleteMany({ where: { personId: handlerId } });
+      release();
+      await holding;
+      expect(await issuing).toMatchObject({ reason: "issue-not-found" });
+      expect(
+        await prisma.workOrderLink.count({
+          where: { workOrderId: ids.workOrderId },
+        }),
+      ).toBe(0);
+    } finally {
+      release();
+      await prisma.systemRole.deleteMany({ where: { personId: handlerId } });
+      await prisma.person.deleteMany({ where: { id: handlerId } });
+    }
   });
 
   it("B2: ends 30 days after it was issued, on the database's clock", async () => {

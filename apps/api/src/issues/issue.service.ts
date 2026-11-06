@@ -1053,7 +1053,18 @@ export class IssueService {
        * out, and the handler would be told it failed when it had been filed.
        */
       await lockIssueType(tx, input.typeId);
-      const scope = await this.readerScope(tx, principal.personId, new Date());
+      /*
+       * The role and the scope at the one instant read once the lock is held:
+       * a role withdrawn while this waited on the lock reads as the narrower
+       * scope, which still admits every type an every-handler type has.
+       */
+      const now = new Date();
+      if (
+        !(await handlesIssues(tx, principal.personId, "EVERY_HANDLER", now))
+      ) {
+        throw new IssueError("No such issue type.", "type-not-found");
+      }
+      const scope = await this.readerScope(tx, principal.personId, now);
       const type = await tx.issueType.findFirst({
         where: { id: input.typeId, active: true, ...typesHandledWhere(scope) },
         select: {

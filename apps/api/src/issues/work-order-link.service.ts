@@ -323,6 +323,10 @@ export class WorkOrderLinkService {
       // while this link is being issued either is seen here or finds the link
       // and ends it.
       await lockHouseholdProtection(tx);
+      // The wait for this lock, and the work order's before it, may have
+      // outlasted the handler's role or board seat: asked again, at the
+      // instant read now that every lock is held.
+      await this.requireHandledForWrite(tx, issueId, handlerPersonId);
       if (await showsProtectedHousehold(tx, issueId, localDayOf(new Date()))) {
         throw new IssueError(
           "A work order on this issue is given no link: somebody it concerns has protected personal data.",

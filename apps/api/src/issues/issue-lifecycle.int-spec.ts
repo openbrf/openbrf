@@ -8,6 +8,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
+import {
+  capabilitiesFor,
+  type Principal,
+  type PrincipalRoles,
+} from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
@@ -25,7 +30,7 @@ import {
   IssueMailer,
   type IssueNoticeJob,
 } from "./issue-mailer.service";
-import { lockIssue, lockIssuesForHandling } from "./issue-lock";
+import { lockIssue, lockIssueType, lockIssuesForHandling } from "./issue-lock";
 import { IssueRedactionService } from "./issue-redaction.service";
 import { IssueService } from "./issue.service";
 
@@ -1656,6 +1661,52 @@ describe("a known fault", () => {
     ).toMatchObject({ reason: "issue-not-found" });
     expect(
       await prisma.issueMessage.count({ where: { issueId: duplicate } }),
+    ).toBe(0);
+  });
+
+  it("does not file an issue for a handler whose role is withdrawn while the open waits on the type's lock", async () => {
+    const roles: PrincipalRoles = {
+      isAdmin: false,
+      isBoardMember: false,
+      isPropertyManager: true,
+      isResident: false,
+      isMember: false,
+    };
+    const principal: Principal = {
+      ...roles,
+      personId: outsider.personId,
+      capabilities: capabilitiesFor(roles),
+    };
+    const description = `Utan roll ${suffix}`;
+    await prisma.systemRole.create({
+      data: { personId: outsider.personId, role: "PROPERTY_MANAGER" },
+    });
+    const lock = await holdLocks((tx) => lockIssueType(tx, typeIds.plain));
+    try {
+      const outcome = outcomeOf(() =>
+        issues.open(principal, { typeId: typeIds.plain, description }),
+      );
+      await waitForLockWaiter(`issue-type:${typeIds.plain}`);
+      // The role is read after the wait: a check made before it would let the
+      // open through, and the narrower scope admits an every-handler type.
+      await prisma.systemRole.deleteMany({
+        where: { personId: outsider.personId },
+      });
+      await lock.release();
+      expect(await outcome).toMatchObject({
+        ok: false,
+        error: { reason: "type-not-found" },
+      });
+    } finally {
+      await lock.release();
+      await prisma.systemRole.deleteMany({
+        where: { personId: outsider.personId },
+      });
+    }
+    expect(
+      await prisma.issue.count({
+        where: { enteredByPersonId: outsider.personId },
+      }),
     ).toBe(0);
   });
 
