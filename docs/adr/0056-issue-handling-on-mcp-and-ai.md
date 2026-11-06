@@ -160,10 +160,10 @@ the naming rules there.
 
 ### What is not decided here, and not offered
 
-No action reads the conversation with a reporter, and none opens an issue, moves a
-issue to another type, merges two issues, redacts text, removes a photograph or
-publishes a known fault. Each would need a decision of its own; none relies on
-this record by analogy.
+No action reads the conversation with a reporter, and none opens an issue, moves
+an issue to another type, merges two issues, redacts text, removes a photograph
+or publishes a known fault. Each would need a decision of its own; none relies
+on this record by analogy.
 
 ## Open questions
 
