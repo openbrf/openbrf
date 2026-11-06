@@ -181,6 +181,25 @@ describe("the issue report form", () => {
     );
   });
 
+  it("names the longest of the types' clocks, never a fixed period", () => {
+    const html = renderPage(
+      chrome,
+      page([{ type: "issueReportForm" }]),
+      state({
+        issueTypes: [
+          { id: "type-1", name: "Trasig port", textRetentionYears: 5 },
+          { id: "type-2", name: "Klotter", textRetentionYears: 10 },
+        ],
+      }),
+    );
+
+    // The line must not understate how long the text is kept (art. 13(2)(a)):
+    // it follows the board's clock, not the two-year default.
+    expect(html).toContain("det du skrev och svaren du får 10 år efter");
+    expect(html.includes("2 år efter")).toBe(false);
+    expect(html.includes("5 år efter")).toBe(false);
+  });
+
   it("takes text and never a file", () => {
     const html = renderPage(
       chrome,
