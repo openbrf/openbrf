@@ -353,10 +353,11 @@ sections above leave open, this is what was decided:
   one of them is read in the lookup on every request. A
   redaction, a purge, a ring-fence, a contractor removed and the issue closed
   (merged into another as a duplicate included) also revoke the link in their
-  own transaction, so lifting a ring-fence or
-  reopening the issue later brings no link back; the handler issues a new one
-  if the work goes on. So does protection: marking a person as protected, and
-  recording a protected person's residency (counted from the day it is
+  own transaction, so reopening the issue later brings no link back, and nor
+  would a ring-fence changed behind the service (the service never lifts one
+  from a type with issues, decision 32 of ADR 0054); the handler issues a new
+  one if the work goes on. So does protection: marking a person as protected,
+  and recording a protected person's residency (counted from the day it is
   recorded, not the day it begins), revoke the links of the issues they
   reported and of the issues about that apartment, in the same transaction and
   audited on the channel of the write. Issuing a link and those writes take
