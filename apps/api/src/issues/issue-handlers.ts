@@ -173,11 +173,17 @@ export async function requireHandledIssue<S extends Prisma.IssueSelect>(
  *
  * For a handler's write, asked inside its transaction once its locks are held
  * and with the instant its scope is judged at: those that sign with the role
- * the writer holds (`signatureOf`), and the notes, attachments, status moves
- * and link withdrawals that act for a handler. {@link requireHandledIssue} answers the narrower
- * scope for a person who handles nothing, which admits every issue an
- * every-handler type has, and `signatureOf` falls back to the board: a role
- * withdrawn since the route's check must not write or sign as the board.
+ * the writer holds (`signatureOf`), and every other write that acts for a
+ * handler: a note, an attachment, a link withdrawal, and a change to an
+ * issue's status, assignee, priority, target date, cost responsibility,
+ * damage-case mark or board-only access. {@link requireHandledIssue}
+ * answers the narrower scope for a person who handles nothing, which admits
+ * every issue an every-handler type has, and `signatureOf` falls back to the
+ * board: a role withdrawn since the route's check must not write or sign as
+ * the board.
+ *
+ * A write on one issue asks it through {@link requireHandledIssueToWrite},
+ * which asks both questions at one instant.
  */
 export async function requireHandlerRole(
   db: FeedDbClient,
@@ -187,6 +193,28 @@ export async function requireHandlerRole(
   if (!(await handlesIssues(db, personId, "EVERY_HANDLER", now))) {
     throw new IssueError("No such issue.", "issue-not-found");
   }
+}
+
+/**
+ * The issue a handler's write acts on, read with the caller's select:
+ * {@link requireHandlerRole} and {@link requireHandledIssue}, both asked at
+ * `now`.
+ *
+ * The read a write on one issue starts from when it signs or acts for a
+ * handler, so the rule that the role is held at the instant the scope is
+ * judged at is kept here and not by pairing the two questions at each call
+ * site. `now` has no default: the caller reads the clock after its lock
+ * waits, so a role or board seat that ended during one does not count.
+ */
+export async function requireHandledIssueToWrite<S extends Prisma.IssueSelect>(
+  db: FeedDbClient,
+  issueId: string,
+  handlerPersonId: string,
+  select: S,
+  now: Date,
+): Promise<Prisma.IssueGetPayload<{ select: S }>> {
+  await requireHandlerRole(db, handlerPersonId, now);
+  return requireHandledIssue(db, issueId, handlerPersonId, select, now);
 }
 
 /** The types a reader who is let into types of this scope handles. */
