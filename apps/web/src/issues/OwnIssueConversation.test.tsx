@@ -287,6 +287,97 @@ describe("the reporter's conversation", () => {
     expect(onFollowUp).toHaveBeenCalledWith("Det läcker igen");
   });
 
+  it("does not hand a refused reply to a later follow-up once the reply field is back", async () => {
+    sendOwnIssueMessage.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 409, reason: "issue-closed" },
+    });
+    const onFollowUp = vi.fn();
+    const session = userEvent.setup();
+    const { rerender } = render(
+      <OwnIssueConversation
+        issue={own()}
+        onChanged={() => undefined}
+        onFollowUp={onFollowUp}
+      />,
+    );
+    await openConversation(session);
+    await session.type(
+      await screen.findByLabelText("Vatten: ditt meddelande"),
+      "Det läcker igen",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+    await screen.findByText(/Anmälan avslutades medan du skrev/);
+
+    // The report is read as closed, then reopened, then closed again, with
+    // nothing sent in between: only the field coming back clears the text.
+    for (const replyMode of ["NEW_REPORT", "REOPENS", "NEW_REPORT"] as const) {
+      rerender(
+        <OwnIssueConversation
+          issue={own(
+            replyMode === "NEW_REPORT"
+              ? { meaning: "DONE", replyMode }
+              : { replyMode },
+          )}
+          onChanged={() => undefined}
+          onFollowUp={onFollowUp}
+        />,
+      );
+    }
+    await session.click(
+      await screen.findByRole("button", { name: "Gör en ny anmälan om detta" }),
+    );
+    expect(sendOwnIssueMessage).toHaveBeenCalledTimes(1);
+    expect(onFollowUp).toHaveBeenCalledWith("");
+  });
+
+  it("does not hand a refused reply to a later follow-up once another message went through", async () => {
+    sendOwnIssueMessage.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 409, reason: "issue-closed" },
+    });
+    const onFollowUp = vi.fn();
+    const session = userEvent.setup();
+    const { rerender } = render(
+      <OwnIssueConversation
+        issue={own()}
+        onChanged={() => undefined}
+        onFollowUp={onFollowUp}
+      />,
+    );
+    await openConversation(session);
+    await session.type(
+      await screen.findByLabelText("Vatten: ditt meddelande"),
+      "Det läcker igen",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+    await screen.findByText(/Anmälan avslutades medan du skrev/);
+
+    // Another message goes through while the report stays open to replies:
+    // the reply mode never leaves REOPENS, so the field never "comes back".
+    await session.type(
+      await screen.findByLabelText("Vatten: ditt meddelande"),
+      "Något annat",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+    await waitFor(() => {
+      expect(sendOwnIssueMessage).toHaveBeenCalledTimes(2);
+    });
+
+    // Closed later: the follow-up starts from nothing.
+    rerender(
+      <OwnIssueConversation
+        issue={own({ meaning: "DONE", replyMode: "NEW_REPORT" })}
+        onChanged={() => undefined}
+        onFollowUp={onFollowUp}
+      />,
+    );
+    await session.click(
+      await screen.findByRole("button", { name: "Gör en ny anmälan om detta" }),
+    );
+    expect(onFollowUp).toHaveBeenCalledWith("");
+  });
+
   it("says a merged report is handled with another, and offers a new report", async () => {
     const session = userEvent.setup();
     render(
