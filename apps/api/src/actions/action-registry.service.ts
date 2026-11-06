@@ -402,7 +402,7 @@ export class ActionRegistryService {
     ) {
       return { kind, id, state: "withheld", facts: [] };
     }
-    const facts = await held.target.read(parsed.value);
+    const facts = await held.target.read(parsed.value, personId);
     return facts === null
       ? { kind, id, state: "missing", facts: [] }
       : { kind, id, state: "found", facts };
