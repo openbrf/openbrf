@@ -171,6 +171,15 @@ describe("the sensitive-data warning", () => {
       screen.getByText(/tas bort 2 år efter att ärendet har stängts/i),
     ).toBeTruthy();
     expect(screen.getByText(/aldrig själva anmälan/i)).toBeTruthy();
+    // What outlasts the board's clock is named: the apartment or common area,
+    // the board's power to change the clock, and the work order's ten years.
+    expect(
+      screen.getByText(/vilken lägenhet eller vilket gemensamt utrymme/i),
+    ).toBeTruthy();
+    expect(screen.getByText(/styrelsen kan ändra antalet år/i)).toBeTruthy();
+    expect(
+      screen.getByText(/det sparas i tio år efter att ärendet har stängts/i),
+    ).toBeTruthy();
 
     await session.selectOptions(
       screen.getByLabelText(/vad gäller det/i),

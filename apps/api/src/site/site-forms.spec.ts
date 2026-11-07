@@ -179,6 +179,12 @@ describe("the issue report form", () => {
     expect(html).toContain(
       "Ditt namn och din e-postadress tas bort ett år efter att ärendet har stängts, och det du skrev och svaren du får 2 år efter",
     );
+    // The board's clock reaches reports already made, and a work order's text
+    // and the address index kept beside it run on a ten-year clock of their own.
+    expect(html).toContain("Styrelsen kan ändra antalet år");
+    expect(html).toContain(
+      "skriver till en entreprenör sparas i tio år efter att ärendet har stängts, och så länge sparas också en kodad form av din e-postadress",
+    );
   });
 
   it("names the longest of the types' clocks, never a fixed period", () => {

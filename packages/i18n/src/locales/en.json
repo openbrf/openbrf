@@ -3653,8 +3653,8 @@
       "submit": "Send the report",
       "sent": "Thank you. The report has reached the association.",
       "refused": "The report could not be read. Check that you have chosen what it concerns and described the fault, then send it again.",
-      "retention_one": "Your name and email address are removed a year after the issue is closed, and what you wrote and the replies you receive {{count}} year after it is closed, unless the association has to keep them longer; its privacy notice says when.",
-      "retention_other": "Your name and email address are removed a year after the issue is closed, and what you wrote and the replies you receive {{count}} years after it is closed, unless the association has to keep them longer; its privacy notice says when."
+      "retention_one": "Your name and email address are removed a year after the issue is closed, and what you wrote and the replies you receive {{count}} year after it is closed, unless the association has to keep them longer; its privacy notice says when. The board can change how many years that is, for reports already made too. What whoever handles the issue writes to a contractor is kept ten years after the issue is closed, and until then so is a coded form of your email address, so that a legal hold or a restriction on you still reaches that text.",
+      "retention_other": "Your name and email address are removed a year after the issue is closed, and what you wrote and the replies you receive {{count}} years after it is closed, unless the association has to keep them longer; its privacy notice says when. The board can change how many years that is, for reports already made too. What whoever handles the issue writes to a contractor is kept ten years after the issue is closed, and until then so is a coded form of your email address, so that a legal hold or a restriction on you still reaches that text."
     },
     "documents": {
       "heading": "Documents",
@@ -3970,8 +3970,8 @@
       "place": "Common area",
       "placeNone": "None in particular",
       "placeHint": "Choose one if the problem is in a common area. Describe exactly where in the field below.",
-      "retention_one": "What you write, the conversation and the photographs are removed {{count}} year after the issue is closed, unless the association has to keep them longer, for instance for an insurance claim; what it concerned and when stay. A contractor the association hires is sent only what whoever handles the issue writes for them, never the report itself.",
-      "retention_other": "What you write, the conversation and the photographs are removed {{count}} years after the issue is closed, unless the association has to keep them longer, for instance for an insurance claim; what it concerned and when stay. A contractor the association hires is sent only what whoever handles the issue writes for them, never the report itself."
+      "retention_one": "What you write, the conversation and the photographs are removed {{count}} year after the issue is closed, unless the association has to keep them longer, for instance for an insurance claim; what it concerned, which apartment or common area, and when stay. The board can change how many years that is, for reports already made too. A contractor the association hires is sent only what whoever handles the issue writes for them, never the report itself, and that is kept ten years after the issue is closed.",
+      "retention_other": "What you write, the conversation and the photographs are removed {{count}} years after the issue is closed, unless the association has to keep them longer, for instance for an insurance claim; what it concerned, which apartment or common area, and when stay. The board can change how many years that is, for reports already made too. A contractor the association hires is sent only what whoever handles the issue writes for them, never the report itself, and that is kept ten years after the issue is closed."
     },
     "photos": {
       "title": "Photographs",
