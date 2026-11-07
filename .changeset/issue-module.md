@@ -285,6 +285,12 @@ number, shown in the queue, on the reporter's own list and in every mail.
   nor the type. No report under it is made from a post, and the website's form
   offers none. The ring-fence cannot be lifted once anything has been reported
   under the type; a type ring-fenced by mistake is switched off and replaced.
+- **Upgrading ring-fences nothing.** The types an instance already has keep
+  being handled by every handler, the property manager included, since nothing
+  tells the upgrade which of them is for disturbances. A board that has such a
+  type, and offers it on the website's form, takes it off the form and
+  ring-fences it in the settings; the issues already reported under it are
+  then ring-fenced with it.
 - **Its own retention period.** The free text of a ring-fenced issue is purged
   one year after it closes, whatever the board set for other issues, unless a
   legal hold stands on the issue or a legal hold or a restriction on its
