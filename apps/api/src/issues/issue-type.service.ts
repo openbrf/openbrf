@@ -683,8 +683,10 @@ export class IssueTypeService {
    *
    * Ring-fencing a type also revokes every contractor's link to a work order on
    * its issues, in the same transaction (ADR 0055, control B5 of its threat
-   * review). The link's lookup refuses them anyway; the revocation keeps them
-   * ended once the ring-fence is lifted.
+   * review). The lookup refuses them anyway; the revocation writes the end onto
+   * the row, so a ring-fence changed outside this service (which itself never
+   * lifts one from a type with issues, `ring-fence-in-use`, ADR 0054, decision
+   * 32) brings no link back.
    *
    * Not a recall: a work order claimed before the type was ring-fenced is on
    * its way, and may have left.
@@ -745,7 +747,7 @@ export class IssueTypeService {
         if (ringFenced) {
           // Nothing about the type's issues reaches a contractor from now on:
           // every link to one of their work orders ends in this transaction,
-          // and lifting the ring-fence later brings none back (ADR 0055).
+          // as a fact on the row (ADR 0055).
           await revokeWorkOrderLinks(tx, { issue: { typeId: id } });
         }
         await this.audit.record(

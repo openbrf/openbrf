@@ -1603,7 +1603,8 @@ describe("a known fault", () => {
       issues.setStatus(
         issueId,
         { statusId: plain.statusIds.IN_PROGRESS },
-        resident.personId,
+        { personId: resident.personId, channel: "WEB" },
+        "show",
       ),
     ).rejects.toMatchObject({ reason: "issue-not-found" });
     expect(
@@ -1614,6 +1615,91 @@ describe("a known fault", () => {
         })
       ).statusId,
     ).toBe(plain.statusIds.NEW);
+  });
+
+  it("does not assign, prioritise, date or mark an issue for a person who no longer holds issues:handle", async () => {
+    const issueId = await filed(plain);
+    // A damage case the issue already holds, so a write that got through
+    // would change or remove it.
+    const damageCase = {
+      insurer: "Länsförsäkringar",
+      claimNumber: `S-${issueId}`,
+      occurredOn: "2026-10-30",
+      cause: "WATER",
+    } as const;
+    await prisma.issueDamageCase.create({
+      data: { issueId, ...damageCase, occurredOn: new Date("2026-10-30") },
+    });
+    const handling = {
+      assigneePersonId: true,
+      priority: true,
+      targetDate: true,
+      costResponsibility: true,
+      boardOnly: true,
+    } as const;
+    const before = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: handling,
+    });
+    const actor = { personId: resident.personId, channel: "WEB" } as const;
+    // Past the route's guard, as a role withdrawn in between: the narrower
+    // scope admits the issue, so only the role check refuses each write.
+    for (const [name, write] of [
+      ["assign", () => issues.assign(issueId, null, actor, "show")],
+      [
+        "setPriority",
+        () => issues.setPriority(issueId, "URGENT", actor, "show"),
+      ],
+      [
+        "setTargetDate",
+        () => issues.setTargetDate(issueId, "2031-05-30", actor, "show"),
+      ],
+      [
+        "setCostResponsibility",
+        () =>
+          issues.setCostResponsibility(
+            issueId,
+            "ASSOCIATION",
+            resident.personId,
+          ),
+      ],
+      [
+        "setBoardOnly",
+        () => issues.setBoardOnly(issueId, true, resident.personId),
+      ],
+      [
+        "markDamageCase",
+        () =>
+          issues.markDamageCase(
+            issueId,
+            { ...damageCase, insurer: "If Skadeförsäkring" },
+            damageCase,
+            resident.personId,
+          ),
+      ],
+      [
+        "removeDamageCase",
+        () => issues.removeDamageCase(issueId, damageCase, resident.personId),
+      ],
+    ] as const) {
+      await expect(write(), name).rejects.toMatchObject({
+        reason: "issue-not-found",
+      });
+    }
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: handling,
+      }),
+    ).toEqual(before);
+    expect(
+      await prisma.issueDamageCase.findMany({
+        where: { issueId },
+        select: { insurer: true, claimNumber: true },
+      }),
+    ).toEqual([
+      { insurer: damageCase.insurer, claimNumber: damageCase.claimNumber },
+    ]);
   });
 
   it("does not write to the reporter as a person who no longer holds issues:handle", async () => {

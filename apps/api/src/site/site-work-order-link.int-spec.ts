@@ -1102,7 +1102,7 @@ describe("B. lifetime and revocation", () => {
     expect((await page(ids.token)).statusCode).toBe(404);
   });
 
-  it("B1, B5, I1: ring-fencing the type revokes its links in that transaction, and lifting it brings none back", async () => {
+  it("B1, B5, I1: ring-fencing the type revokes its links in that transaction, the API refuses to lift it, and a lifting behind the service brings none back", async () => {
     const ids = await linked({ type: fenced });
     const set = (ringFenced: boolean) =>
       inject({

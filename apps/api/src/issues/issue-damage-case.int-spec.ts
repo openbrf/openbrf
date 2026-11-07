@@ -431,7 +431,7 @@ describe("a damage case", () => {
     ).not.toBe("");
   });
 
-  it("keeps a closed issue's free text when the mark places its hold while the purge waits for the issue", async () => {
+  it("keeps a closed issue's free text when a hold written under the issue's lock lands while the purge waits for it", async () => {
     /*
      * The mark takes the issue's lock (`lockIssueForHandling`) before it
      * writes `legalHoldAt`, and the purge reads the hold again under that

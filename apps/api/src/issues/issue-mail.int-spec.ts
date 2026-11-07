@@ -24,6 +24,7 @@ import {
 } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
+import type { ActorContext } from "../audit/actor-context";
 import {
   capabilitiesFor,
   type Principal,
@@ -85,6 +86,11 @@ let mailer: IssueMailer;
 let mail: MailService;
 
 const suffix = process.hrtime.bigint().toString(36);
+
+/** A handler acting on the board's own screen, as the queue's routes do. */
+function web(entry: { personId: string }): ActorContext {
+  return { personId: entry.personId, channel: "WEB" };
+}
 
 function person(key: string, firstName: string, lastName: string) {
   return {
@@ -1040,10 +1046,10 @@ describe("a handler acts on an issue", () => {
     const issueId = await report(unassignedType);
     const before = (await notices(issueId)).length;
 
-    await issues.assign(issueId, manager.personId, board.personId);
-    await issues.assign(issueId, board.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
+    await issues.assign(issueId, board.personId, web(board), "show");
     // Assigned again to the person who has it: no change, so no mail.
-    await issues.assign(issueId, board.personId, admin.personId);
+    await issues.assign(issueId, board.personId, web(admin), "show");
 
     expect((await notices(issueId)).slice(before)).toEqual([
       {
@@ -1059,9 +1065,9 @@ describe("a handler acts on an issue", () => {
     const issueId = await report(unassignedType);
     const before = (await notices(issueId)).length;
 
-    await issues.assign(issueId, manager.personId, board.personId);
-    await issues.assign(issueId, admin.personId, board.personId);
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
+    await issues.assign(issueId, admin.personId, web(board), "show");
+    await issues.assign(issueId, manager.personId, web(board), "show");
 
     expect(
       (await notices(issueId))
@@ -1098,13 +1104,15 @@ describe("a handler acts on an issue", () => {
       issues.setStatus(
         issueId,
         { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-        board.personId,
+        web(board),
+        "show",
       );
     const reopen = () =>
       issues.setStatus(
         issueId,
         { statusId: assignedType.statusIds.IN_PROGRESS },
-        board.personId,
+        web(board),
+        "show",
       );
     await close();
     const before = (await notices(issueId)).length;
@@ -1125,9 +1133,9 @@ describe("a handler acts on an issue", () => {
     const before = (await notices(issueId)).length;
     const sent = captureSends();
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const first = await lastNotice(issueId);
-    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
     // The worker takes the first notice while the issue is somebody else's,
     // sends nothing, and the queue completes it.
     await setNoticeState(first, "active");
@@ -1135,7 +1143,7 @@ describe("a handler acts on an issue", () => {
     await setNoticeState(first, "completed");
     expect(await holdsSlot(first)).toBe(false);
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
 
     const queued = (await notices(issueId)).slice(before);
     expect(queued.map((job) => [job.personId, job.event])).toEqual([
@@ -1152,15 +1160,15 @@ describe("a handler acts on an issue", () => {
     const before = (await notices(issueId)).length;
     const sent = captureSends();
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const first = await lastNotice(issueId);
     await setNoticeState(first, "active");
     expect(await mailer.deliver(first)).toBe(true);
     await setNoticeState(first, "completed");
     expect(sent).toHaveLength(1);
 
-    await issues.assign(issueId, admin.personId, board.personId);
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
+    await issues.assign(issueId, manager.personId, web(board), "show");
 
     // The manager was told in the same clock hour, and is not told again.
     expect(
@@ -1177,13 +1185,13 @@ describe("a handler acts on an issue", () => {
     const issueId = await report(unassignedType);
     const before = (await notices(issueId)).length;
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const first = await lastNotice(issueId);
     await setNoticeState(first, "failed");
     // What the dead letter carries: the job's own data.
     expect(await mailer.releaseNoticeSlot(first)).toBe(true);
-    await issues.assign(issueId, admin.personId, board.personId);
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
+    await issues.assign(issueId, manager.personId, web(board), "show");
 
     expect(
       (await notices(issueId))
@@ -1202,13 +1210,15 @@ describe("a handler acts on an issue", () => {
       issues.setStatus(
         issueId,
         { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-        board.personId,
+        web(board),
+        "show",
       );
     const reopen = () =>
       issues.setStatus(
         issueId,
         { statusId: assignedType.statusIds.IN_PROGRESS },
-        board.personId,
+        web(board),
+        "show",
       );
     const sent = captureSends();
     await close();
@@ -1238,15 +1248,15 @@ describe("a handler acts on an issue", () => {
     const before = (await notices(issueId)).length;
     const sent = captureSends();
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const first = await lastNotice(issueId);
-    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
     await setNoticeState(first, "active");
     // The worker looks while the issue is the admin's. Before it takes the
     // issue's lock, the issue is handed back, and that queues nothing: the
     // first notice holds the slot.
     vi.spyOn(mailer, "releaseOverdueClaim").mockImplementationOnce(async () => {
-      await issues.assign(issueId, manager.personId, board.personId);
+      await issues.assign(issueId, manager.personId, web(board), "show");
     });
     expect(await mailer.deliver(first)).toBe(true);
     await setNoticeState(first, "completed");
@@ -1255,8 +1265,8 @@ describe("a handler acts on an issue", () => {
 
     // Away and back once more in the same clock hour: the manager has been
     // told.
-    await issues.assign(issueId, admin.personId, board.personId);
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
+    await issues.assign(issueId, manager.personId, web(board), "show");
     expect(
       (await notices(issueId))
         .slice(before)
@@ -1273,13 +1283,15 @@ describe("a handler acts on an issue", () => {
       issues.setStatus(
         issueId,
         { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-        board.personId,
+        web(board),
+        "show",
       );
     const reopen = () =>
       issues.setStatus(
         issueId,
         { statusId: assignedType.statusIds.IN_PROGRESS },
-        board.personId,
+        web(board),
+        "show",
       );
     const sent = captureSends();
     await close();
@@ -1310,9 +1322,9 @@ describe("a handler acts on an issue", () => {
     const before = (await notices(issueId)).length;
     const sent = captureSends();
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const first = await lastNotice(issueId);
-    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
     await setNoticeState(first, "active");
     // While the first notice gives its slot back under the issue's lock, the
     // issue is handed back to the manager, and that waits for the lock.
@@ -1321,7 +1333,12 @@ describe("a handler acts on an issue", () => {
     let handedBack: Promise<unknown> | undefined;
     vi.spyOn(jobs, "releaseSingleton").mockImplementationOnce(
       async (...args) => {
-        handedBack = issues.assign(issueId, manager.personId, board.personId);
+        handedBack = issues.assign(
+          issueId,
+          manager.personId,
+          web(board),
+          "show",
+        );
         await untilWaitingForIssueLock(issueId);
         return release(...args);
       },
@@ -1343,7 +1360,7 @@ describe("a handler acts on an issue", () => {
 
   it("leaves a notice that finds the issue changed after every look to its retry, holding its slot", async () => {
     const issueId = await report(unassignedType);
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const first = await lastNotice(issueId);
     await setNoticeState(first, "active");
     // Every look finds the notice not owed, as though the issue were handed
@@ -1362,7 +1379,7 @@ describe("a handler acts on an issue", () => {
     const before = (await notices(issueId)).length;
     const sent = captureSends();
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const older = await lastNotice(issueId);
     // Its retries ran into the next hour's slot, where the issue is handed
     // away and back, and that queues a notice of its own.
@@ -1371,8 +1388,8 @@ describe("a handler acts on an issue", () => {
       ISSUE_NOTICE_QUEUE,
       older.jobId,
     );
-    await issues.assign(issueId, admin.personId, board.personId);
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const newer = await lastNotice(issueId);
     expect(newer.jobId).not.toBe(older.jobId);
     expect(newer.personId).toBe(manager.personId);
@@ -1390,8 +1407,8 @@ describe("a handler acts on an issue", () => {
 
     // The newer notice was sent in the same clock hour as the repeat, and still
     // keeps it out.
-    await issues.assign(issueId, admin.personId, board.personId);
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
+    await issues.assign(issueId, manager.personId, web(board), "show");
     expect(
       (await notices(issueId))
         .slice(before)
@@ -1407,7 +1424,7 @@ describe("a handler acts on an issue", () => {
     const issueId = await report(unassignedType);
     const before = (await notices(issueId)).length;
 
-    await issues.assign(issueId, restricted.personId, board.personId);
+    await issues.assign(issueId, restricted.personId, web(board), "show");
 
     expect((await notices(issueId)).slice(before)).toEqual([]);
   });
@@ -1416,7 +1433,7 @@ describe("a handler acts on an issue", () => {
     const issueId = await report(assignedType);
     const before = (await notices(issueId)).length;
 
-    await issues.setPriority(issueId, "URGENT", board.personId);
+    await issues.setPriority(issueId, "URGENT", web(board), "show");
     const raised = recipientsOf((await notices(issueId)).slice(before));
     expect(raised.get(admin.personId)).toBe("urgent");
     expect(raised.get(manager.personId)).toBe("urgent");
@@ -1424,8 +1441,8 @@ describe("a handler acts on an issue", () => {
     expect(raised.has(restricted.personId)).toBe(false);
 
     const afterRaise = (await notices(issueId)).length;
-    await issues.setPriority(issueId, "URGENT", admin.personId);
-    await issues.setPriority(issueId, "LOW", admin.personId);
+    await issues.setPriority(issueId, "URGENT", web(admin), "show");
+    await issues.setPriority(issueId, "LOW", web(admin), "show");
     expect(await notices(issueId)).toHaveLength(afterRaise);
   });
 
@@ -1434,14 +1451,16 @@ describe("a handler acts on an issue", () => {
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-      board.personId,
+      web(board),
+      "show",
     );
     const before = (await notices(issueId)).length;
 
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.IN_PROGRESS },
-      board.personId,
+      web(board),
+      "show",
     );
     expect((await notices(issueId)).slice(before)).toEqual([
       {
@@ -1456,13 +1475,15 @@ describe("a handler acts on an issue", () => {
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-      manager.personId,
+      web(manager),
+      "show",
     );
     const reopenedOnce = (await notices(issueId)).length;
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.NEW },
-      manager.personId,
+      web(manager),
+      "show",
     );
     expect(await notices(issueId)).toHaveLength(reopenedOnce);
   });
@@ -1472,14 +1493,16 @@ describe("a handler acts on an issue", () => {
     await issues.setStatus(
       issueId,
       { statusId: unassignedType.statusIds.DONE, outcome: "NO_FAULT" },
-      board.personId,
+      web(board),
+      "show",
     );
     const before = (await notices(issueId)).length;
 
     await issues.setStatus(
       issueId,
       { statusId: unassignedType.statusIds.NEW },
-      board.personId,
+      web(board),
+      "show",
     );
 
     const told = recipientsOf((await notices(issueId)).slice(before));
@@ -1766,7 +1789,12 @@ describe("the overdue reminder", () => {
     const issueId = await report(assignedType);
     const target = addLocalDays(today(), 3);
 
-    await issues.setTargetDate(issueId, formatLocalDay(target), board.personId);
+    await issues.setTargetDate(
+      issueId,
+      formatLocalDay(target),
+      web(board),
+      "show",
+    );
 
     const [job] = await overdueJobs(issueId);
     expect(job?.data).toEqual({ issueId, targetDate: formatLocalDay(target) });
@@ -1779,7 +1807,7 @@ describe("the overdue reminder", () => {
   it("reminds the assignee once for each target date that has passed", async () => {
     const issueId = await report(assignedType);
     const yesterday = formatLocalDay(addLocalDays(today(), -1));
-    await issues.setTargetDate(issueId, yesterday, board.personId);
+    await issues.setTargetDate(issueId, yesterday, web(board), "show");
     const before = (await notices(issueId)).length;
 
     const job = { issueId, targetDate: yesterday };
@@ -1800,14 +1828,15 @@ describe("the overdue reminder", () => {
     await issues.setTargetDate(
       issueId,
       formatLocalDay(addLocalDays(today(), 5)),
-      board.personId,
+      web(board),
+      "show",
     );
-    await issues.setTargetDate(issueId, yesterday, board.personId);
+    await issues.setTargetDate(issueId, yesterday, web(board), "show");
     expect(await mailer.remindOverdue(job)).toBe(false);
 
     // A new date that passes is a new period, reminded of its own.
     const lastWeek = formatLocalDay(addLocalDays(today(), -7));
-    await issues.setTargetDate(issueId, lastWeek, board.personId);
+    await issues.setTargetDate(issueId, lastWeek, web(board), "show");
     expect(await mailer.remindOverdue({ issueId, targetDate: lastWeek })).toBe(
       true,
     );
@@ -1820,17 +1849,17 @@ describe("the overdue reminder", () => {
     const dateA = formatLocalDay(addLocalDays(today(), -2));
     const dateB = formatLocalDay(addLocalDays(today(), -1));
 
-    await issues.setTargetDate(issueId, dateA, board.personId);
+    await issues.setTargetDate(issueId, dateA, web(board), "show");
     expect(await mailer.remindOverdue({ issueId, targetDate: dateA })).toBe(
       true,
     );
-    await issues.setTargetDate(issueId, dateB, board.personId);
+    await issues.setTargetDate(issueId, dateB, web(board), "show");
     expect(await mailer.remindOverdue({ issueId, targetDate: dateB })).toBe(
       true,
     );
 
     // Back to A: its reminder went out before B's, and B's must not erase it.
-    await issues.setTargetDate(issueId, dateA, board.personId);
+    await issues.setTargetDate(issueId, dateA, web(board), "show");
     expect(await mailer.remindOverdue({ issueId, targetDate: dateA })).toBe(
       false,
     );
@@ -1847,20 +1876,20 @@ describe("the overdue reminder", () => {
   it("reminds the assignee given an issue after its job found nobody assigned", async () => {
     const issueId = await report(unassignedType);
     const yesterday = formatLocalDay(addLocalDays(today(), -1));
-    await issues.setTargetDate(issueId, yesterday, board.personId);
+    await issues.setTargetDate(issueId, yesterday, web(board), "show");
     const job = { issueId, targetDate: yesterday };
     // The morning's job runs with nobody to remind and claims nothing.
     expect(await mailer.remindOverdue(job)).toBe(false);
     const queuedBefore = (await overdueJobs(issueId)).length;
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
 
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
     expect(
       await mailer.remindOverdue(await lastOverdueJob(issueId, yesterday)),
     ).toBe(true);
     // Given on to somebody else: the date is claimed, so no second reminder.
-    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
     expect(await mailer.remindOverdue(job)).toBe(false);
   });
@@ -1870,20 +1899,22 @@ describe("the overdue reminder", () => {
     await issues.setTargetDate(
       future,
       formatLocalDay(addLocalDays(today(), 3)),
-      board.personId,
+      web(board),
+      "show",
     );
     const futureJobs = (await overdueJobs(future)).length;
-    await issues.assign(future, manager.personId, board.personId);
+    await issues.assign(future, manager.personId, web(board), "show");
     expect(await overdueJobs(future)).toHaveLength(futureJobs);
 
     const past = await report(unassignedType);
     await issues.setTargetDate(
       past,
       formatLocalDay(addLocalDays(today(), -1)),
-      board.personId,
+      web(board),
+      "show",
     );
     const pastJobs = (await overdueJobs(past)).length;
-    await issues.assign(past, board.personId, board.personId);
+    await issues.assign(past, board.personId, web(board), "show");
     expect(await overdueJobs(past)).toHaveLength(pastJobs);
   });
 
@@ -1893,7 +1924,7 @@ describe("the overdue reminder", () => {
     const tomorrow = formatLocalDay(addLocalDays(today(), 1));
 
     // Queued for yesterday, and the date moved since: stale.
-    await issues.setTargetDate(issueId, tomorrow, board.personId);
+    await issues.setTargetDate(issueId, tomorrow, web(board), "show");
     expect(await mailer.remindOverdue({ issueId, targetDate: yesterday })).toBe(
       false,
     );
@@ -1902,18 +1933,19 @@ describe("the overdue reminder", () => {
       false,
     );
 
-    await issues.setTargetDate(issueId, yesterday, board.personId);
+    await issues.setTargetDate(issueId, yesterday, web(board), "show");
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-      board.personId,
+      web(board),
+      "show",
     );
     expect(await mailer.remindOverdue({ issueId, targetDate: yesterday })).toBe(
       false,
     );
 
     const unassigned = await report(unassignedType);
-    await issues.setTargetDate(unassigned, yesterday, board.personId);
+    await issues.setTargetDate(unassigned, yesterday, web(board), "show");
     expect(
       await mailer.remindOverdue({
         issueId: unassigned,
@@ -1925,11 +1957,12 @@ describe("the overdue reminder", () => {
   it("is queued again when a closed issue past its date is reopened", async () => {
     const issueId = await report(assignedType);
     const yesterday = formatLocalDay(addLocalDays(today(), -1));
-    await issues.setTargetDate(issueId, yesterday, board.personId);
+    await issues.setTargetDate(issueId, yesterday, web(board), "show");
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-      board.personId,
+      web(board),
+      "show",
     );
     expect(await mailer.remindOverdue({ issueId, targetDate: yesterday })).toBe(
       false,
@@ -1939,7 +1972,8 @@ describe("the overdue reminder", () => {
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.IN_PROGRESS },
-      board.personId,
+      web(board),
+      "show",
     );
 
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
@@ -1958,7 +1992,7 @@ describe("an overdue reminder that is never sent", () => {
   }> {
     const issueId = await report(assignedType);
     const targetDate = formatLocalDay(addLocalDays(today(), -1));
-    await issues.setTargetDate(issueId, targetDate, board.personId);
+    await issues.setTargetDate(issueId, targetDate, web(board), "show");
     expect(await mailer.remindOverdue({ issueId, targetDate })).toBe(true);
     const notice = (await notices(issueId)).at(-1);
     expect(notice?.event).toBe("overdue");
@@ -1985,7 +2019,7 @@ describe("an overdue reminder that is never sent", () => {
   it("gives the date back, and reminds the new assignee, when the issue was handed on", async () => {
     const { issueId, targetDate, notice } = await remindedIssue();
     const sent = captureSends();
-    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
     const queuedBefore = (await overdueJobs(issueId)).length;
 
     expect(await mailer.deliver(notice)).toBe(false);
@@ -2353,8 +2387,8 @@ describe("delivering a mail", () => {
     const issueId = await report(urgentType);
     const sent = captureSends();
 
-    await issues.assign(issueId, manager.personId, admin.personId);
-    await issues.setPriority(issueId, "NORMAL", admin.personId);
+    await issues.assign(issueId, manager.personId, web(admin), "show");
+    await issues.setPriority(issueId, "NORMAL", web(admin), "show");
 
     // Queued when it was the board member's and Akut; neither holds now.
     expect(
@@ -2386,7 +2420,7 @@ describe("delivering a mail", () => {
     expect(await mailer.deliver(filed)).toBe(true);
     expect(sent).toHaveLength(1);
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
 
     // "Nobody is assigned" is untrue now, for the handler and the assignee.
     expect(await mailer.deliver(filed)).toBe(false);
@@ -2407,7 +2441,7 @@ describe("delivering a mail", () => {
     }
     expect(sent).toHaveLength(2);
 
-    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
 
     for (const event of ["reopened", "message"] as const) {
       // Queued for the manager, who is no longer the assignee.
@@ -2433,21 +2467,24 @@ describe("delivering a mail", () => {
         ).id,
         waitingReason: "CONTRACTOR",
       },
-      board.personId,
+      web(board),
+      "show",
     );
-    await issues.setPriority(issueId, "URGENT", board.personId);
+    await issues.setPriority(issueId, "URGENT", web(board), "show");
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-      board.personId,
+      web(board),
+      "show",
     );
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.IN_PROGRESS },
-      board.personId,
+      web(board),
+      "show",
     );
     const yesterday = formatLocalDay(addLocalDays(today(), -1));
-    await issues.setTargetDate(issueId, yesterday, board.personId);
+    await issues.setTargetDate(issueId, yesterday, web(board), "show");
     await mailer.remindOverdue({ issueId, targetDate: yesterday });
     const fromReporter = await storeMessage(
       issueId,

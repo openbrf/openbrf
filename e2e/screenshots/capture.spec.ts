@@ -460,6 +460,23 @@ async function perform(
     await page.reload();
     return;
   }
+  if ("proposeUrgentIssue" in action) {
+    const viewer = await api.viewer(page.request, stack.baseUrl);
+    const address = walkAddress(action.proposeUrgentIssue);
+    const issue = (await api.listIssueQueue(page.request, stack.baseUrl)).find(
+      (row) => row.reporter.email === address,
+    );
+    if (issue === undefined) {
+      throw new Error(`no issue in the queue was reported from ${address}`);
+    }
+    await holdPendingChange({
+      actionName: "issue_set_priority",
+      input: { id: issue.id, priority: "URGENT" },
+      proposedByPersonId: viewer.personId,
+    });
+    await page.reload();
+    return;
+  }
   if ("releasePendingChanges" in action) {
     const viewer = await api.viewer(page.request, stack.baseUrl);
     await releasePendingChanges(viewer.personId);

@@ -29,16 +29,26 @@ leaves it.
   is written on one, and nothing about one is mailed, to a handler or to the
   person who reported it; a mail that is being handed to the mail server when
   the board ring-fences the type is decided first, and the change waits for it.
-  A handoff that stalls is cut off at a deadline and retried later, so it never
-  finishes after the change. An issue is not merged as a duplicate across the
-  ring-fence, in either direction, so no reporter follows or is told of a
-  report on the other side.
+  A handoff that stalls is aborted at a deadline and retried later: the
+  connection to the mail server is closed at the deadline and the driver
+  writes no more message data. Data already sent or queued may still reach the
+  server after it. A message the server had already taken stays taken, and one
+  sent or queued in full may still be accepted after the deadline. An issue is
+  not merged as a duplicate across the ring-fence, in either direction, so no
+  reporter follows or is told of a report on the other side.
   A connected app and the AI package are offered
   neither its issues nor the type. No report under it is made from a post, and
   the website's form offers none: a type on the form is taken off it before it
   can be ring-fenced. The report form and the board's screen each say who reads
   such an issue and what not to write, and that formal steps under the
   Tenant-Ownership Act are taken outside Open BRF.
+- **Upgrading ring-fences nothing.** The types an instance already has keep
+  being handled by every handler, the property manager included, and none of
+  them is ring-fenced, since nothing tells the upgrade which of them is for
+  disturbances. A board that has such a type, and offers it on the website's
+  form, takes it off the form and ring-fences it in the settings; the issues
+  already reported under it are then ring-fenced with it, and since the type
+  has issues, the ring-fence cannot be lifted again.
 - **Its own clock.** The free text of a ring-fenced issue is purged one year
   after the issue closes, whatever the board set for other issues, unless a
   legal hold stands on it, a damage case included, or a legal hold or a

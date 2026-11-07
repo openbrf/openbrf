@@ -1,5 +1,5 @@
 import { type DynamicModule, Module } from "@nestjs/common";
-import { APP_GUARD } from "@nestjs/core";
+import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 
 import { ActionCatalogueModule } from "./actions/action-catalogue.module";
 import { AddressBookModule } from "./address-book/address-book.module";
@@ -56,6 +56,7 @@ import { RolesModule } from "./roles/roles.module";
 import { SettingsModule } from "./settings/settings.module";
 import { SetupModule } from "./setup/setup.module";
 import { SignupModule } from "./signup/signup.module";
+import { SiteRateLimitFilter } from "./site/site-rate-limit.filter";
 import { SiteModule } from "./site/site.module";
 import { StorageModule } from "./storage/storage.module";
 import { SubletsModule } from "./sublets/sublets.module";
@@ -140,6 +141,15 @@ import { ThemesModule } from "./themes/themes.module";
   controllers: [HealthController],
   providers: [
     ...EXCEPTION_FILTERS,
+    /*
+     * After the domain filter, so it is asked first for the one error it
+     * names: a spent public budget on a website address is answered with a
+     * page in the visitor's language rather than the API's JSON. Listed here
+     * rather than in SiteModule because the order between the two is the
+     * point, and the providers of one module keep their order where two
+     * modules' would depend on how the graph was scanned.
+     */
+    { provide: APP_FILTER, useClass: SiteRateLimitFilter },
     /*
      * Global, and inert on every route that declares no budget.
      *

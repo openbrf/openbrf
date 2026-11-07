@@ -32,7 +32,8 @@ import { PurgeService } from "./purge.service";
  *
  * A granted request brings the purge forward and lifts the retention window,
  * and nothing else: a legal hold, a restriction of processing, a residency or
- * a board seat that has not ended, and a system role each refuse it
+ * a board seat that has not ended, a system role and a plugin access each
+ * refuse it
  * (`withheld-persons.ts`, `nothingRefusesErasure`). The domain jobs erase a
  * person's rows on the request and the service-data purge then erases the
  * contact details and closes it. Each of them asks the question itself,
@@ -75,6 +76,8 @@ function dayColumn(days: number): Date {
 const deciderId = `refusal-decider-${suffix}`;
 const addressId = `refusal-address-${suffix}`;
 const apartmentId = `refusal-apartment-${suffix}`;
+/** An installed plugin, for the plugin access a refusal grants. */
+const accessPluginId = `refusal-access-${suffix}`;
 
 /** The rows the domain rows hang from, made once. */
 let resourceId: string;
@@ -444,6 +447,15 @@ const REFUSALS: readonly Refusal[] = [
         data: { personId, role: "PROPERTY_MANAGER" },
       }),
   },
+  {
+    // Somebody who has never lived here and whom the board gave a plugin
+    // access (ADR 0053), such as a person who rents a garage.
+    name: "a plugin access",
+    impose: (personId) =>
+      prisma.pluginAccess.create({
+        data: { personId, pluginId: accessPluginId },
+      }),
+  },
 ];
 
 /** A person granted erasure, with one row for the job and nothing else. */
@@ -497,6 +509,14 @@ beforeAll(async () => {
 
   await prisma.person.create({
     data: { id: deciderId, firstName: "Bo", lastName: `Beslut ${suffix}` },
+  });
+  await prisma.installedPlugin.create({
+    data: {
+      id: accessPluginId,
+      packageName: `@test/${accessPluginId}`,
+      version: "1.0.0",
+      checksum: "sha512-test",
+    },
   });
   await prisma.address.create({
     data: {
@@ -623,6 +643,10 @@ afterAll(async () => {
   );
   await step(() =>
     prisma.systemRole.deleteMany({ where: { personId: { in: personIds } } }),
+  );
+  // Takes the accesses granted to it with it.
+  await step(() =>
+    prisma.installedPlugin.deleteMany({ where: { id: accessPluginId } }),
   );
   await step(() => prisma.apartment.deleteMany({ where: { id: apartmentId } }));
   await step(() => prisma.address.deleteMany({ where: { id: addressId } }));

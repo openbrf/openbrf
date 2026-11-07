@@ -131,6 +131,148 @@ describe("the preview", () => {
     expect(factOf("Rubrik")).toBe("Styrelsens interna anteckningar");
   });
 
+  it("shows the issue a held write names, by its number, and a date it has not", async () => {
+    fetchMyPendingChanges.mockResolvedValue(
+      listing([
+        {
+          ...NEWS,
+          action: {
+            title: "Sätt ett ärendes prioritet",
+            description: "Sätter ett ärendes prioritet.",
+            effect: "write",
+            needsConfirmation: false,
+            errors: [],
+          },
+          actionName: "issue_set_priority",
+          input: { id: "issue-7", priority: "URGENT" },
+          channel: "AI",
+          target: {
+            kind: "issue",
+            id: "issue-7",
+            state: "found",
+            facts: [
+              { fact: "number", now: "42" },
+              { fact: "type", now: "Vatten" },
+              { fact: "issueStatus", now: "Väntar på reservdelar" },
+              { fact: "priority", now: "NORMAL", after: "URGENT" },
+              { fact: "targetDate", now: "" },
+            ],
+          },
+        },
+      ]),
+    );
+
+    render(<PendingChangesScreen />);
+
+    const factOf = async (label: string) =>
+      (await screen.findByText(label, { selector: "dt" })).nextElementSibling;
+    expect((await factOf("Prioritet"))?.textContent).toBe("Normal → blir Akut");
+    expect((await factOf("Senast klart"))?.textContent).toBe("Inget datum");
+    expect((await factOf("Ärendenummer"))?.innerHTML).toContain("font-data");
+    // The board's own label, as it wrote it.
+    expect((await factOf("Status"))?.textContent).toBe("Väntar på reservdelar");
+    expect(screen.getByText(/^Ärende/, { selector: "p" })).toBeTruthy();
+  });
+
+  it("shows what a held status move sets beside the status", async () => {
+    fetchMyPendingChanges.mockResolvedValue(
+      listing([
+        {
+          ...NEWS,
+          action: {
+            title: "Flytta ett ärende till en annan status",
+            description: "Flyttar ett ärende till en annan status.",
+            effect: "write",
+            needsConfirmation: false,
+            errors: [],
+          },
+          actionName: "issue_set_status",
+          input: { id: "issue-7", statusId: "status-done", outcome: "FIXED" },
+          channel: "AI",
+          target: {
+            kind: "issue",
+            id: "issue-7",
+            state: "found",
+            facts: [
+              { fact: "number", now: "42" },
+              { fact: "issueStatus", now: "Väntar", after: "Klar" },
+              { fact: "waitingReason", now: "PARTS", after: "" },
+              { fact: "outcome", now: "", after: "FIXED" },
+            ],
+          },
+        },
+      ]),
+    );
+
+    render(<PendingChangesScreen />);
+
+    const factOf = async (label: string) =>
+      (await screen.findByText(label, { selector: "dt" })).nextElementSibling;
+    expect((await factOf("Status"))?.textContent).toBe("Väntar → blir Klar");
+    expect((await factOf("Väntar på"))?.textContent).toBe(
+      "Reservdelar → blir Inget",
+    );
+    expect((await factOf("Utfall"))?.textContent).toBe(
+      "Inget utfall → blir Åtgärdat",
+    );
+  });
+
+  it("shows who has the issue now and who an assignment gives it to", async () => {
+    fetchMyPendingChanges.mockResolvedValue(
+      listing([
+        {
+          ...NEWS,
+          action: {
+            title: "Ge ett ärende till en ansvarig",
+            description: "Ger ett ärende till en ansvarig.",
+            effect: "write",
+            needsConfirmation: false,
+            errors: [],
+          },
+          actionName: "issue_assign",
+          input: { id: "issue-7", assigneePersonId: "person-board" },
+          channel: "AI",
+          // The one replaced has a withheld name, so is named by id alone.
+          names: { "person-board": { text: "Bea Styrelse", kind: "text" } },
+          target: {
+            kind: "issue",
+            id: "issue-7",
+            state: "found",
+            facts: [
+              { fact: "number", now: "42" },
+              { fact: "assignee", now: "person-hidden", after: "person-board" },
+            ],
+          },
+        },
+        {
+          ...NEWS,
+          id: "change-2",
+          actionName: "issue_assign",
+          input: { id: "issue-8", assigneePersonId: null },
+          channel: "AI",
+          target: {
+            kind: "issue",
+            id: "issue-8",
+            state: "found",
+            facts: [{ fact: "assignee", now: "", after: "" }],
+          },
+        },
+      ]),
+    );
+
+    render(<PendingChangesScreen />);
+
+    const [given, left] = await screen.findAllByText("Ansvarig", {
+      selector: "dt",
+    });
+    expect(given?.nextElementSibling?.textContent).toBe(
+      "person-hidden → blir Bea Styrelse person-board",
+    );
+    expect(left?.nextElementSibling?.textContent).toBe(
+      "Ej tilldelat (oförändrad)",
+    );
+  });
+
   it("says when a fact the change sets is already so", async () => {
     fetchMyPendingChanges.mockResolvedValue(
       listing([

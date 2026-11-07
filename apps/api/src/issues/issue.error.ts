@@ -37,9 +37,9 @@ import { DomainError } from "../http/domain-error";
  * The handling reasons. `assignee-not-a-handler` is somebody who does not
  * handle the issue now, a person the list never offered or one who stopped
  * handling since it was read; a person who does not exist gets the same
- * answer, so the route names nobody. `resident-not-found` is a residency named on an
- * issue a handler opens that is not held today - ended, not yet begun, or
- * none at all - answered alike for the reason an apartment is.
+ * answer, so the route names nobody. `resident-not-found` is a residency
+ * named on an issue a handler opens that is not held today - ended, not yet
+ * begun, or none at all - answered alike for the reason an apartment is.
  *
  * The work order reasons. `contractor-not-found` is a contractor not on the
  * list, or switched off, and `contractor-without-email` one the list holds no

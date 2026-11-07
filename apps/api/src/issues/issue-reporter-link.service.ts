@@ -257,11 +257,12 @@ export class IssueReporterLinkService implements OnModuleInit {
    * there and its link not withdrawn is read again in the same place, under
    * the issue's lock.
    *
-   * A link whose mail is refused (a restriction, a close, no mail settings,
-   * or, on a retry, an address whose three a day are spent) or abandoned
-   * after its retries is deleted, so it no longer counts toward its address's
-   * three a day; one still being retried counts. A retry that refuses before
-   * it mints a token deletes the unmailed link the earlier attempt left too.
+   * A link whose mail is refused (a restriction, a close, a ring-fenced type,
+   * no mail settings, or, on a retry, an address whose three a day are spent)
+   * or abandoned after its retries is deleted, so it no longer counts toward
+   * its address's three a day; one still being retried counts. A retry that
+   * refuses before it mints a token deletes the unmailed link the earlier
+   * attempt left too.
    *
    * Answers whether a mail went. Nothing is mailed, and no link issued, for a
    * report that no longer has an address, that already has its link, that a
@@ -366,9 +367,10 @@ export class IssueReporterLinkService implements OnModuleInit {
       const tokenDigest = reporterLinkDigest(token);
       /*
        * Every instant that decides what the link opens is the database's:
-       * `LIVE` reads the database's clock, so the lifetime is set from it too. A new link
-       * is created already expired and then extended by the one statement
-       * `extendReporterLink` is, in this transaction, so no reader sees it so.
+       * `LIVE` reads the database's clock, so the lifetime is set from it too.
+       * A new link is created already expired and then extended by the one
+       * statement `extendReporterLink` is, in this transaction, so no reader
+       * sees it so.
        */
       const link =
         existing === null
@@ -560,9 +562,9 @@ export class IssueReporterLinkService implements OnModuleInit {
   /**
    * Gives back the slot of a link an earlier attempt issued and did not mail,
    * when a retry finds it will not mail it either: the issue closed, its type
-   * ring-fenced, its address restricted or that address's budget spent. The caller holds the
-   * issue's lock, which the stamp is written under too, and has read the link
-   * as neither mailed nor withdrawn.
+   * ring-fenced, its address restricted or that address's budget spent. The
+   * caller holds the issue's lock, which the stamp is written under too, and
+   * has read the link as neither mailed nor withdrawn.
    */
   private async releaseEarlier(
     tx: Prisma.TransactionClient,

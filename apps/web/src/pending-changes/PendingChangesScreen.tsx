@@ -331,7 +331,7 @@ function PendingChangeCard({
       </div>
 
       {change.target === null ? null : (
-        <PendingChangeTarget target={change.target} />
+        <PendingChangeTarget target={change.target} names={change.names} />
       )}
 
       {agendaProposal === null ? null : (
