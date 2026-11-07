@@ -921,7 +921,14 @@ describe("B. lifetime and revocation", () => {
       where: { issueId },
     });
     const year = 365 * 24 * 60 * 60 * 1000;
-    expect(issued.expiresAt.getTime() - Date.now()).toBeLessThanOrEqual(year);
+    // `expiresAt` is set on the database's clock and read here against the API
+    // process's, so allow the same minute either way as the checks below.
+    expect(issued.expiresAt.getTime()).toBeGreaterThan(
+      Date.now() + year - 60_000,
+    );
+    expect(issued.expiresAt.getTime()).toBeLessThanOrEqual(
+      Date.now() + year + 60_000,
+    );
 
     await prisma.issueReporterLink.update({
       where: { issueId },
