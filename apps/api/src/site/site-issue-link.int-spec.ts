@@ -50,7 +50,7 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { LINK_READS_PER_MINUTE } from "./site-issue-link.controller";
-import { REFUSAL_PAGE_TTL_MS } from "./site-renderer.service";
+import { SiteRenderer } from "./site-renderer.service";
 
 /**
  * The page a reporter's private link opens, through the application as it
@@ -1213,12 +1213,11 @@ describe("D. rate limits and abuse", () => {
         sortOrder: (highest._max.sortOrder ?? 0) + 1,
       },
     });
-    // Past the TTL of whatever refusal page an earlier test left kept, so both
-    // pages below are drawn after the entry was written.
-    const realNow = Date.now.bind(Date);
-    const clock = vi
-      .spyOn(Date, "now")
-      .mockImplementation(() => realNow() + REFUSAL_PAGE_TTL_MS + 1);
+    // Whatever refusal page an earlier test left kept is dropped, so both pages
+    // below are drawn after the entry was written; and the pages drawn here are
+    // dropped after, so no later test is served the entry this one deletes.
+    const renderer = app.get(SiteRenderer);
+    renderer.forgetRefusalPages();
     try {
       const websiteAddress = "10.211.250.2";
       let website: Awaited<ReturnType<typeof inject>> | undefined;
@@ -1248,8 +1247,8 @@ describe("D. rate limits and abuse", () => {
       expect(link.body).not.toContain(`Grannföreningen ${suffix}`);
       expectLinkHeaders(link.headers);
     } finally {
-      clock.mockRestore();
       await prisma.menuItem.deleteMany({ where: { id: entry.id } });
+      renderer.forgetRefusalPages();
     }
   });
 
