@@ -487,9 +487,10 @@ change it.
   is kept off the post (`ring-fenced-post`). The owner may ask for earlier links
   to be hidden as well.
 - **A legal hold stands over the ring-fenced clock.** The year after closing
-  applies to a ring-fenced case that no legal hold stands on. A damage case
-  places a hold, and a handler may place one, so such a case keeps its text
-  until the hold is released ([ADR 0057](0057-purging-issues-in-two-layers.md#the-clock)).
+  applies to a ring-fenced case that no legal hold stands on, and whose reporter
+  has neither a legal hold nor a restriction on them. A damage case places a
+  hold, and a handler may place one, so such a case keeps its text until the
+  hold is released ([ADR 0057](0057-purging-issues-in-two-layers.md#the-clock)).
 
 What else the ring-fence does is in the glossary's row _ring-fenced issue type_
 (avskärmad ärendetyp): no mail about one to anybody, no report under it from a

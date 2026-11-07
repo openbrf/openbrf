@@ -20,6 +20,9 @@ import { stack } from "./src/stack";
 
 export default defineConfig({
   testDir: "./screenshots",
+  // Playwright's default also takes *.test.ts, which here are vitest files
+  // (see vitest.config.mts) and fail to load under Playwright.
+  testMatch: "**/*.spec.ts",
   outputDir: "../test-results",
 
   fullyParallel: false,

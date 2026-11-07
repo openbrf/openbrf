@@ -386,6 +386,26 @@ export function renderNotFound(chrome: SiteChrome): string {
 }
 
 /**
+ * The page a visitor gets when a public budget turned their request away.
+ *
+ * Built from the chrome alone, like the not-found page and for the same
+ * reason: the same refusal answers every address on the website that keeps a
+ * budget, a link holding a live token and one holding none alike, so nothing
+ * on it may vary with the address that was asked for. It says what happened
+ * and what to do, and nothing about what was sent.
+ */
+export function renderTooManyRequests(chrome: SiteChrome): string {
+  return renderDocument(
+    chrome,
+    chrome.t("site.tooManyRequests.title"),
+    <>
+      <h1 className="site-title">{chrome.t("site.tooManyRequests.title")}</h1>
+      <p>{chrome.t("site.tooManyRequests.body")}</p>
+    </>,
+  );
+}
+
+/**
  * How one block type becomes markup.
  *
  * A null form state is a document that has no form to show - a news article,

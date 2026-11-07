@@ -5,7 +5,7 @@ import { holdsNoStandingTie, standingTie } from "./standing-ties";
 
 const NOW = new Date("2027-06-01T12:00:00Z");
 
-const NONE = { boardPositions: [], systemRoles: [] };
+const NONE = { boardPositions: [], systemRoles: [], pluginAccesses: [] };
 
 describe("what keeps a person", () => {
   it("keeps nobody who holds nothing", () => {
@@ -35,6 +35,7 @@ describe("what keeps a person", () => {
         none: { OR: [{ endedOn: null }, { endedOn: { gt: NOW } }] },
       },
       systemRoles: { none: {} },
+      pluginAccesses: { none: {} },
     });
   });
 
@@ -44,11 +45,21 @@ describe("what keeps a person", () => {
     ).toBe("system-role-current");
   });
 
+  it("keeps a person who holds a plugin access, and lets them go once it is withdrawn", () => {
+    // A plugin access is only ever held by somebody who never lived here
+    // (ADR 0053), so it is the one thing that keeps such a person.
+    expect(
+      standingTie({ ...NONE, pluginAccesses: [{ id: "access" }] }, NOW),
+    ).toBe("plugin-access-current");
+    expect(standingTie({ ...NONE, pluginAccesses: [] }, NOW)).toBeNull();
+  });
+
   it("is what the purge refuses a person for, after a hold", () => {
     const facts = {
       residencies: [{ movedOutOn: new Date("2015-01-31") }],
       boardPositions: [{ endedOn: null }],
       systemRoles: [],
+      pluginAccesses: [],
       legalHolds: [],
       processingRestrictedAt: null,
     };

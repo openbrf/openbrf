@@ -24,6 +24,17 @@ export interface ApiFailure {
   detail?: unknown;
 }
 
+/**
+ * The reason a public endpoint answers once one address has spent its budget.
+ *
+ * One code for every route that declares a budget, whichever module owns it,
+ * so a screen reached without an account says the same thing for it: wait and
+ * try again, which is the whole remedy. The screen keeps its form, because the
+ * request was turned away before anything in it was read. The sentence is
+ * `app.tooManyRequests`.
+ */
+export const TOO_MANY_REQUESTS = "too-many-requests";
+
 export type ApiResult<T> =
   { ok: true; value: T } | { ok: false; failure: ApiFailure };
 

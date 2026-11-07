@@ -831,10 +831,11 @@ export class PluginAdminService {
 
   /**
    * Switches one class of caller the install approved off, or on again
-   * (ADR 0053, "The consent screen"). The host serves nobody in a withdrawn
-   * class from the next request on, and serves it again from the request
-   * after a consent again, without a restart or a new version: which classes
-   * are served is read on each request.
+   * (ADR 0053, "The consent screen"). A withdrawn class stops granting access
+   * from the next request on, and grants it again from the request after a
+   * consent again (another approved class or a residency held today still
+   * serves a person who belongs to it), without a restart or a new version:
+   * which classes are served is read on each request.
    *
    * Only a class the install approved: a class the administrator never
    * consented to comes with a version, on the consent screen. Asking for the

@@ -1619,6 +1619,17 @@ describe("a known fault", () => {
 
   it("does not assign, prioritise, date or mark an issue for a person who no longer holds issues:handle", async () => {
     const issueId = await filed(plain);
+    // A damage case the issue already holds, so a write that got through
+    // would change or remove it.
+    const damageCase = {
+      insurer: "Länsförsäkringar",
+      claimNumber: `S-${issueId}`,
+      occurredOn: "2026-10-30",
+      cause: "WATER",
+    } as const;
+    await prisma.issueDamageCase.create({
+      data: { issueId, ...damageCase, occurredOn: new Date("2026-10-30") },
+    });
     const handling = {
       assigneePersonId: true,
       priority: true,
@@ -1656,6 +1667,20 @@ describe("a known fault", () => {
         "setBoardOnly",
         () => issues.setBoardOnly(issueId, true, resident.personId),
       ],
+      [
+        "markDamageCase",
+        () =>
+          issues.markDamageCase(
+            issueId,
+            { ...damageCase, insurer: "If Skadeförsäkring" },
+            damageCase,
+            resident.personId,
+          ),
+      ],
+      [
+        "removeDamageCase",
+        () => issues.removeDamageCase(issueId, damageCase, resident.personId),
+      ],
     ] as const) {
       await expect(write(), name).rejects.toMatchObject({
         reason: "issue-not-found",
@@ -1667,6 +1692,14 @@ describe("a known fault", () => {
         select: handling,
       }),
     ).toEqual(before);
+    expect(
+      await prisma.issueDamageCase.findMany({
+        where: { issueId },
+        select: { insurer: true, claimNumber: true },
+      }),
+    ).toEqual([
+      { insurer: damageCase.insurer, claimNumber: damageCase.claimNumber },
+    ]);
   });
 
   it("does not write to the reporter as a person who no longer holds issues:handle", async () => {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import { TOO_MANY_REQUESTS } from "../api/client";
 import { startSupportSession } from "../api/support";
 import type { TranslationKey } from "../i18n/translation-key";
 import { PRIMARY_BUTTON } from "../ui/controls";
@@ -58,14 +59,19 @@ export function SupportSignInScreen({
       onSignedIn();
       return;
     }
+    const { reason } = started.failure;
     setStatus(
-      started.failure.reason === "offline"
+      reason === "offline"
         ? { kind: "failed", messageKey: "support.signIn.offline", retry: true }
-        : {
-            kind: "failed",
-            messageKey: "support.signIn.invalid",
-            retry: false,
-          },
+        : reason === TOO_MANY_REQUESTS
+          ? // Refused before the link was read, so it still works: wait and
+            // send it again rather than asking the host for a new one.
+            { kind: "failed", messageKey: "app.tooManyRequests", retry: true }
+          : {
+              kind: "failed",
+              messageKey: "support.signIn.invalid",
+              retry: false,
+            },
     );
   };
 

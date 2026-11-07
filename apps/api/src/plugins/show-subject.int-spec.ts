@@ -47,8 +47,8 @@ import { PluginRegistryService } from "./plugin-registry.service";
  * the real router, the application's guard and a real database.
  *
  * `PLUGIN` declares `ads`, a collection with `showsSubject`, and `notes`, one
- * without, and serves the board, the administrator and the property manager
- * besides its residents. Its resident route and its board route both list and
+ * without, and serves the board, the administrator, the property manager and
+ * the people given access to it besides its residents. Its resident route and its board route both list and
  * write records as the request's query says, and a board route hands a write to
  * a timer the plugin started at boot, which is how a job runs: outside every
  * request. The test plugin stores no name anywhere: every value is
@@ -67,6 +67,7 @@ const SERVED: PluginNonResidentCaller[] = [
   "board",
   "administrator",
   "propertyManager",
+  "pluginAccess",
 ];
 
 const ADS: PluginPersonRecordCollection = {
@@ -100,6 +101,9 @@ const RESIDENT_ROUTES = [{ path: "ads", titleKey: "residentRoutes.ads" }];
 
 const id = (name: string) => `shown-${name}-${suffix}`;
 
+/** Another plugin, whose processing a person may object to instead. */
+const OTHER_PLUGIN = `shown-other-${suffix}`;
+
 const address = id("address");
 const apartments = { a: id("apartment-a"), b: id("apartment-b") };
 
@@ -125,6 +129,16 @@ const persons = {
   withdrawnManager: id("withdrawn-manager"),
   formerBoard: id("former-board"),
   turnsProtected: id("turns-protected"),
+  /** A resident whose processing becomes restricted. */
+  turnsRestricted: id("turns-restricted"),
+  /** A resident who comes to object to the plugin's processing. */
+  turnsObjecting: id("turns-objecting"),
+  /** A resident who objects to another plugin's processing, not this one's. */
+  objectsElsewhere: id("objects-elsewhere"),
+  /** Holds a plugin access and nothing else: no residency, seat or role. */
+  accessHolder: id("access-holder"),
+  /** Holds a plugin access and a board seat, and loses the access. */
+  accessAndSeat: id("access-and-seat"),
   /** A resident whose move-out lands while a read is under way. */
   movingDuringRead: id("moving-during-read"),
 };
@@ -398,6 +412,32 @@ function expectNothingOf(
   }
 }
 
+/**
+ * Asserts that a record is wholly absent, name and all, from the resident
+ * route's list and `get` and from the board route's list, whichever reads it,
+ * and that the row itself is still stored.
+ */
+async function expectWholeRecordAbsent(
+  key: string,
+  personId: string,
+): Promise<void> {
+  const resident = await readAs(persons.a, key);
+  expect(resident.record).toBeUndefined();
+  expectNothingOf(resident.body, personId);
+  const board = await call(persons.reader, "board/list");
+  expect(board.status).toBe(200);
+  const { result } = board.json as Outcome<PluginPersonRecord[]>;
+  expect(result?.some((record) => record.key === key)).toBe(false);
+  expectNothingOf(board.body, personId);
+  const got = await call(persons.a, `ads/get/${key}`);
+  expect(got.status).toBe(200);
+  expect((got.json as Outcome<PluginPersonRecord | null>).result ?? null).toBe(
+    null,
+  );
+  expectNothingOf(got.body, personId);
+  expect(await storedFlag(key)).toBe(true);
+}
+
 beforeAll(async () => {
   const created = await mkdtemp(join(tmpdir(), "openbrf-shown-"));
   workspace = created;
@@ -515,6 +555,9 @@ beforeAll(async () => {
       residency(persons.boardResident, apartments.a),
       residency(persons.mover, apartments.b),
       residency(persons.turnsProtected, apartments.b),
+      residency(persons.turnsRestricted, apartments.b),
+      residency(persons.turnsObjecting, apartments.b),
+      residency(persons.objectsElsewhere, apartments.b),
       residency(persons.movingDuringRead, apartments.b),
       residency(
         persons.formerBoard,
@@ -524,13 +567,16 @@ beforeAll(async () => {
     ],
   });
   await prisma.boardPosition.createMany({
-    data: [persons.seat, persons.endingSeat, persons.formerBoard].map(
-      (personId) => ({
-        personId,
-        position: "BOARD_MEMBER" as const,
-        electedOn: LONG_AGO,
-      }),
-    ),
+    data: [
+      persons.seat,
+      persons.endingSeat,
+      persons.formerBoard,
+      persons.accessAndSeat,
+    ].map((personId) => ({
+      personId,
+      position: "BOARD_MEMBER" as const,
+      electedOn: LONG_AGO,
+    })),
   });
   await prisma.systemRole.createMany({
     data: [
@@ -541,14 +587,39 @@ beforeAll(async () => {
       { personId: persons.withdrawnManager, role: "PROPERTY_MANAGER" as const },
     ],
   });
-  await application()
-    .get(ProcessingActivityService)
-    .seedPlugin(PLUGIN, {
-      name: "Efterlysningar",
-      permissions: ["addressBook:read"],
-      personalDataCategories: ["name"],
-      processing: PROCESSING,
-    });
+  await prisma.pluginAccess.createMany({
+    data: [persons.accessHolder, persons.accessAndSeat].map((personId) => ({
+      personId,
+      pluginId: PLUGIN,
+    })),
+  });
+  for (const pluginId of [PLUGIN, OTHER_PLUGIN]) {
+    await application()
+      .get(ProcessingActivityService)
+      .seedPlugin(pluginId, {
+        name: "Efterlysningar",
+        permissions: ["addressBook:read"],
+        personalDataCategories: ["name"],
+        processing: PROCESSING,
+      });
+  }
+  const otherActivity = await prisma.processingActivity.findUniqueOrThrow({
+    where: { sourceKey: pluginProcessorKey(OTHER_PLUGIN) },
+    select: { id: true },
+  });
+  await prisma.dataSubjectRequest.create({
+    data: {
+      personId: persons.objectsElsewhere,
+      kind: "OBJECTION",
+      requestedOn: LONG_AGO,
+      ground: "Vill inte vara med.",
+      processingActivityId: otherActivity.id,
+      decision: "GRANTED",
+      decidedAt: LONG_AGO,
+      recordedByPersonId: persons.reader,
+      decidedByPersonId: persons.reader,
+    },
+  });
 
   for (const personId of SIGNED_IN) {
     const email = `${personId}@exempel.se`;
@@ -569,8 +640,15 @@ afterAll(async () => {
     if (app !== undefined) {
       await prisma.pluginRecord.deleteMany({ where: { pluginId: PLUGIN } });
       await prisma.installedPlugin.deleteMany({ where: { id: PLUGIN } });
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { personId: { in: ACCOUNTS } },
+      });
       await prisma.processingActivity.deleteMany({
-        where: { sourceKey: pluginProcessorKey(PLUGIN) },
+        where: {
+          sourceKey: {
+            in: [pluginProcessorKey(PLUGIN), pluginProcessorKey(OTHER_PLUGIN)],
+          },
+        },
       });
       await prisma.systemRole.deleteMany({
         where: { personId: { in: ACCOUNTS } },
@@ -832,6 +910,86 @@ describe("a name does not outlive its subject's being served", () => {
     const { record, body } = await readAs(persons.a, key);
     expect(record).toBeUndefined();
     expectNothingOf(body, persons.turnsProtected);
+  });
+
+  it("leaves out the whole record once its subject's processing is restricted", async () => {
+    const key = id("turns-restricted");
+    await tickedRecord(key, persons.turnsRestricted);
+    expect((await readAs(persons.a, key)).record?.shown).toBeDefined();
+    await prisma.person.update({
+      where: { id: persons.turnsRestricted },
+      data: { processingRestrictedAt: new Date() },
+    });
+    await expectWholeRecordAbsent(key, persons.turnsRestricted);
+  });
+
+  it("leaves out the whole record once its subject objects to this plugin's processing", async () => {
+    const key = id("turns-objecting");
+    await tickedRecord(key, persons.turnsObjecting);
+    expect((await readAs(persons.a, key)).record?.shown).toBeDefined();
+    await prisma.dataSubjectRequest.create({
+      data: {
+        personId: persons.turnsObjecting,
+        kind: "OBJECTION",
+        requestedOn: LONG_AGO,
+        ground: "Vill inte vara med.",
+        processingActivityId: (
+          await prisma.processingActivity.findUniqueOrThrow({
+            where: { sourceKey: pluginProcessorKey(PLUGIN) },
+            select: { id: true },
+          })
+        ).id,
+        decision: "GRANTED",
+        decidedAt: LONG_AGO,
+        recordedByPersonId: persons.reader,
+        decidedByPersonId: persons.reader,
+      },
+    });
+    await expectWholeRecordAbsent(key, persons.turnsObjecting);
+  });
+
+  it("keeps showing a subject who objects to another plugin's processing and not this one's", async () => {
+    const key = id("objects-elsewhere");
+    await tickedRecord(key, persons.objectsElsewhere);
+    const { record } = await readAs(persons.a, key);
+    expect(record?.shown?.name).toBe(nameOf(persons.objectsElsewhere));
+  });
+
+  it("stops when the subject's plugin access is withdrawn, and keeps the live record", async () => {
+    const key = id("access-holder");
+    await tickedRecord(key, persons.accessHolder);
+    for (const reader of [persons.a, persons.manager]) {
+      expect((await readAs(reader, key)).record?.shown).toEqual({
+        name: nameOf(persons.accessHolder),
+        apartment: null,
+      });
+    }
+    await prisma.pluginAccess.deleteMany({
+      where: { personId: persons.accessHolder, pluginId: PLUGIN },
+    });
+    for (const reader of [persons.a, persons.manager]) {
+      const { record, body } = await readAs(reader, key);
+      // Nobody serves the subject any more, so the record's name is cut off,
+      // while the record, before its erase date, is still there.
+      expect(record?.value).toEqual({ note: "plats" });
+      expect(record?.showSubject).toBe(true);
+      expect(record?.shown).toBeUndefined();
+      expectNothingOf(body, persons.accessHolder, record);
+    }
+    expect(await storedFlag(key)).toBe(true);
+  });
+
+  it("keeps showing a subject whose plugin access is withdrawn while another class still serves them", async () => {
+    const key = id("access-and-seat");
+    await tickedRecord(key, persons.accessAndSeat);
+    expect((await readAs(persons.a, key)).record?.shown).toBeDefined();
+    await prisma.pluginAccess.deleteMany({
+      where: { personId: persons.accessAndSeat, pluginId: PLUGIN },
+    });
+    // A board seat held today still serves them, as the board class.
+    expect((await readAs(persons.a, key)).record?.shown?.name).toBe(
+      nameOf(persons.accessAndSeat),
+    );
   });
 
   it("stops when the install's consent to the subject's class is withdrawn", async () => {

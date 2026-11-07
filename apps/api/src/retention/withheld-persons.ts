@@ -129,8 +129,8 @@ const GRANTED_ERASURE = {
  *
  * The request brings the purge forward and lifts the retention window; it lifts
  * nothing else. So a person under a hold or a restriction, one who sits on the
- * board, holds a system role or still lives here is not erased because they
- * asked - the same five refusals the service-data purge applies before it
+ * board, holds a system role or a plugin access, or still lives here is not
+ * erased because they asked - the same five refusals the service-data purge applies before it
  * closes the request (`purge.service.ts`, `purgeRefusal`).
  *
  * Every job that erases on a request asks this and not merely whether a

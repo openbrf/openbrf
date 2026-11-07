@@ -38,6 +38,7 @@ export const BOARD_PERSON_FIELDS = {
   // seats come from the query that already selects the ones held today.
   residencies: { select: { movedOutOn: true } },
   systemRoles: { select: { role: true } },
+  pluginAccesses: { select: { id: true } },
   legalHolds: { where: { releasedAt: null }, select: { id: true } },
 } as const;
 
