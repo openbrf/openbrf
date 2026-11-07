@@ -31,9 +31,9 @@ leaves it.
   the board ring-fences the type is decided first, and the change waits for it.
   A handoff that stalls is aborted at a deadline and retried later: the
   connection to the mail server is closed at the deadline and the driver
-  writes no more message data. Data already sent or queued may still reach the
-  server after it. A message the server had already taken stays taken, and one
-  sent or queued in full may still be accepted after the deadline. An issue is
+  writes no more message data, but data already sent or queued may still reach
+  the server, so a message may be accepted after the deadline; one the server
+  had already taken stays taken. An issue is
   not merged as a duplicate across the ring-fence, in either direction, so no
   reporter follows or is told of a report on the other side.
   A connected app and the AI package are offered

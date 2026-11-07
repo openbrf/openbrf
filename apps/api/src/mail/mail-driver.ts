@@ -169,8 +169,7 @@ export interface MailDriver {
    * the send rejects with the signal's reason. For a caller that holds a lock
    * across the handoff and must not start handing anything over after the lock
    * is gone. Data already sent or queued may still reach the far end, so a
-   * message the far end took before the abort stays taken, and one sent or
-   * queued in full may still be accepted after it.
+   * message may be accepted after the abort; one it took before stays taken.
    *
    * What it throws says how far the send had got (`MailHandover`).
    */
