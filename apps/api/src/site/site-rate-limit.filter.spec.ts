@@ -108,14 +108,25 @@ afterAll(async () => {
   await app.close();
 });
 
-/** What the filter logged as errors, one line each. */
-function loggedErrors(): () => string[] {
+/**
+ * What the filter logged as errors: each call's message, and every argument of
+ * every call, frames included, for checking that nothing private reached the
+ * log at all.
+ */
+function loggedErrors(): { messages(): string[]; everything(): string } {
   const error = vi
     .spyOn(Logger.prototype, "error")
     .mockImplementation(() => undefined);
   errorLog = error;
-  return () => error.mock.calls.map(([message]) => String(message));
+  return {
+    messages: () => error.mock.calls.map(([message]) => String(message)),
+    everything: () =>
+      error.mock.calls.flatMap((args) => args.map(String)).join("\n"),
+  };
 }
+
+/** Marks a failure's message, which is never logged (ADR 0007). */
+const PRIVATE_MESSAGE = "private-message-marker";
 
 /** Spends one address's budget on `url` and returns the refusal after it. */
 async function refusedAt(url: string, headers: Record<string, string> = {}) {
@@ -161,7 +172,7 @@ describe("a spent budget on a website address", () => {
   });
 
   it("still answers the refusal and its delay when the page cannot be drawn", async () => {
-    tooManyRequests.mockRejectedValueOnce(new Error("database is down"));
+    tooManyRequests.mockRejectedValueOnce(new Error(PRIVATE_MESSAGE));
     const logged = loggedErrors();
 
     const refused = await refusedAt("/en-sida/kontakt");
@@ -170,9 +181,10 @@ describe("a spent budget on a website address", () => {
     expect(refused.statusCode).toBe(429);
     expect(refused.body).toBe("");
     expect(Number(refused.headers["retry-after"])).toBeGreaterThan(0);
-    expect(logged()).toEqual([
+    expect(logged.messages()).toEqual([
       "The rate-limit page for the website could not be rendered: Error",
     ]);
+    expect(logged.everything()).not.toContain(PRIVATE_MESSAGE);
   });
 });
 
@@ -188,18 +200,24 @@ describe("a spent budget on a link to an issue", () => {
   });
 
   it("logs a page it cannot draw as the link's, and never the address", async () => {
-    tooManyRequests.mockRejectedValueOnce(new Error("database is down"));
-    const logged = loggedErrors();
     const token = `obrf_rl_${"G".repeat(43)}`;
+    // The token in the failure's message too, as a database error quoting the
+    // statement's parameters would carry it.
+    tooManyRequests.mockRejectedValueOnce(
+      new Error(`${PRIVATE_MESSAGE}: ${token}`),
+    );
+    const logged = loggedErrors();
 
     const refused = await refusedAt(`/arende/${token}`);
 
     expect(refused.statusCode).toBe(429);
     expect(refused.body).toBe("");
-    expect(logged()).toEqual([
+    expect(logged.messages()).toEqual([
       "The rate-limit page for a link to an issue could not be rendered: Error",
     ]);
-    expect(logged().join("\n")).not.toContain(token);
+    // Every argument, frames included, not the message line alone.
+    expect(logged.everything()).not.toContain(token);
+    expect(logged.everything()).not.toContain(PRIVATE_MESSAGE);
   });
 });
 
