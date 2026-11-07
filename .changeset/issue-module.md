@@ -144,9 +144,11 @@ data subject access report read the meaning and never the board's label.
 - **Issue messages.** A resident writes on their own report, and a handler
   answers in the queue, signed to the reporter by the board or the property
   manager, never by a person. A handler with protected personal data is not
-  named to anyone. A reporter's message is refused on a closed report. A
-  handler cannot write to an internal issue, and writes to the reporter of a
-  report from the website's form only while their private link works.
+  named to anyone. A reporter's reply on a closed report reopens it
+  within 30 days (see "Reopening by a reply" below); after that, or on a merged
+  report, the reply is refused. A handler cannot write to an internal issue,
+  and writes to the reporter of a report from the website's form only while
+  their private link works.
 - **Internal notes and handlers' files.** Handlers write notes and attach an
   image or a PDF, such as a quote or a protocol, for each other. The reporter
   never sees them, and a handler the issue no longer lets in cannot open them.
