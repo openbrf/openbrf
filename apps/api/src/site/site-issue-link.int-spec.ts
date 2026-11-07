@@ -235,6 +235,28 @@ async function auditFor(issueId: string) {
   });
 }
 
+const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+/**
+ * The database's clock, read the way a `TIMESTAMP(3)` column is read. A link's
+ * `expiresAt` is set on that clock, so a check against `Date.now()` would take
+ * the gap between the two clocks, and the session's time zone, for the link's
+ * fault. The cast is the one the column goes through, so the zone cancels.
+ */
+async function databaseClock(): Promise<Date> {
+  const [row] = await prisma.$queryRaw<{ now: Date }[]>`
+    SELECT clock_timestamp()::timestamp(3) AS "now"`;
+  return row!.now;
+}
+
+/** `expiresAt` ends a year after a moment between two readings of the clock. */
+function expectYearAfterBetween(expiresAt: Date, before: Date, after: Date) {
+  expect(expiresAt.getTime()).toBeGreaterThanOrEqual(
+    before.getTime() + YEAR_MS,
+  );
+  expect(expiresAt.getTime()).toBeLessThanOrEqual(after.getTime() + YEAR_MS);
+}
+
 /** Everything a GET could write, for one issue (E1). */
 async function snapshot(issueId: string) {
   const [issue, link, messages, audit, jobs] = await Promise.all([
@@ -916,38 +938,29 @@ describe("B. lifetime and revocation", () => {
   });
 
   it("B4: an issue that stays open keeps the link a year after its latest message, and no longer", async () => {
+    const beforeIssue = await databaseClock();
     const { issueId, token } = await reported();
+    const afterIssue = await databaseClock();
     const issued = await prisma.issueReporterLink.findUniqueOrThrow({
       where: { issueId },
     });
-    const year = 365 * 24 * 60 * 60 * 1000;
-    // `expiresAt` is set on the database's clock and read here against the API
-    // process's, so allow the same minute either way as the checks below.
-    expect(issued.expiresAt.getTime()).toBeGreaterThan(
-      Date.now() + year - 60_000,
-    );
-    expect(issued.expiresAt.getTime()).toBeLessThanOrEqual(
-      Date.now() + year + 60_000,
-    );
+    expectYearAfterBetween(issued.expiresAt, beforeIssue, afterIssue);
 
     await prisma.issueReporterLink.update({
       where: { issueId },
       data: { expiresAt: new Date(Date.now() + 60_000) },
     });
+    const beforeReply = await databaseClock();
     await conversation.replyAsHandler(
       board.personId,
       issueId,
       "Fortfarande på gång.",
     );
+    const afterReply = await databaseClock();
     const extended = await prisma.issueReporterLink.findUniqueOrThrow({
       where: { issueId },
     });
-    expect(extended.expiresAt.getTime()).toBeGreaterThan(
-      Date.now() + year - 60_000,
-    );
-    expect(extended.expiresAt.getTime()).toBeLessThanOrEqual(
-      Date.now() + year + 60_000,
-    );
+    expectYearAfterBetween(extended.expiresAt, beforeReply, afterReply);
     expect((await page(token)).statusCode).toBe(200);
   });
 
@@ -1808,18 +1821,14 @@ describe("D. rate limits and abuse", () => {
       data: { expiresAt: soon },
     });
 
+    const before = await databaseClock();
     expect(await links.deliver(id)).toBe(true);
+    const after = await databaseClock();
     const link = await prisma.issueReporterLink.findUniqueOrThrow({
       where: { issueId: id },
       select: { expiresAt: true },
     });
-    const year = 365 * 24 * 60 * 60 * 1000;
-    expect(link.expiresAt.getTime()).toBeGreaterThan(
-      Date.now() + year - 60_000,
-    );
-    expect(link.expiresAt.getTime()).toBeLessThanOrEqual(
-      Date.now() + year + 60_000,
-    );
+    expectYearAfterBetween(link.expiresAt, before, after);
   });
 
   it("D6: an instance without mail settings issues no link that holds a slot", async () => {
