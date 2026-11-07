@@ -185,6 +185,10 @@ describe("the issue report form", () => {
     expect(html).toContain(
       "skriver till en entreprenör sparas i tio år efter att ärendet har stängts, och så länge sparas också en kodad form av din e-postadress",
     );
+    // A hold or a restriction on the reporter outlasts that ten years.
+    expect(html).toContain(
+      "gör att den texten och den kodade adressen sparas längre än tio år, tills det upphör",
+    );
   });
 
   it("names the longest of the types' clocks, never a fixed period", () => {

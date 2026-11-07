@@ -22,14 +22,16 @@ module holds about a person.
   states the number of years after closing that the issue's free text is
   kept, that the issue's apartment or common area stays after that, and that a
   contractor is sent only what a handler writes for them, kept ten years
-  after closing; a ring-fenced issue type's warning names the conversation
+  after closing, or longer while a legal hold or a restriction on the
+  reporter applies; a ring-fenced issue type's warning names the conversation
   and the photographs beside the text and keeps its one year.
   The website's form states that the reporter's name and email address are
   removed a year after the issue closes, and what they wrote and the
   replies they receive after the board's number of years; that what a
   handler writes to a contractor is kept ten years after closing; and that
   a coded form of the reporter's email address is kept as long as that
-  text, so a legal hold or a restriction on them still reaches it.
+  text, so a legal hold or a restriction on them still reaches it, and that
+  such a hold or restriction keeps both longer than ten years.
   Both forms say that the board can change its number of years for
   reports already made.
 - **The record of processing activities** lists a contractor's phone

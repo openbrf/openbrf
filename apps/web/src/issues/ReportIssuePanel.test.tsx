@@ -178,7 +178,9 @@ describe("the sensitive-data warning", () => {
     ).toBeTruthy();
     expect(screen.getByText(/styrelsen kan ändra antalet år/i)).toBeTruthy();
     expect(
-      screen.getByText(/det sparas i tio år efter att ärendet har stängts/i),
+      screen.getByText(
+        /det sparas i tio år efter att ärendet har stängts, eller längre så länge ett rättsligt bevarandekrav eller en begränsning/i,
+      ),
     ).toBeTruthy();
 
     await session.selectOptions(
