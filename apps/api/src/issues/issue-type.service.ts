@@ -729,7 +729,8 @@ export class IssueTypeService {
    * A route of its own rather than a field of the type's settings, so the one
    * setting that decides what may leave the association is changed only by a
    * request that names it, and is audited with the board member who changed
-   * it. Under the type's lock, which filing takes and a sending takes too, and
+   * it, with the handling it moved from when the fence hands the type to the
+   * board, and whether it cleared the default assignee. Under the type's lock, which filing takes and a sending takes too, and
    * so does the mail worker before it claims a work order
    * (`WorkOrderMailerService`): a report filed, or a work order being written
    * or about to be mailed, while the board ring-fences its type is decided
@@ -813,7 +814,18 @@ export class IssueTypeService {
             actorPersonId,
             targetKind: "issueType",
             targetId: id,
-            context: { ringFenced },
+            context: {
+              ringFenced,
+              // What ring-fencing changed besides the fence: handing the type
+              // to the board narrows who may read its history, and clearing
+              // the default assignee changes who is given its new issues. As
+              // in {@link typeChanges}, the assignee is only named, never
+              // identified (ADR 0019).
+              ...(ringFenced && type.handledBy !== "BOARD"
+                ? { handledBy: either(type.handledBy, "BOARD") }
+                : {}),
+              ...(keepsDefault ? {} : { defaultAssignee: true }),
+            },
           },
           tx,
         );

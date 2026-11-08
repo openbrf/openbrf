@@ -1266,7 +1266,10 @@ describe("the ring-fence", () => {
       {
         action: "ISSUE_TYPE_RING_FENCE_CHANGED",
         actorPersonId: board.personId,
-        context: { ringFenced: true },
+        context: {
+          ringFenced: true,
+          handledBy: { before: "EVERY_HANDLER", after: "BOARD" },
+        },
       },
     ]);
   });

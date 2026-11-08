@@ -1294,6 +1294,34 @@ describe("the responsibility guide", () => {
       expect((await save(true, [LINES[0] as object])).statusCode).toBe(200);
       expect((await save(false, [LINES[0] as object])).statusCode).toBe(200);
 
+      // Edits that keep the adoption and, but for the fourth, the number of
+      // lines: each field of a line, and the order of two distinct lines, is a
+      // change of its own, which a comparison of lengths alone would miss.
+      const [first, second] = LINES as [object, object];
+      const sameLength: object[][] = [
+        [{ ...first, part: "Golvbrunn, spolning" }],
+        [
+          {
+            ...first,
+            part: "Golvbrunn, spolning",
+            responsibility: "ASSOCIATION",
+          },
+        ],
+        [
+          {
+            ...first,
+            part: "Golvbrunn, spolning",
+            responsibility: "ASSOCIATION",
+            note: "Gäller alla",
+          },
+        ],
+        [first, second],
+        [second, first],
+      ];
+      for (const items of sameLength) {
+        expect((await save(false, items)).statusCode).toBe(200);
+      }
+
       const written = (await entries()).slice(before);
       expect(written).toEqual([
         {
@@ -1320,6 +1348,15 @@ describe("the responsibility guide", () => {
             linesChanged: false,
           },
         },
+        // One entry for each of the edits above.
+        ...sameLength.map(() => ({
+          channel: "WEB",
+          targetKind: "responsibilityGuide",
+          context: {
+            adopted: { before: false, after: false },
+            linesChanged: true,
+          },
+        })),
       ]);
       const text = JSON.stringify(written);
       for (const words of ["Golvbrunn", "Stammar", "lägenhet"]) {

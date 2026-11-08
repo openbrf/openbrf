@@ -527,6 +527,28 @@ describe("setting the ring-fence", () => {
       actorPersonId: board.personId,
       context: { previousAssigneePersonId: manager.personId },
     });
+    // The entry for the fence itself says what else it changed: the handling
+    // the type moved from, and that the default assignee was cleared, without
+    // saying who it was.
+    const fenceEntries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "ISSUE_TYPE_RING_FENCE_CHANGED",
+        targetKind: "issueType",
+        targetId: type.id,
+      },
+      select: { actorPersonId: true, context: true },
+    });
+    expect(fenceEntries).toEqual([
+      {
+        actorPersonId: board.personId,
+        context: {
+          ringFenced: true,
+          handledBy: { before: "EVERY_HANDLER", after: "BOARD" },
+          defaultAssignee: true,
+        },
+      },
+    ]);
+    expect(JSON.stringify(fenceEntries)).not.toContain(manager.personId);
 
     // An administrator without a seat configures too (ADR 0054, question 4).
     const other = await addType("trapphus", { reporters: ["RESIDENTS"] });

@@ -94,7 +94,9 @@ its statuses. A change to a type names the fields that changed, with the
 setting before and after for who may report the type, who handles it, its
 default priority and whether it is switched on. Of the type's name, a status's
 label and the default assignee it records only that they changed. A save that
-changes nothing writes no entry.
+changes nothing writes no entry. Ring-fencing a type that someone other than
+the board handled also records the handling it moved from, and whether it
+cleared the default assignee.
 
 ## Handling an issue
 
