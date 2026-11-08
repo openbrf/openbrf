@@ -502,6 +502,9 @@ describe("the sweep of the issues module's unattached files", () => {
       } finally {
         release?.();
         await holder;
+        // Settled here too, so that when a wait above throws, a run that then
+        // fails is not left unhandled to stand in for the wait's own error.
+        await running?.catch(() => undefined);
       }
       await running;
 
@@ -565,6 +568,9 @@ describe("the sweep of the issues module's unattached files", () => {
     } finally {
       release?.();
       await holder;
+      // Settled here too, so that when a wait above throws, a run that then
+      // fails is not left unhandled to stand in for the wait's own error.
+      await running?.catch(() => undefined);
     }
     await running;
 
@@ -579,8 +585,8 @@ describe("the sweep of the issues module's unattached files", () => {
     await age(fileId, UNATTACHED_ISSUE_FILE_HOURS + 1);
     const key = await storageKeyOf(fileId);
 
-    const error = vi
-      .spyOn(Logger.prototype, "error")
+    const warn = vi
+      .spyOn(Logger.prototype, "warn")
       .mockImplementation(() => {});
     const refuse = vi
       .spyOn(storage, "remove")
@@ -589,7 +595,7 @@ describe("the sweep of the issues module's unattached files", () => {
       const summary = await sweep.run();
       expect(summary.failed).toBeGreaterThanOrEqual(1);
       expect(await hasRow(fileId)).toBe(true);
-      const logged = error.mock.calls
+      const logged = warn.mock.calls
         .map(([message]) => String(message))
         .filter((message) => message.includes(fileId));
       expect(logged).toEqual([
@@ -597,7 +603,7 @@ describe("the sweep of the issues module's unattached files", () => {
       ]);
     } finally {
       refuse.mockRestore();
-      error.mockRestore();
+      warn.mockRestore();
     }
 
     await sweep.run();
@@ -611,7 +617,9 @@ describe("the sweep of the issues module's unattached files", () => {
      * file each: a scan that read the oldest candidates again, or counted a
      * failure against the bound, would reach the failing file alone and never
      * the one behind it. Twenty years back puts both ahead of what any other
-     * suite on the database leaves behind.
+     * suite on the database leaves behind, which the assertions on the two
+     * rows rely on; the counts are read only as far as the bounds fix them,
+     * whatever else the database holds.
      */
     const failingId = await storeIssueFile(residentPersonId);
     const behindId = await storeIssueFile(residentPersonId);
@@ -619,8 +627,8 @@ describe("the sweep of the issues module's unattached files", () => {
     await age(behindId, 20 * 365 * 24);
     const failingKey = await storageKeyOf(failingId);
 
-    const error = vi
-      .spyOn(Logger.prototype, "error")
+    const warn = vi
+      .spyOn(Logger.prototype, "warn")
       .mockImplementation(() => {});
     const remove = storage.remove.bind(storage);
     const refuse = vi
@@ -634,17 +642,143 @@ describe("the sweep of the issues module's unattached files", () => {
     try {
       const summary = await sweep.run(new Date(), {
         maxRemovals: 1,
+        maxFailuresInARow: 20,
         pageSize: 1,
       });
-      expect(summary).toEqual({ considered: 2, removed: 1, failed: 1 });
+      expect(summary.removed).toBe(1);
+      expect(summary.failed).toBeGreaterThanOrEqual(1);
       expect(await hasRow(failingId)).toBe(true);
       expect(await hasRow(behindId)).toBe(false);
     } finally {
       refuse.mockRestore();
-      error.mockRestore();
+      warn.mockRestore();
     }
 
     await sweep.run();
     expect(await hasRow(failingId)).toBe(false);
+  });
+
+  it("reaches the files behind a run of files that fail on their own, which a stop at the front would keep stored", async () => {
+    /*
+     * The two oldest files fail every time and the limit is two in a row, with
+     * a page of one. Storage works for the other two. The newest comes off as
+     * the run's try, which leaves the third for the scan itself: that it is
+     * removed shows the scan went on past the two. The order of the storage
+     * calls shows the newest was the try and the third came after it. Twenty
+     * years back puts the four ahead of what any other suite leaves behind.
+     */
+    const failing = [
+      await storeIssueFile(residentPersonId),
+      await storeIssueFile(residentPersonId),
+    ];
+    const behindId = await storeIssueFile(residentPersonId);
+    const newestId = await storeIssueFile(residentPersonId);
+    for (const [index, fileId] of failing.entries()) {
+      await age(fileId, 20 * 365 * 24 + 3 - index);
+    }
+    await age(behindId, 20 * 365 * 24);
+    await age(newestId, 20 * 365 * 24 - 1);
+    const failingKeys = await Promise.all(failing.map(storageKeyOf));
+    const behindKey = await storageKeyOf(behindId);
+    const newestKey = await storageKeyOf(newestId);
+    const ownKeys = [...failingKeys, behindKey, newestKey];
+    const calls: string[] = [];
+
+    const warn = vi
+      .spyOn(Logger.prototype, "warn")
+      .mockImplementation(() => {});
+    const remove = storage.remove.bind(storage);
+    const refuse = vi
+      .spyOn(storage, "remove")
+      .mockImplementation(async (storageKey) => {
+        if (ownKeys.includes(storageKey)) {
+          calls.push(storageKey);
+        }
+        if (failingKeys.includes(storageKey)) {
+          throw new Error("storage refused the file");
+        }
+        await remove(storageKey);
+      });
+    try {
+      const summary = await sweep.run(new Date(), {
+        maxRemovals: 500,
+        maxFailuresInARow: 2,
+        pageSize: 1,
+      });
+      expect(summary.stoppedOnFailures).toBe(false);
+      // The two failures, then the try on the newest, then the third.
+      expect(calls).toEqual([...failingKeys, newestKey, behindKey]);
+      expect(summary.removed).toBeGreaterThanOrEqual(2);
+      expect(await hasRow(newestId)).toBe(false);
+      expect(await hasRow(behindId)).toBe(false);
+      for (const fileId of failing) {
+        expect(await hasRow(fileId)).toBe(true);
+      }
+    } finally {
+      refuse.mockRestore();
+      warn.mockRestore();
+    }
+
+    await sweep.run();
+    for (const fileId of failing) {
+      expect(await hasRow(fileId)).toBe(false);
+    }
+  });
+
+  it("stops once removals have failed a number of times in a row, as when storage is down", async () => {
+    /*
+     * Three of this suite's files, and storage refuses every removal. The run
+     * tries the newest candidate at the second failure in a row, whichever
+     * files of the database's they were, and stops when that fails too, so
+     * storage is asked exactly three times.
+     */
+    const fileIds = [
+      await storeIssueFile(residentPersonId),
+      await storeIssueFile(residentPersonId),
+      await storeIssueFile(residentPersonId),
+    ];
+    for (const fileId of fileIds) {
+      await age(fileId, UNATTACHED_ISSUE_FILE_HOURS + 1);
+    }
+
+    const warn = vi
+      .spyOn(Logger.prototype, "warn")
+      .mockImplementation(() => {});
+    const error = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => {});
+    const refuse = vi
+      .spyOn(storage, "remove")
+      .mockRejectedValue(new Error("storage is down"));
+    try {
+      const summary = await sweep.run(new Date(), {
+        maxRemovals: 500,
+        maxFailuresInARow: 2,
+        pageSize: 100,
+      });
+      expect(summary).toMatchObject({
+        removed: 0,
+        failed: 3,
+        stoppedOnFailures: true,
+      });
+      expect(refuse).toHaveBeenCalledTimes(3);
+      expect(
+        error.mock.calls
+          .map(([message]) => String(message))
+          .filter((message) => message.startsWith("Issue file sweep stopped")),
+      ).toHaveLength(1);
+      for (const fileId of fileIds) {
+        expect(await hasRow(fileId)).toBe(true);
+      }
+    } finally {
+      refuse.mockRestore();
+      error.mockRestore();
+      warn.mockRestore();
+    }
+
+    await sweep.run();
+    for (const fileId of fileIds) {
+      expect(await hasRow(fileId)).toBe(false);
+    }
   });
 });
