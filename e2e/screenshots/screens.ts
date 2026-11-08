@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import {
   ADDRESSES,
   ADMINISTRATOR,
@@ -110,6 +112,16 @@ export type Target = Where & {
    * has lost its entry, so this says it is the menu's entry that is meant.
    */
   readonly inNavigation?: true;
+  /**
+   * Look only inside the list row that shows this text.
+   *
+   * A list of reports holds the reports of every earlier walk on a stack that
+   * was already up, and neither the type, which every one of them names, nor
+   * where a row sits can tell this walk's report from theirs: the board's
+   * queue is oldest first inside a status, the resident's own list newest
+   * first. Text only this walk wrote can.
+   */
+  readonly inRowWith?: string;
 };
 
 /**
@@ -722,6 +734,32 @@ const PUBLIC_REPORT = {
 const PUBLIC_REPORT_ANSWER =
   "Tack, vi har beställt en elektriker. Vi hör av oss när den kommer.";
 const PUBLIC_REPORT_NOTE = "Elektrikern har nyckel till elcentralen.";
+
+/**
+ * What tells this walk's reports from those of earlier walks against a stack
+ * that was already up, fixed once when the file is loaded. Written into a
+ * report's description, so a screen can find its own report by it.
+ */
+const WALK_STAMP = randomBytes(3).toString("hex");
+
+/**
+ * A fault a resident reports on the house's page, under a type a new instance
+ * starts with that only residents report, and the board's answer to it. About
+ * the building, and nobody's own words.
+ */
+const RESIDENT_REPORT = {
+  type: "Tvättstuga",
+  location: "Tvättstugan i källaren",
+  description: `Torktumlare två startar inte, displayen visar F12. Referens ${WALK_STAMP}.`,
+} as const;
+/**
+ * What the screens that open this walk's own report select its row by: the
+ * report's description ends in it, and the board's queue and the resident's
+ * list both show the description.
+ */
+const RESIDENT_REPORT_ROW = `Referens ${WALK_STAMP}.`;
+const RESIDENT_REPORT_ANSWER =
+  "Tack! Serviceteknikern kommer på torsdag. Använd torktumlare ett så länge.";
 
 /**
  * A "YYYY-MM-DD" date some whole days from today.
@@ -2830,6 +2868,107 @@ export const SCREENS: readonly Screen[] = [
     name: "site-issue-link-not-found",
     goto: `/arende/obrf_rl_${"A".repeat(43)}`,
     waitFor: { heading: "Länken öppnar inget ärende" },
+  },
+  {
+    /*
+     * A resident reports on the house's page, under one of the types a new
+     * instance starts with that only residents report. The receipt is drawn
+     * once the report is stored, so waiting for it waits for the queue.
+     */
+    name: "issues-resident-report",
+    as: "resident",
+    goto: appPath("/issues"),
+    prepare: [
+      { select: { combobox: "Vad gäller det" }, option: RESIDENT_REPORT.type },
+      { fill: { label: "Var i huset" }, value: RESIDENT_REPORT.location },
+      { fill: { label: "Vad har hänt" }, value: RESIDENT_REPORT.description },
+      { click: { button: "Skicka anmälan" } },
+    ],
+    waitFor: { text: "Anmälan är skickad och ligger nu i kön." },
+    capture: "page",
+  },
+  {
+    /*
+     * The board answers the resident from the handling. The resident is
+     * mailed that there is an answer, never what it says, and reads it on the
+     * screen below.
+     */
+    name: "board-issues-conversation",
+    as: "administrator",
+    // Alla: the type a new instance starts with gives its reports to nobody.
+    goto: appPath("/board/issues?view=all"),
+    prepare: [
+      // This walk's own report: a stack that is already up holds the reports
+      // of earlier walks under the same type.
+      {
+        click: {
+          text: new RegExp(`^Hantera ${RESIDENT_REPORT.type}:`),
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+      },
+      {
+        fill: {
+          label: `${RESIDENT_REPORT.type}: meddelande till anmälaren`,
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+        value: RESIDENT_REPORT_ANSWER,
+      },
+      {
+        click: {
+          button: "Skicka",
+          inRowWith: RESIDENT_REPORT_ROW,
+          // The handling offers the same button to more than one of its forms.
+          first: true,
+        },
+      },
+    ],
+    waitFor: { text: RESIDENT_REPORT_ANSWER, inRowWith: RESIDENT_REPORT_ROW },
+    capture: "page",
+  },
+  {
+    /*
+     * The resident's own report, with the board's answer signed as the board
+     * and never with the name of whoever wrote it, and a field to answer back.
+     */
+    name: "issues-resident-conversation",
+    as: "resident",
+    goto: appPath("/issues"),
+    prepare: [
+      {
+        click: {
+          text: new RegExp(`^Meddelanden om ${RESIDENT_REPORT.type}`),
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+      },
+    ],
+    waitFor: { text: RESIDENT_REPORT_ANSWER, inRowWith: RESIDENT_REPORT_ROW },
+    capture: "page",
+  },
+  {
+    /*
+     * A charge made from the issue (decision 26): the charge form opens tied
+     * to the issue, its reason naming the type and nothing the resident
+     * wrote. Not recorded, so the walk leaves no charge behind.
+     */
+    name: "member-charge-from-issue",
+    as: "administrator",
+    goto: appPath("/board/issues?view=all"),
+    prepare: [
+      {
+        click: {
+          text: new RegExp(`^Hantera ${RESIDENT_REPORT.type}:`),
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+      },
+      {
+        click: {
+          link: `${RESIDENT_REPORT.type}: skapa debitering`,
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+      },
+    ],
+    waitFor: { text: /Debiteringen görs från ärendet/, first: true },
+    capture: "page",
   },
 
   // --- motions ---------------------------------------------------------------

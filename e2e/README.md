@@ -56,6 +56,9 @@ While writing a spec:
   `uniquePersonalIdentityNumber` for it: `06-protected-personal-data` and
   `09-statutory-registers` still write a fixed one, so each reused run stores
   another person holding the same number.
+- `OPENBRF_E2E_PROJECT=<name>` runs the stack under that compose project
+  instead of `openbrf-e2e` (or `openbrf-shots`), for a machine where somebody
+  else may have a stack of that name up. The ports stay those of the env file.
 - `OPENBRF_E2E_KEEP_STACK=true` leaves the stack running afterwards, so a
   failing instance can be looked at.
 
