@@ -16,7 +16,11 @@ export type Message = {
   readonly Created: string;
 };
 
-type MessageList = { readonly messages: readonly Message[] };
+type MessageList = {
+  readonly messages: readonly Message[];
+  /** How many messages the mailbox holds, whatever this page carries. */
+  readonly total: number;
+};
 
 const POLL_INTERVAL_MS = 500;
 
@@ -45,16 +49,87 @@ export async function listMessages(): Promise<readonly Message[]> {
   return list.messages;
 }
 
+/**
+ * Every message the mailbox holds, read a page at a time. `listMessages`
+ * answers with the newest 200, so a scan that must not miss one reads this
+ * instead and fails when the pages do not add up to the mailbox's own count,
+ * or repeat a message because mail arrived while they were read.
+ */
+export async function listEveryMessage(): Promise<readonly Message[]> {
+  // A mail arriving between two pages shifts the later ones by one, so a page
+  // repeats a message and the mail that arrived is never read, while the count
+  // still adds up. A repeated id means the mailbox moved: read it again.
+  for (let attempt = 1; ; attempt += 1) {
+    const read = await readEveryPage();
+    if (read !== "moved") {
+      return read;
+    }
+    if (attempt === 3) {
+      throw new Error(
+        "mailpit gained a message while its pages were read, three times in a row",
+      );
+    }
+  }
+}
+
+async function readEveryPage(): Promise<readonly Message[] | "moved"> {
+  const pageSize = 200;
+  const all: Message[] = [];
+  const seen = new Set<string>();
+  let total = 0;
+  do {
+    const page = await readJson<MessageList>(
+      `/api/v1/messages?start=${String(all.length)}&limit=${String(pageSize)}`,
+    );
+    total = page.total;
+    if (page.messages.length === 0) {
+      break;
+    }
+    for (const message of page.messages) {
+      if (seen.has(message.ID)) {
+        return "moved";
+      }
+      seen.add(message.ID);
+      all.push(message);
+    }
+  } while (all.length < total);
+  if (all.length !== total) {
+    throw new Error(
+      `mailpit holds ${String(total)} messages but ${String(all.length)} were read`,
+    );
+  }
+  return all;
+}
+
+/**
+ * Everything a message says: its subject, its plain-text part and its HTML
+ * part, joined. For an assertion about what a mail must never carry, which
+ * holds for every part a mail client might show, not only the plain one.
+ */
+export async function messageContent(id: string): Promise<string> {
+  const message = await readMessage(id);
+  return [message.Subject, message.Text, message.HTML].join("\n");
+}
+
 /** The plain-text part, which carries every link the HTML part carries. */
 export async function messageText(id: string): Promise<string> {
+  return (await readMessage(id)).Text;
+}
+
+interface MessageParts {
+  readonly Subject: string;
+  readonly Text: string;
+  readonly HTML: string;
+}
+
+async function readMessage(id: string): Promise<MessageParts> {
   const response = await fetch(`${stack.mailpitUrl}/api/v1/message/${id}`);
   if (!response.ok) {
     throw new Error(
       `mailpit message ${id} answered ${String(response.status)}`,
     );
   }
-  const message = (await response.json()) as { readonly Text: string };
-  return message.Text;
+  return (await response.json()) as MessageParts;
 }
 
 /**

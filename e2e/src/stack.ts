@@ -51,7 +51,37 @@ const profile: (typeof PROFILES)[keyof typeof PROFILES] =
     ? PROFILES.screenshots
     : PROFILES.e2e;
 
-export const PROJECT_NAME = profile.project;
+/**
+ * The project name a run uses: the profile's own, or the one asked for if
+ * Compose would take it.
+ *
+ * Compose takes lowercase letters, digits, `-` and `_`, starting with a letter
+ * or a digit. The name also becomes a directory under the system's temporary
+ * one, so a name it would refuse fails here, at start, and not in Docker after
+ * the stack's files are written.
+ */
+function projectName(requested: string | undefined): string {
+  if (requested === undefined || requested === "") {
+    return profile.project;
+  }
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(requested)) {
+    throw new Error(
+      `OPENBRF_E2E_PROJECT="${requested}" is not a compose project name: use lowercase letters, digits, "-" and "_", starting with a letter or a digit`,
+    );
+  }
+  return requested;
+}
+
+/**
+ * The compose project, the profile's own unless OPENBRF_E2E_PROJECT names
+ * another.
+ *
+ * For a machine whose Docker other people's stacks share: a run then tears
+ * down and recreates the volumes of the project it was told to use, and never
+ * those of an `openbrf-e2e` that somebody else started. The ports are still
+ * the env file's, so two runs on one machine still take turns.
+ */
+export const PROJECT_NAME = projectName(process.env.OPENBRF_E2E_PROJECT);
 
 const ENV_FILE = resolve(e2eRoot, profile.envFile);
 
