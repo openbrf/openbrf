@@ -963,7 +963,7 @@ describe("B. lifetime and revocation", () => {
     // limit counts, so a cutoff read in the session's zone lands on the
     // wrong side of every message below.
     const ZONE = "Pacific/Auckland";
-    let zoned: NestFastifyApplication;
+    let zoned: NestFastifyApplication | undefined;
 
     beforeAll(async () => {
       const url = new URL(applicationDatabaseUrl(baseEnv));
@@ -992,16 +992,25 @@ describe("B. lifetime and revocation", () => {
         }
       }
       // The application's own connections run in the zone, not this suite's.
-      const [session] = await zoned.get(PrismaService).$queryRaw<
+      const [session] = await zonedApp().get(PrismaService).$queryRaw<
         { zone: string }[]
       >`
           SELECT current_setting('TimeZone') AS "zone"`;
       expect(session?.zone).toBe(ZONE);
     }, 180_000);
 
+    // The application is closed only when it was created, so a failed boot
+    // reports its own error and not a second one from this hook.
     afterAll(async () => {
-      await zoned.close();
+      await zoned?.close();
     });
+
+    const zonedApp = (): NestFastifyApplication => {
+      if (!zoned) {
+        throw new Error("The application in the non-UTC session did not boot");
+      }
+      return zoned;
+    };
 
     it.each([
       {
@@ -1019,7 +1028,7 @@ describe("B. lifetime and revocation", () => {
       async ({ ageMs, outcome }) => {
         const { issueId, token } = await reported();
         await closedWithReporterMessages(issueId, ageMs);
-        await expectHourlyBudget(token, issueId, outcome, zoned);
+        await expectHourlyBudget(token, issueId, outcome, zonedApp());
       },
     );
   });
