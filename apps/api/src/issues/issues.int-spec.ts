@@ -1252,6 +1252,191 @@ describe("the type catalogue", () => {
     });
     expect(removed.statusCode).toBe(204);
   });
+
+  /**
+   * Who may report a type and who handles it decide who reads its issues, so
+   * every change to the catalogue is audited with the board member who made
+   * it: one entry per act, none for a request that changes nothing, and a
+   * context of facts that never holds a name, a label or who a person is.
+   */
+  it("audits every change to a type and its statuses, and nothing that changes nothing", async () => {
+    const name = `is-type-audited-${suffix}`;
+    const label = `is-status-audited-${suffix}`;
+    async function entries(typeId: string) {
+      return prisma.auditLogEntry.findMany({
+        where: { targetKind: "issueType", targetId: typeId },
+        orderBy: { createdAt: "asc" },
+        select: {
+          action: true,
+          channel: true,
+          actorPersonId: true,
+          context: true,
+        },
+      });
+    }
+    /** Fails when the entry carries a name, a label or the assignee's id. */
+    function holdsNoText(context: unknown): void {
+      const written = JSON.stringify(context);
+      for (const text of [name, `${name} renamed`, label, board.personId]) {
+        expect(written).not.toContain(text);
+      }
+    }
+    const settings = {
+      name,
+      reporters: ["RESIDENTS"],
+      sortOrder: 9,
+      defaultPriority: "NORMAL",
+    };
+
+    const created = await inject({
+      method: "POST",
+      url: "/api/issue-types",
+      payload: settings,
+      headers: { cookie: boardCookie },
+    });
+    expect(created.statusCode).toBe(201);
+    const type = created.json<{
+      id: string;
+      statuses: { id: string; meaning: string; label: string }[];
+    }>();
+    try {
+      const [added] = await entries(type.id);
+      expect(added).toEqual({
+        action: "ISSUE_TYPE_CREATED",
+        channel: "WEB",
+        actorPersonId: board.personId,
+        context: {
+          reporters: ["RESIDENTS"],
+          handledBy: "EVERY_HANDLER",
+          defaultPriority: "NORMAL",
+          active: true,
+          defaultAssignee: false,
+        },
+      });
+
+      // The same settings again: nothing changed, so nothing is written.
+      const unchanged = await inject({
+        method: "PUT",
+        url: `/api/issue-types/${type.id}`,
+        payload: settings,
+        headers: { cookie: boardCookie },
+      });
+      expect(unchanged.statusCode).toBe(200);
+      expect(await entries(type.id)).toHaveLength(1);
+
+      // Handed to the board, put on the website's form, given a default
+      // assignee and renamed, in one request: one entry naming each.
+      const changed = await inject({
+        method: "PUT",
+        url: `/api/issue-types/${type.id}`,
+        payload: {
+          ...settings,
+          name: `${name} renamed`,
+          reporters: ["PUBLIC", "RESIDENTS"],
+          handledBy: "BOARD",
+          defaultPriority: "URGENT",
+          defaultAssigneePersonId: board.personId,
+        },
+        headers: { cookie: boardCookie },
+      });
+      expect(changed.statusCode).toBe(200);
+      const afterChange = await entries(type.id);
+      expect(afterChange).toHaveLength(2);
+      expect(afterChange[1]).toEqual({
+        action: "ISSUE_TYPE_CHANGED",
+        channel: "WEB",
+        actorPersonId: board.personId,
+        context: {
+          changed: [
+            "name",
+            "reporters",
+            "handledBy",
+            "defaultPriority",
+            "defaultAssignee",
+          ],
+          reporters: {
+            before: ["RESIDENTS"],
+            after: ["PUBLIC", "RESIDENTS"],
+          },
+          handledBy: { before: "EVERY_HANDLER", after: "BOARD" },
+          defaultPriority: { before: "NORMAL", after: "URGENT" },
+        },
+      });
+
+      const statusAdded = await inject({
+        method: "POST",
+        url: `/api/issue-types/${type.id}/statuses`,
+        payload: { meaning: "WAITING", label },
+        headers: { cookie: boardCookie },
+      });
+      expect(statusAdded.statusCode).toBe(201);
+      const status = statusAdded
+        .json<{ statuses: { id: string; label: string }[] }>()
+        .statuses.find((row) => row.label === label);
+
+      // Its own label again changes nothing.
+      expect(
+        (
+          await inject({
+            method: "PUT",
+            url: `/api/issue-types/${type.id}/statuses/${status?.id ?? ""}`,
+            payload: { label },
+            headers: { cookie: boardCookie },
+          })
+        ).statusCode,
+      ).toBe(200);
+      const switchedOff = await inject({
+        method: "PUT",
+        url: `/api/issue-types/${type.id}/statuses/${status?.id ?? ""}`,
+        payload: { label: `${label} renamed`, active: false },
+        headers: { cookie: boardCookie },
+      });
+      expect(switchedOff.statusCode).toBe(200);
+
+      const afterStatuses = await entries(type.id);
+      expect(afterStatuses.slice(2)).toEqual([
+        {
+          action: "ISSUE_STATUS_CONFIGURED",
+          channel: "WEB",
+          actorPersonId: board.personId,
+          context: { statusId: status?.id, meaning: "WAITING", added: true },
+        },
+        {
+          action: "ISSUE_STATUS_CONFIGURED",
+          channel: "WEB",
+          actorPersonId: board.personId,
+          context: {
+            statusId: status?.id,
+            meaning: "WAITING",
+            added: false,
+            changed: ["label", "active"],
+            active: { before: true, after: false },
+          },
+        },
+      ]);
+
+      const removed = await inject({
+        method: "DELETE",
+        url: `/api/issue-types/${type.id}`,
+        headers: { cookie: boardCookie },
+      });
+      expect(removed.statusCode).toBe(204);
+      const all = await entries(type.id);
+      expect(all.slice(4)).toEqual([
+        {
+          action: "ISSUE_TYPE_REMOVED",
+          channel: "WEB",
+          actorPersonId: board.personId,
+          context: null,
+        },
+      ]);
+      for (const entry of all) {
+        holdsNoText(entry.context);
+      }
+    } finally {
+      await prisma.issueType.deleteMany({ where: { id: type.id } });
+    }
+  });
 });
 
 describe("a type's statuses", () => {

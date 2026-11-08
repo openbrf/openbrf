@@ -384,8 +384,16 @@ export class IssueTypeService {
    * else is refused rather than kept, because an issue filed under the type
    * would otherwise land with nobody while the board believes it lands with
    * somebody.
+   *
+   * Audited with the board member who added it, in the same transaction: who
+   * may report the type and who handles it decide who reads its issues. The
+   * entry carries those settings as facts and never the type's name, nor who
+   * its default assignee is (ADR 0019).
    */
-  async create(input: IssueTypeInput): Promise<ConfiguredIssueTypeView> {
+  async create(
+    input: IssueTypeInput,
+    actorPersonId: string,
+  ): Promise<ConfiguredIssueTypeView> {
     const t = await this.associationTranslator();
     const handledBy = input.handledBy ?? "EVERY_HANDLER";
     const defaultAssigneePersonId = input.defaultAssigneePersonId ?? null;
@@ -394,18 +402,38 @@ export class IssueTypeService {
       defaultAssigneePersonId,
       handledBy,
     );
-    const type = await this.prisma.issueType.create({
-      data: {
-        name: input.name,
-        reporters: uniqueGroups(input.reporters),
-        active: input.active ?? true,
-        sortOrder: input.sortOrder ?? 0,
-        handledBy,
-        defaultPriority: input.defaultPriority ?? "NORMAL",
-        defaultAssigneePersonId,
-        statuses: { create: defaultStatuses(t) },
-      },
-      include: TYPE_INCLUDE,
+    const type = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.issueType.create({
+        data: {
+          name: input.name,
+          reporters: uniqueGroups(input.reporters),
+          active: input.active ?? true,
+          sortOrder: input.sortOrder ?? 0,
+          handledBy,
+          defaultPriority: input.defaultPriority ?? "NORMAL",
+          defaultAssigneePersonId,
+          statuses: { create: defaultStatuses(t) },
+        },
+        include: TYPE_INCLUDE,
+      });
+      await this.audit.record(
+        {
+          action: "ISSUE_TYPE_CREATED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "issueType",
+          targetId: created.id,
+          context: {
+            reporters: uniqueGroups(created.reporters),
+            handledBy: created.handledBy,
+            defaultPriority: created.defaultPriority,
+            active: created.active,
+            defaultAssignee: created.defaultAssigneePersonId !== null,
+          },
+        },
+        tx,
+      );
+      return created;
     });
 
     this.logger.log(`Added issue type ${type.id}`);
@@ -424,6 +452,10 @@ export class IssueTypeService {
    * new setting and refused if it does not handle the type. Under the type's
    * lock, which an assignment takes too (`IssueService.assign`), so an
    * assignment cannot slip in between the check and the change.
+   *
+   * A change is audited with the board member who made it, in the same
+   * transaction, as one entry naming the fields that changed (see
+   * {@link typeChanges}). A request that changes nothing writes none.
    */
   async update(
     id: string,
@@ -437,7 +469,12 @@ export class IssueTypeService {
           const existing = await tx.issueType.findUnique({
             where: { id },
             select: {
+              name: true,
+              reporters: true,
+              active: true,
+              sortOrder: true,
               handledBy: true,
+              defaultPriority: true,
               defaultAssigneePersonId: true,
               ringFenced: true,
             },
@@ -501,6 +538,29 @@ export class IssueTypeService {
               defaultAssigneePersonId,
             },
           });
+
+          const changes = typeChanges(existing, {
+            name: input.name,
+            reporters: input.reporters,
+            active: input.active ?? existing.active,
+            sortOrder: input.sortOrder ?? existing.sortOrder,
+            handledBy,
+            defaultPriority: input.defaultPriority ?? existing.defaultPriority,
+            defaultAssigneePersonId,
+          });
+          if (changes !== null) {
+            await this.audit.record(
+              {
+                action: "ISSUE_TYPE_CHANGED",
+                channel: "WEB",
+                actorPersonId,
+                targetKind: "issueType",
+                targetId: id,
+                context: changes,
+              },
+              tx,
+            );
+          }
         },
         /*
          * Handing a type to the board writes one audit entry per shut-out
@@ -602,8 +662,10 @@ export class IssueTypeService {
    * filed under it say what they were about only through it, and a board
    * tidying its categories must not be able to make last winter's reports
    * unreadable. Deactivating is the answer, and the refusal says so.
+   *
+   * Audited with the board member who removed it, in the same transaction.
    */
-  async remove(id: string): Promise<void> {
+  async remove(id: string, actorPersonId: string): Promise<void> {
     const type = await this.prisma.issueType.findUnique({
       where: { id },
       select: { _count: { select: { issues: true } } },
@@ -616,7 +678,19 @@ export class IssueTypeService {
     }
 
     try {
-      await this.prisma.issueType.delete({ where: { id } });
+      await this.prisma.$transaction(async (tx) => {
+        await tx.issueType.delete({ where: { id } });
+        await this.audit.record(
+          {
+            action: "ISSUE_TYPE_REMOVED",
+            channel: "WEB",
+            actorPersonId,
+            targetKind: "issueType",
+            targetId: id,
+          },
+          tx,
+        );
+      });
     } catch (cause) {
       /*
        * The count above narrows the window; the foreign key closes it. A
@@ -759,10 +833,14 @@ export class IssueTypeService {
    * The meaning is chosen here and never changes: a status that moved from one
    * meaning to another would silently reopen or close every issue standing in
    * it. Under the type's lock, so two additions cannot both pass the bound.
+   *
+   * Audited with the board member who added it, in the same transaction: the
+   * status and its meaning, never its label.
    */
   async addStatus(
     typeId: string,
     input: IssueStatusInput,
+    actorPersonId: string,
   ): Promise<ConfiguredIssueTypeView> {
     await this.prisma.$transaction(async (tx) => {
       await this.requireLockedType(tx, typeId);
@@ -784,7 +862,7 @@ export class IssueTypeService {
           .map((status) => status.sortOrder),
       );
 
-      await tx.issueStatus.create({
+      const added = await tx.issueStatus.create({
         data: {
           typeId,
           meaning: input.meaning,
@@ -794,7 +872,19 @@ export class IssueTypeService {
               ? last + 1
               : await this.renumberMeaning(tx, typeId, input.meaning),
         },
+        select: { id: true },
       });
+      await this.audit.record(
+        {
+          action: "ISSUE_STATUS_CONFIGURED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "issueType",
+          targetId: typeId,
+          context: { statusId: added.id, meaning: input.meaning, added: true },
+        },
+        tx,
+      );
     });
 
     this.logger.log(`Added a ${input.meaning} status to issue type ${typeId}`);
@@ -846,18 +936,31 @@ export class IssueTypeService {
    * handler can no longer move another issue into it. Statuses are never
    * deleted on their own, because the timeline goes on naming the ones an issue
    * has stood in.
+   *
+   * A change is audited with the board member who made it, in the same
+   * transaction: the status, its meaning and the fields that changed, with
+   * whether it is switched on and whether it is the default either side, and
+   * never its label. A request that changes nothing writes no entry.
    */
   async updateStatus(
     typeId: string,
     statusId: string,
     change: IssueStatusChange,
+    actorPersonId: string,
   ): Promise<ConfiguredIssueTypeView> {
     await this.prisma.$transaction(async (tx) => {
       await this.requireLockedType(tx, typeId);
 
       const status = await tx.issueStatus.findFirst({
         where: { id: statusId, typeId },
-        select: { id: true, meaning: true, isDefault: true, active: true },
+        select: {
+          id: true,
+          meaning: true,
+          label: true,
+          isDefault: true,
+          active: true,
+          sortOrder: true,
+        },
       });
       if (status === null) {
         throw new IssueError("No such status.", "status-not-found");
@@ -890,6 +993,40 @@ export class IssueTypeService {
             : { sortOrder: change.sortOrder }),
         },
       });
+
+      const changed = [
+        ...(change.label === status.label ? [] : ["label"]),
+        ...(active === status.active ? [] : ["active"]),
+        ...(becomesDefault ? ["isDefault"] : []),
+        ...(change.sortOrder === undefined ||
+        change.sortOrder === status.sortOrder
+          ? []
+          : ["sortOrder"]),
+      ];
+      if (changed.length > 0) {
+        await this.audit.record(
+          {
+            action: "ISSUE_STATUS_CONFIGURED",
+            channel: "WEB",
+            actorPersonId,
+            targetKind: "issueType",
+            targetId: typeId,
+            context: {
+              statusId,
+              meaning: status.meaning,
+              added: false,
+              changed,
+              ...(active === status.active
+                ? {}
+                : { active: { before: status.active, after: active } }),
+              ...(becomesDefault
+                ? { isDefault: { before: false, after: true } }
+                : {}),
+            },
+          },
+          tx,
+        );
+      }
     });
 
     this.logger.log(`Changed status ${statusId} of issue type ${typeId}`);
@@ -1021,6 +1158,72 @@ function refuseOutsideRingFence(
       "ring-fenced-public",
     );
   }
+}
+
+/** A type's settings as `update` compares them. */
+interface TypeSettings {
+  name: string;
+  reporters: readonly IssueReporterGroup[];
+  active: boolean;
+  sortOrder: number;
+  handledBy: IssueHandledBy;
+  defaultPriority: IssuePriority;
+  defaultAssigneePersonId: string | null;
+}
+
+/**
+ * The context of the audit entry for a change to a type, or null when nothing
+ * changed.
+ *
+ * `changed` names every field that changed. Who may report the type, who
+ * handles it, its default priority and whether it is switched on are facts and
+ * carried with the value either side. The name is the board's own text and its
+ * place in the list says nothing, so each is only named. The default assignee
+ * is a person, and an identifier here would need the person purge to reach it
+ * (ADR 0019), so it too is only named as changed.
+ */
+function typeChanges(
+  before: TypeSettings,
+  after: TypeSettings,
+): Record<string, unknown> | null {
+  const reporters = {
+    before: uniqueGroups(before.reporters),
+    after: uniqueGroups(after.reporters),
+  };
+  const facts = {
+    reporters:
+      reporters.before.join() === reporters.after.join() ? null : reporters,
+    handledBy: either(before.handledBy, after.handledBy),
+    defaultPriority: either(before.defaultPriority, after.defaultPriority),
+    active: either(before.active, after.active),
+  };
+  const changed = [
+    ...(before.name === after.name ? [] : ["name"]),
+    ...Object.entries(facts)
+      .filter(([, value]) => value !== null)
+      .map(([field]) => field),
+    ...(before.sortOrder === after.sortOrder ? [] : ["sortOrder"]),
+    ...(before.defaultAssigneePersonId === after.defaultAssigneePersonId
+      ? []
+      : ["defaultAssignee"]),
+  ];
+  if (changed.length === 0) {
+    return null;
+  }
+  return {
+    changed,
+    ...Object.fromEntries(
+      Object.entries(facts).filter(([, value]) => value !== null),
+    ),
+  };
+}
+
+/** A value either side of a change, or null when it did not change. */
+function either<T extends string | boolean>(
+  before: T,
+  after: T,
+): { before: T; after: T } | null {
+  return before === after ? null : { before, after };
 }
 
 /** One status of each meaning, each the default of its meaning. */

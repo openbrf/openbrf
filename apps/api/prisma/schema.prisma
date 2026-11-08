@@ -1859,6 +1859,16 @@ enum AuditAction {
   CONTRACTOR_LIST_CHANGED
   /// The board ring-fenced an issue type, or lifted its ring-fence. The entry names the type and the new setting.
   ISSUE_TYPE_RING_FENCE_CHANGED
+  /// The board added an issue type. The entry names the type, the groups who may report it, who handles it, its default priority, whether it is switched on and whether it has a default assignee; never its name or who the assignee is.
+  ISSUE_TYPE_CREATED
+  /// The board changed an issue type's settings. The entry names the type and the fields that changed, with the value either side of who may report it, who handles it, its default priority and whether it is switched on; of its name, its place in the list and its default assignee only that they changed.
+  ISSUE_TYPE_CHANGED
+  /// The board removed an issue type nothing had been reported under. The entry names the type.
+  ISSUE_TYPE_REMOVED
+  /// The board added a status to an issue type, or renamed, switched on or off, moved or made default one of its statuses. The entry names the type, the status, its status meaning and the fields that changed, with whether it is switched on and whether it is the default either side; never its label.
+  ISSUE_STATUS_CONFIGURED
+  /// The board saved the responsibility guide. The entry says whether it was adopted either side and whether its lines changed; never their text.
+  ISSUE_RESPONSIBILITY_GUIDE_SAVED
   /// An issue message was written, by the reporter or by a handler. The entry names the issue, the message, which side wrote it and the writer as its actor, never the text.
   ISSUE_MESSAGE_SENT
   /// A handler wrote an internal note on an issue. The entry names the issue, the note and the handler as its actor, never the text.

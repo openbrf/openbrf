@@ -362,20 +362,26 @@ describe("the forms on a public page", () => {
     const page = async () =>
       (await inject({ method: "GET", url: `/${publicSlug}` })).body;
     try {
-      await guides.save({
-        items: [{ part, responsibility: "TENANT_OWNER", note: null }],
-        adopted: false,
-        version: (await guides.read()).version,
-      });
+      await guides.save(
+        {
+          items: [{ part, responsibility: "TENANT_OWNER", note: null }],
+          adopted: false,
+          version: (await guides.read()).version,
+        },
+        boardMember.personId,
+      );
       const example = await page();
       expect(example.includes(part)).toBe(false);
       expect(example.includes('class="site-form-guide"')).toBe(false);
 
-      await guides.save({
-        items: [{ part, responsibility: "TENANT_OWNER", note: null }],
-        adopted: true,
-        version: (await guides.read()).version,
-      });
+      await guides.save(
+        {
+          items: [{ part, responsibility: "TENANT_OWNER", note: null }],
+          adopted: true,
+          version: (await guides.read()).version,
+        },
+        boardMember.personId,
+      );
       const adopted = await page();
       const guide = adopted.indexOf('<details class="site-form-guide">');
       expect(guide).toBeGreaterThan(-1);

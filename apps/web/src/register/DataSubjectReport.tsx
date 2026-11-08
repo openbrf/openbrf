@@ -636,6 +636,13 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.CONTRACTOR_LIST_CHANGED",
   ISSUE_TYPE_RING_FENCE_CHANGED:
     "register.person.report.action.ISSUE_TYPE_RING_FENCE_CHANGED",
+  ISSUE_TYPE_CREATED: "register.person.report.action.ISSUE_TYPE_CREATED",
+  ISSUE_TYPE_CHANGED: "register.person.report.action.ISSUE_TYPE_CHANGED",
+  ISSUE_TYPE_REMOVED: "register.person.report.action.ISSUE_TYPE_REMOVED",
+  ISSUE_STATUS_CONFIGURED:
+    "register.person.report.action.ISSUE_STATUS_CONFIGURED",
+  ISSUE_RESPONSIBILITY_GUIDE_SAVED:
+    "register.person.report.action.ISSUE_RESPONSIBILITY_GUIDE_SAVED",
   MOVE_IN_RECORDED: "register.person.report.action.MOVE_IN_RECORDED",
   MOVE_OUT_RECORDED: "register.person.report.action.MOVE_OUT_RECORDED",
   PLUGIN_ENABLED: "register.person.report.action.PLUGIN_ENABLED",

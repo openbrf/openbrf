@@ -1265,6 +1265,71 @@ describe("the responsibility guide", () => {
     }
   });
 
+  it("audits a save with the board member, the adoption either side and never a line's text", async () => {
+    /*
+     * Adopting is the board's statement that the guide follows its bylaws,
+     * and an adopted guide is what every reporter is shown before they file.
+     * Each save that changes it is one entry with who saved it; one that
+     * changes nothing writes none, and no entry holds a line's words.
+     */
+    async function entries() {
+      return prisma.auditLogEntry.findMany({
+        where: {
+          action: "ISSUE_RESPONSIBILITY_GUIDE_SAVED",
+          actorPersonId: board.personId,
+        },
+        orderBy: { createdAt: "asc" },
+        select: { channel: true, targetKind: true, context: true },
+      });
+    }
+    try {
+      // Whatever this suite found, the guide is now this example.
+      expect((await save(false)).statusCode).toBe(200);
+      const before = (await entries()).length;
+
+      expect((await save(false)).statusCode).toBe(200);
+      expect(await entries()).toHaveLength(before);
+
+      expect((await save(true)).statusCode).toBe(200);
+      expect((await save(true, [LINES[0] as object])).statusCode).toBe(200);
+      expect((await save(false, [LINES[0] as object])).statusCode).toBe(200);
+
+      const written = (await entries()).slice(before);
+      expect(written).toEqual([
+        {
+          channel: "WEB",
+          targetKind: "responsibilityGuide",
+          context: {
+            adopted: { before: false, after: true },
+            linesChanged: false,
+          },
+        },
+        {
+          channel: "WEB",
+          targetKind: "responsibilityGuide",
+          context: {
+            adopted: { before: true, after: true },
+            linesChanged: true,
+          },
+        },
+        {
+          channel: "WEB",
+          targetKind: "responsibilityGuide",
+          context: {
+            adopted: { before: true, after: false },
+            linesChanged: false,
+          },
+        },
+      ]);
+      const text = JSON.stringify(written);
+      for (const words of ["Golvbrunn", "Stammar", "lägenhet"]) {
+        expect(text).not.toContain(words);
+      }
+    } finally {
+      await restore();
+    }
+  });
+
   it("saves one guide at a time, so two saves never leave both sets of lines", async () => {
     /*
      * A save deletes every line and writes its own. Two at once, unserialised,
@@ -1355,13 +1420,13 @@ describe("the responsibility guide", () => {
       let saved = false;
       const reader = new ResponsibilityGuideService(
         betweenTheFirstReadAndTheNext(prisma, async () => {
-          await guides.save({
-            items: replacement,
-            adopted: false,
-            version: before.version,
-          });
+          await guides.save(
+            { items: replacement, adopted: false, version: before.version },
+            board.personId,
+          );
           saved = true;
         }),
+        app.get(AuditLogService),
       );
 
       const shown = await reader.readForReporter();
@@ -1416,15 +1481,21 @@ describe("the responsibility guide", () => {
       const now = new Date("2026-11-03T09:00:00.000Z");
       const first = await guides.save(
         { items, adopted: false, version: await currentVersion() },
+        board.personId,
         now,
       );
       const second = await guides.save(
         { items, adopted: false, version: first.version },
+        board.personId,
         now,
       );
       expect(second.version).not.toBe(first.version);
       await expect(
-        guides.save({ items, adopted: false, version: first.version }, now),
+        guides.save(
+          { items, adopted: false, version: first.version },
+          board.personId,
+          now,
+        ),
       ).rejects.toMatchObject({ reason: "changed-since-read" });
     } finally {
       await restore();
