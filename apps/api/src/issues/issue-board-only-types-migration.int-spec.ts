@@ -177,7 +177,17 @@ async function readTypes(tx: Tx, ids: readonly string[]): Promise<TypeAfter[]> {
   });
 }
 
-/** The names the migration hands to the board, as boards have typed them. */
+/**
+ * The names the migration hands to the board, as boards have typed them.
+ *
+ * The capitals among them hold the migration to case folding that does not
+ * depend on the database's locale: it folds Å, Ä and Ö by hand and lowercases
+ * under the "C" collation, so a database created under the C locale (which
+ * leaves them as they are) and one under a Turkish locale (which turns `I`
+ * into `ı`) give the answer this database gives. Removing the hand folding
+ * makes "STÖRNINGAR" and "FÖRSÄKRINGSÄRENDE" fail here whatever this database's
+ * locale is, because `lower` under "C" folds ASCII only.
+ */
 const MATCHED = [
   "Störningar",
   "störningar",

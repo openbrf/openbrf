@@ -22,8 +22,11 @@
 --
 -- The name is compared trimmed of spaces, tabs and line breaks, in Unicode's
 -- composed form (NFC) where the database is UTF-8, and with Å, Ä and Ö folded by
--- hand: `lower` folds letters outside ASCII only under a locale that knows them,
--- and a database created under the C locale does not.
+-- hand, then lowercased under the "C" collation: the result then does not depend
+-- on the database's locale. `lower` folds letters outside ASCII only under a
+-- locale that knows them, which a database created under the C locale does not,
+-- and under a Turkish locale it turns `I` into the dotless `ı`, which is not the
+-- `i` of "FÖRSÄKRINGSÄRENDE".
 CREATE TEMPORARY TABLE "board_only_type" AS
   SELECT "id" FROM "issue_type"
     WHERE "handledBy" <> 'BOARD'
@@ -37,7 +40,7 @@ CREATE TEMPORARY TABLE "board_only_type" AS
         ),
         'ÅÄÖ',
         'åäö'
-      )) IN (
+      ) COLLATE "C") IN (
         'störningar',
         'störning',
         'försäkringsärende',
@@ -56,15 +59,17 @@ UPDATE "issue_type"
 -- migration has no actor to write. An issue an upgrade carries over has no
 -- assignee yet, so on an upgrade from a release this finds nobody.
 --
--- The board is an administrator, or a board member whose seat is held today,
--- the rule `issueHandlersWhere` spells in the service, with the server's date
--- for today as that migration has it.
+-- The board is an administrator, or a board member whose seat is held today on
+-- the association's calendar (Stockholm's, ADR 0014), the rule
+-- `issueHandlersWhere` spells in the service. The database's own date would be
+-- the previous day for an upgrade run just after midnight in Stockholm.
 CREATE TEMPORARY TABLE "board_only_board" AS
   SELECT "personId" AS "id" FROM "system_role" WHERE "role" = 'ADMIN'
   UNION
   SELECT "personId" FROM "board_position"
-    WHERE "electedOn" <= CURRENT_DATE
-      AND ("endedOn" IS NULL OR "endedOn" > CURRENT_DATE);
+    WHERE "electedOn" <= (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Stockholm')::date
+      AND ("endedOn" IS NULL
+        OR "endedOn" > (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Stockholm')::date);
 
 UPDATE "issue"
   SET "assigneePersonId" = NULL
