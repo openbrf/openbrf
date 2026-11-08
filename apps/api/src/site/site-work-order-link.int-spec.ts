@@ -58,7 +58,7 @@ import {
 } from "../media/testing/image-fixtures";
 import { MoveService } from "../moves/move.service";
 import { StorageService } from "../storage/storage.service";
-import { advisoryLockCount } from "../testing/advisory-locks";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
   restoreEnvironmentVariable,
@@ -67,6 +67,7 @@ import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
+import { backendPid, waitersBehind } from "../testing/lock-waiters";
 import { clearOfTheSlotTurn, TEST_TIMEOUT_MS } from "../testing/notice-slot";
 import { WORK_ORDER_LINK_READS_PER_MINUTE } from "./site-work-order-link.controller";
 
@@ -287,21 +288,6 @@ interface Arranged {
 
 let arranged = 0;
 
-/** Waits until a transaction is queued on the household protection's lock. */
-async function waitForProtectionLockWaiter(): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    if (
-      (await advisoryLockCount(prisma, "work-order-link-protection", false)) >
-      0n
-    ) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error("Nothing queued on the household protection's lock");
-}
-
 /**
  * Runs `act` for a handler who holds `PROPERTY_MANAGER` while a second
  * transaction holds the work order's row lock, withdraws the role once `act`
@@ -332,35 +318,19 @@ async function withRoleWithdrawnBehindWorkOrderLock(
     const holding = prisma.$transaction(
       async (tx) => {
         await tx.$queryRaw`SELECT "id" FROM "work_order" WHERE "id" = ${workOrderId} FOR UPDATE`;
-        const [backend] = await tx.$queryRaw<
-          { pid: number }[]
-        >`SELECT pg_backend_pid() AS "pid"`;
-        if (backend === undefined) {
-          throw new Error("The holder's backend could not be read");
-        }
-        entered(backend.pid);
+        entered(await backendPid(tx));
         await held;
       },
-      { timeout: 20_000 },
+      // Past `waitFor`'s own deadline, so a wait that never ends fails with
+      // its message rather than with this transaction's timeout.
+      { timeout: 30_000 },
     );
     const holder = await inside;
     const acting = act().then(
       () => undefined,
       (error: unknown) => error,
     );
-    const deadline = Date.now() + 10_000;
-    for (;;) {
-      const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
-        SELECT count(*) AS "waiting" FROM pg_stat_activity
-        WHERE ${holder}::int = ANY(pg_blocking_pids("pid"))`;
-      if (row !== undefined && row.waiting > 0n) {
-        break;
-      }
-      if (Date.now() > deadline) {
-        throw new Error("Nothing queued on the work order's lock");
-      }
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
+    await waitFor(async () => (await waitersBehind(prisma, holder)) > 0);
     // The role is asked again once the lock is got: a check made before the
     // wait alone would let the act through.
     await prisma.systemRole.deleteMany({ where: { personId: handlerId } });
@@ -1148,14 +1118,23 @@ describe("B. lifetime and revocation", () => {
           entered();
           await held;
         },
-        { timeout: 20_000 },
+        // Past `waitFor`'s own deadline, so a wait that never ends fails
+        // with its message rather than with this transaction's timeout.
+        { timeout: 30_000 },
       );
       await inside;
       const issuing = links.issue(handlerId, ids.issueId, ids.workOrderId).then(
         () => undefined,
         (error: unknown) => error,
       );
-      await waitForProtectionLockWaiter();
+      await waitFor(
+        async () =>
+          (await advisoryLockCount(
+            prisma,
+            "work-order-link-protection",
+            false,
+          )) > 0n,
+      );
       // The role is asked again once the lock is got: a check made before the
       // wait alone would let the link be issued.
       await prisma.systemRole.deleteMany({ where: { personId: handlerId } });

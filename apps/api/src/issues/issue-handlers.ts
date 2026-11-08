@@ -205,6 +205,13 @@ export async function requireHandlerRole(
  * `WorkOrderLinkService` and `WorkOrderService.send`. `merge`, which reads two
  * issues, asks {@link requireHandlerRole} beside its reads instead.
  *
+ * A write that does something before its transaction asks it there as well,
+ * ahead of the locks, and again under them: `IssueConversationService.attach`
+ * before it stores the file, and `IssueRedactionService.removeFile` before it
+ * reaches storage. A person whose role was withdrawn since the route's guard
+ * is refused before anything is stored or logged, rather than read as the
+ * narrower scope.
+ *
  * `now` has no default: the caller reads the clock once the locks are held and
  * judges the role and the scope at that one instant, so a board seat or a role
  * that ended during a lock wait is not read as it stood before.

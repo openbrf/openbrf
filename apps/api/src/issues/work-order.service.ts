@@ -227,6 +227,7 @@ export class WorkOrderService {
             tx,
             issueId,
             readerPersonId,
+            "read",
           );
           const found = await tx.workOrder.findMany({
             where: { issueId: handled.id },
@@ -273,6 +274,7 @@ export class WorkOrderService {
       issueId,
       readerPersonId,
       input,
+      "read",
     );
     const [rendered, mailConfigured] = await Promise.all([
       this.mailer.render({
@@ -492,21 +494,21 @@ export class WorkOrderService {
    * The text is folded as the identity-number scan folds it, and that is what
    * is both checked and stored, so what was checked is what is sent.
    *
-   * A sending passes `write`, with the instant it read once its locks were
-   * held, and its issue is read as a write's (`requireHandled`).
+   * A preview passes `"read"`. A sending passes the instant it read once its
+   * locks were held, and its issue is read as a write's (`requireHandled`).
    */
   private async prepare(
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
     input: WorkOrderInput,
-    write?: { writtenAt: Date },
+    as: HandledAs,
   ): Promise<{
     contractorId: string;
     recipient: { name: string; email: string };
     body: string;
   }> {
-    const issue = await this.requireHandled(db, issueId, readerPersonId, write);
+    const issue = await this.requireHandled(db, issueId, readerPersonId, as);
     if (issue.type.ringFenced) {
       throw new IssueError(
         "Nothing about an issue of this type may reach a contractor.",
@@ -553,17 +555,18 @@ export class WorkOrderService {
    * An issue this person handles, or the refusal that answers an issue that
    * does not exist: one the reader may not open is not one they may learn of.
    *
-   * A read (`list`, `preview`) asks `requireHandledIssue`. A sending passes
-   * `write` and asks `requireHandledIssueForWrite` at the instant it read once
-   * its locks were held, so a person whose `issues:handle` role was withdrawn
-   * while the sending waited is refused rather than read as the narrower
-   * scope, and no contractor is mailed for them.
+   * A read (`list`, `preview`) passes `"read"` and asks
+   * `requireHandledIssue`. A sending passes the instant it read once its locks
+   * were held and asks `requireHandledIssueForWrite` at it, so a person whose
+   * `issues:handle` role was withdrawn while the sending waited is refused
+   * rather than read as the narrower scope, and no contractor is mailed for
+   * them.
    */
   private async requireHandled(
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
-    write?: { writtenAt: Date },
+    as: HandledAs,
   ) {
     const select = {
       id: true,
@@ -571,14 +574,14 @@ export class WorkOrderService {
       status: { select: { meaning: true } },
     } satisfies Prisma.IssueSelect;
     const issue =
-      write === undefined
+      as === "read"
         ? await requireHandledIssue(db, issueId, readerPersonId, select)
         : await requireHandledIssueForWrite(
             db,
             issueId,
             readerPersonId,
             select,
-            write.writtenAt,
+            as.writtenAt,
           );
     return {
       id: issue.id,
@@ -666,6 +669,15 @@ const WORK_ORDER_SELECT = {
 type WorkOrderRow = Prisma.WorkOrderGetPayload<{
   select: typeof WORK_ORDER_SELECT;
 }>;
+
+/**
+ * How an issue is read for a work order: `"read"` for the list and the
+ * preview, or a sending's write with the instant it read once its locks were
+ * held. Required wherever the issue is read, so a sending that left it out
+ * would not compile rather than quietly read the issue without asking the
+ * sender's role.
+ */
+type HandledAs = "read" | { writtenAt: Date };
 
 /** What a preview signs and a sending is checked against. */
 function previewed(

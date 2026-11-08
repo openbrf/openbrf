@@ -594,10 +594,15 @@ export class IssueConversationService {
     bytes: Buffer;
     fileName: string;
   }): Promise<IssueAttachmentView> {
-    const existing = await this.requireHandled(
+    // Asked as a write's read before the upload too, not only under the locks
+    // below: a person whose role was withdrawn since the route's guard would
+    // otherwise read as the narrower scope here, and their file would be
+    // stored, and its upload logged, before the transaction refused it.
+    const existing = await this.requireHandledForWrite(
       this.prisma,
       input.issueId,
       input.handlerPersonId,
+      new Date(),
     );
     if (existing._count.attachments >= ISSUE_CONVERSATION_LIMITS.attachments) {
       throw tooManyAttachments();
@@ -729,30 +734,29 @@ export class IssueConversationService {
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
-    now: Date = new Date(),
   ) {
     return requireHandledIssue(
       db,
       issueId,
       readerPersonId,
       HANDLED_ISSUE_SELECT,
-      now,
     );
   }
 
   /**
-   * The same issue for a write, once its locks are held: the writer's
-   * `issues:handle` role is asked at the same instant as their scope
-   * (`requireHandledIssueForWrite`), so a write cannot leave it out.
+   * The same issue for a write: the writer's `issues:handle` role is asked at
+   * the same instant as their scope (`requireHandledIssueForWrite`), so a write
+   * cannot leave it out. Asked once the write's locks are held, and by
+   * `attach` before its upload as well.
    */
   private async requireHandledForWrite(
-    tx: Prisma.TransactionClient,
+    db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     writerPersonId: string,
     now: Date,
   ) {
     return requireHandledIssueForWrite(
-      tx,
+      db,
       issueId,
       writerPersonId,
       HANDLED_ISSUE_SELECT,
