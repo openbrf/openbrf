@@ -931,6 +931,11 @@ test("an issue goes from a report to a reopened case, and nothing leaks on the w
       await expect(
         mine.getByText(/^Anmälan är avslutad\. Skriver du här öppnas den igen/),
       ).toBeVisible();
+      // What the mailbox holds before the reply, so the handler's notice of it
+      // is told from the one of the earlier reply, which has the same subject.
+      const beforeReopening = new Set(
+        (await listEveryMessage()).map((message) => message.ID),
+      );
       await mine
         .getByLabel(`${LEAK}: ditt meddelande`, { exact: true })
         .fill(REOPENING);
@@ -946,6 +951,27 @@ test("an issue goes from a report to a reopened case, and nothing leaks on the w
         ),
         timeoutMs: 60_000,
       });
+      // The reply is also a message from the reporter, so the handler gets its
+      // notice as well. Waited for here, so the final scan of every mail reads
+      // it rather than racing it.
+      await expect
+        .poll(
+          async () =>
+            (await listEveryMessage()).some(
+              (message) =>
+                !beforeReopening.has(message.ID) &&
+                message.To.some(
+                  (to) =>
+                    to.Address.toLowerCase() ===
+                    ADMINISTRATOR.email.toLowerCase(),
+                ) &&
+                new RegExp(`^Nytt svar i ärende ${String(leak.number)}:`).test(
+                  message.Subject,
+                ),
+            ),
+          { timeout: 60_000 },
+        )
+        .toBe(true);
 
       const again = rowOf(await openQueue(admin, "all"), LEAK_TEXT);
       await openHandling(again, LEAK);

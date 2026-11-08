@@ -405,7 +405,9 @@ file, removed from storage and not only from the issue.
   and upgraded instances start at two. A year is counted as 365 days, so an
   issue is eligible at the first night after that many days, which can be a few
   days before the calendar anniversary of the closing. Eligible is not removed:
-  a run takes at most 500 issues, and a file whose stored copy cannot be
+  a run removes the text of at most 500 issues, oldest first, and tries at
+  most 1,000. An issue whose removal fails does not stop the scan, so a run
+  can reach issues beyond the oldest 500. A file whose stored copy cannot be
   removed stays, with the text, until a later night succeeds. An issue of a
   ring-fenced type is eligible after one year whatever period is set, unless a
   legal hold stands, so a longer period does not protect its text.

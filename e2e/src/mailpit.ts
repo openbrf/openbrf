@@ -52,11 +52,30 @@ export async function listMessages(): Promise<readonly Message[]> {
 /**
  * Every message the mailbox holds, read a page at a time. `listMessages`
  * answers with the newest 200, so a scan that must not miss one reads this
- * instead and fails when the pages do not add up to the mailbox's own count.
+ * instead and fails when the pages do not add up to the mailbox's own count,
+ * or repeat a message because mail arrived while they were read.
  */
 export async function listEveryMessage(): Promise<readonly Message[]> {
+  // A mail arriving between two pages shifts the later ones by one, so a page
+  // repeats a message and the mail that arrived is never read, while the count
+  // still adds up. A repeated id means the mailbox moved: read it again.
+  for (let attempt = 1; ; attempt += 1) {
+    const read = await readEveryPage();
+    if (read !== "moved") {
+      return read;
+    }
+    if (attempt === 3) {
+      throw new Error(
+        "mailpit gained a message while its pages were read, three times in a row",
+      );
+    }
+  }
+}
+
+async function readEveryPage(): Promise<readonly Message[] | "moved"> {
   const pageSize = 200;
   const all: Message[] = [];
+  const seen = new Set<string>();
   let total = 0;
   do {
     const page = await readJson<MessageList>(
@@ -66,7 +85,13 @@ export async function listEveryMessage(): Promise<readonly Message[]> {
     if (page.messages.length === 0) {
       break;
     }
-    all.push(...page.messages);
+    for (const message of page.messages) {
+      if (seen.has(message.ID)) {
+        return "moved";
+      }
+      seen.add(message.ID);
+      all.push(message);
+    }
   } while (all.length < total);
   if (all.length !== total) {
     throw new Error(
