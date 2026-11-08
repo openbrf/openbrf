@@ -1318,6 +1318,9 @@ describe("the responsibility guide", () => {
         ],
         [first, second],
         [first, { ...second, responsibility: "TENANT_OWNER" }],
+        // The second line is restored first, so that the last save changes
+        // nothing but the order of the two.
+        [first, second],
         [second, first],
       ];
       for (const items of sameLength) {
