@@ -235,6 +235,37 @@ async function auditFor(issueId: string) {
   });
 }
 
+const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+/**
+ * The database's clock, read the way a `TIMESTAMP(3)` column is read. A link's
+ * `expiresAt` is set on that clock, so a check against `Date.now()` would take
+ * the gap between the two clocks for the link's fault. The cast is the one the
+ * column goes through, so the zone cancels, but only in a zone without
+ * daylight saving: a reading taken across a fall-back, or an expiry that
+ * lands in a spring-forward gap, would not bracket. Like the rest of this file
+ * the helper therefore requires a UTC session and says so when it is not one.
+ */
+async function databaseClock(): Promise<Date> {
+  const [row] = await prisma.$queryRaw<{ now: Date; zone: string }[]>`
+    SELECT clock_timestamp()::timestamp(3) AS "now",
+           current_setting('TimeZone') AS "zone"`;
+  if (row === undefined || !["UTC", "Etc/UTC"].includes(row.zone)) {
+    throw new Error(
+      `The year checks read local timestamps as UTC, and the session's time zone is ${row?.zone ?? "unknown"}.`,
+    );
+  }
+  return row.now;
+}
+
+/** `expiresAt` ends a year after a moment between two readings of the clock. */
+function expectYearAfterBetween(expiresAt: Date, before: Date, after: Date) {
+  expect(expiresAt.getTime()).toBeGreaterThanOrEqual(
+    before.getTime() + YEAR_MS,
+  );
+  expect(expiresAt.getTime()).toBeLessThanOrEqual(after.getTime() + YEAR_MS);
+}
+
 /** Everything a GET could write, for one issue (E1). */
 async function snapshot(issueId: string) {
   const [issue, link, messages, audit, jobs] = await Promise.all([
@@ -916,31 +947,31 @@ describe("B. lifetime and revocation", () => {
   });
 
   it("B4: an issue that stays open keeps the link a year after its latest message, and no longer", async () => {
+    const beforeIssue = await databaseClock();
     const { issueId, token } = await reported();
+    const afterIssue = await databaseClock();
     const issued = await prisma.issueReporterLink.findUniqueOrThrow({
       where: { issueId },
     });
-    const year = 365 * 24 * 60 * 60 * 1000;
-    expect(issued.expiresAt.getTime() - Date.now()).toBeLessThanOrEqual(year);
+    expectYearAfterBetween(issued.expiresAt, beforeIssue, afterIssue);
 
+    // A minute ahead on the database's clock, which `replyAsHandler` judges
+    // the link on; the process's clock could put it in the past.
     await prisma.issueReporterLink.update({
       where: { issueId },
-      data: { expiresAt: new Date(Date.now() + 60_000) },
+      data: { expiresAt: new Date((await databaseClock()).getTime() + 60_000) },
     });
+    const beforeReply = await databaseClock();
     await conversation.replyAsHandler(
       board.personId,
       issueId,
       "Fortfarande på gång.",
     );
+    const afterReply = await databaseClock();
     const extended = await prisma.issueReporterLink.findUniqueOrThrow({
       where: { issueId },
     });
-    expect(extended.expiresAt.getTime()).toBeGreaterThan(
-      Date.now() + year - 60_000,
-    );
-    expect(extended.expiresAt.getTime()).toBeLessThanOrEqual(
-      Date.now() + year + 60_000,
-    );
+    expectYearAfterBetween(extended.expiresAt, beforeReply, afterReply);
     expect((await page(token)).statusCode).toBe(200);
   });
 
@@ -1801,18 +1832,14 @@ describe("D. rate limits and abuse", () => {
       data: { expiresAt: soon },
     });
 
+    const before = await databaseClock();
     expect(await links.deliver(id)).toBe(true);
+    const after = await databaseClock();
     const link = await prisma.issueReporterLink.findUniqueOrThrow({
       where: { issueId: id },
       select: { expiresAt: true },
     });
-    const year = 365 * 24 * 60 * 60 * 1000;
-    expect(link.expiresAt.getTime()).toBeGreaterThan(
-      Date.now() + year - 60_000,
-    );
-    expect(link.expiresAt.getTime()).toBeLessThanOrEqual(
-      Date.now() + year + 60_000,
-    );
+    expectYearAfterBetween(link.expiresAt, before, after);
   });
 
   it("D6: an instance without mail settings issues no link that holds a slot", async () => {
