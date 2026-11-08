@@ -7,6 +7,7 @@ import {
   ISSUE_ENTRY_ANSWERS,
   ISSUE_FINDING_KINDS,
   ISSUE_COST_RESPONSIBILITIES,
+  ISSUE_DAMAGE_CAUSES,
   ISSUE_LINK_LIMITS,
   ISSUE_OPEN_MEANINGS,
   ISSUE_OUTCOMES,
@@ -20,6 +21,7 @@ import {
   type IssueEntryAnswer,
   type IssueFindingKind,
   type IssueCostResponsibility,
+  type IssueDamageCause,
   type IssueHandledBy,
   type IssueMeaningFilter,
   type IssueOutcome,
@@ -35,13 +37,16 @@ import {
   type LocalDay,
   localDayOf,
   localDayOfColumn,
+  normalizeSingleLineText,
   parseLocalDay,
-  replyReopensIssue,
+  scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
 
+import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { databaseNow } from "../database/database-clock";
 import { PrismaService } from "../database/prisma.service";
 import { readAuthors } from "../feed/feed-author";
 import { type IssueLinkOutcome, linkIssueToPost } from "../feed/feed-issue";
@@ -56,6 +61,8 @@ import {
   issuesHandledWhere,
   readIssueHandlers,
   requireHandledIssue,
+  requireHandledIssueForWrite,
+  requireHandlerRole,
   typesHandledWhere,
 } from "./issue-handlers";
 import {
@@ -81,6 +88,7 @@ import {
   type KnownFaultView,
   typeNameForTheHouse,
 } from "./issue-known-fault";
+import { replyModeOf } from "./issue-reopening";
 import { type IssueTypeView, IssueTypeService } from "./issue-type.service";
 import {
   holdOfferedPlace,
@@ -96,8 +104,13 @@ import {
 } from "./issue-reporter-link";
 import { IssueReporterLinkService } from "./issue-reporter-link.service";
 import { IssueMailer } from "./issue-mailer.service";
-import { IssueError, placeWithApartment } from "./issue.error";
+import {
+  IssueError,
+  placeWithApartment,
+  requireCalendarDay,
+} from "./issue.error";
 import { workOrderKnownNotSent } from "./work-order-delivery";
+import { revokeWorkOrderLinks } from "./work-order-link";
 
 /**
  * How many photographs one report may carry.
@@ -337,6 +350,12 @@ export type QueuedIssueView = IssueRowView & {
   typeReporters: IssueReporterGroup[];
   /** Who handles an issue of its type. */
   typeHandledBy: IssueHandledBy;
+  /**
+   * Whether its type is ring-fenced (decision 32): read by the board alone,
+   * with nothing about it leaving it, and its free text removed a year after
+   * closing.
+   */
+  typeRingFenced: boolean;
   /** When it last moved into DONE, or null while it is open. */
   closedAt: string | null;
   priority: IssuePriority;
@@ -366,6 +385,11 @@ export type QueuedIssueView = IssueRowView & {
    */
   legalHoldAt: string | null;
   /**
+   * The insurance damage it is marked as, or null (decision 28). Internal, as
+   * the assignee is: a reporter never reads it.
+   */
+  damageCase: IssueDamageCaseView | null;
+  /**
    * Who pays for it, or null while nobody has said (decision 26). Never an
    * amount: a charge made from the issue is read from the charges, by those
    * who may read charges, and the property manager may not.
@@ -378,6 +402,48 @@ export type QueuedIssueView = IssueRowView & {
         apartment: null;
       }
   );
+
+/** What a handler marks an issue's damage case with (decision 28). */
+export interface IssueDamageCaseInput {
+  insurer: string;
+  claimNumber: string;
+  /** The day of the damage, `YYYY-MM-DD`. */
+  occurredOn: string;
+  cause: IssueDamageCause;
+}
+
+/**
+ * Whether the damage case a row holds is the one a change says it began from.
+ * Both `null` is the same: nothing was marked and nothing is.
+ */
+function sameDamageCase(
+  stored: {
+    insurer: string;
+    claimNumber: string;
+    occurredOn: Date;
+    cause: IssueDamageCause;
+  } | null,
+  from: IssueDamageCaseView | null,
+): boolean {
+  if (stored === null || from === null) {
+    return stored === null && from === null;
+  }
+  return (
+    stored.insurer === from.insurer &&
+    stored.claimNumber === from.claimNumber &&
+    formatDateColumn(stored.occurredOn) === from.occurredOn &&
+    stored.cause === from.cause
+  );
+}
+
+/** An issue's damage case (skadeärende, decision 28) as a handler reads it. */
+export interface IssueDamageCaseView {
+  insurer: string;
+  claimNumber: string;
+  /** The day of the damage, `YYYY-MM-DD`. */
+  occurredOn: string;
+  cause: IssueDamageCause;
+}
 
 /**
  * Whether a read of the queue shows the issues a reporter with protected
@@ -393,8 +459,28 @@ export type QueuedIssueView = IssueRowView & {
  * action may bind a read only where the omission happens in the service method
  * it calls (docs/actions.md, "What an action that names a person must
  * satisfy").
+ *
+ * `omit` leaves out every issue of a ring-fenced type as well (decision 32,
+ * ADR 0056), by the same omission and for the same callers: nothing about a
+ * ring-fenced issue reaches `mcp` or `ai`, whoever reported it. The name is
+ * the first rule's; both are what a read leaving the instance withholds.
+ *
+ * The writes the actions reach (`assign`, `setPriority`, `setTargetDate`,
+ * `setStatus`) and the list of who may be assigned (`handlers`) take it too,
+ * and with `omit` answer such an issue as one that does not exist (ADR 0056):
+ * a write that could find an issue a read leaves out would say there is one.
  */
 export type ProtectedReporters = "show" | "omit";
+
+/**
+ * The issues a read of this kind may name: with `omit`, none of a ring-fenced
+ * type. Put under `AND`, as the protected reporters' filter is.
+ */
+function outsideRingFence(
+  protectedReporters: ProtectedReporters,
+): Prisma.IssueWhereInput {
+  return protectedReporters === "omit" ? { type: { ringFenced: false } } : {};
+}
 
 /**
  * What the board's screen narrows a view of the queue to (decision 15): the
@@ -533,9 +619,26 @@ export type IssueTimelineStep = {
    * `null` when the work order is no longer there to ask.
    */
   | { kind: "workOrder"; delivery: IssueTimelineWorkOrderDelivery | null }
+  /**
+   * The contractor answered a work order through its link (ADR 0055). No
+   * actor: whoever held the link answered.
+   */
+  | {
+      kind: "workOrderAnswer";
+      answer: "ACCEPTED" | "DECLINED" | "DONE" | null;
+    }
   /** A handler redacted a text or removed a file (ADR 0057). */
   | { kind: "redacted"; target: IssueRedactionTarget | null }
   | { kind: "legalHold"; held: boolean }
+  /**
+   * A handler marked it as a damage case or changed the mark, with the cause,
+   * or took the mark off (decision 28). Never the insurer or the claim number.
+   */
+  | {
+      kind: "damageCase";
+      marked: boolean;
+      cause: IssueDamageCause | null;
+    }
   | {
       /** The common-area place set or changed; null when taken off. */
       kind: "place";
@@ -815,11 +918,20 @@ export class IssueService {
       }
       const filed = await this.file(tx, data);
       if (postId !== null) {
+        // Read under the type's lock `file` took, which ring-fencing takes too.
+        // A post is read by the house, and a ring-fenced report tied to one
+        // would say to everybody who reads it that a report was made.
+        if (filed.ringFenced) {
+          throw new IssueError(
+            "A report under this issue type is not made from a post.",
+            "ring-fenced-post",
+          );
+        }
         refuseUnlinked(
           await linkIssueToPost(tx, principal, postId, filed.id, new Date()),
         );
       }
-      return filed;
+      return { id: filed.id };
     });
 
     // The identifiers only. The description is the resident's own account of
@@ -883,6 +995,13 @@ export class IssueService {
         location: locationOrNull(input.location),
         description: input.description,
       });
+      // A type the board ring-fenced, or took off the form, since the form was
+      // resolved, under the lock `file` took: the website's form offers no
+      // ring-fenced type (`ring-fenced-public`), so it is answered as the type
+      // that is no longer offered.
+      if (filed.ringFenced || !filed.reporters.includes("PUBLIC")) {
+        throw new IssueError("No such issue type.", "type-not-found");
+      }
       /*
        * An address is a way to answer the reporter, and the only one: the
        * private link to the issue is mailed to it (decision 20, ADR 0055).
@@ -897,7 +1016,7 @@ export class IssueService {
           input.reporterLocale ?? null,
         );
       }
-      return filed;
+      return { id: filed.id };
     });
 
     // The identifier and the type. What a passer-by wrote about the building,
@@ -940,7 +1059,18 @@ export class IssueService {
        * out, and the handler would be told it failed when it had been filed.
        */
       await lockIssueType(tx, input.typeId);
-      const scope = await this.readerScope(tx, principal.personId, new Date());
+      /*
+       * The role and the scope at the one instant read once the lock is held:
+       * a role withdrawn while this waited on the lock reads as the narrower
+       * scope, which still admits every type an every-handler type has.
+       */
+      const now = new Date();
+      if (
+        !(await handlesIssues(tx, principal.personId, "EVERY_HANDLER", now))
+      ) {
+        throw new IssueError("No such issue type.", "type-not-found");
+      }
+      const scope = await this.readerScope(tx, principal.personId, now);
       const type = await tx.issueType.findFirst({
         where: { id: input.typeId, active: true, ...typesHandledWhere(scope) },
         select: {
@@ -1022,7 +1152,9 @@ export class IssueService {
       include: ISSUE_INCLUDE,
     });
 
-    const now = new Date();
+    // The database's clock, as a reply is judged on, so the field the screen
+    // offers is the one the reply will get (`replyModeOf`).
+    const now = await databaseNow(this.prisma);
     return issues.map((issue) => toOwnView(issue, now));
   }
 
@@ -1060,14 +1192,27 @@ export class IssueService {
    * Reached with issues:handle. A type the board keeps to itself is left out
    * for a reader the board-only rule does not let in, as its issues are, and
    * a type's counts are of the issues the reader handles.
+   *
+   * With `omit`, a ring-fenced type is left out as well, for a read leaving the
+   * instance (`issue_type_list`): ADR 0056 reads decision 32's "never to ... AI
+   * or MCP" as covering the type itself.
    */
-  async handledTypes(readerPersonId: string): Promise<IssueTypeView[]> {
+  async handledTypes(
+    readerPersonId: string,
+    protectedReporters: ProtectedReporters,
+  ): Promise<IssueTypeView[]> {
     const scope = await this.readerScope(
       this.prisma,
       readerPersonId,
       new Date(),
     );
-    return this.types.list(typesHandledWhere(scope), issuesHandledWhere(scope));
+    return this.types.list(
+      {
+        ...typesHandledWhere(scope),
+        ...(protectedReporters === "omit" ? { ringFenced: false } : {}),
+      },
+      issuesHandledWhere(scope),
+    );
   }
 
   /**
@@ -1226,7 +1371,8 @@ export class IssueService {
    * one" is answered without a second statement about a second moment.
    *
    * With `omit`, an issue a reporter with protected personal data filed is not
-   * on the page at all, and neither is anything about it. It is left out of the
+   * on the page at all, and neither is anything about it; nor is an issue of a
+   * ring-fenced type, which the query leaves out by its type. It is left out of the
    * query, so a page is not short for it, and left out again once the reporters
    * are read, so a person whose data became protected between the two reads is
    * not shown either. A row dropped that late leaves a gap, which is filled by
@@ -1266,6 +1412,7 @@ export class IssueService {
           AND: [
             handled,
             queueWhere(filter),
+            outsideRingFence(protectedReporters),
             protectedReporters === "omit"
               ? await this.notReportedByProtectedPersons()
               : {},
@@ -1306,9 +1453,10 @@ export class IssueService {
   /**
    * One issue from the triage queue. Reached with issues:handle.
    *
-   * With `omit`, an issue a reporter with protected personal data filed is
-   * answered exactly as an issue that does not exist, with the same reason and
-   * the same sentence, so the answer does not say that there is one.
+   * With `omit`, an issue a reporter with protected personal data filed, or
+   * one of a ring-fenced type, is answered exactly as an issue that does not
+   * exist, with the same reason and the same sentence, so the answer does not
+   * say that there is one.
    */
   async queuedIssue(
     readerPersonId: string,
@@ -1321,9 +1469,13 @@ export class IssueService {
       new Date(),
     );
     // An issue the reader does not handle is answered as one that does not
-    // exist, so the answer does not say that there is one.
+    // exist, so the answer does not say that there is one; and so, with
+    // `omit`, is one of a ring-fenced type.
     const issue = await this.prisma.issue.findFirst({
-      where: { id: issueId, ...issuesHandledWhere(scope) },
+      where: {
+        id: issueId,
+        AND: [issuesHandledWhere(scope), outsideRingFence(protectedReporters)],
+      },
       include: ISSUE_INCLUDE,
     });
     const [view] =
@@ -1345,12 +1497,17 @@ export class IssueService {
    * The target is one of the issue's own type's statuses and switched on; the
    * status an issue already stands in may be named again after the board
    * switched it off, to change the reason it waits for.
+   *
+   * The entry carries the channel the actor came by, as every write here does:
+   * `WEB` from the board's screen, `MCP` from a connected app (ADR 0056).
    */
   async setStatus(
     issueId: string,
     move: IssueStatusMove,
-    actorPersonId: string,
+    actor: ActorContext,
+    protectedReporters: ProtectedReporters,
   ): Promise<QueuedIssueView> {
+    const actorPersonId = actor.personId;
     /*
      * The read and the write in one transaction, under the row's own lock. The
      * closing date below is derived from what the row already holds, so a
@@ -1362,10 +1519,12 @@ export class IssueService {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
 
-      const scope = await this.readerScope(tx, actorPersonId, new Date());
-      const existing = await tx.issue.findFirst({
-        where: { id: issueId, ...issuesHandledWhere(scope) },
-        select: {
+      // After the lock wait: one instant for the writer's role and scope.
+      const existing = await requireHandledIssueForWrite(
+        tx,
+        issueId,
+        actorPersonId,
+        {
           id: true,
           typeId: true,
           closedAt: true,
@@ -1375,10 +1534,9 @@ export class IssueService {
           entryAnswer: true,
           status: { select: { id: true, meaning: true } },
         },
-      });
-      if (existing === null) {
-        throw new IssueError("No such issue.", "issue-not-found");
-      }
+        new Date(),
+      );
+      await this.requireOffered(tx, issueId, protectedReporters);
 
       const target = await tx.issueStatus.findFirst({
         where: {
@@ -1392,7 +1550,14 @@ export class IssueService {
         throw new IssueError("No such status.", "status-not-found");
       }
 
-      const next = nextState(existing, target, move);
+      // The database's clock, as the window a reply may reopen in is judged
+      // (`replyModeOf`): a `closedAt` from this process's clock would shift
+      // that window's edge by the two clocks' difference. Read only by a move
+      // that sets the closing date, so no other move pays a query while the
+      // locks are held.
+      const next = await nextState(existing, target, move, () =>
+        databaseNow(tx),
+      );
 
       /*
        * Who moved it, between which meanings and which statuses, and the reason
@@ -1414,8 +1579,7 @@ export class IssueService {
         await this.audit.record(
           {
             action: "ISSUE_STATUS_CHANGED",
-            channel: "WEB",
-            actorPersonId,
+            ...auditActor(actor),
             targetKind: "issue",
             targetId: issueId,
             context: {
@@ -1439,6 +1603,12 @@ export class IssueService {
         data: next,
         include: ISSUE_INCLUDE,
       });
+      // Into done ends every contractor's link to the issue's work orders, as a
+      // fact on the row (ADR 0055): reopening it later brings none back, and a
+      // handler gives the contractor a new link if the work goes on.
+      if (target.meaning === "DONE") {
+        await revokeWorkOrderLinks(tx, { issueId });
+      }
       // Out of done is a reopening, which the assignee is told of (decision 8).
       if (existing.status.meaning === "DONE" && target.meaning !== "DONE") {
         await this.mailer.reopenedInTransaction(tx, issueId, actorPersonId);
@@ -1468,13 +1638,23 @@ export class IssueService {
   async assign(
     issueId: string,
     assigneePersonId: string | null,
-    actorPersonId: string,
+    actor: ActorContext,
+    protectedReporters: ProtectedReporters,
   ): Promise<QueuedIssueView> {
+    const actorPersonId = actor.personId;
     await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      // After the lock wait: one instant for the writer's role and scope and
+      // for the assignee's.
+      const now = new Date();
+      const existing = await this.requireHandledForWrite(
+        tx,
+        issueId,
+        actorPersonId,
+        now,
+      );
+      await this.requireOffered(tx, issueId, protectedReporters);
 
       if (
         assigneePersonId !== null &&
@@ -1494,7 +1674,7 @@ export class IssueService {
       if (existing.assigneePersonId !== assigneePersonId) {
         await this.recordAssignment(tx, {
           issueId,
-          actorPersonId,
+          actor,
           assigneePersonId,
           previousAssigneePersonId: existing.assigneePersonId,
         });
@@ -1531,18 +1711,26 @@ export class IssueService {
   async setPriority(
     issueId: string,
     priority: IssuePriority,
-    actorPersonId: string,
+    actor: ActorContext,
+    protectedReporters: ProtectedReporters,
   ): Promise<QueuedIssueView> {
+    const actorPersonId = actor.personId;
     await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      const now = new Date();
+      const existing = await this.requireHandledForWrite(
+        tx,
+        issueId,
+        actorPersonId,
+        now,
+      );
+      await this.requireOffered(tx, issueId, protectedReporters);
       if (existing.priority !== priority) {
         await this.audit.record(
           {
             action: "ISSUE_PRIORITY_CHANGED",
-            channel: "WEB",
-            actorPersonId,
+            ...auditActor(actor),
             targetKind: "issue",
             targetId: issueId,
             context: { from: existing.priority, to: priority },
@@ -1580,18 +1768,24 @@ export class IssueService {
   async setTargetDate(
     issueId: string,
     targetDate: string | null,
-    actorPersonId: string,
+    actor: ActorContext,
+    protectedReporters: ProtectedReporters,
   ): Promise<QueuedIssueView> {
-    const day = targetDate === null ? null : parseLocalDay(targetDate);
-    if (targetDate !== null && day === null) {
-      throw new IssueError("That is not a date.", "target-date-invalid");
-    }
+    const actorPersonId = actor.personId;
+    const day = targetDate === null ? null : requireCalendarDay(targetDate);
     const column = day === null ? null : dateColumnOf(day);
 
     await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      const now = new Date();
+      const existing = await this.requireHandledForWrite(
+        tx,
+        issueId,
+        actorPersonId,
+        now,
+      );
+      await this.requireOffered(tx, issueId, protectedReporters);
       // The target date of a finding is held to the inspection's rule, and a
       // finding is never left without one.
       if (existing.finding !== null) {
@@ -1607,8 +1801,7 @@ export class IssueService {
         await this.audit.record(
           {
             action: "ISSUE_TARGET_DATE_CHANGED",
-            channel: "WEB",
-            actorPersonId,
+            ...auditActor(actor),
             targetKind: "issue",
             targetId: issueId,
             context: { from, to },
@@ -1651,7 +1844,13 @@ export class IssueService {
   ): Promise<QueuedIssueView> {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      const now = new Date();
+      const existing = await this.requireHandledForWrite(
+        tx,
+        issueId,
+        actorPersonId,
+        now,
+      );
       if (existing.costResponsibility !== costResponsibility) {
         await this.audit.record(
           {
@@ -1680,6 +1879,205 @@ export class IssueService {
   }
 
   /**
+   * Marks an issue as a damage case (skadeärende, decision 28), or changes the
+   * mark: the insurer, the claim number, the day of the damage and its cause.
+   * Reached with issues:handle, by any handler the issue lets in, open or
+   * closed: a claim is often made after the repair.
+   *
+   * The first mark places a legal hold on the issue where none stands (ADR
+   * 0057), so neither its clock nor a granted erasure request removes the text
+   * and photographs the claim may need, with an `ISSUE_LEGAL_HOLD_PLACED` entry
+   * saying the mark placed it. A hold already standing keeps its date, and a
+   * hold a handler released after the mark was their own decision, which
+   * changing the mark does not undo.
+   *
+   * The insurer and the claim number are folded to one line each, as the
+   * identity-number scan folds text, and refused when nothing is left or when
+   * either holds a personal identity number: they are the building record,
+   * which outlasts every purge. The day is a day in the association's
+   * calendar that has come. The entry carries the cause and the day, never
+   * the insurer or the claim number, which are text a handler typed. A request
+   * that changes nothing writes nothing.
+   *
+   * `replaces` is the mark the change was made from, `null` for none. A mark
+   * that is another by the time the change is decided - another handler
+   * changed it, or took it off - is refused as `damage-case-changed` rather
+   * than written over unseen: what a claim is made on is the insurer and the
+   * number, and a change that overwrote them would go to the insurer under the
+   * wrong ones. Decided under the issue's lock, with the write.
+   */
+  async markDamageCase(
+    issueId: string,
+    input: IssueDamageCaseInput,
+    replaces: IssueDamageCaseView | null,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    const insurer = normalizeSingleLineText(input.insurer);
+    const claimNumber = normalizeSingleLineText(input.claimNumber);
+    if (insurer === "" || claimNumber === "") {
+      throw new IssueError(
+        "A damage case needs the insurer and the claim number.",
+        "damage-case-incomplete",
+      );
+    }
+    if (
+      scanForPersonalIdentityNumbers(insurer).length > 0 ||
+      scanForPersonalIdentityNumbers(claimNumber).length > 0
+    ) {
+      throw new IssueError(
+        "A damage case may not hold a personal identity number.",
+        "personal-identity-number",
+      );
+    }
+    const day = parseLocalDay(input.occurredOn);
+    if (day === null || compareLocalDays(day, localDayOf(new Date())) > 0) {
+      throw new IssueError(
+        "The day of the damage is not a day that has come.",
+        "damage-date-invalid",
+      );
+    }
+    const occurredOn = dateColumnOf(day);
+
+    const issue = await this.prisma.$transaction(async (tx) => {
+      await this.lockForAssignment(tx, issueId);
+      await this.requireHandledForWrite(tx, issueId, actorPersonId, new Date());
+      const held = await tx.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: {
+          legalHoldAt: true,
+          damageCase: {
+            select: {
+              insurer: true,
+              claimNumber: true,
+              occurredOn: true,
+              cause: true,
+            },
+          },
+        },
+      });
+      const existing = held.damageCase;
+      const unchanged =
+        existing !== null &&
+        existing.insurer === insurer &&
+        existing.claimNumber === claimNumber &&
+        formatDateColumn(existing.occurredOn) === input.occurredOn &&
+        existing.cause === input.cause;
+      if (!unchanged) {
+        if (!sameDamageCase(existing, replaces)) {
+          throw new IssueError(
+            "The damage case has been changed since you read it.",
+            "damage-case-changed",
+          );
+        }
+        const data = { insurer, claimNumber, occurredOn, cause: input.cause };
+        await tx.issueDamageCase.upsert({
+          where: { issueId },
+          create: { issueId, ...data },
+          update: data,
+        });
+        await this.audit.record(
+          {
+            action: "ISSUE_DAMAGE_CASE_MARKED",
+            channel: "WEB",
+            actorPersonId,
+            targetKind: "issue",
+            targetId: issueId,
+            context: {
+              cause: input.cause,
+              occurredOn: formatDateColumn(occurredOn),
+              changed: existing !== null,
+            },
+          },
+          tx,
+        );
+      }
+      if (existing === null && held.legalHoldAt === null) {
+        await tx.issue.update({
+          where: { id: issueId },
+          data: { legalHoldAt: new Date() },
+        });
+        await this.audit.record(
+          {
+            action: "ISSUE_LEGAL_HOLD_PLACED",
+            channel: "WEB",
+            actorPersonId,
+            targetKind: "issue",
+            targetId: issueId,
+            context: { byDamageCase: true },
+          },
+          tx,
+        );
+      }
+      return tx.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} marked as a damage case`);
+    return this.viewOf(issue);
+  }
+
+  /**
+   * Takes the damage-case mark off an issue. Reached with issues:handle.
+   *
+   * The legal hold the mark placed stays: `legalHoldAt` is one date with no
+   * reason beside it, so taking it off here could release a hold a handler or
+   * an inspection finding placed, and a claim that is withdrawn is not always
+   * a claim that is over. A handler releases the hold as its own act.
+   *
+   * `replaces` is the mark the handler saw and means to take off. A mark that
+   * is another by the time this is decided - changed, or already taken off by
+   * another handler - is refused as `damage-case-changed`: the insurer and the
+   * claim number are in no audit entry, so a deletion of a mark nobody saw
+   * could not be put back. Decided under the issue's lock, with the delete.
+   */
+  async removeDamageCase(
+    issueId: string,
+    replaces: IssueDamageCaseView,
+    actorPersonId: string,
+  ): Promise<QueuedIssueView> {
+    const issue = await this.prisma.$transaction(async (tx) => {
+      await this.lockForAssignment(tx, issueId);
+      await this.requireHandledForWrite(tx, issueId, actorPersonId, new Date());
+      const stored = await tx.issueDamageCase.findUnique({
+        where: { issueId },
+        select: {
+          insurer: true,
+          claimNumber: true,
+          occurredOn: true,
+          cause: true,
+        },
+      });
+      if (!sameDamageCase(stored, replaces)) {
+        throw new IssueError(
+          "The damage case has been changed since you read it.",
+          "damage-case-changed",
+        );
+      }
+      await tx.issueDamageCase.delete({ where: { issueId } });
+      await this.audit.record(
+        {
+          action: "ISSUE_DAMAGE_CASE_REMOVED",
+          channel: "WEB",
+          actorPersonId,
+          targetKind: "issue",
+          targetId: issueId,
+          context: {},
+        },
+        tx,
+      );
+      return tx.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        include: ISSUE_INCLUDE,
+      });
+    });
+
+    this.logger.log(`Issue ${issue.id} damage-case mark taken off`);
+    return this.viewOf(issue);
+  }
+
+  /**
    * Closes an issue to every handler but the board, or opens it again to every
    * handler its type lets in (decision 13). Reached with issues:handle.
    *
@@ -1699,9 +2097,14 @@ export class IssueService {
     actorPersonId: string,
   ): Promise<QueuedIssueView> {
     const issue = await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      const now = new Date();
+      const existing = await this.requireHandledForWrite(
+        tx,
+        issueId,
+        actorPersonId,
+        now,
+      );
       if (existing.boardOnly === boardOnly) {
         return tx.issue.findUniqueOrThrow({
           where: { id: issueId },
@@ -1734,7 +2137,7 @@ export class IssueService {
       if (assigneePersonId !== existing.assigneePersonId) {
         await this.recordAssignment(tx, {
           issueId,
-          actorPersonId,
+          actor: { personId: actorPersonId, channel: "WEB" },
           assigneePersonId,
           previousAssigneePersonId: existing.assigneePersonId,
         });
@@ -1798,11 +2201,11 @@ export class IssueService {
       await lockIssuesForHandling(tx, [issueId, intoIssueId]);
       // After the lock waits. A person who handles nothing is read as the
       // narrower scope, which admits every issue an every-handler type has: a
-      // role withdrawn since the route's check must not merge.
+      // role withdrawn since the route's check must not merge. Two issues are
+      // read under the one scope, so the role is asked here beside them rather
+      // than through `requireHandledIssueForWrite`, which reads one.
       const now = new Date();
-      if (!(await handlesIssues(tx, actorPersonId, "EVERY_HANDLER", now))) {
-        throw new IssueError("No such issue.", "issue-not-found");
-      }
+      await requireHandlerRole(tx, actorPersonId, now);
       const scope = await this.readerScope(tx, actorPersonId, now);
       const [existing, into] = await Promise.all(
         [issueId, intoIssueId].map((id) =>
@@ -1811,6 +2214,7 @@ export class IssueService {
             select: {
               id: true,
               typeId: true,
+              type: { select: { ringFenced: true } },
               closedAt: true,
               mergedIntoIssueId: true,
               entryAnswer: true,
@@ -1827,6 +2231,16 @@ export class IssueService {
         into === undefined
       ) {
         throw new IssueError("No such issue.", "issue-not-found");
+      }
+      // A duplicate's reporter follows the issue it was merged into, and the
+      // reporters of that issue are told how the duplicate stands. Across the
+      // ring-fence either would learn of a report the ring-fence keeps out of
+      // their reach (decision 32).
+      if (existing.type.ringFenced !== into.type.ringFenced) {
+        throw new IssueError(
+          "An issue is not merged across the ring-fence of its type.",
+          "merge-ring-fenced",
+        );
       }
       if (into.mergedIntoIssueId !== null) {
         throw new IssueError(
@@ -1848,7 +2262,7 @@ export class IssueService {
       }
       if (existing.mergedIntoIssueId !== null) {
         throw new IssueError(
-          "That issue is already a duplicate of another.",
+          "This issue is already a duplicate of another.",
           "merge-already-duplicate",
         );
       }
@@ -1908,6 +2322,11 @@ export class IssueService {
         data: { updatedAt: new Date() },
       });
 
+      // A merge is a closing, and ends every contractor's link to the
+      // duplicate's work orders as `changeStatus` does (ADR 0055): reopening
+      // the duplicate later brings none back.
+      await revokeWorkOrderLinks(tx, { issueId });
+
       return tx.issue.update({
         where: { id: issueId },
         data: {
@@ -1916,7 +2335,8 @@ export class IssueService {
           outcome: "DUPLICATE",
           // A duplicate merged after it closed keeps the day it closed, which
           // the purge clock runs on (`nextState`).
-          closedAt: existing.closedAt ?? new Date(),
+          // On the database's clock, as `nextState` writes it.
+          closedAt: existing.closedAt ?? (await databaseNow(tx)),
           mergedIntoIssueId: intoIssueId,
           ...KNOWN_FAULT_CLEARED,
           // Closing clears the entry permission (decision 29), as `nextState`
@@ -1954,13 +2374,15 @@ export class IssueService {
       // After the lock wait: a board seat that ended during it must not sign
       // the notice as BOARD.
       const now = new Date();
-      const existing = await this.requireHandled(tx, issueId, actorPersonId);
-      // `requireHandled` answers the narrower scope for a person who handles
-      // nothing, and `signatureOf` would sign for them as the board: a role
-      // withdrawn since the route's check must not publish a notice.
-      if (!(await handlesIssues(tx, actorPersonId, "EVERY_HANDLER", now))) {
-        throw new IssueError("No such issue.", "issue-not-found");
-      }
+      // The role is asked with the scope: `signatureOf` would sign for a person
+      // who handles nothing as the board, and a role withdrawn since the
+      // route's check must not publish a notice.
+      const existing = await this.requireHandledForWrite(
+        tx,
+        issueId,
+        actorPersonId,
+        now,
+      );
       if (existing.status.meaning === "DONE") {
         throw new IssueError(
           "This issue is closed; a fault that is fixed is not a known fault.",
@@ -2010,14 +2432,17 @@ export class IssueService {
   ): Promise<QueuedIssueView> {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandled(tx, issueId, actorPersonId);
+      // After the lock wait, one instant for both questions, as publishing
+      // takes it.
+      const now = new Date();
       // As publishing does: a role withdrawn since the route's check must not
       // clear a notice the board put up.
-      if (
-        !(await handlesIssues(tx, actorPersonId, "EVERY_HANDLER", new Date()))
-      ) {
-        throw new IssueError("No such issue.", "issue-not-found");
-      }
+      const existing = await this.requireHandledForWrite(
+        tx,
+        issueId,
+        actorPersonId,
+        now,
+      );
       if (existing.knownFaultPublishedAt === null) {
         return tx.issue.findUniqueOrThrow({
           where: { id: issueId },
@@ -2128,10 +2553,14 @@ export class IssueService {
    * protected handler's withheld, and no address, telephone or apartment.
    * Read by `issueHandlersWhere`, the rule `assign` holds an assignee to, so
    * the list and the write cannot disagree about who is offered.
+   *
+   * With `omit`, an issue a read of that kind leaves out is answered as one
+   * that does not exist, as `queuedIssue` answers it (`issue_handler_list`).
    */
   async handlers(
     readerPersonId: string,
     issueId: string,
+    protectedReporters: ProtectedReporters,
   ): Promise<IssueHandlerView[]> {
     const now = new Date();
     const issue = await this.requireHandled(
@@ -2139,7 +2568,31 @@ export class IssueService {
       issueId,
       readerPersonId,
     );
+    await this.requireOffered(this.prisma, issueId, protectedReporters);
     return readIssueHandlers(this.prisma, issueHandledBy(issue), now);
+  }
+
+  /**
+   * One status of an issue type, by id, or null when it is not one of the
+   * type's: what the pending-change screen names a held `issue_set_status`
+   * move by (ADR 0039, section 5).
+   *
+   * Asked only for the type of an issue the caller has already read with
+   * `queuedIssue`, so it names nothing the caller may not open. A status's
+   * label is the board's own text and carries no person.
+   */
+  async statusOfType(
+    typeId: string,
+    statusId: string,
+  ): Promise<{
+    label: string;
+    meaning: IssueStatusMeaning;
+    active: boolean;
+  } | null> {
+    return this.prisma.issueStatus.findFirst({
+      where: { id: statusId, typeId },
+      select: { label: true, meaning: true, active: true },
+    });
   }
 
   /**
@@ -2200,9 +2653,10 @@ export class IssueService {
           : order.deliveryStatus === "PENDING"
             ? ("pending" as const)
             : // Only a failure after which nothing left this instance reads
-              // "not sent"; a mail driver's error (`send-failed`) and a sending
-              // that may have gone out are unconfirmed, as on the work order
-              // list and in the data subject report.
+              // "not sent"; a sending that may have gone out, including a mail
+              // error after the message may have reached the mail server, is
+              // unconfirmed, as on the work order list and in the data subject
+              // report.
               workOrderKnownNotSent(order.deliveryFailure)
               ? ("failed" as const)
               : ("unconfirmed" as const),
@@ -2405,10 +2859,16 @@ export class IssueService {
       Prisma.IssueUncheckedCreateInput,
       "priority" | "assigneePersonId"
     >,
-  ): Promise<{ id: string }> {
+  ): Promise<{
+    id: string;
+    ringFenced: boolean;
+    reporters: readonly string[];
+  }> {
     // Under the type's lock, which a change to who handles the type takes too
     // (`IssueTypeService.update`): a default assignee the change shuts out is
-    // never given an issue filed while it commits.
+    // never given an issue filed while it commits. Ring-fencing takes it as
+    // well, so the answer's `ringFenced` is the type as the issue was filed
+    // under it.
     await lockIssueType(tx, data.typeId);
     const type = await tx.issueType.findUnique({
       where: { id: data.typeId },
@@ -2416,6 +2876,8 @@ export class IssueService {
         handledBy: true,
         defaultPriority: true,
         defaultAssigneePersonId: true,
+        ringFenced: true,
+        reporters: true,
       },
     });
     if (type === null) {
@@ -2466,7 +2928,11 @@ export class IssueService {
     }
     // Store, then tell: the mail is a job this transaction writes (decision 12).
     await this.mailer.filedInTransaction(tx, filed.id);
-    return filed;
+    return {
+      id: filed.id,
+      ringFenced: type.ringFenced,
+      reporters: type.reporters,
+    };
   }
 
   /**
@@ -2514,11 +2980,12 @@ export class IssueService {
   /**
    * What a search of the queue matches: each of its words (`searchTermsOf`:
    * the first `ISSUE_SEARCH_LIMITS.terms` different ones; any after those are
-   * not read) somewhere in the issue's description, its place, the name of its
-   * common area, its type's name, its apartment's designation, its reporter's name, a message in its
-   * conversation with the reporter or an internal note on it, case aside and
-   * whichever Unicode form the text was stored in. The words need not all be
-   * in one place: one in a note and another in the description is a match.
+   * not read) somewhere in the issue's description, its location (the free
+   * text), the name of its place, its type's name, its apartment's
+   * designation, its reporter's name, a message in its conversation with the
+   * reporter or an internal note on it, case aside and whichever Unicode form
+   * the text was stored in. The words need not all be in one place: one in a
+   * note and another in the description is a match.
    *
    * Never what the reader is not shown. A reporter with protected personal data
    * is shown without their name or apartment (`IssueReporterView`), so neither
@@ -2576,8 +3043,10 @@ export class IssueService {
             // Every handler the issue lets in reads its whole conversation
             // and every note on it (`IssueConversationService`), so the
             // issues handled below are the boundary for these as well. Each
-            // is read through a trigram index on `body`, without which every
-            // word read every message and note in the database.
+            // has a trigram index on `body`, without which every word read
+            // every message and note in the database; the database reads it
+            // once when many issues are left to ask about, and each issue's
+            // own rows when few are (ADR 0054).
             { messages: { some: { body: matches } } },
             { notes: { some: { body: matches } } },
             { AND: [{ apartment: { number: matches } }, notProtected] },
@@ -2606,21 +3075,36 @@ export class IssueService {
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
+    now: Date = new Date(),
   ) {
-    return requireHandledIssue(db, issueId, readerPersonId, {
-      id: true,
-      typeId: true,
-      boardOnly: true,
-      assigneePersonId: true,
-      priority: true,
-      targetDate: true,
-      costResponsibility: true,
-      createdAt: true,
-      knownFaultPublishedAt: true,
-      status: { select: { meaning: true } },
-      type: { select: { handledBy: true } },
-      finding: { select: { kind: true, inspectedOn: true } },
-    });
+    return requireHandledIssue(
+      db,
+      issueId,
+      readerPersonId,
+      HANDLED_ISSUE_SELECT,
+      now,
+    );
+  }
+
+  /**
+   * The same issue for a write, once its locks are held: the writer's
+   * `issues:handle` role is asked at the same instant as their scope
+   * (`requireHandledIssueForWrite`), so a write cannot leave it out. `now` is
+   * read after the lock waits, by the caller.
+   */
+  private async requireHandledForWrite(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+    writerPersonId: string,
+    now: Date,
+  ) {
+    return requireHandledIssueForWrite(
+      tx,
+      issueId,
+      writerPersonId,
+      HANDLED_ISSUE_SELECT,
+      now,
+    );
   }
 
   /**
@@ -2645,12 +3129,46 @@ export class IssueService {
     await lockIssueForHandling(tx, issueId);
   }
 
+  /**
+   * Refuses, as an issue that does not exist, one a read with `omit` leaves
+   * out: an issue of a ring-fenced type, or one a person with protected
+   * personal data reported (ADR 0056). Nothing with `show`.
+   *
+   * Asked inside the write's transaction, after `lockForAssignment`. The
+   * ring-fence changes under the type's lock (`IssueTypeService`), so that part
+   * of the answer holds until the write commits. The protected reporters are
+   * read from the register without a lock of this write's: a person marked as
+   * protected while the write runs is not seen by it, as a read with `omit`
+   * that began before the mark does not see it either.
+   */
+  private async requireOffered(
+    db: Prisma.TransactionClient | PrismaService,
+    issueId: string,
+    protectedReporters: ProtectedReporters,
+  ): Promise<void> {
+    if (protectedReporters === "show") {
+      return;
+    }
+    const offered = await db.issue.count({
+      where: {
+        id: issueId,
+        AND: [
+          outsideRingFence(protectedReporters),
+          await this.notReportedByProtectedPersons(db),
+        ],
+      },
+    });
+    if (offered === 0) {
+      throw new IssueError("No such issue.", "issue-not-found");
+    }
+  }
+
   /** The entry for an assignment changing, by hand or by an access change. */
   private async recordAssignment(
     tx: Prisma.TransactionClient,
     act: {
       issueId: string;
-      actorPersonId: string;
+      actor: ActorContext;
       assigneePersonId: string | null;
       previousAssigneePersonId: string | null;
     },
@@ -2658,8 +3176,7 @@ export class IssueService {
     await this.audit.record(
       {
         action: "ISSUE_ASSIGNED",
-        channel: "WEB",
-        actorPersonId: act.actorPersonId,
+        ...auditActor(act.actor),
         targetPersonId: act.assigneePersonId,
         targetKind: "issue",
         targetId: act.issueId,
@@ -2953,6 +3470,22 @@ export class IssueService {
   }
 }
 
+/** What a write on a single issue reads of it (`requireHandled`). */
+const HANDLED_ISSUE_SELECT = {
+  id: true,
+  typeId: true,
+  boardOnly: true,
+  assigneePersonId: true,
+  priority: true,
+  targetDate: true,
+  costResponsibility: true,
+  createdAt: true,
+  knownFaultPublishedAt: true,
+  status: { select: { meaning: true } },
+  type: { select: { handledBy: true } },
+  finding: { select: { kind: true, inspectedOn: true } },
+} as const satisfies Prisma.IssueSelect;
+
 const APARTMENT_SELECT = {
   id: true,
   number: true,
@@ -2960,7 +3493,15 @@ const APARTMENT_SELECT = {
 } as const;
 
 const ISSUE_INCLUDE = {
-  type: { select: { id: true, name: true, reporters: true, handledBy: true } },
+  type: {
+    select: {
+      id: true,
+      name: true,
+      reporters: true,
+      handledBy: true,
+      ringFenced: true,
+    },
+  },
   status: {
     select: { id: true, label: true, meaning: true, sortOrder: true },
   },
@@ -2978,6 +3519,9 @@ const ISSUE_INCLUDE = {
     },
   },
   reporterLink: { select: REPORTER_LINK_STATE_SELECT },
+  damageCase: {
+    select: { insurer: true, claimNumber: true, occurredOn: true, cause: true },
+  },
 } as const;
 
 /**
@@ -3233,8 +3777,12 @@ function afterWithinMeaning(cursor: IssueQueueCursor): Prisma.IssueWhereInput {
  * or closed again with an outcome of its own, it is no longer a duplicate, and
  * its reporter follows it again rather than the other issue. Closing clears a
  * known fault, which a fault nobody still has stops being.
+ *
+ * @param databaseClock The database's clock (`databaseNow`), asked for only
+ *   by a move that sets the closing date and read after the issue's locks: the
+ *   date is written from it because a reply's window is judged on that clock.
  */
-function nextState(
+async function nextState(
   existing: {
     closedAt: Date | null;
     outcome: IssueOutcome | null;
@@ -3243,14 +3791,17 @@ function nextState(
   },
   target: { id: string; meaning: IssueStatusMeaning },
   move: IssueStatusMove,
-): {
-  statusId: string;
-  waitingReason: IssueWaitingReason | null;
-  outcome: IssueOutcome | null;
-  closedAt: Date | null;
-  mergedIntoIssueId: string | null;
-} & Partial<typeof KNOWN_FAULT_CLEARED> &
-  Partial<typeof NO_ENTRY_PERMISSION> {
+  databaseClock: () => Promise<Date>,
+): Promise<
+  {
+    statusId: string;
+    waitingReason: IssueWaitingReason | null;
+    outcome: IssueOutcome | null;
+    closedAt: Date | null;
+    mergedIntoIssueId: string | null;
+  } & Partial<typeof KNOWN_FAULT_CLEARED> &
+    Partial<typeof NO_ENTRY_PERMISSION>
+> {
   if (target.meaning !== "WAITING" && move.waitingReason !== undefined) {
     throw new IssueError(
       "A waiting reason belongs to a status that means waiting.",
@@ -3281,7 +3832,7 @@ function nextState(
     statusId: target.id,
     waitingReason: move.waitingReason ?? null,
     outcome,
-    closedAt: closing ? (existing.closedAt ?? new Date()) : null,
+    closedAt: closing ? (existing.closedAt ?? (await databaseClock())) : null,
     mergedIntoIssueId:
       closing && outcome === "DUPLICATE" ? existing.mergedIntoIssueId : null,
     ...(closing ? KNOWN_FAULT_CLEARED : {}),
@@ -3345,6 +3896,10 @@ async function requireFollowable(
     await lockIssueType(tx, typeId);
   }
   await lockIssue(tx, issueId);
+  // The status, read under the lock. The reporter is asked again with it: the
+  // first read took only the type the locks are ordered by, and a purge of a
+  // closed report clears its reporter, which the lock of the issue itself
+  // does not hold back.
   const earlier = await tx.issue.findFirst({
     where: { id: issueId, reporterPersonId },
     select: { status: { select: { meaning: true } } },
@@ -3486,7 +4041,14 @@ interface IssueRecord extends EntryColumns {
     name: string;
     reporters: IssueReporterGroup[];
     handledBy: IssueHandledBy;
+    ringFenced: boolean;
   };
+  damageCase: {
+    insurer: string;
+    claimNumber: string;
+    occurredOn: Date;
+    cause: IssueDamageCause;
+  } | null;
   apartment: ApartmentRecord | null;
   place: IssuePlaceRef | null;
   finding: FindingRecord | null;
@@ -3523,6 +4085,7 @@ function toQueuedView(
     outcome: issue.outcome,
     typeReporters: issue.type.reporters,
     typeHandledBy: issue.type.handledBy,
+    typeRingFenced: issue.type.ringFenced,
     closedAt: issue.closedAt?.toISOString() ?? null,
     priority: issue.priority,
     targetDate,
@@ -3536,6 +4099,15 @@ function toQueuedView(
     knownFault: knownFaultOf(issue),
     finding: toFindingView(issue.finding),
     legalHoldAt: issue.legalHoldAt?.toISOString() ?? null,
+    damageCase:
+      issue.damageCase === null
+        ? null
+        : {
+            insurer: issue.damageCase.insurer,
+            claimNumber: issue.damageCase.claimNumber,
+            occurredOn: formatDateColumn(issue.damageCase.occurredOn),
+            cause: issue.damageCase.cause,
+          },
     costResponsibility: issue.costResponsibility,
   };
   if (reporter.kind === "protected") {
@@ -3548,13 +4120,7 @@ function toQueuedView(
 function toOwnView(issue: IssueRecord, now: Date): OwnIssueView {
   return {
     ...toIssueRowView(issue, localDayOf(now)),
-    replyMode:
-      issue.status.meaning !== "DONE"
-        ? "MESSAGE"
-        : issue.mergedIntoIssueId === null &&
-            replyReopensIssue(issue.closedAt, now)
-          ? "REOPENS"
-          : "NEW_REPORT",
+    replyMode: replyModeOf(issue, now),
     mergedIntoMeaning:
       issue.mergedIntoIssueId === null
         ? null
@@ -3591,6 +4157,9 @@ function toIssueRowView(issue: IssueRecord, today: LocalDay): IssueRowView {
   };
 }
 
+/** What a contractor may answer a work order, as the entry records it. */
+const WORK_ORDER_ANSWERS = ["ACCEPTED", "DECLINED", "DONE"] as const;
+
 /** The audit actions an issue's timeline is read from. */
 const TIMELINE_ACTIONS = [
   "ISSUE_OPENED",
@@ -3606,9 +4175,12 @@ const TIMELINE_ACTIONS = [
   "ISSUE_FINDING_MARKED",
   "ISSUE_FINDING_REMOVED",
   "ISSUE_WORK_ORDER_SENT",
+  "ISSUE_WORK_ORDER_ANSWERED",
   "ISSUE_REDACTED",
   "ISSUE_LEGAL_HOLD_PLACED",
   "ISSUE_LEGAL_HOLD_RELEASED",
+  "ISSUE_DAMAGE_CASE_MARKED",
+  "ISSUE_DAMAGE_CASE_REMOVED",
   "ISSUE_COST_RESPONSIBILITY_CHANGED",
 ] as const satisfies readonly AuditAction[];
 
@@ -3718,6 +4290,13 @@ function timelineStep(
         actor,
         delivery: deliveryOf.get(text("workOrderId") ?? "") ?? null,
       };
+    case "ISSUE_WORK_ORDER_ANSWERED":
+      return {
+        kind: "workOrderAnswer",
+        at,
+        actor: null,
+        answer: oneOf(text("answer"), WORK_ORDER_ANSWERS),
+      };
     case "ISSUE_REDACTED":
       return {
         kind: "redacted",
@@ -3732,6 +4311,15 @@ function timelineStep(
         at,
         actor,
         held: entry.action === "ISSUE_LEGAL_HOLD_PLACED",
+      };
+    case "ISSUE_DAMAGE_CASE_MARKED":
+    case "ISSUE_DAMAGE_CASE_REMOVED":
+      return {
+        kind: "damageCase",
+        at,
+        actor,
+        marked: entry.action === "ISSUE_DAMAGE_CASE_MARKED",
+        cause: oneOf(text("cause"), ISSUE_DAMAGE_CAUSES),
       };
     case "ISSUE_COST_RESPONSIBILITY_CHANGED":
       return {

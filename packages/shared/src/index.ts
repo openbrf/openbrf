@@ -110,7 +110,13 @@ export type { IssueReplyMode } from "./issue-lifecycle.ts";
 export {
   ISSUE_REDACTION_TARGETS,
   ISSUE_TEXT_RETENTION_YEARS,
+  RING_FENCED_ISSUE_TEXT_RETENTION_YEARS,
 } from "./issue-retention.ts";
+export {
+  ISSUE_DAMAGE_CASE_LIMITS,
+  ISSUE_DAMAGE_CAUSES,
+} from "./issue-damage-case.ts";
+export type { IssueDamageCause } from "./issue-damage-case.ts";
 export type { IssueRedactionTarget } from "./issue-retention.ts";
 export {
   ISSUE_CLOSING_OUTCOMES,

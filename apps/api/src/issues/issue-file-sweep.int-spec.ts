@@ -346,6 +346,44 @@ describe("the sweep of the issues module's unattached files", () => {
     }
   });
 
+  it("keeps a contractor's photograph on a work order, and sweeps a file only a link's count of shown photographs names", async () => {
+    const issueId = await createIssue();
+    const order = await prisma.workOrder.create({
+      data: {
+        issueId,
+        recipientName: `Rörfirman ${suffix}`,
+        body: `Byt packningen ${suffix}`,
+        sentByPersonId: boardPersonId,
+        deliveryStatus: "SENT",
+      },
+      select: { id: true },
+    });
+    // A contractor's photograph has no uploader in the register.
+    const contractorsFileId = await storeIssueFile(null);
+    await prisma.workOrderFile.create({
+      data: { workOrderId: order.id, fileId: contractorsFileId },
+    });
+    // The count keeps no file: a photograph shown and then taken off its
+    // issue by a removal that failed is on nothing.
+    const shownFileId = await storeIssueFile(null);
+    await prisma.workOrderPhotoExposure.create({
+      data: { workOrderId: order.id, fileId: shownFileId },
+    });
+    for (const fileId of [contractorsFileId, shownFileId]) {
+      await age(fileId, 365 * 24);
+    }
+
+    await sweep.run();
+
+    expect(await hasRow(contractorsFileId)).toBe(true);
+    expect(await hasRow(shownFileId)).toBe(false);
+    const exposure = await prisma.workOrderPhotoExposure.findFirstOrThrow({
+      where: { workOrderId: order.id },
+      select: { fileId: true },
+    });
+    expect(exposure.fileId).toBeNull();
+  });
+
   it("leaves a file on nothing that another module stored", async () => {
     // INTERNAL like the issues module's, under another capability.
     const file = await media.upload({

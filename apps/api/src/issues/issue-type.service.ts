@@ -25,8 +25,13 @@ import {
   typesHandledWhere,
 } from "./issue-handlers";
 import { reporterGroupsOf } from "./issue-reporter-groups";
-import { lockIssueType } from "./issue-lock";
+import {
+  lockIssueType,
+  lockIssueTypeRingFence,
+  MAIL_TRANSACTION_MS,
+} from "./issue-lock";
 import { IssueError } from "./issue.error";
+import { revokeWorkOrderLinks } from "./work-order-link";
 
 /** A status as the board configures it. */
 export interface IssueStatusView {
@@ -57,6 +62,13 @@ export interface IssueTypeView {
   /** The priority its issues are filed with. */
   defaultPriority: IssuePriority;
   /**
+   * Whether its issues are ring-fenced (decision 32): read by the board alone,
+   * with nothing about them leaving it, and their free text removed one year
+   * after closing. Only a board member or an administrator is shown a type
+   * that carries it, because only they handle one.
+   */
+  ringFenced: boolean;
+  /**
    * How many issues have been reported under it. The board needs it to see why
    * a type cannot be deleted, and it is a count rather than a list: nothing
    * about who reported what belongs on a configuration screen.
@@ -75,12 +87,6 @@ export interface IssueTypeView {
  */
 export type ConfiguredIssueTypeView = IssueTypeView & {
   defaultAssignee: AuthorView | null;
-  /**
-   * Whether its issues are ring-fenced: nothing about them reaches a
-   * contractor, and no work order is written on them (ADR 0055). Set by
-   * `setRingFence`, never by the type's other settings.
-   */
-  ringFenced: boolean;
 };
 
 /**
@@ -104,6 +110,14 @@ export interface ReportableIssueTypeView {
    * they are looking at.
    */
   reporters: IssueReporterGroup[];
+  /**
+   * Whether the type is ring-fenced (decision 32), so the form can warn the
+   * reporter before they write: only the board reads it, it is removed a year
+   * after closing, and a report here is no formal step under the
+   * bostadsrättslag. Never true on the website's form, which offers no
+   * ring-fenced type.
+   */
+  ringFenced: boolean;
 }
 
 export interface IssueTypeInput {
@@ -140,9 +154,9 @@ export interface IssueStatusChange {
  * only and offered on no form but the board's own (decisions 2 and 13): the
  * handlers' group, which `listReportable` narrows to the handlers of the type,
  * so the property manager is not offered it. Störningar, the other
- * board-only type the plan names, comes with its ring-fence (decision 32):
- * seeding it before that would offer it on forms that do not yet carry its
- * warning and hold it to a clock that is not yet its own.
+ * board-only type the plan names, is ring-fenced (decision 32): offered to
+ * residents on their own form, with its warning, and never on the website's,
+ * whose reporter could only be answered by mail.
  */
 const SEEDED_TYPES = [
   {
@@ -159,11 +173,19 @@ const SEEDED_TYPES = [
   { key: "pests", reporters: ["PUBLIC", "RESIDENTS"] },
   { key: "other", reporters: ["PUBLIC", "RESIDENTS"] },
   { key: "insurance", reporters: ["HANDLERS"], handledBy: "BOARD" },
+  {
+    key: "disturbances",
+    reporters: ["RESIDENTS"],
+    handledBy: "BOARD",
+    ringFenced: true,
+  },
 ] as const satisfies readonly {
   key: string;
   reporters: readonly IssueReporterGroup[];
   defaultPriority?: IssuePriority;
   handledBy?: IssueHandledBy;
+  /** Set only with `handledBy: "BOARD"` and without `PUBLIC`, as the CHECK holds. */
+  ringFenced?: true;
 }[];
 
 /**
@@ -269,7 +291,7 @@ export class IssueTypeService {
     return this.prisma.issueType.findMany({
       where: { active: true, ...(await this.reportableWhere(principal)) },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      select: { id: true, name: true, reporters: true },
+      select: { id: true, name: true, reporters: true, ringFenced: true },
     });
   }
 
@@ -414,13 +436,20 @@ export class IssueTypeService {
           await lockIssueType(tx, id);
           const existing = await tx.issueType.findUnique({
             where: { id },
-            select: { handledBy: true, defaultAssigneePersonId: true },
+            select: {
+              handledBy: true,
+              defaultAssigneePersonId: true,
+              ringFenced: true,
+            },
           });
           if (existing === null) {
             throw notFound();
           }
           const now = new Date();
           const handledBy = input.handledBy ?? existing.handledBy;
+          if (existing.ringFenced) {
+            refuseOutsideRingFence(handledBy, input.reporters);
+          }
           let defaultAssigneePersonId =
             input.defaultAssigneePersonId === undefined
               ? existing.defaultAssigneePersonId
@@ -605,18 +634,41 @@ export class IssueTypeService {
 
   /**
    * Ring-fences a type, or lifts its ring-fence (decision 32 of the issue
-   * module's plan, ADR 0055): while it holds, no work order is written or
-   * previewed on the type's issues, whoever handles them.
+   * module's plan; ADR 0054, question 5): while it holds, the type's issues
+   * are read by the board alone and nothing about them leaves it. Any type may
+   * carry it, and the board sets it, under issues:configure, which the
+   * property manager does not hold.
+   *
+   * Ring-fencing hands the type to the board, as `update` does when the board
+   * keeps a type to itself: whoever that shuts out - the property manager - is
+   * unassigned from its issues, each with an entry, and cleared as its default
+   * assignee. A type the website's form offers is refused, because that
+   * form's reporter is answered by mail alone and nothing about a ring-fenced
+   * issue is mailed: the board takes the form off the type first.
+   *
+   * Lifting it is refused once an issue has been reported under the type.
+   * Lifting would hand those reports to whoever the ring-fence keeps out, and
+   * put them back on the board's own clock, which is longer than the one the
+   * board may not set (`RING_FENCED_ISSUE_TEXT_RETENTION_YEARS`). A type the
+   * board ring-fenced by mistake is switched off and replaced instead.
    *
    * A route of its own rather than a field of the type's settings, so the one
    * setting that decides what may leave the association is changed only by a
    * request that names it, and is audited with the board member who changed
-   * it. Under the type's lock, which a sending takes too, and so does the mail
-   * worker before it claims a work order (`WorkOrderMailerService`): a work
-   * order being written, or about to be mailed, while the board ring-fences
-   * its type is decided either before the change or after it. One written
-   * before and still queued is refused at its claim and recorded as not sent.
-   * A request that changes nothing writes nothing.
+   * it. Under the type's lock, which filing takes and a sending takes too, and
+   * so does the mail worker before it claims a work order
+   * (`WorkOrderMailerService`): a report filed, or a work order being written
+   * or about to be mailed, while the board ring-fences its type is decided
+   * either before the change or after it. A work order written before and
+   * still queued is refused at its claim and recorded as not sent. A request
+   * that changes nothing writes nothing.
+   *
+   * Ring-fencing a type also revokes every contractor's link to a work order on
+   * its issues, in the same transaction (ADR 0055, control B5 of its threat
+   * review). The lookup refuses them anyway; the revocation writes the end onto
+   * the row, so a ring-fence changed outside this service (which itself never
+   * lifts one from a type with issues, `ring-fence-in-use`, ADR 0054, decision
+   * 32) brings no link back.
    *
    * Not a recall: a work order claimed before the type was ring-fenced is on
    * its way, and may have left.
@@ -626,31 +678,77 @@ export class IssueTypeService {
     ringFenced: boolean,
     actorPersonId: string,
   ): Promise<ConfiguredIssueTypeView> {
-    await this.prisma.$transaction(async (tx) => {
-      await lockIssueType(tx, id);
-      const type = await tx.issueType.findUnique({
-        where: { id },
-        select: { ringFenced: true },
-      });
-      if (type === null) {
-        throw notFound();
-      }
-      if (type.ringFenced === ringFenced) {
-        return;
-      }
-      await tx.issueType.update({ where: { id }, data: { ringFenced } });
-      await this.audit.record(
-        {
-          action: "ISSUE_TYPE_RING_FENCE_CHANGED",
-          channel: "WEB",
-          actorPersonId,
-          targetKind: "issueType",
-          targetId: id,
-          context: { ringFenced },
-        },
-        tx,
-      );
-    });
+    await this.prisma.$transaction(
+      async (tx) => {
+        // Waits for a mail about the type's issues that is being handed over,
+        // before the type's lock: a filing or a handler's write on the type
+        // does not queue behind the mail server while this waits.
+        await lockIssueTypeRingFence(tx, id);
+        await lockIssueType(tx, id);
+        const type = await tx.issueType.findUnique({
+          where: { id },
+          select: {
+            ringFenced: true,
+            handledBy: true,
+            reporters: true,
+            defaultAssigneePersonId: true,
+            _count: { select: { issues: true } },
+          },
+        });
+        if (type === null) {
+          throw notFound();
+        }
+        if (type.ringFenced === ringFenced) {
+          return;
+        }
+        if (!ringFenced && type._count.issues > 0) {
+          throw new IssueError(
+            "Issues have been reported under this type, so it stays ring-fenced. Deactivate it instead.",
+            "ring-fence-in-use",
+          );
+        }
+        if (ringFenced) {
+          refuseOutsideRingFence("BOARD", type.reporters);
+        }
+        const now = new Date();
+        if (ringFenced && type.handledBy !== "BOARD") {
+          await this.unassignOutsideBoard(tx, id, actorPersonId, now);
+        }
+        const keepsDefault =
+          !ringFenced ||
+          type.defaultAssigneePersonId === null ||
+          (await handlesIssues(tx, type.defaultAssigneePersonId, "BOARD", now));
+        await tx.issueType.update({
+          where: { id },
+          data: {
+            ringFenced,
+            ...(ringFenced ? { handledBy: "BOARD" } : {}),
+            ...(keepsDefault ? {} : { defaultAssigneePersonId: null }),
+          },
+        });
+        if (ringFenced) {
+          // Nothing about the type's issues reaches a contractor from now on:
+          // every link to one of their work orders ends in this transaction,
+          // as a fact on the row (ADR 0055).
+          await revokeWorkOrderLinks(tx, { issue: { typeId: id } });
+        }
+        await this.audit.record(
+          {
+            action: "ISSUE_TYPE_RING_FENCE_CHANGED",
+            channel: "WEB",
+            actorPersonId,
+            targetKind: "issueType",
+            targetId: id,
+            context: { ringFenced },
+          },
+          tx,
+        );
+        // The budget `update` states, for its reason: one entry per issue the
+        // property manager is unassigned from, after as long as a mail's
+        // handoff may hold the ring-fence.
+      },
+      { timeout: MAIL_TRANSACTION_MS + 30_000 },
+    );
     this.logger.log(`Set the ring-fence of issue type ${id}`);
     return this.view(id);
   }
@@ -822,6 +920,9 @@ export class IssueTypeService {
             reporters: [...seeded.reporters],
             sortOrder,
             ...("handledBy" in seeded ? { handledBy: seeded.handledBy } : {}),
+            ...("ringFenced" in seeded
+              ? { ringFenced: seeded.ringFenced }
+              : {}),
             ...("defaultPriority" in seeded
               ? { defaultPriority: seeded.defaultPriority }
               : {}),
@@ -844,7 +945,6 @@ export class IssueTypeService {
     );
     return types.map((type) => ({
       ...toView(type),
-      ringFenced: type.ringFenced,
       defaultAssignee:
         type.defaultAssigneePersonId === null
           ? null
@@ -898,6 +998,31 @@ export class IssueTypeService {
   }
 }
 
+/**
+ * Refuses a setting a ring-fenced type may not have (decision 32): handled by
+ * anybody but the board, or offered on the website's form, whose reporter is
+ * answered by mail alone when nothing about a ring-fenced issue is mailed. The
+ * database holds both by a CHECK as well; this says which, in words the board's
+ * screen can show.
+ */
+function refuseOutsideRingFence(
+  handledBy: IssueHandledBy,
+  reporters: readonly IssueReporterGroup[],
+): void {
+  if (handledBy !== "BOARD") {
+    throw new IssueError(
+      "A ring-fenced issue type is handled by the board only.",
+      "ring-fenced-board-only",
+    );
+  }
+  if (reporters.includes("PUBLIC")) {
+    throw new IssueError(
+      "A ring-fenced issue type is not offered on the website's form.",
+      "ring-fenced-public",
+    );
+  }
+}
+
 /** One status of each meaning, each the default of its meaning. */
 function defaultStatuses(
   t: TFunction,
@@ -946,6 +1071,7 @@ function toView(type: TypeRecord): IssueTypeView {
     sortOrder: type.sortOrder,
     handledBy: type.handledBy,
     defaultPriority: type.defaultPriority,
+    ringFenced: type.ringFenced,
     reportCount: type._count.issues,
     statuses: [...type.statuses]
       .sort(

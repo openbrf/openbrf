@@ -51,6 +51,7 @@ function issue(overrides: Partial<QueuedIssue> = {}): QueuedIssue {
     closedAt: null,
     typeId: "type-lift",
     typeName: "Hiss",
+    typeRingFenced: false,
     location: "Port 14",
     description: "Hissen står still.",
     apartment: null,
@@ -207,6 +208,80 @@ describe("merging", () => {
       (option) => option.value,
     );
     expect(values).toEqual(["", "issue-2"]);
+  });
+
+  it("offers an ordinary issue no ring-fenced issue to merge into, and a ring-fenced one only ring-fenced ones", async () => {
+    const fenced = issue({
+      id: "issue-fenced",
+      typeId: "type-noise",
+      typeName: "Störningar",
+      typeRingFenced: true,
+      typeHandledBy: "BOARD",
+      boardOnly: true,
+    });
+    const options = async (): Promise<string[]> => {
+      const picker = await screen.findByLabelText(
+        /: slå samman med ett annat ärende/,
+      );
+      return [...picker.querySelectorAll("option")].map(
+        (option) => option.value,
+      );
+    };
+
+    const ordinary = render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER, fenced]}
+        onChanged={() => undefined}
+      />,
+    );
+    expect(await options()).toEqual(["", "issue-2"]);
+    ordinary.unmount();
+
+    render(
+      <IssueLifecycle
+        issue={fenced}
+        candidates={[
+          fenced,
+          issue({ ...fenced, id: "issue-fenced-2", location: "Port 3" }),
+          OTHER,
+        ]}
+        onChanged={() => undefined}
+      />,
+    );
+    expect(await options()).toEqual(["", "issue-fenced-2"]);
+  });
+
+  it("explains a merge refused across the ring-fence, and reads the queue again", async () => {
+    mergeIssue.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "merge-ring-fenced" },
+    });
+    const onChanged = vi.fn();
+    const session = userEvent.setup();
+    render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER]}
+        onChanged={onChanged}
+      />,
+    );
+
+    await session.selectOptions(
+      await screen.findByLabelText("Hiss: slå samman med ett annat ärende"),
+      "issue-2",
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Slå samman som dublett" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Ja, avsluta som dublett" }),
+    );
+
+    expect(
+      await screen.findByText(/ligger på andra sidan av avskärmningen/),
+    ).toBeTruthy();
+    expect(onChanged).toHaveBeenCalled();
   });
 
   it("reads the links again when the merge is refused because others were merged into this issue meanwhile", async () => {
@@ -401,6 +476,273 @@ describe("merging", () => {
     });
   });
 
+  it("drops the count a message reached once the duplicates change, and keeps it while they do not", async () => {
+    const duplicate = (id: string) => ({
+      kind: "issue" as const,
+      id,
+      typeName: "Hiss",
+      meaning: "DONE" as const,
+      createdAt: "2026-08-19T08:00:00.000Z",
+    });
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: {
+        ...NO_LINKS,
+        duplicateCount: 1,
+        duplicates: [duplicate("issue-2")],
+      },
+    });
+    const session = userEvent.setup();
+    const { rerender } = render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[]}
+        queueRead={1}
+        onChanged={() => undefined}
+      />,
+    );
+    await session.type(
+      await screen.findByLabelText(
+        "Hiss: meddelande till anmälarna till de sammanslagna anmälningarna",
+      ),
+      "Tekniker kommer torsdag.",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+    expect(await screen.findByText(/Skickat till 2 anmälare\./)).toBeTruthy();
+
+    // The queue is read again and the same duplicates come back.
+    rerender(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[]}
+        queueRead={2}
+        onChanged={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      expect(fetchIssueLinks).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByText(/Skickat till 2 anmälare\./)).toBeTruthy();
+
+    // Another issue is merged into this one: the count is of the earlier set.
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: {
+        ...NO_LINKS,
+        duplicateCount: 2,
+        duplicates: [duplicate("issue-2"), duplicate("issue-3")],
+      },
+    });
+    rerender(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[]}
+        queueRead={3}
+        onChanged={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.queryByText(/Skickat till 2 anmälare\./)).toBeNull();
+    });
+  });
+
+  it("does not tell a send that finished after the duplicates changed beside the new duplicates", async () => {
+    const duplicate = (id: string) => ({
+      kind: "issue" as const,
+      id,
+      typeName: "Hiss",
+      meaning: "DONE" as const,
+      createdAt: "2026-08-19T08:00:00.000Z",
+    });
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: {
+        ...NO_LINKS,
+        duplicateCount: 1,
+        duplicates: [duplicate("issue-2")],
+      },
+    });
+    let finish: (value: unknown) => void = () => undefined;
+    sendToDuplicateReporters.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const session = userEvent.setup();
+    const { rerender } = render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[]}
+        queueRead={1}
+        onChanged={() => undefined}
+      />,
+    );
+    await session.type(
+      await screen.findByLabelText(
+        "Hiss: meddelande till anmälarna till de sammanslagna anmälningarna",
+      ),
+      "Tekniker kommer torsdag.",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+
+    // While the send is in flight another issue is merged into this one.
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: {
+        ...NO_LINKS,
+        duplicateCount: 2,
+        duplicates: [duplicate("issue-2"), duplicate("issue-3")],
+      },
+    });
+    rerender(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[]}
+        queueRead={2}
+        onChanged={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      expect(fetchIssueLinks).toHaveBeenCalledTimes(2);
+    });
+
+    finish({ ok: true, value: { sent: 2, skipped: 0 } });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Skicka" })).toBeTruthy();
+    });
+    expect(screen.queryByText(/Skickat till 2 anmälare\./)).toBeNull();
+  });
+
+  it("drops the count a message reached when one duplicate is replaced by another at the same count", async () => {
+    const duplicate = (id: string) => ({
+      kind: "issue" as const,
+      id,
+      typeName: "Hiss",
+      meaning: "DONE" as const,
+      createdAt: "2026-08-19T08:00:00.000Z",
+    });
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: {
+        ...NO_LINKS,
+        duplicateCount: 1,
+        duplicates: [duplicate("issue-2")],
+      },
+    });
+    sendToDuplicateReporters.mockResolvedValueOnce({
+      ok: true,
+      value: { sent: 1, skipped: 0 },
+    });
+    const session = userEvent.setup();
+    const { rerender } = render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[]}
+        queueRead={1}
+        onChanged={() => undefined}
+      />,
+    );
+    await session.type(
+      await screen.findByLabelText(
+        "Hiss: meddelande till anmälarna till de sammanslagna anmälningarna",
+      ),
+      "Tekniker kommer torsdag.",
+    );
+    await session.click(screen.getByRole("button", { name: "Skicka" }));
+    expect(await screen.findByText(/Skickat till 1 anmälare\./)).toBeTruthy();
+
+    // A different duplicate takes the place of issue-2; the count stays at 1.
+    fetchIssueLinks.mockResolvedValue({
+      ok: true,
+      value: {
+        ...NO_LINKS,
+        duplicateCount: 1,
+        duplicates: [duplicate("issue-3")],
+      },
+    });
+    rerender(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[]}
+        queueRead={2}
+        onChanged={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.queryByText(/Skickat till 1 anmälare\./)).toBeNull();
+    });
+  });
+
+  it("does not confirm a merge into an issue that is no longer offered", async () => {
+    const third = issue({ id: "issue-3", typeName: "Tvättstuga" });
+    const session = userEvent.setup();
+    const { rerender } = render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER, third]}
+        onChanged={() => undefined}
+      />,
+    );
+    const target = await screen.findByLabelText(
+      "Hiss: slå samman med ett annat ärende",
+    );
+    await session.selectOptions(target, "issue-2");
+    await session.click(
+      screen.getByRole("button", { name: "Slå samman som dublett" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Ja, avsluta som dublett" }),
+    ).toBeTruthy();
+
+    // The chosen issue is closed and leaves the list.
+    rerender(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), third]}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(
+      (
+        screen.getByLabelText(
+          "Hiss: slå samman med ett annat ärende",
+        ) as HTMLSelectElement
+      ).value,
+    ).toBe("");
+    expect(
+      screen.queryByRole("button", { name: "Ja, avsluta som dublett" }),
+    ).toBeNull();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Slå samman som dublett",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    // The issue is offered again: it is neither chosen nor confirmed again
+    // without a first press made for it.
+    rerender(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER, third]}
+        onChanged={() => undefined}
+      />,
+    );
+    expect(
+      (
+        screen.getByLabelText(
+          "Hiss: slå samman med ett annat ärende",
+        ) as HTMLSelectElement
+      ).value,
+    ).toBe("");
+    expect(
+      screen.queryByRole("button", { name: "Ja, avsluta som dublett" }),
+    ).toBeNull();
+    expect(mergeIssue).not.toHaveBeenCalled();
+  });
+
   it("says how many follow-ups there are when only a page of them is listed", async () => {
     fetchIssueLinks.mockResolvedValue({
       ok: true,
@@ -484,7 +826,8 @@ describe("merging", () => {
     ).toBeNull();
   });
 
-  it("hides what it knew of the links when a later read of them fails", async () => {
+  it("hides what it knew of the links when a later read of them fails, and keeps a half-chosen merge target for the next one", async () => {
+    const session = userEvent.setup();
     const { rerender } = render(
       <IssueLifecycle
         issue={issue()}
@@ -493,9 +836,10 @@ describe("merging", () => {
         onChanged={() => undefined}
       />,
     );
-    expect(
+    await session.selectOptions(
       await screen.findByLabelText("Hiss: slå samman med ett annat ärende"),
-    ).toBeTruthy();
+      "issue-2",
+    );
 
     fetchIssueLinks.mockResolvedValue({
       ok: false,
@@ -511,9 +855,69 @@ describe("merging", () => {
     );
 
     expect(await screen.findByText(/kopplingar kunde inte läsas/)).toBeTruthy();
+    // Out of reach while the links may be out of date, not thrown away.
+    const picker = screen.getByLabelText(
+      "Hiss: slå samman med ett annat ärende",
+    );
+    expect(picker.closest("[hidden]")).not.toBeNull();
+
+    fetchIssueLinks.mockResolvedValue({ ok: true, value: NO_LINKS });
+    rerender(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER]}
+        queueRead={3}
+        onChanged={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByLabelText("Hiss: slå samman med ett annat ärende")
+          .closest("[hidden]"),
+      ).toBeNull();
+    });
     expect(
-      screen.queryByLabelText("Hiss: slå samman med ett annat ärende"),
-    ).toBeNull();
+      (
+        screen.getByLabelText(
+          "Hiss: slå samman med ett annat ärende",
+        ) as HTMLSelectElement
+      ).value,
+    ).toBe("issue-2");
+    expect(screen.queryByText(/kopplingar kunde inte läsas/)).toBeNull();
+  });
+
+  it("explains a merge refused because the issue is already a duplicate of another, and reads the queue again", async () => {
+    mergeIssue.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "merge-already-duplicate" },
+    });
+    const onChanged = vi.fn();
+    const session = userEvent.setup();
+    render(
+      <IssueLifecycle
+        issue={issue()}
+        candidates={[issue(), OTHER]}
+        onChanged={onChanged}
+      />,
+    );
+
+    await session.selectOptions(
+      await screen.findByLabelText("Hiss: slå samman med ett annat ärende"),
+      "issue-2",
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Slå samman som dublett" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Ja, avsluta som dublett" }),
+    );
+
+    expect(
+      await screen.findByText(/redan en dublett av ett annat/),
+    ).toBeTruthy();
+    expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
   it("names the merge candidates by more than their type, day and first words", async () => {

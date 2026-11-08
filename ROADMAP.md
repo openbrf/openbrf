@@ -360,6 +360,30 @@ locally the application runs from source beside the PostgreSQL that
       removing a contractor from the list clears their name and address from
       the work orders sent them. This is how a work order travels while the
       contractor's own link waits for its legal review (ADR 0055)
+- [x] The contractor's link, built and switched off: a handler can give the
+      contractor of a work order a link of their own, shown once, that opens
+      the work order and the photographs the board chose for it and nothing
+      else of the issue. The contractor accepts or declines it, writes notes,
+      adds photographs and marks it done there without an account. The link
+      ends after 30 days, at a decline or done, when a handler withdraws it,
+      and when anything it opens stops being one a contractor may see. It is
+      behind `OPENBRF_CONTRACTOR_LINKS_ENABLED`, off by default, until the legal
+      review of a contractor as a recipient clears it (ADR 0055, decision 25)
+- [ ] Switch the contractor's link on once its legal review clears it
+- [x] Damage cases and ring-fenced issue types: a handler marks an issue as an
+      insurance damage with the insurer, the claim number, the day and the
+      cause, and the mark places a legal hold so the issue's text outlasts its
+      purge clock; a change made from a mark that another handler has changed
+      meanwhile is refused rather than written over it. The board ring-fences an issue type, as the set a new
+      instance starts with does for disturbances between neighbours: the board
+      alone reads its issues, the property manager never, and nothing about
+      them leaves the board - no work order, no mail to anybody, no new post
+      report (a link from a post that was reported before the fence stays), no
+      merge as a duplicate across the fence, no
+      connected app or AI package, and not the website's form. Its free text is
+      purged one year after closing, a clock the board does not set, pending
+      the legal review, and the ring-fence is never lifted from a type issues
+      were reported under (ADR 0054, decisions 28 and 32)
 - [x] Mail about issues: a new issue to its assignee, or to the type's handlers
       when it lands unassigned; an urgent one to every handler of its type; an
       assignment to the new assignee; a reopened one to its assignee; and one
@@ -427,6 +451,23 @@ locally the application runs from source beside the PostgreSQL that
       and how many have no assignee, and each number opens its view. The search
       never matches a protected reporter's name or apartment. No dashboards
       (ADR 0054)
+- [x] Handling an issue from a connected app or the AI package: the queue and
+      one issue carry the priority, the target date, whether it is overdue and
+      the assignee, the issue types carry who handles them and their default
+      priority, and a new read names who one issue may be given to. A connected
+      app assigns an issue and sets its priority, target date and status at
+      once, as the person who signed it in, and the audit log records that it
+      came through a connected app; the AI package only proposes the same four,
+      for that person to confirm on the platform's own screen, which shows the
+      issue's number, type, status, priority and target date beside what the
+      change sets, and a status move's waiting reason and outcome. No action
+      writes to the reporter, sends anything to a contractor, reads the
+      conversation or an internal note; closing an issue ends its contractors'
+      work order links as it does on the board's screen.
+      An issue of a ring-fenced type or one a person with protected personal
+      data reported is answered as one that does not exist. The MCP Connector
+      is offered each of these once its manifest declares the personal data
+      that action carries (ADR 0056)
 - [x] What is particular to a Swedish house on an issue: on an issue about an
       apartment the resident answers whether the association or a contractor
       may enter - yes or no, pets, whether the master key may be used, a note on
@@ -439,6 +480,19 @@ locally the application runs from source beside the PostgreSQL that
       OVK, lift or fire finding with its protocol and a target date, which a
       lift's holds to a month from the inspection (BFS 2025:11 1 kap. 17 §);
       the inspections' schedule stays with the 2027 reminders
+- [x] The issue module end to end: one browser flow against the production
+      image takes an issue from a resident's report, with its default assignee
+      mailed, through assigning and reassigning it, the Mine, Unassigned and
+      Overdue views, a conversation with the resident and one with a reporter
+      without an account, an internal note neither reporter sees, a work order
+      to a contractor and a charge made from the issue, to its closing and its
+      reopening by the resident's reply. The same flow checks that a reporter
+      with protected personal data stays masked on the queue, the handling,
+      the work order form and the issue's charges panel,
+      that an issue of a ring-fenced type never reaches the property manager
+      or a proposal of the AI package, and that no mail it caused carries
+      anything anybody wrote, the work order mail carrying the handler's own
+      text and nothing else
 - [x] One page, one audience: the board's work on its own pages under the
       Styrelsen section, each signed on its own heading, the overview as the
       house's notice board with one line for whoever works a queue, and a phone
@@ -964,14 +1018,17 @@ Free, open source, and never moved behind a paywall.
       stays, and its free text, conversation, notes and
       photographs are removed a number of years after it closes, which the
       board sets from one to ten and two by default, unless a legal hold
-      stands on the issue or on its reporter. A granted erasure request
+      stands on the issue, or a legal hold or a restriction on its reporter. A
+      granted erasure request
       removes the free text of the issues the person reported on the night
       after the board grants it, once each such issue is closed and under no
       legal hold of its own; an open or held issue keeps the request open
-      until it closes or the hold is released. A handler may redact a text or
-      remove a photograph at any time unless a legal hold stands on the issue
-      itself (a hold on its reporter does not stop a handler), which is how an
-      art. 17 request naming an issue is carried out. A report filed through
+      until it closes or the hold is released, and a legal hold or a
+      restriction on the reporter keeps the whole request open until it ends.
+      A handler may redact a text or
+      remove a photograph at any time, which is how an art. 17 request naming
+      an issue is carried out, except while a legal hold stands on the issue, or
+      a legal hold or a restriction on its reporter. A report filed through
       the public form is keyed to nobody, so no
       person's clock reaches its contact details and they are detached on one
       of their own, a year after the board closed it

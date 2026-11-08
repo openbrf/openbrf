@@ -81,9 +81,16 @@ const issueId = `purge-issue-${suffix}`;
 /**
  * An open issue of the same person's that holds an entry permission and whose
  * text a handler has redacted: nothing of its free text stands, so the purge
- * detaches the person and takes the permission with them.
+ * detaches the person and takes the permission with them. Its work order holds
+ * only a contractor's note a handler redacted, which stands as a blank row.
  */
 const entryIssueId = `purge-entry-issue-${suffix}`;
+/**
+ * An open issue of the same person's that holds an entry permission and whose
+ * text still stands: the purge leaves the person on it, and the permission
+ * with them, until it closes (closing clears it).
+ */
+const standingEntryIssueId = `purge-entry-standing-${suffix}`;
 /**
  * An older issue of theirs whose free text the clock has already removed: the
  * one the purge detaches them from (ADR 0057).
@@ -509,6 +516,38 @@ beforeAll(async () => {
       entryUntil: new Date("2027-12-31"),
     },
   });
+  // An open one whose text still stands, with the same kind of answer.
+  await prisma.issue.create({
+    data: {
+      id: standingEntryIssueId,
+      typeId: issueTypeId,
+      reporterPersonId: people.referenced,
+      // About the apartment the answer is for, as a resident's own is: the
+      // purge must clear and keep entry answers whatever they hang on.
+      apartmentId: apartmentId(String(personIds.indexOf(people.referenced))),
+      description: ISSUE_DESCRIPTION,
+      statusId: issueType.statusIds.NEW,
+      entryAnswer: "YES",
+      entryNote: "Nyckel hos grannen",
+      entryPets: false,
+      entryMasterKey: true,
+      entryUntil: new Date("2027-12-31"),
+    },
+  });
+  // The same open issue's work order, whose text is gone and whose only note
+  // from the contractor a handler has redacted: a blank row the clock has yet
+  // to take, which does not keep the reporter attached.
+  await prisma.workOrder.create({
+    data: {
+      issueId: entryIssueId,
+      recipientName: null,
+      recipientEmailCipher: null,
+      body: null,
+      sentByPersonId: null,
+      deliveryStatus: "SENT",
+      notes: { create: { body: "", redactedAt: new Date() } },
+    },
+  });
   // An earlier issue of theirs that the clock has finished: nothing of its
   // free text stands, so its reporter is what the purge detaches.
   await prisma.issue.create({
@@ -907,7 +946,13 @@ afterAll(async () => {
           prisma.issue.deleteMany({
             where: {
               id: {
-                in: [issueId, entryIssueId, workOrderIssueId, finishedIssueId],
+                in: [
+                  issueId,
+                  entryIssueId,
+                  standingEntryIssueId,
+                  workOrderIssueId,
+                  finishedIssueId,
+                ],
               },
             },
           }),
@@ -1403,6 +1448,31 @@ describe("issues, documents, binder entries and files the person left behind", (
       entryPets: null,
       entryMasterKey: null,
       entryUntil: null,
+    });
+    // Where the text still stands the person stays on the issue, as the
+    // reference an erasure request granted later finds it by, and what they
+    // said about their home stays with them until the issue closes.
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: standingEntryIssueId },
+        select: {
+          reporterPersonId: true,
+          entryAnswer: true,
+          entryNote: true,
+          entryPets: true,
+          entryMasterKey: true,
+          entryUntil: true,
+          apartmentId: true,
+        },
+      }),
+    ).toEqual({
+      reporterPersonId: people.referenced,
+      entryAnswer: "YES",
+      entryNote: "Nyckel hos grannen",
+      entryPets: false,
+      entryMasterKey: true,
+      entryUntil: new Date("2027-12-31"),
+      apartmentId: apartmentId(String(personIds.indexOf(people.referenced))),
     });
     // Unassigned and no longer entered by anybody in particular, and the issue
     // still says that a handler entered it.

@@ -8,17 +8,22 @@ import type {
   PluginExtensionPointDeclaration,
   PluginNonResidentCaller,
   PluginPermission,
+  PluginPersonalDataCategory,
+  PluginPersonRecordCollection,
   PluginProcessing,
 } from "@openbrf/plugin-sdk";
 import { addLocalDays, dateColumnOf, localDayOf } from "@openbrf/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { Client } from "pg";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { AuthService } from "../auth/auth.service";
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import type { Env } from "../config/env";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { ProcessingActivityService } from "../data-protection/processing-activity.service";
 import { pluginProcessorKey } from "../data-protection/processor-key";
+import { MailService } from "../mail/mail.service";
 import { dataPaths } from "../packaging/data-paths";
 import {
   loadEnvForIntegrationTests,
@@ -29,6 +34,7 @@ import { PluginAddressBookService } from "./plugin-address-book.service";
 import { loadPlugins, type PluginBoot, readPluginRecords } from "./plugin-boot";
 import { PluginHostBinding } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
+import { PluginPersonRecordsService } from "./plugin-person-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 
 /**
@@ -48,6 +54,9 @@ import { PluginRegistryService } from "./plugin-registry.service";
  * both approved, for the administrator to withdraw and consent to again.
  * `DROPPING` is a version that declares only the property manager, whose
  * install approved the board as well and had the property manager withdrawn.
+ * `RECORDS` declares every class too, and its routes call the host, for what
+ * the plugin reads of and writes about these people: `nonResidents()`,
+ * `caller`, the subject of a record or an audit entry, and mail.
  *
  * `FLOOR_HOST` reads the finances and offers a point, and `FLOOR_ADDON`, which
  * reads the address book, extends it. It offers its view to every account and
@@ -72,6 +81,7 @@ const ONLY_ACCESS = `classes-access-${suffix}`;
 const NARROWER = `classes-narrower-${suffix}`;
 const WIDENED = `classes-widened-${suffix}`;
 const SIGNED_IN = `classes-signed-in-${suffix}`;
+const RECORDS = `classes-records-${suffix}`;
 const WITHDRAWING = `classes-withdrawing-${suffix}`;
 const DROPPING = `classes-dropping-${suffix}`;
 /** An install row with no package, for what a consent does to the sets. */
@@ -85,6 +95,7 @@ const PLUGINS = [
   NARROWER,
   WIDENED,
   SIGNED_IN,
+  RECORDS,
   WITHDRAWING,
   DROPPING,
   FLOOR_HOST,
@@ -107,6 +118,7 @@ const DECLARED: Record<string, PluginNonResidentCaller[] | undefined> = {
   [NARROWER]: ["board"],
   [WIDENED]: ["board", "propertyManager"],
   [SIGNED_IN]: undefined,
+  [RECORDS]: EVERY_CLASS,
   [WITHDRAWING]: ["board", "propertyManager"],
   [DROPPING]: ["propertyManager"],
   [FLOOR_HOST]: undefined,
@@ -119,10 +131,27 @@ const APPROVED: Record<string, PluginNonResidentCaller[]> = {
   [NARROWER]: ["board", "propertyManager", "pluginAccess"],
   [WIDENED]: ["board"],
   [SIGNED_IN]: [],
+  [RECORDS]: EVERY_CLASS,
   [WITHDRAWING]: ["board", "propertyManager"],
   [DROPPING]: ["board", "propertyManager"],
   [FLOOR_HOST]: [],
   [FLOOR_ADDON]: [],
+};
+
+/** What `RECORDS` reads and writes beyond the others, and the board consented to. */
+const RECORDS_PERMISSIONS: PluginPermission[] = [
+  "addressBook:read",
+  "addressBook:readContact",
+  "mail:send",
+];
+const ASSIGNMENTS: PluginPersonRecordCollection = {
+  collection: "assignments",
+  titleKey: "records.assignments.title",
+  personalData: ["name"],
+  keepAtMostDays: 400,
+  fields: [
+    { key: "space", labelKey: "records.assignments.space", provided: false },
+  ],
 };
 
 /** What a plugin's package and its consent declare besides its routes. */
@@ -130,6 +159,8 @@ interface Declared {
   /** Whether it declares the resident route and the view. */
   serves: boolean;
   permissions: PluginPermission[];
+  personalData: PluginPersonalDataCategory[];
+  personRecords: PluginPersonRecordCollection[];
   extensionPoints: PluginExtensionPointDeclaration[];
   extends: PluginExtensionDeclaration[];
 }
@@ -151,6 +182,8 @@ function declaredBy(pluginId: string): Declared {
     return {
       serves: false,
       permissions: ["finances:read"],
+      personalData: ["name"],
+      personRecords: [],
       extensionPoints: [FLOOR_POINT],
       extends: [],
     };
@@ -159,6 +192,8 @@ function declaredBy(pluginId: string): Declared {
     return {
       serves: true,
       permissions: ["addressBook:read"],
+      personalData: ["name"],
+      personRecords: [],
       extensionPoints: [],
       extends: [
         {
@@ -170,9 +205,21 @@ function declaredBy(pluginId: string): Declared {
       ],
     };
   }
+  if (pluginId === RECORDS) {
+    return {
+      serves: true,
+      permissions: RECORDS_PERMISSIONS,
+      personalData: ["name", "email"],
+      personRecords: [ASSIGNMENTS],
+      extensionPoints: [],
+      extends: [],
+    };
+  }
   return {
     serves: true,
     permissions: ["addressBook:read"],
+    personalData: ["name"],
+    personRecords: [],
     extensionPoints: [],
     extends: [],
   };
@@ -234,6 +281,8 @@ const persons = {
   endedSeat: id("ended-seat"),
   /** Moved out once and lives here again today. */
   returning: id("returning"),
+  /** Holds a board seat, and has a space assigned before the seat ends. */
+  leavingBoard: id("leaving-board"),
   /**
    * Moved out, and holds an access to `SERVING`: a row the grant and the
    * move-in never leave, written here to show it serves nobody.
@@ -298,6 +347,92 @@ exports.createPlugin = function createPlugin() {
   class ClassesModule {}
   Module({ controllers: [Offers, Board] })(ClassesModule);
   return { module: ClassesModule };
+};
+`;
+
+/**
+ * `RECORDS`'s server bundle. Its routes call the host and report what came of
+ * it: the answer, or the refusal's name and the member it names. A board route
+ * assigns a space to a person, as the board's assignment to a garage renter is
+ * written, and records an audit entry about them.
+ */
+const RECORDS_BUNDLE = `const { Body, Controller, Get, Module, Post, Query, Req } = require("@nestjs/common");
+
+exports.createPlugin = function createPlugin(host) {
+  const route = (target, decorator, name, params = []) => {
+    decorator(target.prototype, name, Object.getOwnPropertyDescriptor(target.prototype, name));
+    params.forEach((param, index) => param(target.prototype, name, index));
+  };
+  const outcome = async (work) => {
+    try {
+      return { answered: await work() };
+    } catch (cause) {
+      return { refused: cause.name + (cause.member ? " " + cause.member : "") };
+    }
+  };
+  const eraseOn = () =>
+    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const assign = (key, subject) =>
+    outcome(async () =>
+      (await host.personRecords.put("assignments", key, {
+        subject,
+        eraseOn: eraseOn(),
+        value: { space: "12" },
+      })).subject,
+    );
+
+  class Offers {
+    async reads(request) {
+      return {
+        nonResidents: await outcome(() => host.addressBook.nonResidents()),
+        caller: (await host.addressBook.caller(request)).kind,
+      };
+    }
+    async own(request, key) {
+      const caller = await host.addressBook.caller(request);
+      const subject =
+        caller.kind === "listed" ? caller.resident.personId : caller.person.personId;
+      return await assign(key, subject);
+    }
+    async other(key, subject) {
+      return await assign(key, subject);
+    }
+  }
+  Controller("offers")(Offers);
+  route(Offers, Get("reads"), "reads", [Req()]);
+  route(Offers, Get("own"), "own", [Req(), Query("key")]);
+  route(Offers, Get("other"), "other", [Query("key"), Query("subject")]);
+
+  class Board {
+    async assign(body) {
+      return await assign(body.key, body.subject);
+    }
+    async audit(request, body) {
+      return await outcome(async () => {
+        await host.audit.record(request, { event: "space.assigned", subject: body.subject });
+        return "recorded";
+      });
+    }
+    async nonResidents() {
+      return await outcome(() => host.addressBook.nonResidents());
+    }
+    async mail(body) {
+      const person = (await host.addressBook.nonResidents()).find(
+        (candidate) => candidate.personId === body.personId,
+      );
+      await host.mail.send({ to: person.email, subject: "Plats", text: "Du har fått plats 12." });
+      return { sent: person.email };
+    }
+  }
+  Controller("board")(Board);
+  route(Board, Post("assign"), "assign", [Body()]);
+  route(Board, Post("audit"), "audit", [Req(), Body()]);
+  route(Board, Get("non-residents"), "nonResidents");
+  route(Board, Post("mail"), "mail", [Body()]);
+
+  class RecordsModule {}
+  Module({ controllers: [Offers, Board] })(RecordsModule);
+  return { module: RecordsModule };
 };
 `;
 
@@ -429,7 +564,10 @@ async function writeManifest(
         id: pluginId,
         entry: { server: "./dist/server.cjs" },
         permissions: given.permissions,
-        personalData: ["name"],
+        personalData: given.personalData,
+        ...(given.personRecords.length > 0
+          ? { personRecords: given.personRecords }
+          : {}),
         extensionPoints: given.extensionPoints,
         extends: given.extends,
         ...(given.serves
@@ -473,7 +611,11 @@ beforeAll(async () => {
     await writeManifest(created, pluginId, DECLARED[pluginId]);
     await writeFile(
       join(directory, "dist", "server.cjs"),
-      pluginId === FLOOR_HOST ? HOST_BUNDLE : BUNDLE,
+      pluginId === RECORDS
+        ? RECORDS_BUNDLE
+        : pluginId === FLOOR_HOST
+          ? HOST_BUNDLE
+          : BUNDLE,
       "utf8",
     );
   }
@@ -500,7 +642,10 @@ beforeAll(async () => {
         tarballUrl: `file:///dev/null/${pluginId}.tgz`,
         checksum: "sha512-unused-in-this-suite",
         permissions: given.permissions,
-        personalData: ["name"],
+        personalData: given.personalData,
+        ...(given.personRecords.length > 0
+          ? { personRecords: given.personRecords }
+          : {}),
         extensionPoints: given.extensionPoints,
         extends: given.extends,
         actions: [],
@@ -609,6 +754,7 @@ beforeAll(async () => {
       seat(persons.movingOutToday),
       seat(persons.movingInBoard),
       seat(persons.endedSeat, new Date("2025-06-30T00:00:00.000Z")),
+      seat(persons.leavingBoard),
     ],
   });
   await prisma.systemRole.createMany({
@@ -686,6 +832,7 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     if (app !== undefined) {
+      await prisma.pluginRecord.deleteMany({ where: { pluginId: RECORDS } });
       await prisma.pluginAccess.deleteMany({
         where: { personId: { in: ACCOUNTS } },
       });
@@ -964,7 +1111,7 @@ describe("the board's grant of a plugin access", () => {
       .plugins.map((plugin) => plugin.pluginId)
       .filter((pluginId) => PLUGINS.includes(pluginId))
       .sort();
-    expect(offered).toEqual([ONLY_ACCESS, SERVING].sort());
+    expect(offered).toEqual([ONLY_ACCESS, RECORDS, SERVING].sort());
   });
 
   it.each([
@@ -1109,6 +1256,617 @@ describe("the navigation", () => {
       reason: "resident-route-not-listed",
     });
     expect(await ran(FLOOR_ADDON)).toBe(before);
+  });
+});
+
+/** A POST to a plugin's route, as the person signed in with `cookie`. */
+function post(pluginId: string, path: string, personId: string, body: object) {
+  return inject({
+    method: "POST",
+    url: `/api/plugin/${pluginId}/${path}`,
+    payload: body,
+    headers: { cookie: cookies[personId] ?? "" },
+  });
+}
+
+/** The board's assignment of a space, written on `RECORDS`'s board route. */
+async function assign(key: string, subject: string): Promise<unknown> {
+  const response = await post(RECORDS, "board/assign", persons.reader, {
+    key,
+    subject,
+  });
+  expect(response.statusCode).toBe(201);
+  return response.json();
+}
+
+/** An audit entry about a person, recorded on `RECORDS`'s board route. */
+async function audit(subject: string): Promise<unknown> {
+  const response = await post(RECORDS, "board/audit", persons.reader, {
+    subject,
+  });
+  expect(response.statusCode).toBe(201);
+  return response.json();
+}
+
+/** This run's persons in what `nonResidents()` answered, in its order. */
+function ofThisRun(answer: unknown): string[] {
+  const listed = (answer as { answered: { personId: string }[] }).answered;
+  return listed
+    .map((person) => person.personId)
+    .filter((personId) => ACCOUNTS.includes(personId));
+}
+
+describe("a record about a person off a resident route (ADR 0047, as ADR 0053 amends it)", () => {
+  it.each([
+    ["a board member who lives elsewhere", standingId("board")],
+    ["an administrator who lives elsewhere", standingId("administrator")],
+    ["the property manager", standingId("manager")],
+    [
+      "a person who moves in tomorrow and holds a board seat",
+      persons.movingInBoard,
+    ],
+    ["a resident", standingId("resident")],
+  ])("is accepted about %s, as is an audit entry", async (_, subject) => {
+    expect(await assign(`space-${subject}`, subject)).toEqual({
+      answered: subject,
+    });
+    expect(await audit(subject)).toEqual({ answered: "recorded" });
+  });
+
+  it("is refused alike about a person in no class, a withheld person, a former resident and an id nobody has", async () => {
+    const refused = [
+      persons.nobody,
+      standingId("manager", "protected"),
+      standingId("board", "restricted"),
+      persons.formerBoard,
+      persons.endedSeat,
+      id("unknown"),
+    ];
+    const records = await Promise.all(
+      refused.map((subject) => assign(`refused-${subject}`, subject)),
+    );
+    const entries = await Promise.all(refused.map((subject) => audit(subject)));
+
+    // One answer for all of them, which says nothing about why.
+    for (const answer of [...records, ...entries]) {
+      expect(answer).toEqual({ refused: "PluginRecordSubjectError" });
+    }
+    expect(
+      await prisma.pluginRecord.count({
+        where: { pluginId: RECORDS, subjectPersonId: { in: refused } },
+      }),
+    ).toBe(0);
+  });
+
+  it("is rewritten about its subject after they leave the class, and no new one names them", async () => {
+    const subject = persons.leavingBoard;
+    expect(await assign("space-leaving", subject)).toEqual({
+      answered: subject,
+    });
+
+    await prisma.boardPosition.updateMany({
+      where: { personId: subject },
+      data: { endedOn: dateColumnOf(addLocalDays(today, -1)) },
+    });
+
+    expect(await assign("space-leaving", subject)).toEqual({
+      answered: subject,
+    });
+    expect(await assign("space-leaving-again", subject)).toEqual({
+      refused: "PluginRecordSubjectError",
+    });
+  });
+});
+
+describe("host.addressBook.nonResidents()", () => {
+  it("lists the persons served in a class who hold no residency today, and nobody withheld", async () => {
+    // The seat may have ended in a test that ran before this one.
+    await prisma.boardPosition.updateMany({
+      where: { personId: persons.leavingBoard },
+      data: { endedOn: null },
+    });
+    const response = await get(RECORDS, "board/non-residents", persons.reader);
+    expect(response.statusCode).toBe(200);
+    const listed = ofThisRun(response.json());
+
+    const IN_A_CLASS = ["board", "administrator", "manager"] as const;
+    expect(new Set(listed)).toEqual(
+      new Set([
+        ...IN_A_CLASS.map((standing) => standingId(standing)),
+        // Their objection is to `SERVING`'s processing, not to this plugin's.
+        ...IN_A_CLASS.map((standing) => standingId(standing, "objecting")),
+        persons.reader,
+        persons.movingInBoard,
+        persons.leavingBoard,
+      ]),
+    );
+    for (const absent of [
+      standingId("resident"),
+      ...STANDINGS.flatMap((standing) =>
+        (["protected", "restricted"] as const).map((refusal) =>
+          standingId(standing, refusal),
+        ),
+      ),
+      persons.former,
+      persons.formerBoard,
+      persons.formerAdmin,
+      persons.formerManager,
+      persons.movingOutToday,
+      persons.movingIn,
+      persons.endedSeat,
+      persons.returning,
+      persons.nobody,
+    ]) {
+      expect(listed).not.toContain(absent);
+    }
+  });
+
+  it("leaves out a person who objects to the reading plugin's processing", async () => {
+    const addressBook = application().get(PluginAddressBookService);
+    const listed = (
+      await addressBook.nonResidents(SERVING, EVERY_CLASS, { contact: false })
+    ).map((person) => person.personId);
+
+    expect(listed).toContain(standingId("board"));
+    for (const standing of ["board", "administrator", "manager"] as const) {
+      expect(listed).not.toContain(standingId(standing, "objecting"));
+    }
+  });
+
+  it("gives a person no apartment, and contact details on the terms of residents()", async () => {
+    const response = await get(RECORDS, "board/non-residents", persons.reader);
+    const person = response
+      .json<{ answered: Record<string, unknown>[] }>()
+      .answered.find(
+        (candidate) => candidate["personId"] === standingId("board"),
+      );
+
+    expect(person).toEqual({
+      personId: standingId("board"),
+      name: "Förnamn Efternamn",
+      lastName: "Efternamn",
+      email: null,
+      phone: null,
+    });
+  });
+
+  it("lists nobody for a plugin that declares no class, and for one that declares only the access, the persons holding an access to it", async () => {
+    const addressBook = application().get(PluginAddressBookService);
+    const listedFor = async (
+      pluginId: string,
+      declared: readonly PluginNonResidentCaller[],
+    ) =>
+      (await addressBook.nonResidents(pluginId, declared, { contact: false }))
+        .map((person) => person.personId)
+        .filter((personId) => ACCOUNTS.includes(personId));
+
+    expect(await listedFor(RESIDENTS, [])).toEqual([]);
+
+    const held = await prisma.pluginAccess.findMany({
+      where: { pluginId: ONLY_ACCESS, personId: { in: ACCOUNTS } },
+      select: { personId: true },
+    });
+    expect(held.map((access) => access.personId)).toContain(
+      persons.grantedElsewhere,
+    );
+    expect((await listedFor(ONLY_ACCESS, ["pluginAccess"])).sort()).toEqual(
+      held.map((access) => access.personId).sort(),
+    );
+  });
+
+  it("is refused on a resident route, where caller answers a person in a class as nonResident", async () => {
+    const response = await get(RECORDS, "offers/reads", standingId("manager"));
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      nonResidents: {
+        refused: "PluginResidentRouteError addressBook.nonResidents",
+      },
+      caller: "nonResident",
+    });
+    expect(
+      (await get(RECORDS, "offers/reads", standingId("resident"))).json(),
+    ).toMatchObject({
+      caller: "listed",
+    });
+  });
+
+  it("answers caller as notListed to a plugin that serves no class, and to a former resident in one", async () => {
+    const addressBook = application().get(PluginAddressBookService);
+    const every = EVERY_CLASS;
+
+    await expect(
+      addressBook.caller(RESIDENTS, standingId("board"), [], {
+        contact: false,
+      }),
+    ).resolves.toEqual({ kind: "notListed" });
+    await expect(
+      addressBook.caller(RECORDS, persons.formerBoard, every, {
+        contact: false,
+      }),
+    ).resolves.toEqual({ kind: "notListed" });
+    await expect(
+      addressBook.caller(RECORDS, standingId("board"), every, {
+        contact: false,
+      }),
+    ).resolves.toMatchObject({
+      kind: "nonResident",
+      person: { personId: standingId("board") },
+    });
+  });
+
+  it("answers caller from the classes the install approves when it runs, not from the ones passed in", async () => {
+    const addressBook = application().get(PluginAddressBookService);
+    const approved = async (classes: PluginNonResidentCaller[]) =>
+      prisma.installedPlugin.update({
+        where: { id: RECORDS },
+        data: { consentedNonResidentCallers: classes },
+      });
+
+    try {
+      await approved([]);
+      await expect(
+        addressBook.caller(RECORDS, standingId("board"), EVERY_CLASS, {
+          contact: false,
+        }),
+      ).resolves.toEqual({ kind: "notListed" });
+    } finally {
+      await approved(APPROVED[RECORDS] ?? []);
+    }
+    await expect(
+      addressBook.caller(RECORDS, standingId("board"), EVERY_CLASS, {
+        contact: false,
+      }),
+    ).resolves.toMatchObject({ kind: "nonResident" });
+  });
+
+  /**
+   * What `read` answers, with `change` committed on a connection of its own
+   * as soon as the first SQL statement `startsChange` picks has answered, and
+   * before the next is sent.
+   *
+   * Prisma sends each statement of a read on its own, so the change falls
+   * between two of them: what a move-in, a move-out or a withdrawal during a
+   * request does to a read that is not one snapshot. Caught at the driver,
+   * which every statement passes through, whichever delegate or transaction
+   * sends it. Fails when the change never ran, so a test cannot pass on a
+   * read the change did not interleave with.
+   */
+  async function interleaved<T>(
+    startsChange: (statement: unknown) => boolean,
+    change: () => Promise<unknown>,
+    read: () => Promise<T>,
+  ): Promise<T> {
+    const query = Object.getOwnPropertyDescriptor(Client.prototype, "query")
+      ?.value as (this: Client, ...args: unknown[]) => unknown;
+    let changed = false;
+    const spy = vi
+      .spyOn(Client.prototype, "query")
+      .mockImplementation(function (this: Client, ...args: unknown[]) {
+        if (changed || !startsChange(args[0])) {
+          return query.apply(this, args);
+        }
+        changed = true;
+        // The pool sends a statement with a callback, a transaction's
+        // connection without one: the change is committed before either
+        // hands the rows back.
+        const last = args.at(-1);
+        if (typeof last === "function") {
+          const callback = last as (error: unknown, result?: unknown) => void;
+          return query.apply(this, [
+            ...args.slice(0, -1),
+            (error: unknown, result: unknown) => {
+              if (error) {
+                callback(error);
+                return;
+              }
+              change().then(
+                () => callback(null, result),
+                (failure: unknown) => callback(failure),
+              );
+            },
+          ]);
+        }
+        return (query.apply(this, args) as Promise<unknown>).then(
+          async (result) => {
+            await change();
+            return result;
+          },
+        );
+      } as never);
+    try {
+      const answer = await read();
+      expect(changed).toBe(true);
+      return answer;
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  /** A SELECT whose parameters include `value`, from a table. */
+  const selectsFrom = (table: string, value: string) => (statement: unknown) =>
+    typeof statement === "object" &&
+    statement !== null &&
+    "text" in statement &&
+    typeof statement.text === "string" &&
+    /^\s*SELECT\b/i.test(statement.text) &&
+    statement.text.includes(`"${table}"`) &&
+    "values" in statement &&
+    Array.isArray(statement.values) &&
+    statement.values.includes(value);
+
+  /**
+   * `caller`'s answer about a person, with `change` committed between the
+   * statement that decides whether the person is served and the one that
+   * reads their residencies.
+   */
+  async function callerAcross(
+    pluginId: string,
+    personId: string,
+    classes: readonly PluginNonResidentCaller[],
+    change: () => Promise<unknown>,
+  ) {
+    const addressBook = application().get(PluginAddressBookService);
+    const readsPerson = (statement: unknown) =>
+      typeof statement === "object" &&
+      statement !== null &&
+      "text" in statement &&
+      typeof statement.text === "string" &&
+      /^\s*SELECT\b/i.test(statement.text) &&
+      "values" in statement &&
+      Array.isArray(statement.values) &&
+      statement.values.includes(personId);
+    return interleaved(readsPerson, change, () =>
+      addressBook.caller(pluginId, personId, classes, { contact: false }),
+    );
+  }
+
+  /**
+   * The board withdraws a class the plugin declares, and then a person with no
+   * residency takes a seat in it - the two commits a request that read the
+   * approved classes first can fall between - and `restore` puts both back.
+   */
+  async function withdrawBoardThenSeat(personId: string) {
+    const install = await prisma.installedPlugin.findUniqueOrThrow({
+      where: { id: RECORDS },
+      select: { withdrawnNonResidentCallers: true },
+    });
+    return {
+      change: async () => {
+        await prisma.installedPlugin.update({
+          where: { id: RECORDS },
+          data: { withdrawnNonResidentCallers: ["board"] },
+        });
+        await prisma.boardPosition.create({
+          data: { personId, position: "BOARD_MEMBER", electedOn: LONG_AGO },
+        });
+      },
+      restore: () =>
+        prisma.installedPlugin.update({
+          where: { id: RECORDS },
+          data: {
+            withdrawnNonResidentCallers: install.withdrawnNonResidentCallers,
+          },
+        }),
+    };
+  }
+
+  it("lists nobody from a class withdrawn while it runs, even one a person joins after the withdrawal", async () => {
+    const addressBook = application().get(PluginAddressBookService);
+    const personId = id("joins-after-withdrawal-list");
+    const { change, restore } = await withdrawBoardThenSeat(personId);
+    const options = { contact: false, personId };
+
+    try {
+      await prisma.person.create({
+        data: { id: personId, firstName: "Förnamn", lastName: "Efternamn" },
+      });
+      await expect(
+        addressBook.nonResidents(RECORDS, EVERY_CLASS, options),
+      ).resolves.toEqual([]);
+
+      // The approved classes are read, the class is withdrawn and the seat
+      // given, and only then the person: one snapshot leaves them out.
+      const listed = await interleaved(
+        selectsFrom("installed_plugin", RECORDS),
+        change,
+        () => addressBook.nonResidents(RECORDS, EVERY_CLASS, options),
+      );
+      expect(listed).toEqual([]);
+
+      // The seat would have served the person, but for the withdrawal.
+      await restore();
+      await expect(
+        addressBook.nonResidents(RECORDS, EVERY_CLASS, options),
+      ).resolves.toMatchObject([{ personId }]);
+    } finally {
+      await restore();
+      await prisma.boardPosition.deleteMany({ where: { personId } });
+      await prisma.person.deleteMany({ where: { id: personId } });
+    }
+  });
+
+  it("does not let a plugin name as an audit subject a person who joins a class after it is withdrawn", async () => {
+    const records = application().get(PluginPersonRecordsService);
+    const personId = id("joins-after-withdrawal-name");
+    const { change, restore } = await withdrawBoardThenSeat(personId);
+
+    try {
+      await prisma.person.create({
+        data: { id: personId, firstName: "Förnamn", lastName: "Efternamn" },
+      });
+      // No record about them, so no fallback can allow it.
+      await expect(records.mayName(RECORDS, personId)).resolves.toBe(false);
+
+      const may = await interleaved(
+        selectsFrom("installed_plugin", RECORDS),
+        change,
+        () => records.mayName(RECORDS, personId),
+      );
+      expect(may).toBe(false);
+
+      // The seat would have served the person, but for the withdrawal.
+      await restore();
+      await expect(records.mayName(RECORDS, personId)).resolves.toBe(true);
+    } finally {
+      await restore();
+      await prisma.boardPosition.deleteMany({ where: { personId } });
+      await prisma.person.deleteMany({ where: { id: personId } });
+    }
+  });
+
+  it("answers caller from one snapshot, so a board member who moves in during it is never notListed", async () => {
+    const addressBook = application().get(PluginAddressBookService);
+    const every = EVERY_CLASS;
+    const personId = id("moves-in-mid-request");
+
+    // Served before the move-in and after it, the person may be
+    // `nonResident` or `listed`, never neither; the snapshot is the one from
+    // before it.
+    try {
+      await prisma.person.create({
+        data: { id: personId, firstName: "Förnamn", lastName: "Efternamn" },
+      });
+      await prisma.boardPosition.create({
+        data: { personId, position: "BOARD_MEMBER", electedOn: LONG_AGO },
+      });
+      const answer = await callerAcross(RECORDS, personId, every, () =>
+        prisma.residency.create({
+          data: {
+            personId,
+            apartmentId: apartment,
+            role: "RESIDENT",
+            movedInOn: LONG_AGO,
+          },
+        }),
+      );
+
+      expect(answer).toMatchObject({
+        kind: "nonResident",
+        person: { personId },
+      });
+      await expect(
+        addressBook.caller(RECORDS, personId, every, { contact: false }),
+      ).resolves.toMatchObject({ kind: "listed", resident: { personId } });
+    } finally {
+      await prisma.residency.deleteMany({ where: { personId } });
+      await prisma.boardPosition.deleteMany({ where: { personId } });
+      await prisma.person.deleteMany({ where: { id: personId } });
+    }
+  });
+
+  it.each([
+    {
+      who: "resident",
+      to: "a plugin that serves residents alone",
+      plugin: RESIDENTS,
+      name: "moves-out-mid-request",
+      seat: false,
+    },
+    {
+      who: "board member who lives here",
+      to: "a plugin that serves the board",
+      plugin: RECORDS,
+      name: "board-moves-out-mid-request",
+      seat: true,
+    },
+  ])(
+    "answers caller from one snapshot, so a $who who moves out during it is never nonResident to $to",
+    async ({ plugin, name, seat }) => {
+      const addressBook = application().get(PluginAddressBookService);
+      const classes = DECLARED[plugin] ?? [];
+      const personId = id(name);
+
+      // The move-out date is today, so the person is a former resident from
+      // the moment it is recorded, and in no class. Served before it and not
+      // after it, they may be `listed` or `notListed`, never `nonResident`;
+      // the snapshot is the one from before it.
+      try {
+        await prisma.person.create({
+          data: { id: personId, firstName: "Förnamn", lastName: "Efternamn" },
+        });
+        await prisma.residency.create({
+          data: {
+            personId,
+            apartmentId: apartment,
+            role: "RESIDENT",
+            movedInOn: LONG_AGO,
+          },
+        });
+        if (seat) {
+          await prisma.boardPosition.create({
+            data: { personId, position: "BOARD_MEMBER", electedOn: LONG_AGO },
+          });
+        }
+        const answer = await callerAcross(plugin, personId, classes, () =>
+          prisma.residency.updateMany({
+            where: { personId },
+            data: { movedOutOn: dateColumnOf(today) },
+          }),
+        );
+
+        expect(answer).toMatchObject({
+          kind: "listed",
+          resident: { personId },
+        });
+        await expect(
+          addressBook.caller(plugin, personId, classes, { contact: false }),
+        ).resolves.toEqual({ kind: "notListed" });
+      } finally {
+        await prisma.residency.deleteMany({ where: { personId } });
+        await prisma.boardPosition.deleteMany({ where: { personId } });
+        await prisma.person.deleteMany({ where: { id: personId } });
+      }
+    },
+  );
+});
+
+describe("a record on a resident route served to a person in a class", () => {
+  it("names the caller, and nobody else", async () => {
+    const manager = standingId("manager");
+
+    expect(
+      (await get(RECORDS, "offers/own?key=own-offer", manager)).json(),
+    ).toEqual({
+      answered: manager,
+    });
+    expect(
+      (
+        await get(
+          RECORDS,
+          `offers/other?key=other-offer&subject=${standingId("resident")}`,
+          manager,
+        )
+      ).json(),
+    ).toEqual({ refused: "PluginRecordSubjectError" });
+  });
+});
+
+describe("mail to a person nonResidents() lists", () => {
+  it("goes to the address it gives, under host.mail's own rules", async () => {
+    const manager = standingId("manager");
+    const email = `${manager}@exempel.se`;
+    const cipher = await application()
+      .get(FieldEncryptionService)
+      .encrypt("person.email", email);
+    await prisma.person.update({
+      where: { id: manager },
+      data: { emailCipher: cipher.cipher, emailIndex: cipher.index },
+    });
+    const send = vi
+      .spyOn(application().get(MailService), "send")
+      .mockResolvedValue(undefined as never);
+    try {
+      const response = await post(RECORDS, "board/mail", persons.reader, {
+        personId: manager,
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toEqual({ sent: email });
+      expect(send).toHaveBeenCalledWith(expect.objectContaining({ to: email }));
+    } finally {
+      send.mockRestore();
+    }
   });
 });
 

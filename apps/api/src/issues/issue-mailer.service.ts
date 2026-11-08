@@ -29,8 +29,19 @@ import {
   issueHandlerNoticeMail,
   issueReporterNoticeMail,
 } from "../mail/templates";
-import { issueHandledBy, issueRecipientsWhere } from "./issue-handlers";
-import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
+import {
+  issueHandledBy,
+  issueMailReachableWhere,
+  issueRecipientsWhere,
+} from "./issue-handlers";
+import {
+  holdIssueTypeRingFence,
+  lockFilingBudget,
+  lockIssue,
+  lockMessageBudget,
+  MAIL_TRANSACTION_MS,
+  mailHandoffDeadline,
+} from "./issue-lock";
 
 /**
  * The mail about issues (decisions 10, 12 and 21 of the issue module plan):
@@ -49,11 +60,23 @@ import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
  *   the handlers when there is none, while the reporter's hourly budget for
  *   messages lasts; a handler's to a reporter who has an account. Nobody's
  *   words go with it (GLOSSARY.md, _svar_).
+ * - **Contractor.** The contractor of a work order answered it, wrote a note
+ *   or added a photograph through its link: mailed to the assignee, or to the
+ *   handlers when there is none, every answer, and a note or a photograph
+ *   once an hour at most (ADR 0055).
  *
  * The person whose act it was is never told of it. Every handler read is
  * `issueRecipientsWhere`, the handler rule of `issueHandlersWhere` with an
  * address and no restriction under GDPR art. 18, for the issue's own scope, so
  * a board-only issue never reaches the property manager by mail either.
+ *
+ * ## Not a ring-fenced issue
+ *
+ * Nothing about an issue of a ring-fenced type is mailed, to a handler or to
+ * its reporter (decision 32): the board reads it on its own screen and the
+ * reporter on theirs, and the mail provider is never told that one was made.
+ * Every decision here reads the issue through `readIssue`, which does not find
+ * one, so none is queued and one queued before the ring-fence sends nothing.
  *
  * ## No free text
  *
@@ -111,8 +134,14 @@ import { lockFilingBudget, lockIssue, lockMessageBudget } from "./issue-lock";
  * A claim is kept only while its mail may still go out. A delivery that sends
  * nothing, because the assignee changed, the mail settings are missing or the
  * person is out of reach, and a delivery given up on after its retries, give
- * the date back, under the same lock. When the issue has meanwhile been handed
- * to somebody else, the reminder is queued again for them.
+ * the date back, under the same lock. While the date is still past, the
+ * reminder is then queued again: for the new assignee when the issue has been
+ * handed to somebody else, and for the same one when what kept the mail back
+ * was the person - their address changed while it was decrypted, or they were
+ * out of reach for a moment. Not for the same assignee after a delivery
+ * without mail settings or one given up on, which would only fail again: that
+ * reminder goes out once the issue is assigned again, opened again or given a
+ * new target date.
  *
  * A job that finds the issue without an assignee this channel reaches claims
  * nothing, so the reminder is still owed. Nothing queues the job again on its
@@ -216,11 +245,27 @@ const REPEATED_LOOKS = 2;
  * The throttle key of an assignment or reopening notice, or null for a notice
  * that is not throttled.
  */
-function throttleKeyOf(job: IssueNoticeJob): string | null {
-  return job.event === "assigned" || job.event === "reopened"
+function throttleKeyOf(
+  job: Pick<IssueNoticeJob, "issueId" | "personId" | "event" | "contractor">,
+): string | null {
+  if (job.event === "contractor" && job.contractor === "answer") {
+    // The answer that ends a link is never one a note in the same hour may
+    // stand in for, and a link takes two answers at most.
+    return null;
+  }
+  return job.event === "assigned" ||
+    job.event === "reopened" ||
+    job.event === "contractor"
     ? `${job.event}:${job.issueId}:${job.personId}`
     : null;
 }
+
+/**
+ * What a contractor did through a work order's link, as far as the notice
+ * about it is throttled: an answer (accept, decline, done) is told of every
+ * time; a note or a photograph (`activity`) once an hour.
+ */
+export type ContractorNoticeKind = "answer" | "activity";
 
 /** What a delivery tells of: a handler's event, or a reporter's new message. */
 export type IssueNoticeEvent = IssueHandlerNoticeEvent | "reporterMessage";
@@ -243,6 +288,12 @@ export interface IssueNoticeJob {
    * leaves it, sends nothing: the link would open an empty conversation.
    */
   messageId?: string;
+  /**
+   * For a `contractor` notice, whether it tells of an answer, which is not
+   * throttled, or of a note or photograph, which is. A job queued before the
+   * field existed has none, and is throttled as it was.
+   */
+  contractor?: ContractorNoticeKind;
   [key: string]: unknown;
 }
 
@@ -284,6 +335,7 @@ const ISSUE_SELECT = {
   enteredByPersonId: true,
   enteredByHandler: true,
   boardOnly: true,
+  typeId: true,
   status: { select: { meaning: true } },
   type: { select: { name: true, handledBy: true } },
 } as const;
@@ -505,8 +557,10 @@ export class IssueMailer implements OnModuleInit {
    * queued again too, for an issue whose target date is set: a job that came
    * while the issue was closed found nothing owed.
    *
-   * `actorPersonId` is null for a reopening nobody chose, such as a reporter's
-   * reply.
+   * `actorPersonId` is who reopened it, and is not mailed: a handler's move,
+   * or a signed-in reporter's reply, so a reporter who is also the assignee of
+   * their own issue is not told of their own act. It is null for a reply
+   * through a private link, which has no person behind it.
    */
   async reopenedInTransaction(
     tx: Prisma.TransactionClient,
@@ -593,7 +647,7 @@ export class IssueMailer implements OnModuleInit {
         issueId,
         await this.assigneeOrHandlers(tx, issue, "message", now),
         reporter,
-        author.messageId,
+        author.messageId === undefined ? {} : { messageId: author.messageId },
       );
     }
     const reporter = issue.reporterPersonId;
@@ -605,7 +659,42 @@ export class IssueMailer implements OnModuleInit {
       issueId,
       new Map([[reporter, "reporterMessage"]]),
       author.personId,
-      author.messageId,
+      author.messageId === undefined ? {} : { messageId: author.messageId },
+    );
+  }
+
+  /**
+   * Tells the issue's assignee, or its handlers when it has none, that the
+   * contractor of one of its work orders did something through the work
+   * order's link: answered it, wrote a note or added a photograph (ADR 0055,
+   * control H7 of its threat review). In the transaction of the act. Answers
+   * how many deliveries were queued.
+   *
+   * The mail says only that, with the issue's number and type, as every
+   * handler's notice does (decision 21): never the answer's note or a word a
+   * contractor wrote. A note or a photograph is throttled to one per person
+   * and issue in each clock hour, as an assignment is, so a link used for many
+   * notes in an hour mails each handler once. An answer is not: a decline or
+   * done after a note in the same hour is the act the handler most needs to
+   * hear of, and a link takes two answers at most. Nobody is left out as the
+   * actor: a contractor is nobody here.
+   */
+  async contractorInTransaction(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+    kind: ContractorNoticeKind,
+    now: Date = new Date(),
+  ): Promise<number> {
+    const issue = await this.readIssue(tx, issueId);
+    if (issue === null) {
+      return 0;
+    }
+    return this.queue(
+      tx,
+      issueId,
+      await this.assigneeOrHandlers(tx, issue, "contractor", now),
+      null,
+      { contractor: kind },
     );
   }
 
@@ -694,8 +783,9 @@ export class IssueMailer implements OnModuleInit {
     if (delivery === "sent") {
       return true;
     }
-    // A reminder that goes nowhere gives the date it claimed back.
-    await this.releaseOverdueClaim(job, now);
+    // A reminder that goes nowhere gives the date it claimed back, and is
+    // looked at again for its assignee unless the mail settings kept it back.
+    await this.releaseOverdueClaim(job, now, delivery === "notOwed");
     for (let looks = 0; delivery === "notOwed"; looks += 1) {
       if (!(await this.keepNoticeSlotIfOwed(job, now))) {
         return false;
@@ -787,14 +877,22 @@ export class IssueMailer implements OnModuleInit {
    * lock, because the notice was never sent. Nothing for any other notice, or
    * for a date not claimed.
    *
-   * When the issue is handed to somebody else and the date is still past, the
-   * reminder is queued again, since nothing else would: the assignment found
-   * the date claimed. Not for the same assignee, who a new job would find
-   * unreachable all the same.
+   * While the date is still past, the reminder is queued again, since nothing
+   * else would: an assignment in between found the date claimed. For the new
+   * assignee when the issue is handed to somebody else, and for the same one
+   * only when `againForSameAssignee` says the delivery found nothing to send:
+   * the person changed between the claim and the mail - their address, or
+   * whether they are reached at all. The new job claims nothing while they are
+   * still out of reach, and reads the new address when there is one, so each
+   * round needs another such change and none repeats on its own. Not after a
+   * delivery without mail settings, or one given up on after its retries,
+   * which a new job for the same person would only repeat; that reminder is
+   * sent once the issue is assigned again, opened again or given a new date.
    */
   async releaseOverdueClaim(
     job: IssueNoticeJob,
     now: Date = new Date(),
+    againForSameAssignee = false,
   ): Promise<void> {
     const targetDate = job.targetDate;
     if (job.event !== "overdue" || targetDate === undefined) {
@@ -821,9 +919,10 @@ export class IssueMailer implements OnModuleInit {
           },
         },
       });
+      const assignee = issue.assigneePersonId;
       if (
-        issue.assigneePersonId !== null &&
-        issue.assigneePersonId !== job.personId &&
+        assignee !== null &&
+        (assignee !== job.personId || againForSameAssignee) &&
         overdueFor(issue, targetDate, now)
       ) {
         await this.scheduleOverdue(tx, job.issueId, day, now);
@@ -835,11 +934,14 @@ export class IssueMailer implements OnModuleInit {
    * Whether the message a notice tells of still exists. A notice that names no
    * message stands. A message is erased with the free text of a closed issue.
    */
-  private async messageStands(job: IssueNoticeJob): Promise<boolean> {
+  private async messageStands(
+    job: IssueNoticeJob,
+    db: Db = this.prisma,
+  ): Promise<boolean> {
     if (job.messageId === undefined) {
       return true;
     }
-    const found = await this.prisma.issueMessage.findFirst({
+    const found = await db.issueMessage.findFirst({
       where: { id: job.messageId, issueId: job.issueId },
       select: { id: true },
     });
@@ -855,19 +957,20 @@ export class IssueMailer implements OnModuleInit {
   private async lookUp(
     job: IssueNoticeJob,
     at: Date,
+    db: Db = this.prisma,
   ): Promise<{
     issue: NoticeIssue;
     recipient: NoticeRecipient | null;
   } | null> {
-    const issue = await this.readIssue(this.prisma, job.issueId);
+    const issue = await this.readIssue(db, job.issueId);
     if (
       issue === null ||
       !stillSo(issue, job, at) ||
-      !(await this.messageStands(job))
+      !(await this.messageStands(job, db))
     ) {
       return null;
     }
-    const recipient = await this.prisma.person.findFirst({
+    const recipient = await db.person.findFirst({
       where: recipientWhereOf(issue, job, at),
       select: RECIPIENT_SELECT,
     });
@@ -893,83 +996,111 @@ export class IssueMailer implements OnModuleInit {
     // Decrypting took time, and a restriction, a board-only change or the end
     // of a board seat can have come since the read above: read the issue again
     // and ask again, by the time it is now, as close to the handoff as the code
-    // can. A clock handed in that is ahead of the real one is kept. This
-    // narrows the window and does not close it: the issue lock is not held
-    // here, because it would stay held across the mail service's rendering,
-    // sender lookup and the driver's network call. A restriction, board-only
-    // change or ended seat committed in that last stretch is not seen, and a
-    // mail with the number and type (and the priority, to a handler) and no
-    // free text can still go out. That is the accepted residual window;
-    // closing it would need the mail to be handed over inside a transaction
-    // that holds the lock.
+    // can. A clock handed in that is ahead of the real one is kept.
+    //
+    // The ring-fence is held as it is from that read until the mail server has
+    // taken the message: the board's change of it waits for the handoff, so a
+    // type ring-fenced meanwhile is decided either before the mail, which is
+    // then not sent, or after it. Shared, and under a key of its own, so that
+    // mails do not wait for each other and a filing or a handler's write does
+    // not wait for the mail server. A restriction, board-only change or ended
+    // seat committed in the last stretch is not seen, and a mail with the
+    // number and type (and the priority, to a handler) and no free text can
+    // still go out; the issue's lock is not held, because it would stay held
+    // across the mail service's rendering, sender lookup and network call.
+    //
+    // The send is ended before the transaction's limit can end the
+    // transaction and let the ring-fence go with the mail still on its way
+    // (`MAIL_HANDOFF_MS`): one deadline, started before the transaction is
+    // asked for, so the waits for a connection and for the lock spend it too.
+    const deadline = mailHandoffDeadline();
     const handoffAt = new Date(Math.max(now.getTime(), Date.now()));
-    const again = await this.lookUp(job, handoffAt);
-    // Each way the notice can have stopped being owed since the first look,
-    // one at a time, so a change to what `lookUp` answers cannot turn one of
-    // them into a silent skip: no longer owed (`null`), nobody left to receive
-    // it, or an address changed while it was decrypted, which is not the one
-    // decrypted.
-    if (again === null) {
-      this.logger.log(
-        `Mail about issue ${job.issueId} (${job.event}) skipped: it is no longer owed.`,
-      );
-      return "notOwed";
-    }
-    if (again.recipient === null || again.recipient.emailCipher !== cipher) {
-      this.logger.log(
-        `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
-      );
-      return "notOwed";
-    }
-    const current = again.issue;
-    const recipientName = `${recipient.firstName} ${recipient.lastName}`.trim();
-    try {
-      if (job.event === "reporterMessage") {
-        await this.mail.send({
-          to,
-          locale: recipient.preferredLocale,
-          template: issueReporterNoticeMail,
-          props: {
-            recipientName,
-            number: current.number,
-            typeName: current.type.name,
-          },
-        });
-      } else {
-        await this.mail.send({
-          to,
-          locale: recipient.preferredLocale,
-          template: issueHandlerNoticeMail,
-          props: {
-            recipientName,
-            event: job.event,
-            number: current.number,
-            typeName: current.type.name,
-            priority: current.priority,
-            targetDate: job.event === "overdue" ? current.targetDate : null,
-          },
-        });
-      }
-    } catch (error) {
-      if (error instanceof MailNotConfiguredError) {
-        this.logger.warn(
-          `Issue ${job.issueId} is in the queue but was not mailed: this instance has no mail settings.`,
-        );
-        return "noMailSettings";
-      }
-      // By the class of the failure: a rejection quotes the address back.
-      this.logger.error(
-        `Mail about issue ${job.issueId} (${job.event}) failed for ${job.personId}: ${failureName(error)}`,
-      );
-      throw error;
-    }
-    return "sent";
+    return this.prisma.$transaction(
+      async (tx): Promise<Delivery> => {
+        await holdIssueTypeRingFence(tx, found.issue.typeId);
+        const again = await this.lookUp(job, handoffAt, tx);
+        // Each way the notice can have stopped being owed since the first
+        // look, one at a time, so a change to what `lookUp` answers cannot
+        // turn one of them into a silent skip: no longer owed (`null`),
+        // nobody left to receive it, or an address changed while it was
+        // decrypted, which is not the one decrypted.
+        if (again === null) {
+          this.logger.log(
+            `Mail about issue ${job.issueId} (${job.event}) skipped: it is no longer owed.`,
+          );
+          return "notOwed";
+        }
+        if (
+          again.recipient === null ||
+          again.recipient.emailCipher !== cipher
+        ) {
+          this.logger.log(
+            `Mail about issue ${job.issueId} (${job.event}) skipped: ${job.personId} is no longer somebody it goes to.`,
+          );
+          return "notOwed";
+        }
+        const current = again.issue;
+        const recipientName =
+          `${recipient.firstName} ${recipient.lastName}`.trim();
+        try {
+          if (job.event === "reporterMessage") {
+            await this.mail.send({
+              to,
+              locale: recipient.preferredLocale,
+              template: issueReporterNoticeMail,
+              signal: deadline,
+              props: {
+                recipientName,
+                number: current.number,
+                typeName: current.type.name,
+              },
+            });
+          } else {
+            await this.mail.send({
+              to,
+              locale: recipient.preferredLocale,
+              template: issueHandlerNoticeMail,
+              signal: deadline,
+              props: {
+                recipientName,
+                event: job.event,
+                number: current.number,
+                typeName: current.type.name,
+                priority: current.priority,
+                targetDate: job.event === "overdue" ? current.targetDate : null,
+              },
+            });
+          }
+        } catch (error) {
+          if (error instanceof MailNotConfiguredError) {
+            this.logger.warn(
+              `Issue ${job.issueId} is in the queue but was not mailed: this instance has no mail settings.`,
+            );
+            return "noMailSettings";
+          }
+          // By the class of the failure: a rejection quotes the address back.
+          this.logger.error(
+            `Mail about issue ${job.issueId} (${job.event}) failed for ${job.personId}: ${failureName(error)}`,
+          );
+          throw error;
+        }
+        return "sent";
+      },
+      { timeout: MAIL_TRANSACTION_MS, maxWait: 20_000 },
+    );
   }
 
-  /** The issue as every decision here reads it, or null when it is gone. */
+  /**
+   * The issue as every decision here reads it, or null when it is gone or its
+   * type is ring-fenced.
+   *
+   * The one read every queueing and every delivery makes, so a ring-fenced
+   * issue is mailed about to nobody, and a notice queued before the board
+   * ring-fenced its type finds nothing owed when it comes due.
+   */
   private readIssue(db: Db, issueId: string): Promise<NoticeIssue | null> {
-    return db.issue.findUnique({
-      where: { id: issueId },
+    return db.issue.findFirst({
+      where: { id: issueId, type: { ringFenced: false } },
       select: ISSUE_SELECT,
     });
   }
@@ -1010,11 +1141,7 @@ export class IssueMailer implements OnModuleInit {
   /** Whether a reporter with an account may be mailed. */
   private async reachableReporter(db: Db, personId: string): Promise<boolean> {
     const person = await db.person.findFirst({
-      where: {
-        id: personId,
-        emailCipher: { not: null },
-        processingRestrictedAt: null,
-      },
+      where: { id: personId, ...issueMailReachableWhere },
       select: { id: true },
     });
     return person !== null;
@@ -1103,15 +1230,14 @@ export class IssueMailer implements OnModuleInit {
     issueId: string,
     deliveries: ReadonlyMap<string, IssueNoticeEvent>,
     except: string | null,
-    messageId?: string,
+    about: Pick<IssueNoticeJob, "messageId" | "contractor"> = {},
   ): Promise<number> {
-    const about = messageId === undefined ? {} : { messageId };
     let queued = 0;
     for (const [personId, event] of deliveries) {
       if (personId === except) {
         continue;
       }
-      const key = throttleKeyOf({ issueId, personId, event });
+      const key = throttleKeyOf({ issueId, personId, event, ...about });
       let id: string | null;
       if (key === null) {
         id = await this.jobs.sendInTransaction<IssueNoticeJob>(
@@ -1230,11 +1356,7 @@ function recipientWhereOf(
   now: Date,
 ): Prisma.PersonWhereInput {
   return job.event === "reporterMessage"
-    ? {
-        id: job.personId,
-        emailCipher: { not: null },
-        processingRestrictedAt: null,
-      }
+    ? { id: job.personId, ...issueMailReachableWhere }
     : {
         AND: [
           { id: job.personId },
@@ -1282,5 +1404,7 @@ function stillSo(issue: NoticeIssue, job: IssueNoticeJob, now: Date): boolean {
       return issue.status.meaning !== "DONE" && issue.assigneePersonId === null;
     case "reopened":
       return issue.status.meaning !== "DONE" && routedTo(issue, job.personId);
+    case "contractor":
+      return routedTo(issue, job.personId);
   }
 }

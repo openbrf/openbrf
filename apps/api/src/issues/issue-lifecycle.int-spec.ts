@@ -8,19 +8,31 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
+import {
+  capabilitiesFor,
+  type Principal,
+  type PrincipalRoles,
+} from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
+import { MailService, type SendMailInput } from "../mail/mail.service";
+import { advisoryLockCount } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { IssueConversationService } from "./issue-conversation.service";
+import { IssueFitService } from "./issue-fit.service";
 import {
   ISSUE_NOTICE_QUEUE,
   ISSUE_OVERDUE_QUEUE,
+  IssueMailer,
+  type IssueNoticeJob,
 } from "./issue-mailer.service";
-import { lockIssuesForHandling } from "./issue-lock";
+import { lockIssue, lockIssueType, lockIssuesForHandling } from "./issue-lock";
+import { IssueRedactionService } from "./issue-redaction.service";
 import { IssueService } from "./issue.service";
 
 /**
@@ -30,9 +42,9 @@ import { IssueService } from "./issue.service";
  * duplicates with every reporter still told, and the known fault the house is
  * shown.
  *
- * The window is tested by moving the clock, not by writing an old closing
- * date: the issue is closed through the board's route, and the reply is made
- * 29 and 31 days later.
+ * The window is judged on the database's clock, as `closedAt` is written, so
+ * it is tested by closing the issue through the board's route and moving its
+ * closing date back on that clock (`closedAgo`): 29 and 31 days ago.
  */
 
 loadEnvForIntegrationTests();
@@ -41,6 +53,8 @@ let app: NestFastifyApplication;
 let prisma: PrismaService;
 let issues: IssueService;
 let conversation: IssueConversationService;
+let mailer: IssueMailer;
+let mail: MailService;
 
 const suffix = process.hrtime.bigint().toString(36);
 const PASSWORD = "a-long-enough-password";
@@ -63,7 +77,17 @@ const neighbour = person("neighbour", "Nils", "Granne");
 const shielded = person("shielded", "Sara", "Skyddad");
 /** Signed in, and living somewhere else: not a resident of this house. */
 const outsider = person("outsider", "Olle", "Utomstaende");
-const people = [board, manager, resident, neighbour, shielded, outsider];
+/** Holds a board seat and the property manager's role; the seat is set to end in the tests that need it to. */
+const lapsing = person("lapsing", "Lasse", "Lapsande");
+const people = [
+  board,
+  manager,
+  resident,
+  neighbour,
+  shielded,
+  outsider,
+  lapsing,
+];
 /** A reporter in the register with no account, so no thread to read. */
 const accountless = { personId: `il-accountless-${suffix}` };
 const personIds = people.map((entry) => entry.personId);
@@ -192,32 +216,188 @@ async function own(who: { personId: string }, issueId: string) {
   return found;
 }
 
-/** Who is mailed what about one issue: the queued notices, as person and event. */
-async function noticesOf(
-  issueId: string,
-): Promise<{ personId: string; event: string }[]> {
-  const rows = await prisma.$queryRawUnsafe<
-    { data: { personId: string; event: string } }[]
-  >(
+/** The notices queued about one issue, as the queue holds them. */
+async function noticeJobsOf(issueId: string): Promise<IssueNoticeJob[]> {
+  const rows = await prisma.$queryRawUnsafe<{ data: IssueNoticeJob }[]>(
     "SELECT data FROM pgboss.job WHERE name = $1 AND data->>'issueId' = $2 ORDER BY created_on, id",
     ISSUE_NOTICE_QUEUE,
     issueId,
   );
-  return rows.map((row) => ({
-    personId: row.data.personId,
-    event: row.data.event,
+  return rows.map((row) => row.data);
+}
+
+/** Who is mailed what about one issue: the queued notices, as person and event. */
+async function noticesOf(
+  issueId: string,
+): Promise<{ personId: string; event: string }[]> {
+  return (await noticeJobsOf(issueId)).map((job) => ({
+    personId: job.personId,
+    event: job.event,
   }));
 }
 
-/** Runs `act` with the clock moved to `at`, and puts it back afterwards. */
-async function atMoment<T>(at: Date, act: () => Promise<T>): Promise<T> {
-  vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
-  vi.setSystemTime(at);
+/**
+ * Delivers the queued notices to one person, with the send stubbed out, and
+ * answers each mail as rendered: its subject, both bodies and its props.
+ */
+async function renderedNoticesTo(
+  issueId: string,
+  personId: string,
+): Promise<{ event: string; parts: string[] }[]> {
+  const sent: SendMailInput<unknown>[] = [];
+  const send = vi.spyOn(mail, "send").mockImplementation(async (input) => {
+    sent.push(input as SendMailInput<unknown>);
+    return { messageId: null };
+  });
   try {
-    return await act();
+    for (const job of await noticeJobsOf(issueId)) {
+      if (job.personId === personId) {
+        await mailer.deliver(job);
+      }
+    }
   } finally {
-    vi.useRealTimers();
+    send.mockRestore();
   }
+  return Promise.all(
+    sent.map(async (input) => {
+      const rendered = await mail.renderMail(input);
+      return {
+        event: (input.props as { event?: string }).event ?? "",
+        parts: [
+          rendered.subject,
+          rendered.html,
+          rendered.text,
+          JSON.stringify(input.props),
+        ],
+      };
+    }),
+  );
+}
+
+/**
+ * Waits until a transaction is queued on the advisory lock `key` names. Only
+ * this run's key, so another suite's waiters do not count.
+ */
+async function waitForLockWaiter(key: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if ((await advisoryLockCount(prisma, key, false)) > 0n) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Nothing queued on the lock ${key}`);
+}
+
+/**
+ * Holds advisory locks, as a handler's write in flight would, from a second
+ * transaction until `release` is called. `release` is safe to call again, and
+ * a test calls it in `finally` so a failed assertion cannot leave what waits
+ * on it blocked.
+ */
+async function holdLocks(
+  take: (tx: Prisma.TransactionClient) => Promise<void>,
+): Promise<{ release: () => Promise<void> }> {
+  let letGo: () => void = () => undefined;
+  const letGoSignal = new Promise<void>((resolve) => {
+    letGo = resolve;
+  });
+  let held: () => void = () => undefined;
+  const holding = new Promise<void>((resolve) => {
+    held = resolve;
+  });
+  const holder = prisma.$transaction(
+    async (tx) => {
+      await take(tx);
+      held();
+      await letGoSignal;
+    },
+    { timeout: 30_000 },
+  );
+  await Promise.race([holding, holder]);
+  return {
+    release: async () => {
+      letGo();
+      await holder;
+    },
+  };
+}
+
+/** What `act` answered or threw, so a test can assert either. */
+type Outcome<T> = { ok: true; value: T } | { ok: false; error: unknown };
+
+function outcomeOf<T>(act: () => Promise<T>): Promise<Outcome<T>> {
+  return act().then(
+    (value): Outcome<T> => ({ ok: true, value }),
+    (error: unknown): Outcome<T> => ({ ok: false, error }),
+  );
+}
+
+/**
+ * Runs `act` while the handling locks of `issueIds` are held by a second
+ * transaction, `during` once `act` is queued on the first of them, and then
+ * lets `act` go on. For what changes while a write waits: it must be judged on
+ * what is so when the locks are got. The locks are released in `finally`.
+ */
+async function whileWaitingOnLocks<T>(
+  issueIds: string[],
+  act: () => Promise<T>,
+  during: () => Promise<void>,
+): Promise<Outcome<T>> {
+  const lock = await holdLocks((tx) => lockIssuesForHandling(tx, issueIds));
+  try {
+    const outcome = outcomeOf(act);
+    // The type's lock is the first it queues on.
+    await waitForLockWaiter(`issue-type:${typeIds.plain}`);
+    await during();
+    await lock.release();
+    return await outcome;
+  } finally {
+    await lock.release();
+  }
+}
+
+/**
+ * Runs `act` for a handler whose role is withdrawn while `act` waits on the
+ * handling locks of `issueIds`. The withdrawal does not take those locks, so it
+ * commits at once. What `act` threw, or `undefined`.
+ */
+async function actWithRoleWithdrawnWhileWaiting(
+  actor: { personId: string },
+  issueIds: string[],
+  act: () => Promise<unknown>,
+): Promise<unknown> {
+  await prisma.systemRole.create({
+    data: { personId: actor.personId, role: "PROPERTY_MANAGER" },
+  });
+  try {
+    const outcome = await whileWaitingOnLocks(issueIds, act, async () => {
+      await prisma.systemRole.deleteMany({
+        where: { personId: actor.personId },
+      });
+    });
+    return outcome.ok ? undefined : outcome.error;
+  } finally {
+    await prisma.systemRole.deleteMany({
+      where: { personId: actor.personId },
+    });
+  }
+}
+
+/**
+ * Moves an issue's closing back by `ms`, on the database's clock, as that much
+ * time passing would; answers the closing date it now has.
+ */
+async function closedAgo(issueId: string, ms: number): Promise<Date> {
+  const [row] = await prisma.$queryRaw<{ closedAt: Date }[]>`
+    UPDATE "issue"
+    SET "closedAt" = clock_timestamp() - make_interval(secs => ${ms / 1000})
+    WHERE "id" = ${issueId}
+    RETURNING "closedAt"`;
+  if (row === undefined) {
+    throw new Error(`${issueId} is not there to age`);
+  }
+  return row.closedAt;
 }
 
 beforeAll(async () => {
@@ -232,6 +412,8 @@ beforeAll(async () => {
   prisma = app.get(PrismaService);
   issues = app.get(IssueService);
   conversation = app.get(IssueConversationService);
+  mailer = app.get(IssueMailer);
+  mail = app.get(MailService);
   const encryption = app.get(FieldEncryptionService);
 
   await prisma.association.upsert({
@@ -381,32 +563,21 @@ describe("a reply on a closed issue", () => {
   it("reopens the issue on the 29th day after it closed", async () => {
     const issueId = await filed(plain);
     await close(issueId, plain);
-    const { closedAt } = await prisma.issue.findUniqueOrThrow({
-      where: { id: issueId },
-      select: { closedAt: true },
-    });
-    if (closedAt === null) {
-      throw new Error("closing wrote no date");
-    }
+    await closedAgo(issueId, 29 * DAY_MS);
     // Whoever handled it keeps it when it reopens.
     await prisma.issue.update({
       where: { id: issueId },
       data: { assigneePersonId: board.personId },
     });
 
-    const message = await atMoment(
-      new Date(closedAt.getTime() + 29 * DAY_MS),
-      async () => {
-        const mine = await issues.listOwn(resident.personId);
-        expect(mine.find((issue) => issue.id === issueId)?.replyMode).toBe(
-          "REOPENS",
-        );
-        return conversation.replyAsReporter(
-          resident.personId,
-          issueId,
-          "Det läcker igen.",
-        );
-      },
+    const mine = await issues.listOwn(resident.personId);
+    expect(mine.find((issue) => issue.id === issueId)?.replyMode).toBe(
+      "REOPENS",
+    );
+    const message = await conversation.replyAsReporter(
+      resident.personId,
+      issueId,
+      "Det läcker igen.",
     );
     expect(message).toMatchObject({ side: "REPORTER" });
 
@@ -441,6 +612,32 @@ describe("a reply on a closed issue", () => {
       false,
     );
 
+    // What the assignee is mailed carries the number and the type, and none
+    // of the free text: not the reply that reopened it, not the opening words
+    // a shortened preview would still print, and not the report itself.
+    const report = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: { number: true, description: true, location: true },
+    });
+    const rendered = await renderedNoticesTo(issueId, board.personId);
+    expect(rendered.map((notice) => notice.event)).toContain("reopened");
+    const forbidden = [
+      "Det läcker igen.",
+      "läcker",
+      report.description,
+      report.location ?? "",
+      resident.lastName,
+    ];
+    for (const notice of rendered) {
+      for (const part of notice.parts) {
+        for (const text of forbidden) {
+          expect(part).not.toContain(text);
+        }
+        expect(part).toContain(String(report.number));
+        expect(part).toContain(`Hiss ${suffix}`);
+      }
+    }
+
     // The timeline says the reporter reopened it, and names nobody.
     const timeline = await as(
       board,
@@ -467,34 +664,23 @@ describe("a reply on a closed issue", () => {
   it("reopens the issue on the 30th day after it closed", async () => {
     const issueId = await filed(plain);
     await close(issueId, plain);
-    const { closedAt } = await prisma.issue.findUniqueOrThrow({
-      where: { id: issueId },
-      select: { closedAt: true },
-    });
-    if (closedAt === null) {
-      throw new Error("closing wrote no date");
-    }
+    // The window includes its last day: a reply a minute short of 30 days
+    // after closing still reopens. Not at the very instant, which a clock that
+    // keeps running would overshoot.
+    await closedAgo(issueId, 30 * DAY_MS - 60_000);
     await prisma.issue.update({
       where: { id: issueId },
       data: { assigneePersonId: board.personId },
     });
 
-    // The window includes its last day: a reply a minute short of 30 days
-    // after closing still reopens. Not at the very instant, which a clock that
-    // keeps running would overshoot.
-    const message = await atMoment(
-      new Date(closedAt.getTime() + 30 * DAY_MS - 60_000),
-      async () => {
-        const mine = await issues.listOwn(resident.personId);
-        expect(mine.find((issue) => issue.id === issueId)?.replyMode).toBe(
-          "REOPENS",
-        );
-        return conversation.replyAsReporter(
-          resident.personId,
-          issueId,
-          "Det läcker igen.",
-        );
-      },
+    const mine = await issues.listOwn(resident.personId);
+    expect(mine.find((issue) => issue.id === issueId)?.replyMode).toBe(
+      "REOPENS",
+    );
+    const message = await conversation.replyAsReporter(
+      resident.personId,
+      issueId,
+      "Det läcker igen.",
     );
     expect(message).toMatchObject({ side: "REPORTER" });
     expect(
@@ -515,26 +701,23 @@ describe("a reply on a closed issue", () => {
     });
   });
 
-  it("does not reopen it on the 31st day, and offers a new report instead", async () => {
+  it("does not reopen it on the 31st day, mails nobody, and offers a new report instead", async () => {
     const issueId = await filed(plain);
     await close(issueId, plain);
-    const { closedAt } = await prisma.issue.findUniqueOrThrow({
+    const closedAt = await closedAgo(issueId, 31 * DAY_MS);
+    await prisma.issue.update({
       where: { id: issueId },
-      select: { closedAt: true },
+      data: { assigneePersonId: board.personId },
     });
-    if (closedAt === null) {
-      throw new Error("closing wrote no date");
-    }
+    const queuedBefore = await noticesOf(issueId);
 
-    await atMoment(new Date(closedAt.getTime() + 31 * DAY_MS), async () => {
-      const mine = await issues.listOwn(resident.personId);
-      expect(mine.find((issue) => issue.id === issueId)?.replyMode).toBe(
-        "NEW_REPORT",
-      );
-      await expect(
-        conversation.replyAsReporter(resident.personId, issueId, "Igen."),
-      ).rejects.toMatchObject({ reason: "issue-closed" });
-    });
+    const mine = await issues.listOwn(resident.personId);
+    expect(mine.find((issue) => issue.id === issueId)?.replyMode).toBe(
+      "NEW_REPORT",
+    );
+    await expect(
+      conversation.replyAsReporter(resident.personId, issueId, "Igen."),
+    ).rejects.toMatchObject({ reason: "issue-closed" });
 
     const untouched = await prisma.issue.findUniqueOrThrow({
       where: { id: issueId },
@@ -551,6 +734,39 @@ describe("a reply on a closed issue", () => {
       closedAt,
       _count: { messages: 0 },
     });
+    // Nothing reopened, so the assignee is not mailed, and the refused reply
+    // queues no message notice either.
+    expect(await noticesOf(issueId)).toEqual(queuedBefore);
+  });
+
+  it("dates the closing, by a status change and by a merge, on the database's clock whatever the process's says", async () => {
+    const closedIssue = await filed(plain);
+    const duplicate = await filed(plain);
+    const into = await filed(plain, neighbour);
+    // The API's clock is ten days ahead of the database's; the window a reply
+    // may reopen in is judged on the database's, so the closing is dated on it.
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    try {
+      vi.setSystemTime(new Date(Date.now() + 10 * DAY_MS));
+      await close(closedIssue, plain);
+      const merged = await as(
+        board,
+        "POST",
+        `/api/issue-queue/${duplicate}/merge`,
+        { intoIssueId: into },
+      );
+      expect(merged.statusCode).toBe(201);
+    } finally {
+      vi.useRealTimers();
+    }
+    const [row] = await prisma.$queryRaw<{ skew: number }[]>`
+      SELECT GREATEST(
+        ABS(EXTRACT(EPOCH FROM (clock_timestamp() - a."closedAt"))),
+        ABS(EXTRACT(EPOCH FROM (clock_timestamp() - b."closedAt")))
+      )::float AS skew
+      FROM "issue" a, "issue" b
+      WHERE a."id" = ${closedIssue} AND b."id" = ${duplicate}`;
+    expect(row?.skew).toBeLessThan(300);
   });
 
   it("reopens through the reporter's route the moment after it closed", async () => {
@@ -631,6 +847,54 @@ describe("a new report following up a closed one", () => {
       await prisma.issue.count({
         where: { followsIssueId: { in: [neighbours, open] } },
       }),
+    ).toBe(0);
+  });
+});
+
+describe("a follow-up racing a handler's reopening", () => {
+  it("is refused as the follow-up of an open issue when the handler's move commits first", async () => {
+    const earlier = await filed(plain);
+    await close(earlier, plain);
+
+    // What a handler's status move holds: the type's lock and the issue's own.
+    const handler = await holdLocks((tx) =>
+      lockIssuesForHandling(tx, [earlier]),
+    );
+    try {
+      const outcome = outcomeOf(() =>
+        as(resident, "POST", "/api/issues", {
+          typeId: plain.id,
+          description: `Hissen igen ${suffix}`,
+          followsIssueId: earlier,
+        }),
+      );
+      // The follow-up queues on the locks of the earlier issue's type first.
+      await waitForLockWaiter(`issue-type:${typeIds.plain}`);
+      await prisma.issue.update({
+        where: { id: earlier },
+        data: {
+          statusId: plain.statusIds.IN_PROGRESS,
+          outcome: null,
+          closedAt: null,
+        },
+      });
+      await handler.release();
+
+      const answered = await outcome;
+      if (!answered.ok) {
+        throw answered.error;
+      }
+      // Read once the locks are got, the earlier issue is open: nothing is
+      // filed against a status that has gone.
+      expect(answered.value.statusCode).toBe(422);
+      expect(answered.value.json()).toMatchObject({
+        reason: "follow-up-of-open-issue",
+      });
+    } finally {
+      await handler.release();
+    }
+    expect(
+      await prisma.issue.count({ where: { followsIssueId: earlier } }),
     ).toBe(0);
   });
 });
@@ -863,9 +1127,12 @@ describe("merging duplicates", () => {
   it("refuses a message to the duplicates' reporters when nobody can read it", async () => {
     const kept = await filed(plain, neighbour);
     const internal = await filed(plain, null);
-    await as(board, "POST", `/api/issue-queue/${internal}/merge`, {
-      intoIssueId: kept,
-    });
+    const unreached = await filed(plain, accountless);
+    for (const id of [internal, unreached]) {
+      await as(board, "POST", `/api/issue-queue/${id}/merge`, {
+        intoIssueId: kept,
+      });
+    }
     const refused = await as(
       board,
       "POST",
@@ -1286,78 +1553,6 @@ describe("a known fault", () => {
     ).toBe(0);
   });
 
-  /**
-   * Waits until a transaction is queued on the advisory lock `key` names. Only
-   * this run's key, so another suite's waiters do not count.
-   */
-  async function waitForLockWaiter(key: string): Promise<void> {
-    const deadline = Date.now() + 10_000;
-    while (Date.now() < deadline) {
-      const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
-        SELECT count(*) AS waiting FROM pg_locks
-        WHERE locktype = 'advisory' AND NOT granted
-          AND objid::bigint = (hashtext(${key})::bigint & 4294967295)`;
-      if (row !== undefined && row.waiting > 0n) {
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    throw new Error(`Nothing queued on the lock ${key}`);
-  }
-
-  /**
-   * Runs `act` for a handler whose role is withdrawn while `act` waits on the
-   * handling locks of `issueIds`, which a second transaction holds. The
-   * withdrawal does not take those locks, so it commits at once; the locks are
-   * released in `finally`, so a failed assertion cannot leave `act` blocked.
-   * What `act` threw, or `undefined`.
-   */
-  async function actWithRoleWithdrawnWhileWaiting(
-    actor: { personId: string },
-    issueIds: string[],
-    act: () => Promise<unknown>,
-  ): Promise<unknown> {
-    await prisma.systemRole.create({
-      data: { personId: actor.personId, role: "PROPERTY_MANAGER" },
-    });
-    let release: () => void = () => undefined;
-    const released = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let held: () => void = () => undefined;
-    const holding = new Promise<void>((resolve) => {
-      held = resolve;
-    });
-    const holder = prisma.$transaction(
-      async (tx) => {
-        await lockIssuesForHandling(tx, issueIds);
-        held();
-        await released;
-      },
-      { timeout: 30_000 },
-    );
-    try {
-      await Promise.race([holding, holder]);
-      const outcome = act().then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-      // The type's lock is the first it queues on.
-      await waitForLockWaiter(`issue-type:${typeIds.plain}`);
-      await prisma.systemRole.deleteMany({
-        where: { personId: actor.personId },
-      });
-      release();
-      return await outcome;
-    } finally {
-      release();
-      await holder;
-      await prisma.systemRole.deleteMany({
-        where: { personId: actor.personId },
-      });
-    }
-  }
-
   it("does not merge or withdraw for a handler whose role is withdrawn while it waits on the locks", async () => {
     const kept = await filed(plain, neighbour);
     const duplicate = await filed(plain);
@@ -1397,6 +1592,541 @@ describe("a known fault", () => {
         })
       ).knownFaultPublishedAt,
     ).not.toBeNull();
+  });
+
+  it("does not add a note or move the status for a person who no longer holds issues:handle", async () => {
+    const issueId = await filed(plain);
+    // Past the route's guard, as a role withdrawn in between: the narrower
+    // scope admits the issue, so only the role check refuses.
+    await expect(
+      conversation.addNote(resident.personId, issueId, "Anteckning"),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    expect(await prisma.issueNote.count({ where: { issueId } })).toBe(0);
+
+    await expect(
+      issues.setStatus(
+        issueId,
+        { statusId: plain.statusIds.IN_PROGRESS },
+        { personId: resident.personId, channel: "WEB" },
+        "show",
+      ),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    expect(
+      (
+        await prisma.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          select: { statusId: true },
+        })
+      ).statusId,
+    ).toBe(plain.statusIds.NEW);
+  });
+
+  it("does not assign, prioritise, date or mark an issue for a person who no longer holds issues:handle", async () => {
+    const issueId = await filed(plain);
+    // A damage case the issue already holds, so a write that got through
+    // would change or remove it.
+    const damageCase = {
+      insurer: "Länsförsäkringar",
+      claimNumber: `S-${issueId}`,
+      occurredOn: "2026-10-30",
+      cause: "WATER",
+    } as const;
+    await prisma.issueDamageCase.create({
+      data: { issueId, ...damageCase, occurredOn: new Date("2026-10-30") },
+    });
+    const handling = {
+      assigneePersonId: true,
+      priority: true,
+      targetDate: true,
+      costResponsibility: true,
+      boardOnly: true,
+    } as const;
+    const before = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: handling,
+    });
+    const actor = { personId: resident.personId, channel: "WEB" } as const;
+    // Past the route's guard, as a role withdrawn in between: the narrower
+    // scope admits the issue, so only the role check refuses each write.
+    for (const [name, write] of [
+      ["assign", () => issues.assign(issueId, null, actor, "show")],
+      [
+        "setPriority",
+        () => issues.setPriority(issueId, "URGENT", actor, "show"),
+      ],
+      [
+        "setTargetDate",
+        () => issues.setTargetDate(issueId, "2031-05-30", actor, "show"),
+      ],
+      [
+        "setCostResponsibility",
+        () =>
+          issues.setCostResponsibility(
+            issueId,
+            "ASSOCIATION",
+            resident.personId,
+          ),
+      ],
+      [
+        "setBoardOnly",
+        () => issues.setBoardOnly(issueId, true, resident.personId),
+      ],
+      [
+        "markDamageCase",
+        () =>
+          issues.markDamageCase(
+            issueId,
+            { ...damageCase, insurer: "If Skadeförsäkring" },
+            damageCase,
+            resident.personId,
+          ),
+      ],
+      [
+        "removeDamageCase",
+        () => issues.removeDamageCase(issueId, damageCase, resident.personId),
+      ],
+    ] as const) {
+      await expect(write(), name).rejects.toMatchObject({
+        reason: "issue-not-found",
+      });
+    }
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: handling,
+      }),
+    ).toEqual(before);
+    expect(
+      await prisma.issueDamageCase.findMany({
+        where: { issueId },
+        select: { insurer: true, claimNumber: true },
+      }),
+    ).toEqual([
+      { insurer: damageCase.insurer, claimNumber: damageCase.claimNumber },
+    ]);
+  });
+
+  it("does not write to the reporter as a person who no longer holds issues:handle", async () => {
+    const issueId = await filed(plain, neighbour);
+    // Past the route's guard, as a role withdrawn in between: the narrower
+    // scope admits the issue, and the signature would be the board's.
+    await expect(
+      conversation.replyAsHandler(resident.personId, issueId, "Hej"),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    expect(await prisma.issueMessage.count({ where: { issueId } })).toBe(0);
+  });
+
+  it("does not write to the reporter as a handler whose role is withdrawn while it waits on the locks", async () => {
+    const issueId = await filed(plain, neighbour);
+
+    expect(
+      await actWithRoleWithdrawnWhileWaiting(outsider, [issueId], () =>
+        conversation.replyAsHandler(outsider.personId, issueId, "Hej"),
+      ),
+    ).toMatchObject({ reason: "issue-not-found" });
+    expect(await prisma.issueMessage.count({ where: { issueId } })).toBe(0);
+
+    // The same for the message to the duplicates' reporters.
+    const duplicate = await filed(plain, resident);
+    expect(
+      (
+        await as(board, "POST", `/api/issue-queue/${duplicate}/merge`, {
+          intoIssueId: issueId,
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(
+      await actWithRoleWithdrawnWhileWaiting(
+        outsider,
+        [issueId, duplicate],
+        () => conversation.replyToDuplicates(outsider.personId, issueId, "Hej"),
+      ),
+    ).toMatchObject({ reason: "issue-not-found" });
+    expect(
+      await prisma.issueMessage.count({ where: { issueId: duplicate } }),
+    ).toBe(0);
+  });
+
+  it("does not file an issue for a handler whose role is withdrawn while the open waits on the type's lock", async () => {
+    const roles: PrincipalRoles = {
+      isAdmin: false,
+      isBoardMember: false,
+      isPropertyManager: true,
+      isResident: false,
+      isMember: false,
+    };
+    const principal: Principal = {
+      ...roles,
+      personId: outsider.personId,
+      capabilities: capabilitiesFor(roles),
+    };
+    const description = `Utan roll ${suffix}`;
+    await prisma.systemRole.create({
+      data: { personId: outsider.personId, role: "PROPERTY_MANAGER" },
+    });
+    const lock = await holdLocks((tx) => lockIssueType(tx, typeIds.plain));
+    try {
+      const outcome = outcomeOf(() =>
+        issues.open(principal, { typeId: typeIds.plain, description }),
+      );
+      await waitForLockWaiter(`issue-type:${typeIds.plain}`);
+      // The role is read after the wait: a check made before it would let the
+      // open through, and the narrower scope admits an every-handler type.
+      await prisma.systemRole.deleteMany({
+        where: { personId: outsider.personId },
+      });
+      await lock.release();
+      expect(await outcome).toMatchObject({
+        ok: false,
+        error: { reason: "type-not-found" },
+      });
+    } finally {
+      await lock.release();
+      await prisma.systemRole.deleteMany({
+        where: { personId: outsider.personId },
+      });
+    }
+    expect(
+      await prisma.issue.count({
+        where: { enteredByPersonId: outsider.personId },
+      }),
+    ).toBe(0);
+  });
+
+  describe("a handler's write by a person who no longer holds issues:handle", () => {
+    const WRITES: [
+      name: string,
+      write: (who: string, issueId: string) => Promise<unknown>,
+    ][] = [
+      [
+        "assign",
+        (who, id) =>
+          issues.assign(id, board.personId, handlerActor(who), "show"),
+      ],
+      [
+        "setPriority",
+        (who, id) =>
+          issues.setPriority(id, "URGENT", handlerActor(who), "show"),
+      ],
+      [
+        "setTargetDate",
+        (who, id) =>
+          issues.setTargetDate(id, "2026-12-24", handlerActor(who), "show"),
+      ],
+      [
+        "setCostResponsibility",
+        (who, id) => issues.setCostResponsibility(id, "ASSOCIATION", who),
+      ],
+      ["setBoardOnly", (who, id) => issues.setBoardOnly(id, true, who)],
+      [
+        "markDamageCase",
+        (who, id) =>
+          issues.markDamageCase(
+            id,
+            {
+              insurer: "Trygg",
+              claimNumber: "K-1",
+              occurredOn: "2025-01-10",
+              cause: "WATER",
+            },
+            null,
+            who,
+          ),
+      ],
+      [
+        "removeDamageCase",
+        (who, id) =>
+          issues.removeDamageCase(
+            id,
+            {
+              insurer: "Trygg",
+              claimNumber: "K-1",
+              occurredOn: "2025-01-10",
+              cause: "WATER",
+            },
+            who,
+          ),
+      ],
+      [
+        "answerEntryAsHandler",
+        (who, id) =>
+          app
+            .get(IssueFitService)
+            .answerEntryAsHandler(who, id, { answer: "YES" }),
+      ],
+      [
+        "withdrawEntryAsHandler",
+        (who, id) => app.get(IssueFitService).withdrawEntryAsHandler(who, id),
+      ],
+      [
+        "setPlace",
+        (who, id) => app.get(IssueFitService).setPlace(who, id, null),
+      ],
+      [
+        "markFinding",
+        (who, id) =>
+          app.get(IssueFitService).markFinding(who, id, {
+            kind: "OVK",
+            inspectedOn: "2026-01-10",
+            protocolAttachmentId: "no-such-file",
+            targetDate: "2026-02-10",
+          }),
+      ],
+      [
+        "removeFinding",
+        (who, id) => app.get(IssueFitService).removeFinding(who, id),
+      ],
+      [
+        "setLegalHold",
+        (who, id) => app.get(IssueRedactionService).setLegalHold(who, id, true),
+      ],
+      [
+        "redact",
+        (who, id) =>
+          app
+            .get(IssueRedactionService)
+            .redact(who, id, { target: "description" }),
+      ],
+    ];
+
+    const handlerActor = (personId: string) =>
+      ({ personId, channel: "WEB" }) as const;
+
+    /** The issue and its entries in the audit log, as a write would change them. */
+    async function standing(issueId: string) {
+      return {
+        issue: await prisma.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          include: { damageCase: true, finding: true },
+        }),
+        entries: await prisma.auditLogEntry.count({
+          where: { targetId: issueId },
+        }),
+      };
+    }
+
+    it.each(WRITES)(
+      "%s is refused as an issue that does not exist, past the route's guard",
+      async (_name, write) => {
+        const issueId = await filed(plain);
+        const before = await standing(issueId);
+        // The person reads as the narrower scope, which admits every issue of
+        // an every-handler type: only the role check refuses.
+        await expect(write(resident.personId, issueId)).rejects.toMatchObject({
+          reason: "issue-not-found",
+        });
+        expect(await standing(issueId)).toEqual(before);
+      },
+    );
+
+    it.each(WRITES)(
+      "%s is refused for a handler whose role is withdrawn while it waits on the locks",
+      async (_name, write) => {
+        const issueId = await filed(plain);
+        const before = await standing(issueId);
+        // The role is read after the waits: a check made before them would
+        // let the write through.
+        expect(
+          await actWithRoleWithdrawnWhileWaiting(outsider, [issueId], () =>
+            write(outsider.personId, issueId),
+          ),
+        ).toMatchObject({ reason: "issue-not-found" });
+        expect(await standing(issueId)).toEqual(before);
+      },
+    );
+  });
+
+  describe("when a board seat ends while a write waits on the locks", () => {
+    /**
+     * The handler holds a seat that ends two days on, and the property
+     * manager's role. The waiting write is started with the clock where it is
+     * and the clock is moved four days on during the wait, so a write that
+     * read it before the locks sees a seat, and one that read it after them
+     * sees none.
+     */
+    async function withLapsingSeat<T>(run: () => Promise<T>): Promise<T> {
+      const today = new Date();
+      const endedOn = new Date(
+        Date.UTC(
+          today.getUTCFullYear(),
+          today.getUTCMonth(),
+          today.getUTCDate() + 2,
+        ),
+      );
+      await prisma.boardPosition.create({
+        data: {
+          personId: lapsing.personId,
+          position: "BOARD_MEMBER",
+          electedOn: new Date("2025-05-15"),
+          endedOn,
+        },
+      });
+      await prisma.systemRole.create({
+        data: { personId: lapsing.personId, role: "PROPERTY_MANAGER" },
+      });
+      vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+      try {
+        return await run();
+      } finally {
+        vi.useRealTimers();
+        await prisma.boardPosition.deleteMany({
+          where: { personId: lapsing.personId },
+        });
+        await prisma.systemRole.deleteMany({
+          where: { personId: lapsing.personId },
+        });
+      }
+    }
+
+    const fourDaysOn = async (): Promise<void> => {
+      vi.setSystemTime(new Date(Date.now() + 4 * DAY_MS));
+      await Promise.resolve();
+    };
+
+    it("signs a message to the reporter with the role held when the locks are got", async () => {
+      const issueId = await filed(plain, neighbour);
+
+      const outcome = await withLapsingSeat(() =>
+        whileWaitingOnLocks(
+          [issueId],
+          () => conversation.replyAsHandler(lapsing.personId, issueId, "Hej"),
+          fourDaysOn,
+        ),
+      );
+
+      expect(outcome.ok).toBe(true);
+      expect(
+        await prisma.issueMessage.findMany({
+          where: { issueId },
+          select: { signature: true },
+        }),
+      ).toEqual([{ signature: "PROPERTY_MANAGER" }]);
+    });
+
+    it("signs a message to the duplicates' reporters, and reaches the duplicates, as of when the locks are got", async () => {
+      const kept = await filed(plain, neighbour);
+      const open = await filed(plain, resident);
+      const boardsOwn = await filed(plain, shielded);
+      for (const id of [open, boardsOwn]) {
+        expect(
+          (
+            await as(board, "POST", `/api/issue-queue/${id}/merge`, {
+              intoIssueId: kept,
+            })
+          ).statusCode,
+        ).toBe(201);
+      }
+      // Kept to the board after it was merged, so only a board seat reaches it.
+      await prisma.issue.update({
+        where: { id: boardsOwn },
+        data: { boardOnly: true },
+      });
+
+      const outcome = await withLapsingSeat(() =>
+        whileWaitingOnLocks(
+          [kept, open, boardsOwn],
+          () => conversation.replyToDuplicates(lapsing.personId, kept, "Hej"),
+          fourDaysOn,
+        ),
+      );
+
+      expect(outcome).toEqual({ ok: true, value: { sent: 1, skipped: 0 } });
+      expect(
+        await prisma.issueMessage.findMany({
+          where: { issueId: { in: [open, boardsOwn] } },
+          select: { issueId: true, signature: true },
+        }),
+      ).toEqual([{ issueId: open, signature: "PROPERTY_MANAGER" }]);
+    });
+  });
+
+  it("does not write to a duplicate the board keeps to itself while the message waits on the locks", async () => {
+    const kept = await filed(plain, neighbour);
+    const open = await filed(plain, resident);
+    const boardsOwn = await filed(plain, shielded);
+    for (const id of [open, boardsOwn]) {
+      expect(
+        (
+          await as(board, "POST", `/api/issue-queue/${id}/merge`, {
+            intoIssueId: kept,
+          })
+        ).statusCode,
+      ).toBe(201);
+    }
+
+    // The property manager handles both until the board takes one, which
+    // commits at once: it does not wait for the locks the message waits on.
+    const outcome = await whileWaitingOnLocks(
+      [kept, open, boardsOwn],
+      () => conversation.replyToDuplicates(manager.personId, kept, "Hej"),
+      async () => {
+        await prisma.issue.update({
+          where: { id: boardsOwn },
+          data: { boardOnly: true },
+        });
+      },
+    );
+
+    expect(outcome).toEqual({ ok: true, value: { sent: 1, skipped: 0 } });
+    expect(
+      await prisma.issueMessage.count({ where: { issueId: boardsOwn } }),
+    ).toBe(0);
+    expect(await prisma.issueMessage.count({ where: { issueId: open } })).toBe(
+      1,
+    );
+  });
+
+  it("starts over when an issue is merged in while the message waits, and takes the new duplicate's lock before it writes", async () => {
+    const kept = await filed(plain, neighbour);
+    const first = await filed(plain, resident);
+    const late = await filed(plain, shielded);
+    expect(
+      (
+        await as(board, "POST", `/api/issue-queue/${first}/merge`, {
+          intoIssueId: kept,
+        })
+      ).statusCode,
+    ).toBe(201);
+
+    const first_ = await holdLocks((tx) =>
+      lockIssuesForHandling(tx, [kept, first]),
+    );
+    let lateLock: { release: () => Promise<void> } | null = null;
+    try {
+      const outcome = outcomeOf(() =>
+        conversation.replyToDuplicates(manager.personId, kept, "Hej"),
+      );
+      await waitForLockWaiter(`issue-type:${typeIds.plain}`);
+      // Merged in between the message's unlocked read and its locks. Its own
+      // lock is held by a handler writing to it.
+      await prisma.issue.update({
+        where: { id: late },
+        data: { mergedIntoIssueId: kept },
+      });
+      lateLock = await holdLocks((tx) => lockIssue(tx, late));
+      await first_.release();
+
+      // The first attempt finds a duplicate it holds no lock of and starts
+      // over; the second waits for that lock instead of writing past it.
+      await waitForLockWaiter(`issue:${late}`);
+      expect(
+        await prisma.issueMessage.count({ where: { issueId: late } }),
+      ).toBe(0);
+      await lateLock.release();
+
+      expect(await outcome).toEqual({
+        ok: true,
+        value: { sent: 2, skipped: 0 },
+      });
+      expect(
+        await prisma.issueMessage.count({
+          where: { issueId: { in: [first, late] } },
+        }),
+      ).toBe(2);
+    } finally {
+      await first_.release();
+      await lateLock?.release();
+    }
   });
 
   it("withholds the name of a type only handlers report from the house", async () => {

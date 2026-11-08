@@ -5,7 +5,7 @@ import {
   type IssueClosingOutcome,
   type IssueWaitingReason,
 } from "@openbrf/shared";
-import { useState, type ReactElement } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -30,6 +30,7 @@ import {
 } from "./issue-labels";
 import { IssueHandlerName } from "./IssueHandlerName";
 import { IssueConversation } from "./IssueConversation";
+import { IssueDamageCaseSection } from "./IssueDamageCase";
 import { IssueDescription, IssueLocation } from "./IssueFreeText";
 import { IssueHandling } from "./IssueHandling";
 import { IssueLifecycle } from "./IssueLifecycle";
@@ -76,6 +77,28 @@ export interface IssueQueuePanelProps {
    */
   onRetryTypes?: () => void;
   /**
+   * Whether the notice that the types could not be read is announced. Set when
+   * the read that failed was one the reader set off from this screen - a retry,
+   * or the read after a change - so the failure is news; a first read that
+   * fails is there as the reader arrives, and stays quiet as `LoadFailure`
+   * explains.
+   */
+  announceTypesFailure?: boolean;
+  /**
+   * Whether the retry beside that notice takes the focus as it is put on
+   * screen. Set when the read that failed was the retry pressed on an earlier
+   * notice, which the caller takes away while the retry is out, so the button
+   * the reader pressed went with it (`LoadFailure`'s `focusRetry`).
+   */
+  focusTypesRetry?: boolean;
+  /**
+   * Called once the render that was given `focusTypesRetry` has been
+   * committed, whether or not the notice was drawn in it, so the caller can
+   * withdraw the flag: it is for that render only, and a notice mounted again
+   * later is not to take a focus the reader has since put elsewhere.
+   */
+  onTypesRetryFocused?: () => void;
+  /**
    * What an empty list says: which view is empty, or that nothing matches
    * the filter. The queue as a whole, by default.
    */
@@ -86,12 +109,51 @@ export interface IssueQueuePanelProps {
    */
   canManageCharges?: boolean;
   /**
-   * Whether the queue is being read again. The rows on screen may not be the
-   * ones the new read returns, so their status forms and handling controls are
-   * off until it is back, rather than a change saved on an issue the view
-   * no longer holds.
+   * Whether the queue is being read again after a change to it: a status
+   * saved, an issue opened or handled. The rows on screen still show the issues
+   * as they stood before it, and a form whose draft the save carried would
+   * offer the same move twice, so the status forms and the handling controls
+   * are off until the read is back.
+   *
+   * Not set for a read that only follows the view, the filter or the search:
+   * the rows on screen are then as current as when they were read, and
+   * turning their controls off under each word typed would take the keyboard
+   * focus out of the row the handler is working in. The status forms stay on
+   * for that reason. The handling under a row is the exception (`reading`): a
+   * refusal of a handling action is shown inside its row, which the filtered
+   * answer may drop, so it goes off for these reads too. The focus a handler
+   * had in a row's handling field is lost when it goes off - one who clicks
+   * into it within the search's delay loses it as the delayed read starts - and
+   * that is accepted; the draft stays.
+   */
+  rereading?: boolean;
+  /**
+   * Whether the queue is being read for any reason, the view, the filter or
+   * the search included. Turns the handling under each row off, which a
+   * refusal of a handling action is shown in: a filtered answer that drops the
+   * row would take the refusal with it, and the handler would not learn the
+   * action was not made. This stops an action being started while a read is
+   * out and no more: one already in flight when the handler changes the filter
+   * still has its refusal shown inside a row the answer may then drop, so the
+   * handler may not learn of it. A status form's refusal is shown above the
+   * rows, so it outlives its row and the form stays on.
    */
   reading?: boolean;
+  /**
+   * Whether the read of the queue failed, so the list on screen would answer
+   * nothing: an empty list says nothing is waiting, a claim the caller's
+   * notice would not undo. The panel stays mounted all the same, because the
+   * status save it owns may still be out when the read fails, and a refusal
+   * of it would go with the panel. It draws nothing until a save has been
+   * refused, and then only that refusal.
+   */
+  listWithheld?: boolean;
+  /**
+   * Whether the list is being read again. Marks the list, not the panel, as
+   * busy: the notices above it (a refused save) are announced, and an alert
+   * inside a busy region may be held back by assistive technology.
+   */
+  busy?: boolean;
 }
 
 /**
@@ -122,9 +184,15 @@ export function IssueQueuePanel({
   onChanged,
   queueRead = 0,
   onRetryTypes,
+  announceTypesFailure = false,
+  focusTypesRetry = false,
+  onTypesRetryFocused,
   emptyMessage,
   canManageCharges = false,
+  rereading = false,
   reading = false,
+  listWithheld = false,
+  busy = false,
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
   const move = useSaveAction(setIssueStatus, onChanged, (failure) => {
@@ -142,6 +210,31 @@ export function IssueQueuePanel({
    */
   const [actingOn, setActingOn] = useState<string | null>(null);
   /*
+   * The issues whose status form is saying, from its draft, that a reply is
+   * not a notice to remedy. The sentence is on screen once for an issue: the
+   * form's while it has the draft, the handling panel's otherwise.
+   */
+  const [remedyNoticeInForm, setRemedyNoticeInForm] = useState<
+    ReadonlySet<string>
+  >(new Set());
+  const markRemedyNotice = useCallback(
+    (issueId: string, shown: boolean): void => {
+      setRemedyNoticeInForm((current) => {
+        if (current.has(issueId) === shown) {
+          return current;
+        }
+        const next = new Set(current);
+        if (shown) {
+          next.add(issueId);
+        } else {
+          next.delete(issueId);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+  /*
    * How many work orders each issue has sent while the queue is open. The
    * work orders and the timeline sit under two disclosures, and a sending in
    * one is a step the other has to read again.
@@ -149,8 +242,18 @@ export function IssueQueuePanel({
   const [workOrdersSent, setWorkOrdersSent] = useState<
     Readonly<Record<string, number>>
   >({});
+  // After the children's layout effects, so after a notice has taken the focus.
+  useEffect(() => {
+    if (focusTypesRetry) {
+      onTypesRetryFocused?.();
+    }
+  }, [focusTypesRetry, onTypesRetryFocused]);
   const saving = move.state.kind === "saving";
   const typeById = new Map((types ?? []).map((type) => [type.id, type]));
+
+  if (listWithheld && move.state.kind !== "failed") {
+    return <></>;
+  }
 
   return (
     <Panel
@@ -174,25 +277,32 @@ export function IssueQueuePanel({
             form renders, so the retry here is the only way back to one.
           */}
           {types !== null ? null : onRetryTypes === undefined ? (
-            <Notice tone="danger" live>
+            <Notice tone="danger" live={announceTypesFailure}>
               {t("issues.queue.statusesUnavailable")}
             </Notice>
           ) : (
             <LoadFailure
               messageKey="issues.queue.statusesUnavailable"
               onRetry={onRetryTypes}
-              live
+              live={announceTypesFailure}
+              focusRetry={focusTypesRetry}
             />
           )}
         </>
       }
     >
-      {issues.length === 0 ? (
-        <p className="text-body text-ink-muted">
+      {listWithheld ? null : issues.length === 0 ? (
+        <p
+          aria-busy={busy}
+          className={`text-body text-ink-muted ${busy ? "opacity-60" : ""}`}
+        >
           {emptyMessage ?? t("issues.queue.empty")}
         </p>
       ) : (
-        <ul className="flex flex-col gap-3">
+        <ul
+          aria-busy={busy}
+          className={`flex flex-col gap-3 ${busy ? "opacity-60" : ""}`}
+        >
           {issues.map((issue) => {
             const type = typeById.get(issue.typeId);
             return (
@@ -237,7 +347,8 @@ export function IssueQueuePanel({
                   </span>
                   <span>
                     {t("issues.mine.apartment")}{" "}
-                    {issue.reporter.kind === "protected" ? (
+                    {issue.reporter.kind === "protected" &&
+                    issue.aboutApartment ? (
                       <span>{t("issues.queue.apartmentProtected")}</span>
                     ) : issue.apartment === null ? (
                       <NotRecorded meaning={t("issues.mine.noApartment")} />
@@ -327,8 +438,9 @@ export function IssueQueuePanel({
                     key={`${issue.status.id}:${issue.waitingReason ?? ""}`}
                     issue={issue}
                     type={type}
-                    disabled={saving || reading}
+                    disabled={saving || rereading}
                     saving={saving && actingOn === issue.id}
+                    onRemedyNoticeShown={markRemedyNotice}
                     onDraftChanged={() => {
                       if (move.state.kind === "failed") {
                         move.reset();
@@ -341,14 +453,23 @@ export function IssueQueuePanel({
                   />
                 )}
 
+                {/* Standing, as the reporter's warning is: what the board has to
+                    keep in mind about the issue whatever it does with it. */}
+                {issue.typeRingFenced ? (
+                  <Notice tone="info">
+                    {t("issues.ringFence.caseNotice")}
+                  </Notice>
+                ) : null}
+
                 <HandlingDisclosure
                   issue={issue}
                   type={type}
                   candidates={issues}
                   workOrdersSent={workOrdersSent[issue.id] ?? 0}
                   canManageCharges={canManageCharges}
+                  locked={reading || rereading}
+                  remedyNoticeInForm={remedyNoticeInForm.has(issue.id)}
                   queueRead={queueRead}
-                  reading={reading}
                   onChanged={onChanged}
                 />
 
@@ -383,8 +504,9 @@ function HandlingDisclosure({
   candidates,
   workOrdersSent,
   canManageCharges,
+  locked,
+  remedyNoticeInForm,
   queueRead,
-  reading,
   onChanged,
 }: {
   issue: QueuedIssue;
@@ -393,8 +515,10 @@ function HandlingDisclosure({
   candidates: readonly QueuedIssue[];
   workOrdersSent: number;
   canManageCharges: boolean;
+  locked: boolean;
+  /** The status form above already says a reply is not a notice to remedy. */
+  remedyNoticeInForm: boolean;
   queueRead: number;
-  reading: boolean;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -418,7 +542,7 @@ function HandlingDisclosure({
       </summary>
       {open ? (
         <fieldset
-          disabled={reading}
+          disabled={locked}
           className="m-0 flex min-w-0 flex-col gap-6 border-0 px-0 pt-2 pb-0"
         >
           <IssueHandling
@@ -426,9 +550,11 @@ function HandlingDisclosure({
             type={type}
             workOrdersSent={workOrdersSent}
             canManageCharges={canManageCharges}
+            remedyNoticeInForm={remedyNoticeInForm}
             filesRevision={uploads + redaction.revision}
             onChanged={onChanged}
           />
+          <IssueDamageCaseSection issue={issue} onChanged={onChanged} />
           <IssueLifecycle
             issue={issue}
             candidates={candidates}
@@ -532,6 +658,7 @@ function StatusForm({
   disabled,
   saving,
   onDraftChanged,
+  onRemedyNoticeShown,
   onSave,
 }: {
   issue: QueuedIssue;
@@ -539,6 +666,8 @@ function StatusForm({
   disabled: boolean;
   saving: boolean;
   onDraftChanged: () => void;
+  /** Whether this form is showing the sentence that a reply is no notice to remedy. */
+  onRemedyNoticeShown: (issueId: string, shown: boolean) => void;
   onSave: (input: IssueStatusMoveInput) => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -566,6 +695,16 @@ function StatusForm({
 
   const day = localDayOfInstant(issue.createdAt);
   const named = { type: issue.typeName, day };
+
+  const issueId = issue.id;
+  const showsRemedyNotice =
+    asksOutcome && outcome === "TENANT_OWNER_RESPONSIBILITY";
+  useEffect(() => {
+    onRemedyNoticeShown(issueId, showsRemedyNotice);
+    return () => {
+      onRemedyNoticeShown(issueId, false);
+    };
+  }, [issueId, showsRemedyNotice, onRemedyNoticeShown]);
 
   return (
     <form
@@ -673,7 +812,7 @@ function StatusForm({
         step decision 27 names: a reply on the issue after it is not how the
         association asks for something to be put right under BRL 7 kap. 12 a §.
       */}
-      {asksOutcome && outcome === "TENANT_OWNER_RESPONSIBILITY" ? (
+      {showsRemedyNotice ? (
         <div className="basis-full">
           <Notice tone="info">{t("issues.handling.notANoticeToRemedy")}</Notice>
         </div>

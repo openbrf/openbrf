@@ -629,6 +629,18 @@ export interface ReportIssueWorkOrder {
    * contractor removed, a text erased), as against one nobody can vouch for.
    */
   notSent: boolean;
+  /**
+   * Whether the contractor was given a link to the work order (ADR 0055),
+   * through which they saw its text and the photographs below.
+   */
+  linkGiven: boolean;
+  /**
+   * How many of the issue's photographs the link showed the contractor: a
+   * disclosure art. 15(1)(c) has the report name, by number and never by file.
+   * Counted once each from when a handler exposed them, and kept when the
+   * choice is changed or a file is removed.
+   */
+  photosShared: number;
 }
 
 /**

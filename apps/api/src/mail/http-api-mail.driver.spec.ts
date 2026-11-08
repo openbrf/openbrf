@@ -1,11 +1,23 @@
-import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { createServer as createHttpsServer } from "node:https";
+import { type AddressInfo, createServer } from "node:net";
+
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { HttpApiMailDriver, MailApiError } from "./http-api-mail.driver";
-import type { OutgoingMail } from "./mail-driver";
+import { type OutgoingMail, mayHaveBeenHandedOver } from "./mail-driver";
 import {
   startMailApiTestServer,
   type MailApiTestServer,
 } from "./testing/mail-api-test-server";
+import { selfSignedCertificate } from "./testing/self-signed-certificate";
 
 /**
  * The HTTP mail driver against a real HTTP conversation.
@@ -245,6 +257,28 @@ describe("a refusal", () => {
     );
   });
 
+  it("ends the request when the caller's signal is aborted, long before its own bound", async () => {
+    // A caller that holds a lock across the handoff hands nothing over after
+    // its deadline, and hears of it as its own abort.
+    api.silenceNext();
+    const deadline = AbortSignal.timeout(100);
+    const started = Date.now();
+
+    const failure = await driver({ requestTimeoutMs: 5000 })
+      .send(MAIL, deadline)
+      .catch((error: unknown) => error);
+
+    expect(failure).toBe(deadline.reason);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it("sends nothing on a signal that is already aborted", async () => {
+    const before = api.requests.length;
+
+    await expect(driver().send(MAIL, AbortSignal.abort())).rejects.toThrow();
+    expect(api.requests).toHaveLength(before);
+  });
+
   it("treats a redirect as a failure and does not follow it", async () => {
     // The key and the recipient would go wherever the answer pointed.
     api.answerNextWith(302, "", { location: `${api.baseUrl}/elsewhere` });
@@ -258,5 +292,173 @@ describe("a refusal", () => {
     await expect(
       driver({ url: "http://127.0.0.1:1/v1" }).send(MAIL),
     ).rejects.toBeInstanceOf(MailApiError);
+  });
+});
+
+/**
+ * How far a failed request had got, as the driver states it on its error.
+ *
+ * A service that declined the request did not take the message. One that
+ * failed after reading it, a gateway in front of it, a key another request is
+ * still being handled under, and a request that ran out of time may have.
+ */
+describe("a failed request", () => {
+  it.each([302, 400, 401, 422, 429])(
+    "says an answer of HTTP %i was not handed over",
+    async (status) => {
+      api.answerNextWith(status, "");
+
+      const failure = await driver()
+        .send(MAIL)
+        .catch((error: unknown) => error);
+
+      expect(failure).toMatchObject({ status, handover: "not-handed-over" });
+      expect(mayHaveBeenHandedOver(failure)).toBe(false);
+    },
+  );
+
+  it.each([409, 500, 502, 503, 504])(
+    "says an answer of HTTP %i may have been handed over",
+    async (status) => {
+      api.answerNextWith(status, "");
+
+      const failure = await driver()
+        .send(MAIL)
+        .catch((error: unknown) => error);
+
+      expect(failure).toMatchObject({
+        status,
+        handover: "may-have-been-handed-over",
+      });
+      expect(mayHaveBeenHandedOver(failure)).toBe(true);
+    },
+  );
+
+  it("says a request that ran out of time may have been handed over", async () => {
+    api.silenceNext();
+
+    const failure = await driver({ requestTimeoutMs: 200 })
+      .send(MAIL)
+      .catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      status: null,
+      handover: "may-have-been-handed-over",
+    });
+  });
+
+  it("says a connection refused was not handed over", async () => {
+    // A port that was free a moment ago, so nothing answers on it. Not port 1,
+    // which fetch refuses itself without a code that says why.
+    const port = await new Promise<number>((resolve) => {
+      const probe = createServer().listen(0, "127.0.0.1", () => {
+        const { port: free } = probe.address() as AddressInfo;
+        probe.close(() => {
+          resolve(free);
+        });
+      });
+    });
+
+    const failure = await driver({ url: `http://127.0.0.1:${String(port)}/v1` })
+      .send(MAIL)
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(MailApiError);
+    expect(failure).toMatchObject({
+      status: null,
+      handover: "not-handed-over",
+    });
+  });
+
+  it("says a service whose certificate is not trusted was not handed over", async () => {
+    // A real TLS server on loopback, so the code is the one the installed
+    // fetch gives a certificate it refuses, read before the request is sent.
+    const untrusted = createHttpsServer(selfSignedCertificate(), (_, res) => {
+      res.writeHead(200).end("{}");
+    });
+    const requests: unknown[] = [];
+    untrusted.on("request", (request) => requests.push(request));
+    await new Promise<void>((resolve) => {
+      untrusted.listen(0, "127.0.0.1", resolve);
+    });
+    const { port } = untrusted.address() as AddressInfo;
+
+    try {
+      const failure = await driver({
+        url: `https://127.0.0.1:${String(port)}/v1`,
+      })
+        .send(MAIL)
+        .catch((error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(MailApiError);
+      expect(failure).toMatchObject({
+        status: null,
+        handover: "not-handed-over",
+        cause: { cause: { code: "DEPTH_ZERO_SELF_SIGNED_CERT" } },
+      });
+      expect(requests).toHaveLength(0);
+    } finally {
+      untrusted.closeAllConnections();
+      await new Promise<void>((resolve) => {
+        untrusted.close(() => {
+          resolve();
+        });
+      });
+    }
+  });
+});
+
+/**
+ * The codes a connection never made raises that loopback cannot produce: no
+ * route to the host or its network, and a certificate refused for a reason
+ * other than being self-signed. Read off a fetch that fails the way undici
+ * does, with the system error as the cause of its `TypeError`.
+ */
+describe("a request that could not connect", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function failingFetch(code: string): () => Promise<never> {
+    return () =>
+      Promise.reject(
+        new TypeError("fetch failed", {
+          cause: Object.assign(new Error(code), { code }),
+        }),
+      );
+  }
+
+  it.each([
+    "EHOSTUNREACH",
+    "ENETUNREACH",
+    "CERT_HAS_EXPIRED",
+    "ERR_TLS_CERT_ALTNAME_INVALID",
+  ])("says a request that failed with %s was not handed over", async (code) => {
+    vi.stubGlobal("fetch", failingFetch(code));
+
+    const failure = await driver()
+      .send(MAIL)
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(MailApiError);
+    expect(failure).toMatchObject({
+      status: null,
+      handover: "not-handed-over",
+    });
+    expect(mayHaveBeenHandedOver(failure)).toBe(false);
+  });
+
+  it("says a connection reset may have been handed over", async () => {
+    // The control case: a reset can come after the service read the request.
+    vi.stubGlobal("fetch", failingFetch("ECONNRESET"));
+
+    const failure = await driver()
+      .send(MAIL)
+      .catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      status: null,
+      handover: "may-have-been-handed-over",
+    });
   });
 });

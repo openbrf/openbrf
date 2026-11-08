@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import { parseLocalDay } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
 
@@ -36,10 +37,9 @@ import { DomainError } from "../http/domain-error";
  * The handling reasons. `assignee-not-a-handler` is somebody who does not
  * handle the issue now, a person the list never offered or one who stopped
  * handling since it was read; a person who does not exist gets the same
- * answer, so the route names nobody. `target-date-invalid` is a date the
- * calendar does not have. `resident-not-found` is a residency named on an
- * issue a handler opens that is not held today - ended, not yet begun, or
- * none at all - answered alike for the reason an apartment is.
+ * answer, so the route names nobody. `resident-not-found` is a residency
+ * named on an issue a handler opens that is not held today - ended, not yet
+ * begun, or none at all - answered alike for the reason an apartment is.
  *
  * The work order reasons. `contractor-not-found` is a contractor not on the
  * list, or switched off, and `contractor-without-email` one the list holds no
@@ -63,6 +63,20 @@ import { DomainError } from "../http/domain-error";
  * `issue-closed` is also a handler writing a work order on an issue that is
  * done, which is reopened first.
  *
+ * The reasons of a contractor's link (ADR 0055). `work-order-links-off` is any
+ * act on a link while the switch the legal review holds is off (decision 25),
+ * answered as not found, so an instance with the switch off shows no sign of
+ * the feature. `work-order-not-found` is a work order that is not on the issue.
+ * `work-order-answered` is a link for a work order the contractor declined or
+ * marked done, which no link opens again, `work-order-text-erased` one whose
+ * text was redacted or purged, and `work-order-recipient-removed` one whose
+ * contractor was removed from the list and erased from it.
+ * `work-order-protected` is a link for an issue that a person with protected
+ * personal data reported, or whose apartment one lives in: refused until the
+ * owner answers ADR 0055's question 4, because the photographs may show the
+ * home. `work-order-photo-not-found` is a photograph chosen for a link that is
+ * not an image on the issue.
+ *
  * The conversation's reasons. `issue-closed` is a reporter writing on an issue
  * that is done and that a reply no longer reopens: it closed more than the
  * reopening window ago, or was merged into another (ADR 0054). It is also a
@@ -77,6 +91,23 @@ import { DomainError } from "../http/domain-error";
  * sits and never the value. `too-many-attachments` and `too-many-saved-replies`
  * are the bounds in `ISSUE_CONVERSATION_LIMITS`, and `saved-reply-not-found` a
  * saved reply that is not there.
+ *
+ * The ring-fence's reasons (decision 32). `ring-fence-in-use` is lifting the
+ * ring-fence of a type issues have been reported under, which would hand them
+ * to whoever the ring-fence keeps out. `ring-fenced-board-only` is opening a
+ * ring-fenced type to every handler, and `ring-fenced-public` offering one on
+ * the website's form, or ring-fencing a type the form offers: its reporter is
+ * reached by mail alone, and nothing about a ring-fenced issue is mailed.
+ * `ring-fenced-post` is reporting from a post under a ring-fenced type, which
+ * would tie the report to something the house reads.
+ *
+ * The damage case's reasons (decision 28). `damage-case-incomplete` is an
+ * insurer or a claim number that is nothing once the invisible characters are
+ * taken out, and `damage-date-invalid` a day of the damage that is not a day,
+ * or one that has not come yet in the association's calendar.
+ * `damage-case-changed` is a change made from a mark another handler has
+ * changed or taken off since, which would write over theirs unseen: the claim
+ * number and the insurer are what a claim is made on.
  *
  * The lifecycle's reasons (decisions 8 and 22). `merge-into-itself` is an
  * issue merged into itself; `merge-into-duplicate` one merged into an issue
@@ -94,6 +125,9 @@ import { DomainError } from "../http/domain-error";
  * itself, which never reaches the house. `follow-up-of-open-issue` is a new
  * report filed as the follow-up of one's own issue that is still open, which
  * takes a reply instead.
+ * `merge-ring-fenced` is an issue merged into one on the other side of the
+ * ring-fence, which would let a reporter follow, or be told of, a report the
+ * ring-fence keeps from them.
  *
  * The Swedish-fit reasons (decisions 29 to 31). `place-not-found` is a place
  * that is not on the list or is switched off, answered alike. `place-name-taken`
@@ -110,8 +144,8 @@ import { DomainError } from "../http/domain-error";
  * with where it starts and never the value. `finding-needs-target-date` and
  * `finding-target-date-too-late` hold a finding to a real target date and a lift to
  * its one month; `finding-protocol-not-found` is a protocol that is not one of
- * the issue's own handler files, and `date-invalid` a date the calendar does
- * not have.
+ * the issue's own handler files. `date-invalid` is a date the calendar does not
+ * have, of the target date, the inspection or the permission alike.
  */
 export type IssueReason =
   | "type-not-found"
@@ -130,7 +164,6 @@ export type IssueReason =
   | "default-status-required"
   | "too-many-statuses"
   | "assignee-not-a-handler"
-  | "target-date-invalid"
   | "resident-not-found"
   | "contractor-not-found"
   | "contractor-without-email"
@@ -141,6 +174,13 @@ export type IssueReason =
   | "work-order-preview-stale"
   | "work-order-duplicate"
   | "work-order-budget-spent"
+  | "work-order-links-off"
+  | "work-order-not-found"
+  | "work-order-answered"
+  | "work-order-text-erased"
+  | "work-order-recipient-removed"
+  | "work-order-protected"
+  | "work-order-photo-not-found"
   | "issue-closed"
   | "no-reporter"
   | "personal-identity-number"
@@ -153,6 +193,7 @@ export type IssueReason =
   | "merge-already-duplicate"
   | "merge-into-closed"
   | "merge-limit"
+  | "merge-ring-fenced"
   | "known-fault-board-only"
   | "follow-up-of-open-issue"
   | "place-not-found"
@@ -171,7 +212,14 @@ export type IssueReason =
   | "date-invalid"
   | "no-reporter-link"
   | "redaction-target-not-found"
-  | "legal-hold";
+  | "legal-hold"
+  | "ring-fence-in-use"
+  | "ring-fenced-board-only"
+  | "ring-fenced-public"
+  | "ring-fenced-post"
+  | "damage-case-incomplete"
+  | "damage-date-invalid"
+  | "damage-case-changed";
 
 /**
  * Where in a message, a note or a saved reply a refused value sits: a part and
@@ -207,6 +255,7 @@ export class IssueError extends DomainError {
       reason === "merge-already-duplicate" ||
       reason === "merge-into-closed" ||
       reason === "merge-limit" ||
+      reason === "merge-ring-fenced" ||
       reason === "known-fault-board-only" ||
       reason === "place-name-taken" ||
       reason === "place-in-use" ||
@@ -216,7 +265,12 @@ export class IssueError extends DomainError {
       reason === "entry-not-resident" ||
       reason === "work-order-preview-stale" ||
       reason === "work-order-duplicate" ||
-      reason === "legal-hold"
+      reason === "work-order-answered" ||
+      reason === "work-order-text-erased" ||
+      reason === "work-order-recipient-removed" ||
+      reason === "legal-hold" ||
+      reason === "ring-fence-in-use" ||
+      reason === "damage-case-changed"
         ? HttpStatus.CONFLICT
         : reason === "work-order-budget-spent"
           ? HttpStatus.TOO_MANY_REQUESTS
@@ -227,7 +281,6 @@ export class IssueError extends DomainError {
                 reason === "outcome-required" ||
                 reason === "status-detail-not-applicable" ||
                 reason === "assignee-not-a-handler" ||
-                reason === "target-date-invalid" ||
                 reason === "personal-identity-number" ||
                 reason === "merge-into-itself" ||
                 reason === "follow-up-of-open-issue" ||
@@ -241,7 +294,14 @@ export class IssueError extends DomainError {
                 reason === "contractor-incomplete" ||
                 reason === "work-order-empty" ||
                 reason === "work-order-ring-fenced" ||
-                reason === "work-order-identity-number"
+                reason === "work-order-identity-number" ||
+                reason === "ring-fenced-board-only" ||
+                reason === "ring-fenced-public" ||
+                reason === "ring-fenced-post" ||
+                reason === "damage-case-incomplete" ||
+                reason === "damage-date-invalid" ||
+                reason === "work-order-protected" ||
+                reason === "work-order-photo-not-found"
               ? HttpStatus.UNPROCESSABLE_ENTITY
               : HttpStatus.NOT_FOUND;
   }
@@ -265,4 +325,19 @@ export function placeWithApartment(): IssueError {
     "A common-area place is for an issue that is not about an apartment.",
     "place-with-apartment",
   );
+}
+
+/**
+ * A calendar day the calendar has, or the refusal (`date-invalid`): the one
+ * check every date an issue's request names goes through, the target date, the
+ * day of an inspection and the last day of a permission to enter.
+ */
+export function requireCalendarDay(
+  value: string,
+): NonNullable<ReturnType<typeof parseLocalDay>> {
+  const day = parseLocalDay(value);
+  if (day === null) {
+    throw new IssueError("That is not a date.", "date-invalid");
+  }
+  return day;
 }

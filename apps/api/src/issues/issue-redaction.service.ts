@@ -12,24 +12,36 @@ import {
 } from "../retention/legal-hold-lock";
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
 import { isPersonWithheld } from "../retention/withheld-persons";
-import { ISSUE_FREE_TEXT_STANDING } from "./issue-free-text";
-import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
+import { ISSUE_FREE_TEXT_STANDING_UNREDACTED } from "./issue-free-text";
+import {
+  requireHandledIssue,
+  requireHandledIssueForWrite,
+} from "./issue-handlers";
 import { lockIssueForHandling } from "./issue-lock";
 import {
   detachErasedReporter,
   WORK_ORDER_TEXT_STANDING,
 } from "./issue-retention";
 import { IssueError } from "./issue.error";
+import { revokeWorkOrderLinks } from "./work-order-link";
 
 /**
  * What a handler redacts: the issue's description or location, or one of its
  * messages, notes, photographs, handler's files or work orders by its
- * identifier.
+ * identifier, or a note or photograph a contractor sent through a work
+ * order's link (ADR 0055).
  */
 export type IssueRedaction =
   | { target: "description" | "location" }
   | {
-      target: "message" | "note" | "photo" | "attachment" | "workOrder";
+      target:
+        | "message"
+        | "note"
+        | "photo"
+        | "attachment"
+        | "workOrder"
+        | "workOrderNote"
+        | "workOrderFile";
       id: string;
     };
 
@@ -55,6 +67,9 @@ export interface IssueLegalHoldView {
  *
  * A work order's text is erased as its clock erases it, and the work order
  * stays with whom it went to and when, which is the record of the disclosure.
+ * Its contractor's link ends in the same transaction (ADR 0055): a link with no
+ * text has nothing to show. A note or a photograph the contractor sent through
+ * the link is redacted as a handler's note or file is.
  * One whose mail has not gone out yet is then not sent, and is recorded as not
  * sent (`WorkOrderMailerService`); one already on its way cannot be called
  * back. The redaction that leaves the issue with no text at all detaches a
@@ -118,7 +133,9 @@ export class IssueRedactionService {
     redaction: IssueRedaction,
   ): Promise<void> {
     const changed =
-      redaction.target === "photo" || redaction.target === "attachment"
+      redaction.target === "photo" ||
+      redaction.target === "attachment" ||
+      redaction.target === "workOrderFile"
         ? await this.removeFile(handlerPersonId, issueId, redaction)
         : await this.redactText(handlerPersonId, issueId, redaction);
     // Only an act that changed something, as only that one is in the audit
@@ -141,7 +158,7 @@ export class IssueRedactionService {
     const legalHoldAt = await this.prisma.$transaction(async (tx) => {
       changed = false;
       await lockIssueForHandling(tx, issueId);
-      const issue = await requireHandled(tx, issueId, handlerPersonId);
+      const issue = await requireHandledForWrite(tx, issueId, handlerPersonId);
       if ((issue.legalHoldAt !== null) === held) {
         return issue.legalHoldAt;
       }
@@ -274,6 +291,26 @@ export class IssueRedactionService {
             where: { id: redaction.id },
             data: { body: null, redactedAt: now },
           });
+          // Nothing is left for its link to show (control B5).
+          await revokeWorkOrderLinks(tx, { id: redaction.id });
+          break;
+        }
+        case "workOrderNote": {
+          rowId = redaction.id;
+          const row = await tx.workOrderNote.findFirst({
+            where: { id: redaction.id, workOrder: { issueId } },
+            select: { redactedAt: true },
+          });
+          if (row === null) {
+            throw targetNotFound();
+          }
+          if (row.redactedAt !== null) {
+            return false;
+          }
+          await tx.workOrderNote.update({
+            where: { id: redaction.id },
+            data: { body: "", redactedAt: now },
+          });
           break;
         }
         default:
@@ -312,8 +349,12 @@ export class IssueRedactionService {
    * redaction has just left with no text at all (ADR 0057: the clock, the
    * issue erasure job or a handler's redaction of the last of it clears the
    * reporter column). Only the reporter whose key was taken before the issue's
-   * lock, and only while no legal hold or restriction keeps them: one the
-   * issue no longer names, or names since, is left to the person purge.
+   * lock: one the issue no longer names, or names since, is left to the person
+   * purge. A legal hold or a restriction on that reporter needs no check here:
+   * both callers ran {@link requireRedactable} earlier in this transaction,
+   * under the reporter's hold key and the registry lock (`lockForRedaction`),
+   * which a legal hold and the granting of a restriction take as well, and it
+   * refused the redaction.
    */
   private async detachIfFinished(
     tx: Prisma.TransactionClient,
@@ -327,10 +368,10 @@ export class IssueRedactionService {
       where: {
         id: issueId,
         reporterPersonId: lockedReporterId,
-        NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
+        NOT: [ISSUE_FREE_TEXT_STANDING_UNREDACTED, WORK_ORDER_TEXT_STANDING],
       },
     });
-    if (finished === 0 || (await isPersonWithheld(tx, lockedReporterId))) {
+    if (finished === 0) {
       return false;
     }
     return detachErasedReporter(tx, issueId, lockedReporterId);
@@ -426,7 +467,7 @@ export class IssueRedactionService {
     issueId: string,
     handlerPersonId: string,
   ): Promise<void> {
-    refuseHeld(await requireHandled(tx, issueId, handlerPersonId));
+    refuseHeld(await requireHandledForWrite(tx, issueId, handlerPersonId));
     const reporter = await tx.issue.findUnique({
       where: { id: issueId },
       select: { reporterPersonId: true, reporterEmailIndex: true },
@@ -465,7 +506,12 @@ export class IssueRedactionService {
               where,
               select: { fileId: true },
             })
-          : null;
+          : redaction.target === "workOrderFile"
+            ? await client.workOrderFile.findFirst({
+                where: { id: redaction.id, workOrder: { issueId } },
+                select: { fileId: true },
+              })
+            : null;
     return row?.fileId ?? null;
   }
 
@@ -500,22 +546,35 @@ export class IssueRedactionService {
 
 /**
  * An issue this person handles, or the refusal that answers one that does not
- * exist: the rule every issue read and write goes by (`issuesHandledWhere`).
+ * exist (`requireHandledIssue`).
  */
 async function requireHandled(
   db: PrismaService | Prisma.TransactionClient,
   issueId: string,
   handlerPersonId: string,
 ): Promise<{ legalHoldAt: Date | null }> {
-  const scope = await issueReaderScope(db, handlerPersonId, new Date());
-  const issue = await db.issue.findFirst({
-    where: { id: issueId, ...issuesHandledWhere(scope) },
-    select: { legalHoldAt: true },
+  return requireHandledIssue(db, issueId, handlerPersonId, {
+    legalHoldAt: true,
   });
-  if (issue === null) {
-    throw new IssueError("No such issue.", "issue-not-found");
-  }
-  return issue;
+}
+
+/**
+ * The same issue for a write, read under its locks: the writer's
+ * `issues:handle` role is asked with their scope, at the instant read here once
+ * the locks are held (`requireHandledIssueForWrite`).
+ */
+async function requireHandledForWrite(
+  tx: Prisma.TransactionClient,
+  issueId: string,
+  handlerPersonId: string,
+): Promise<{ legalHoldAt: Date | null }> {
+  return requireHandledIssueForWrite(
+    tx,
+    issueId,
+    handlerPersonId,
+    { legalHoldAt: true },
+    new Date(),
+  );
 }
 
 function refuseHeld(issue: { legalHoldAt: Date | null }): void {

@@ -304,6 +304,7 @@ export type NewsDeliveryFailure =
   | "mail-not-configured"
   | "sms-not-configured"
   | "send-failed"
+  | "delivery-unconfirmed"
   | "recipient-gone"
   | "no-phone-number"
   | "mailing-interrupted"
@@ -313,6 +314,7 @@ export type NewsDeliveryFailure =
 export type MeetingNoticeDeliveryFailure =
   | "mail-not-configured"
   | "send-failed"
+  | "delivery-unconfirmed"
   | "recipient-gone"
   | "no-email-address"
   | "notice-sending-interrupted";
@@ -524,8 +526,16 @@ export type ReportAuditAction =
   | "ISSUE_LEGAL_HOLD_PLACED"
   | "ISSUE_LEGAL_HOLD_RELEASED"
   | "ISSUE_RETENTION_RECORDED"
+  | "ISSUE_DAMAGE_CASE_MARKED"
+  | "ISSUE_DAMAGE_CASE_REMOVED"
   | "ISSUE_RESIDENTS_LISTED"
   | "ISSUE_WORK_ORDER_SENT"
+  | "ISSUE_WORK_ORDER_LINK_ISSUED"
+  | "ISSUE_WORK_ORDER_LINK_REVOKED"
+  | "ISSUE_WORK_ORDER_ANSWERED"
+  | "ISSUE_WORK_ORDER_NOTE_ADDED"
+  | "ISSUE_WORK_ORDER_PHOTO_ADDED"
+  | "ISSUE_WORK_ORDER_PHOTOS_CHOSEN"
   | "CONTRACTOR_LIST_CHANGED"
   | "ISSUE_TYPE_RING_FENCE_CHANGED"
   | "MOVE_IN_RECORDED"
@@ -868,6 +878,10 @@ export interface DataSubjectReport {
       deliveryStatus: "PENDING" | "SENT" | "FAILED";
       /** A failure known not to have gone out: "not sent", not "not confirmed". */
       notSent: boolean;
+      /** Whether the contractor was given a link to the work order (ADR 0055). */
+      linkGiven: boolean;
+      /** How many of the issue's photographs the board chose for the link. */
+      photosShared: number;
     }[];
   }[];
   documents: {
@@ -1477,6 +1491,7 @@ export type ErasureRefusal =
   | "board-position-current"
   | "on-legal-hold"
   | "system-role-current"
+  | "plugin-access-current"
   | "currently-resident"
   | "person-not-found";
 

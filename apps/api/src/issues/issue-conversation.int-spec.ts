@@ -1062,6 +1062,11 @@ describe("a handler's write against erasure and standing ties", () => {
    * the purge and the writers of those ties take, before it reads anything, and
    * holds them until it commits.
    *
+   * A handler's file and the withdrawal of the reporter's link are not among
+   * them: neither transaction writes a row the purge detaches (the attachment
+   * and the link name nobody, and the file's uploader is written by the upload
+   * before it), and the audit entry that names the writer is never detached.
+   *
    * The write is held where it is in flight: it has taken its keys and waits on
    * the issue type's lock, which the test holds. A contender is then started
    * that takes one key, as the writer of that tie or the purge itself does. It

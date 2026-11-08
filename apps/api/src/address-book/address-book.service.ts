@@ -486,6 +486,7 @@ export class AddressBookService {
       // Selected for the board audience only.
       residencies?: { movedOutOn: Date | null }[];
       systemRoles?: { role: string }[];
+      pluginAccesses?: { id: string }[];
       legalHolds?: { id: string }[];
     };
   }): AddressBookRecord & {
@@ -926,11 +927,13 @@ function purgeFactsOf(person: {
   boardPositions: readonly { endedOn: Date | null }[];
   residencies?: { movedOutOn: Date | null }[];
   systemRoles?: unknown[];
+  pluginAccesses?: unknown[];
   legalHolds?: unknown[];
 }): PersonPurgeFacts | undefined {
   if (
     person.residencies === undefined ||
     person.systemRoles === undefined ||
+    person.pluginAccesses === undefined ||
     person.legalHolds === undefined
   ) {
     return undefined;
@@ -939,6 +942,7 @@ function purgeFactsOf(person: {
     residencies: person.residencies,
     boardPositions: person.boardPositions,
     systemRoles: person.systemRoles,
+    pluginAccesses: person.pluginAccesses,
     withheld:
       person.legalHolds.length > 0 || person.processingRestrictedAt !== null,
   };

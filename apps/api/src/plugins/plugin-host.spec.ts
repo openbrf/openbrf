@@ -463,6 +463,11 @@ function services(): {
         summary,
         residents,
         apartments: vi.fn(async () => []),
+        nonResidents: vi.fn(async () => []),
+        // The classes the install approved: here, all the manifest declares.
+        servedClasses: vi.fn(async (_pluginId: string, declared: unknown[]) => [
+          ...declared,
+        ]),
       },
       news: { published: content.published },
       calendar: {
@@ -829,6 +834,40 @@ describe("the late-bound host object", () => {
     await expect(
       host.mail.send({ to: "a@exempel.se", subject: "x", text: "y" }),
     ).rejects.toBeInstanceOf(PluginHostUnavailableError);
+  });
+
+  /**
+   * The classes are the loaded manifest's, as the install approved them, and
+   * never the plugin's to pass (ADR 0053).
+   */
+  it("reads the persons served in a class with the manifest's classes and the consented contact details", async () => {
+    const { bound } = services();
+    binding.bind(bound);
+    const addressBook = bound.addressBook as unknown as {
+      nonResidents: ReturnType<typeof vi.fn>;
+    };
+
+    await createPluginHost(binding, {
+      ...context,
+      manifest: { ...context.manifest, nonResidentCallers: ["board"] },
+      consented: ["addressBook:read", "addressBook:readContact"],
+    }).addressBook.nonResidents?.();
+    await createPluginHost(binding, context).addressBook.nonResidents?.();
+
+    // The address book resolves the approved classes itself, in the
+    // transaction that reads the persons.
+    expect(addressBook.nonResidents).toHaveBeenNthCalledWith(
+      1,
+      "occupancy",
+      ["board"],
+      { contact: true },
+    );
+    expect(addressBook.nonResidents).toHaveBeenNthCalledWith(
+      2,
+      "occupancy",
+      [],
+      { contact: false },
+    );
   });
 
   it("asks the address book for contact details only when they were consented to", async () => {
@@ -1563,7 +1602,7 @@ describe("the late-bound host object", () => {
     const caller = vi.fn(async () => ({ kind: "notListed" as const }));
     binding.bind({
       ...bound,
-      addressBook: { caller },
+      addressBook: { caller, servedClasses: vi.fn(async () => []) },
       callers: {
         forPlugin,
         resolve: () => ({ personId: "person-board" }),
@@ -1580,7 +1619,7 @@ describe("the late-bound host object", () => {
       id: "occupancy",
       ai: false,
     });
-    expect(caller).toHaveBeenCalledWith("occupancy", "person-board", {
+    expect(caller).toHaveBeenCalledWith("occupancy", "person-board", [], {
       contact: false,
     });
 
@@ -3239,6 +3278,8 @@ describe("the host object on a resident route", () => {
         residents: bound.residents,
         summary: bound.summary,
         apartments: vi.fn(async () => []),
+        nonResidents: vi.fn(async () => []),
+        servedClasses: vi.fn(async () => []),
         caller,
       },
       callers,
@@ -3301,6 +3342,7 @@ describe("the host object on a resident route", () => {
       ["addressBook.residents", () => plugin.addressBook.residents()],
       ["addressBook.apartments", () => plugin.addressBook.apartments()],
       ["addressBook.summary", () => plugin.addressBook.summary()],
+      ["addressBook.nonResidents", () => plugin.addressBook.nonResidents?.()],
     ] as const) {
       await expect(
         onRoute(read as () => Promise<unknown>),
@@ -3345,7 +3387,7 @@ describe("the host object on a resident route", () => {
       new PluginResidentRouteError(MANIFEST.id, "addressBook.caller"),
     );
     expect(caller).toHaveBeenCalledTimes(1);
-    expect(caller).toHaveBeenCalledWith(MANIFEST.id, "resident", {
+    expect(caller).toHaveBeenCalledWith(MANIFEST.id, "resident", [], {
       contact: false,
     });
   });

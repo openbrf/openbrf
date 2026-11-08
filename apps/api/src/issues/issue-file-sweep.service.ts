@@ -98,21 +98,32 @@ const ISSUE_FILE_CAPABILITY = "issues:handle";
  *
  * The type is what keeps the list whole. Its keys have to be every relation
  * the generated client gives `MediaFile` (`MediaFileInclude`), less the file's
- * own `apartment` and the count, so a relation added to the schema fails the
- * compiler here until it is listed. A relation left off would make every file
- * held only through it look unattached, and the sweep would delete it.
+ * own `apartment`, the count and `workOrderExposures`, so a relation added to
+ * the schema fails the compiler here until it is listed. A relation left off
+ * would make every file held only through it look unattached, and the sweep
+ * would delete it.
+ *
+ * `workOrderExposures` holds nothing: it counts the photographs a contractor's
+ * link has shown, for the access report, and lets go of the file when the file
+ * goes (`SetNull`). Asked to be empty, it would keep a file that lost every
+ * other row forever.
  */
 export const MEDIA_FILE_ON_NOTHING = {
   associationLogo: { none: {} },
   associationLogoDark: { none: {} },
   issuePhotos: { none: {} },
   issueAttachment: null,
+  workOrderPhotos: { none: {} },
+  workOrderFile: null,
   document: null,
   apartmentDocument: null,
   boardMailboxAttachments: { none: {} },
   postImage: null,
 } satisfies Record<
-  Exclude<keyof Prisma.MediaFileInclude, "_count" | "apartment">,
+  Exclude<
+    keyof Prisma.MediaFileInclude,
+    "_count" | "apartment" | "workOrderExposures"
+  >,
   unknown
 > &
   Prisma.MediaFileWhereInput;

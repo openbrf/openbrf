@@ -17,7 +17,7 @@ Open source, self-hostable platform for Swedish housing cooperatives (bostadsrä
 
 **Open BRF är ett system för bostadsrättsföreningar, byggt på öppen källkod.** Styrelsen och alla som bor i huset får ett gemensamt verktyg, och föreningen äger sin data: ingen bindningstid, ingen inlåsning, och att drifta systemet själv är gratis för alltid.
 
-- **För styrelsen:** medlemsförteckning och lägenhetsförteckning enligt bostadsrättslagen, adressbok, nyheter och utskick, dokumentarkiv, felanmälningar och ärenden, avgiftsavier och föreningens egen hemsida.
+- **För styrelsen:** medlemsförteckning och lägenhetsförteckning enligt bostadsrättslagen, adressbok, nyheter och utskick, dokumentarkiv, felanmälningar och ärenden, avgiftsavier och föreningens egen hemsida. Styrelsen bestämmer själv vilka ärendetyper och statusar som finns. Ärendena får en ansvarig, en prioritet och ett datum för senast klart, och styrelsen och en extern fastighetsförvaltare följer dem i köer för egna, utan ansvarig och försenade. Handläggaren skriver med den som anmält, som har ett konto eller får en privat länk, och för interna anteckningar vid sidan om. Arbetsorder mejlas till hantverkare, avgifter kan göras från ett ärende, och ärendetyper kan läggas hos enbart styrelsen.
 - **För de boende:** nyheter och dokument, bokning av tvättstuga, bastu och gästlägenhet, evenemang, felanmälan med bild, nyckelbeställning, ansökan om andrahandsuthyrning, motioner till stämman, lägenhetspärmen och chatt med grannarna. Alla i hushållet får ett eget konto.
 - **Svensk lag inbyggd:** GDPR med gallring, registerutdrag och maskering av skyddade personuppgifter, och medlemsförteckningen och lägenhetsförteckningen hålls isär så som lagen kräver.
 
@@ -31,6 +31,7 @@ Open BRF är ännu inte släppt. I december 2026 körs det på ett testkonto med
 - GDPR engine: configurable retention and purging, data subject access reports, legal hold, consents, masking of protected personal data
 - The rest of what a controller has to do: the record of processing activities (art. 30), the personal data breach register with the 72-hour clock (art. 33), processor agreements with each recipient classified first (art. 28), a privacy notice checked against what art. 13 requires, and the requests a person makes about their own data - erasure, objection, restriction and a portable export (art. 17, 18, 20, 21)
 - News and mailings, document archive, issue reporting with photos
+- Issue handling for the board and the external property manager: issue types and statuses the board defines, an assignee, a priority and a target date on each issue, queue views for one's own, unassigned and overdue issues, a conversation with the reporter - with an account or through a private link - beside internal notes, work orders mailed to contractors, charges made from an issue, and ring-fenced types only the board reads
 - The association's public website with a page CMS: public and member-only pages in one menu, a broker information page generated from association facts, contact and issue report forms, and news that can email the members on publish
 - Roles for board members, residents, and external property managers
 - Sign-in with passwords, magic links, passkeys (WebAuthn), and TOTP

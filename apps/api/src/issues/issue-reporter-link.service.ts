@@ -1,11 +1,12 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import { replyReopensIssue, type IssueStatusMeaning } from "@openbrf/shared";
+import type { IssueStatusMeaning } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { NORMALIZATION_VERSION } from "../crypto/personal-data";
+import { databaseNow } from "../database/database-clock";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import {
@@ -20,8 +21,14 @@ import {
   type ReporterIssueMessageView,
   toReporterView,
 } from "./issue-conversation.service";
-import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
-import { lockIssue, lockIssueForHandling } from "./issue-lock";
+import { requireHandledIssueForWrite } from "./issue-handlers";
+import {
+  holdIssueTypeRingFence,
+  lockIssue,
+  lockIssueForHandling,
+  MAIL_TRANSACTION_MS,
+  mailHandoffDeadline,
+} from "./issue-lock";
 import { IssueMailer } from "./issue-mailer.service";
 import {
   extendReporterLink,
@@ -33,15 +40,8 @@ import {
   mintReporterLinkToken,
   reporterLinkDigest,
 } from "./issue-reporter-link-token";
-import { lockedNow } from "../fees/fee-lock";
-import { reopenIssueByReply } from "./issue-reopening";
+import { reopenIssueByReply, replyModeOf } from "./issue-reopening";
 import { IssueError } from "./issue.error";
-
-/**
- * How long the transaction that sends a link mail may run: the mail driver's
- * connection, greeting and socket timeouts (10 s, 10 s, 20 s) with room over.
- */
-const MAIL_TRANSACTION_MS = 60_000;
 
 /** The queue a public report's link mail waits on. */
 export const REPORTER_LINK_QUEUE = "issue-reporter-link";
@@ -257,17 +257,19 @@ export class IssueReporterLinkService implements OnModuleInit {
    * there and its link not withdrawn is read again in the same place, under
    * the issue's lock.
    *
-   * A link whose mail is refused (a restriction, a close, no mail settings,
-   * or, on a retry, an address whose three a day are spent) or abandoned
-   * after its retries is deleted, so it no longer counts toward its address's
-   * three a day; one still being retried counts. A retry that refuses before
-   * it mints a token deletes the unmailed link the earlier attempt left too.
+   * A link whose mail is refused (a restriction, a close, a ring-fenced type,
+   * no mail settings, or, on a retry, an address whose three a day are spent)
+   * or abandoned after its retries is deleted, so it no longer counts toward
+   * its address's three a day; one still being retried counts. A retry that
+   * refuses before it mints a token deletes the unmailed link the earlier
+   * attempt left too.
    *
    * Answers whether a mail went. Nothing is mailed, and no link issued, for a
    * report that no longer has an address, that already has its link, that a
    * handler withdrew the link of, that closed long enough ago that a link
-   * would open nothing, or whose address is a person's who restricted
-   * processing (GDPR art. 18). Nor to an address that has had its three link
+   * would open nothing, whose type the board has since ring-fenced (decision
+   * 32), or whose address is a person's who restricted processing (GDPR art.
+   * 18). Nor to an address that has had its three link
    * mails today: that report is in the queue like any other, and the board
    * answers its reporter by other means if it must.
    */
@@ -284,12 +286,21 @@ export class IssueReporterLinkService implements OnModuleInit {
           reporterEmailCipher: true,
           reporterEmailIndex: true,
           closedAt: true,
-          type: { select: { name: true } },
+          type: { select: { name: true, ringFenced: true } },
           reporterLink: {
             select: { id: true, mailedAt: true, revokedAt: true },
           },
         },
       });
+      if (issue !== null && issue.type.ringFenced) {
+        // Nothing about a ring-fenced issue is mailed (decision 32). The
+        // website's form offers no ring-fenced type, so this is a report filed
+        // before the board ring-fenced its type: read under the issue's lock
+        // and not mailed. A link an earlier attempt issued and did not mail
+        // gives its slot back, as on a close.
+        await this.releaseEarlier(tx, issue.reporterLink);
+        return null;
+      }
       if (
         issue === null ||
         issue.reporterPersonId !== null ||
@@ -356,9 +367,10 @@ export class IssueReporterLinkService implements OnModuleInit {
       const tokenDigest = reporterLinkDigest(token);
       /*
        * Every instant that decides what the link opens is the database's:
-       * `LIVE` reads the database's clock, so the lifetime is set from it too. A new link
-       * is created already expired and then extended by the one statement
-       * `extendReporterLink` is, in this transaction, so no reader sees it so.
+       * `LIVE` reads the database's clock, so the lifetime is set from it too.
+       * A new link is created already expired and then extended by the one
+       * statement `extendReporterLink` is, in this transaction, so no reader
+       * sees it so.
        */
       const link =
         existing === null
@@ -400,17 +412,37 @@ export class IssueReporterLinkService implements OnModuleInit {
      * waits until the mail server has taken the message, and a check made in
      * the transaction above would leave a gap in which the mail still goes to
      * an address that was restricted meanwhile. The lock is held as long as
-     * the send can take, which the transaction's time limit allows for.
+     * the send can take: the send is ended at its deadline, before the
+     * transaction's time limit can end the transaction (`MAIL_HANDOFF_MS`).
      *
-     * The issue's lock too, after the registry's and for the same reason: a
-     * close, a withdrawal or the purge of the address between the two
+     * The type's ring-fence, held shared, and the issue's own lock too, after
+     * the registry's and for the same reason: a close, a withdrawal, the purge
+     * of the address or the board's ring-fence of the type between the two
      * transactions is seen below, and one that comes later waits for the
-     * stamp. Nothing takes the issue's lock and then the registry's, so the
-     * two cannot wait on each other the other way round.
+     * stamp. Not the type's lock, which a filing and every handler's write
+     * take: they must not wait for a mail server (`lockIssueTypeRingFence`).
+     * The ring-fence before the issue, and nothing takes the issue's lock and
+     * then the ring-fence or the registry, so the locks cannot wait on each
+     * other the other way round. The type is read first, unlocked: nothing
+     * moves an issue to another type.
+     *
+     * The send is ended before the transaction's limit can end the
+     * transaction and let these locks go with the mail still on its way
+     * (`MAIL_HANDOFF_MS`): one deadline, started before the transaction is
+     * asked for, so the waits for a connection and for every lock spend it
+     * too, and checked again once the address is decrypted.
      */
+    const deadline = mailHandoffDeadline();
     const mailed = await this.prisma.$transaction(
       async (tx) => {
         await lockLegalHoldRegistry(tx);
+        const typed = await tx.issue.findUnique({
+          where: { id: issueId },
+          select: { typeId: true },
+        });
+        if (typed !== null) {
+          await holdIssueTypeRingFence(tx, typed.typeId);
+        }
         await lockIssue(tx, issueId);
         if (await this.isRestricted(tx, issued)) {
           await this.releaseUnsent(tx, issued);
@@ -422,10 +454,12 @@ export class IssueReporterLinkService implements OnModuleInit {
             closedAt: true,
             reporterEmailIndex: true,
             reporterLink: { select: { revokedAt: true } },
+            type: { select: { ringFenced: true } },
           },
         });
         if (
           still === null ||
+          still.type.ringFenced ||
           still.closedAt !== null ||
           still.reporterEmailIndex !== issued.emailIndex ||
           still.reporterLink === null ||
@@ -445,6 +479,7 @@ export class IssueReporterLinkService implements OnModuleInit {
             // reporter without an account has no profile to name one.
             locale,
             template: issueReporterLinkMail,
+            signal: deadline,
             props: {
               typeName: issued.typeName,
               linkUrl: reporterLinkUrl(this.env.APP_URL, issued.token),
@@ -526,10 +561,10 @@ export class IssueReporterLinkService implements OnModuleInit {
 
   /**
    * Gives back the slot of a link an earlier attempt issued and did not mail,
-   * when a retry finds it will not mail it either: the issue closed, its
-   * address restricted or that address's budget spent. The caller holds the
-   * issue's lock, which the stamp is written under too, and has read the link
-   * as neither mailed nor withdrawn.
+   * when a retry finds it will not mail it either: the issue closed, its type
+   * ring-fenced, its address restricted or that address's budget spent. The
+   * caller holds the issue's lock, which the stamp is written under too, and
+   * has read the link as neither mailed nor withdrawn.
    */
   private async releaseEarlier(
     tx: Prisma.TransactionClient,
@@ -611,33 +646,23 @@ export class IssueReporterLinkService implements OnModuleInit {
           status: { select: { id: true, meaning: true } },
         },
       });
-      const reopens = issue.status.meaning === "DONE";
       // The database's clock, as the link's own liveness is judged on: an API
       // clock ahead of it must not refuse a reply to a link that still opens.
-      if (
-        reopens &&
-        (issue.mergedIntoIssueId !== null ||
-          !replyReopensIssue(issue.closedAt, await lockedNow(tx)))
-      ) {
+      const mode = replyModeOf(issue, await databaseNow(tx));
+      if (mode === "NEW_REPORT") {
         return { kind: "closed" as const };
       }
 
-      const [counts] = await tx.$queryRaw<
-        { lastHour: bigint; total: bigint }[]
-      >`
-        SELECT
-          count(*) FILTER (WHERE "createdAt" > now() - interval '1 hour') AS "lastHour",
-          count(*) AS "total"
-        FROM "issue_message"
-        WHERE "issueId" = ${link.issueId} AND "side" = 'REPORTER'`;
+      const counts = await reporterMessageCounts(tx, link.issueId);
       // The total first: it never drops, so it is the answer that stays true.
-      if (Number(counts?.total ?? 0) >= REPORTER_LINK_MESSAGES_PER_ISSUE) {
+      if (counts.total >= REPORTER_LINK_MESSAGES_PER_ISSUE) {
         return { kind: "full" as const };
       }
-      if (Number(counts?.lastHour ?? 0) >= REPORTER_LINK_MESSAGES_PER_HOUR) {
+      if (counts.lastHour >= REPORTER_LINK_MESSAGES_PER_HOUR) {
         return { kind: "limited" as const };
       }
 
+      const reopens = mode === "REOPENS";
       if (reopens) {
         // Within the reopening window the reply reopens the issue, as a
         // signed-in reporter's does (ADR 0054), and alerts its assignee.
@@ -695,19 +720,21 @@ export class IssueReporterLinkService implements OnModuleInit {
    */
   async revoke(handlerPersonId: string, issueId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // No erasure lock, unlike a note: a withdrawn link names nobody, and
+      // the lock orders a row the person purge detaches from its writer
+      // against that purge.
       await lockIssueForHandling(tx, issueId);
-      const scope = await issueReaderScope(tx, handlerPersonId, new Date());
-      const issue = await tx.issue.findFirst({
-        where: { id: issueId, ...issuesHandledWhere(scope) },
-        select: {
+      const issue = await requireHandledIssueForWrite(
+        tx,
+        issueId,
+        handlerPersonId,
+        {
           reporterLink: {
             select: { id: true, mailedAt: true, revokedAt: true },
           },
         },
-      });
-      if (issue === null) {
-        throw new IssueError("No such issue.", "issue-not-found");
-      }
+        new Date(),
+      );
       const link = issue.reporterLink;
       if (link === null || link.mailedAt === null) {
         throw new IssueError(
@@ -763,25 +790,24 @@ export class IssueReporterLinkService implements OnModuleInit {
         },
       },
     });
-    const reporterMessages = issue.messages.filter(
-      (message) => message.side === "REPORTER",
-    ).length;
-    const closed = issue.status.meaning === "DONE";
+    const counts = await reporterMessageCounts(tx, link.issueId);
+    // Judged on the database's clock, as the link is (see `databaseNow`).
+    const mode = replyModeOf(issue, await databaseNow(tx));
     // A closed issue takes a message only while one still reopens it.
-    // Judged on the database's clock, as the link is (see `lockedNow`).
-    const reopensOnMessage =
-      closed &&
-      issue.mergedIntoIssueId === null &&
-      replyReopensIssue(issue.closedAt, await lockedNow(tx));
+    const takesMessages = mode !== "NEW_REPORT";
     const messageLimitReached =
-      (!closed || reopensOnMessage) &&
-      reporterMessages >= REPORTER_LINK_MESSAGES_PER_ISSUE;
+      takesMessages && counts.total >= REPORTER_LINK_MESSAGES_PER_ISSUE;
+    // The notice promises a reopening, which the hourly limit would refuse.
+    const hourlyLimitReached =
+      counts.lastHour >= REPORTER_LINK_MESSAGES_PER_HOUR;
+    const reopensOnMessage = mode === "REOPENS";
     return {
       typeName: issue.type.name,
       meaning: issue.status.meaning,
       createdAt: issue.createdAt,
-      acceptsMessages: (!closed || reopensOnMessage) && !messageLimitReached,
-      reopensOnMessage: reopensOnMessage && !messageLimitReached,
+      acceptsMessages: takesMessages && !messageLimitReached,
+      reopensOnMessage:
+        reopensOnMessage && !messageLimitReached && !hourlyLimitReached,
       messageLimitReached,
       messages: issue.messages.map(toReporterView),
     };
@@ -843,6 +869,28 @@ export class IssueReporterLinkService implements OnModuleInit {
     }
     return false;
   }
+}
+
+/**
+ * The messages a link's reporter has written on an issue: all of them, and
+ * those of the last hour on the database's clock. Read by the reply, which
+ * refuses past either limit, and by the page, which promises nothing the reply
+ * would refuse.
+ */
+async function reporterMessageCounts(
+  tx: Prisma.TransactionClient,
+  issueId: string,
+): Promise<{ lastHour: number; total: number }> {
+  const [counts] = await tx.$queryRaw<{ lastHour: bigint; total: bigint }[]>`
+    SELECT
+      count(*) FILTER (WHERE "createdAt" > clock_timestamp() - interval '1 hour') AS "lastHour",
+      count(*) AS "total"
+    FROM "issue_message"
+    WHERE "issueId" = ${issueId} AND "side" = 'REPORTER'`;
+  return {
+    lastHour: Number(counts?.lastHour ?? 0),
+    total: Number(counts?.total ?? 0),
+  };
 }
 
 /** The address of the page a token opens: the instance's own, token in the path. */

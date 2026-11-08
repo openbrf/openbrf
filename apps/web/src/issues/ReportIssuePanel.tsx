@@ -1,5 +1,11 @@
 import { ISSUE_REPORT_LIMITS } from "@openbrf/shared";
-import { useRef, useState, type ChangeEvent, type ReactElement } from "react";
+import {
+  useId,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -48,6 +54,7 @@ const REPORT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "post-not-found": "issues.report.errors.postNotFound",
   "post-not-reportable": "issues.report.errors.postNotReportable",
   "post-already-reported": "issues.report.errors.postAlreadyReported",
+  "ring-fenced-post": "issues.report.errors.ringFencedPost",
   "issue-not-found": "issues.report.errors.followUpNotFound",
   "follow-up-of-open-issue": "issues.report.errors.followUpOfOpenIssue",
   "place-not-found": "issues.report.errors.placeNotFound",
@@ -169,6 +176,7 @@ export function ReportIssuePanel({
         : prefill.description,
   });
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const warningId = useId();
   const [photos, setPhotos] = useState<readonly File[]>(
     prefill?.photos.slice(0, MAX_PHOTOS) ?? [],
   );
@@ -176,6 +184,13 @@ export function ReportIssuePanel({
   const [fromPostId, setFromPostId] = useState<string | null>(
     prefill?.postId ?? null,
   );
+  /*
+   * The post the report is sent with. A follow-up is not linked to the post it
+   * was started from: the post may already name the report being followed up,
+   * and the server refuses a second report on a post that names one. The post
+   * keeps its link.
+   */
+  const linkedPostId = followUp === undefined ? fromPostId : null;
   /*
    * The photographs that did not make it, by name.
    *
@@ -239,7 +254,7 @@ export function ReportIssuePanel({
       setPhotos([]);
       setFromPostId(null);
       // The post the report was sent with: none for a follow-up.
-      onReported(followUp === undefined ? fromPostId : null);
+      onReported(linkedPostId);
     },
   );
 
@@ -250,7 +265,16 @@ export function ReportIssuePanel({
    * select shows none chosen. It is sent as none, as it is shown, rather than
    * sent unseen and refused with nothing on the form to correct.
    */
-  const typeId = offered(draft.typeId, types);
+  /*
+   * A report linked to a post is offered no ring-fenced type: the server
+   * refuses one (`ring-fenced-post`), because a post is read by the house and
+   * the link would tell it a report was made. A follow-up started from a post
+   * is not linked to it, so it keeps its ring-fenced type.
+   */
+  const typeChoices =
+    linkedPostId === null ? types : types.filter((type) => !type.ringFenced);
+  const typeId = offered(draft.typeId, typeChoices);
+  const chosen = typeChoices.find((type) => type.id === typeId);
   const apartmentId = offered(draft.apartmentId, apartments);
   // A place is for what is not in a home: choosing an apartment leaves it out,
   // so a report never carries both.
@@ -265,10 +289,7 @@ export function ReportIssuePanel({
       location: draft.location.trim() === "" ? null : draft.location.trim(),
       description: draft.description.trim(),
       photos,
-      // A follow-up is not linked to the post it was started from: the post
-      // may already name the report being followed up, and the server refuses
-      // a second report on a post that names one. The post keeps its link.
-      postId: followUp === undefined ? fromPostId : null,
+      postId: linkedPostId,
       followsIssueId: followUp?.id ?? null,
     });
   };
@@ -280,15 +301,21 @@ export function ReportIssuePanel({
     setPhotos((current) => [...current, ...chosen].slice(0, MAX_PHOTOS));
   };
 
-  const ready = typeId !== "" && draft.description.trim() !== "";
+  const ready = chosen !== undefined && draft.description.trim() !== "";
 
-  if (types.length === 0) {
+  if (typeChoices.length === 0) {
     return (
       <Panel
         title={t("issues.report.title")}
         description={t("issues.report.description")}
       >
-        <Notice tone="info">{t("issues.report.noTypes")}</Notice>
+        <Notice tone="info">
+          {t(
+            types.length === 0
+              ? "issues.report.noTypes"
+              : "issues.report.noTypesFromPost",
+          )}
+        </Notice>
       </Panel>
     );
   }
@@ -296,7 +323,12 @@ export function ReportIssuePanel({
   return (
     <Panel
       title={t("issues.report.title")}
-      description={t("issues.report.description")}
+      /* Dropped for a ring-fenced type: the line says the property manager
+         reads the report, and the warning below says never the property
+         manager. */
+      description={
+        chosen?.ringFenced === true ? undefined : t("issues.report.description")
+      }
       notice={
         submit.state.kind === "failed" ? (
           <Notice tone="danger" live>
@@ -374,7 +406,7 @@ export function ReportIssuePanel({
             className={FIELD}
           >
             <option value="">{t("issues.report.typePlaceholder")}</option>
-            {types.map((type) => (
+            {typeChoices.map((type) => (
               <option key={type.id} value={type.id}>
                 {type.name}
               </option>
@@ -441,11 +473,24 @@ export function ReportIssuePanel({
           <span className={HINT}>{t("issues.report.locationHint")}</span>
         </label>
 
+        {/* Standing, not live, and above the description: it is there before
+            anything is typed, because it is what the reporter needs to know
+            while they write. A ring-fenced type says who reads it instead,
+            and what not to write (decision 32). */}
+        <div id={warningId}>
+          <Notice tone="warn">
+            {chosen?.ringFenced === true
+              ? t("issues.ringFence.formWarning")
+              : t("issues.report.sensitiveWarning")}
+          </Notice>
+        </div>
+
         <label className={LABEL}>
           {t("issues.report.descriptionLabel")}
           <textarea
             ref={descriptionRef}
             name="issueDescription"
+            aria-describedby={warningId}
             rows={5}
             maxLength={ISSUE_REPORT_LIMITS.description}
             value={draft.description}
@@ -455,10 +500,6 @@ export function ReportIssuePanel({
             className={`${FIELD_MULTILINE}`}
           />
         </label>
-
-        {/* Standing, not live: it is there before anything is typed, because
-            it is what the reporter needs to know while they write. */}
-        <Notice tone="warn">{t("issues.report.sensitiveWarning")}</Notice>
 
         <section className="flex flex-col gap-2">
           <h3 className="text-label text-ink-muted uppercase">

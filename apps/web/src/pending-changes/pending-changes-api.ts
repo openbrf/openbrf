@@ -72,7 +72,7 @@ export interface PendingChangeTargetFact {
  * needs and is not shown what stands there; `facts` is empty for both.
  */
 export interface PendingChangeTarget {
-  kind: "news" | "page";
+  kind: "news" | "page" | "issue";
   id: string;
   state: "found" | "missing" | "withheld";
   facts: PendingChangeTargetFact[];

@@ -2,11 +2,11 @@ import { Injectable, Logger } from "@nestjs/common";
 import {
   ISSUE_CONVERSATION_LIMITS,
   type IssueSignature,
-  replyReopensIssue,
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import { databaseNow } from "../database/database-clock";
 import { PrismaService } from "../database/prisma.service";
 import { readAuthors } from "../feed/feed-author";
 import type { Prisma } from "../generated/prisma/client";
@@ -16,10 +16,10 @@ import { readImageHeader } from "../media/image-bytes";
 import { mediaUrl, MediaService } from "../media/media.service";
 import { lockErasureEligibility } from "../retention/erasure-lock";
 import {
-  handlesIssues,
   issueReaderScope,
   issuesHandledWhere,
   requireHandledIssue,
+  requireHandledIssueForWrite,
 } from "./issue-handlers";
 import { lockIssueForHandling, lockIssuesForHandling } from "./issue-lock";
 import {
@@ -28,7 +28,7 @@ import {
 } from "./issue-reporter-link";
 import { IssueMailer } from "./issue-mailer.service";
 import { IssueError, type IssueTextLocation } from "./issue.error";
-import { reopenIssueByReply } from "./issue-reopening";
+import { reopenIssueByReply, replyModeOf } from "./issue-reopening";
 import type { IssueHandlerView } from "./issue.service";
 
 /**
@@ -199,16 +199,17 @@ export class IssueConversationService {
     const message = await this.prisma.$transaction(async (tx) => {
       await lockIssueForHandling(tx, issueId);
       const issue = await this.requireReported(tx, issueId, reporterPersonId);
-      if (issue.status.meaning === "DONE") {
-        if (
-          issue.mergedIntoIssueId !== null ||
-          !replyReopensIssue(issue.closedAt, new Date())
-        ) {
-          throw new IssueError(
-            "This issue is closed and takes no more messages.",
-            "issue-closed",
-          );
-        }
+      // The database's clock, after the locks: the window is judged on the
+      // clock `closedAt` and a private link's reply are, whichever process
+      // answers (`replyModeOf`).
+      const mode = replyModeOf(issue, await databaseNow(tx));
+      if (mode === "NEW_REPORT") {
+        throw new IssueError(
+          "This issue is closed and takes no more messages.",
+          "issue-closed",
+        );
+      }
+      if (mode === "REOPENS") {
         await reopenIssueByReply(
           { audit: this.audit, mailer: this.mailer },
           tx,
@@ -268,7 +269,11 @@ export class IssueConversationService {
    * which locks to take, and again once they are held. The lock of the issue
    * merged into keeps any further merge out from then on, but one may land
    * between the two reads, on a type not locked; the transaction then starts
-   * over rather than take that type's lock out of order.
+   * over rather than take that type's lock out of order. Merges landing in the
+   * moment of each of `DUPLICATE_MESSAGE_ATTEMPTS` attempts leave a plain
+   * `Error` rather than an `IssueError`, deliberately: nothing the handler sent
+   * was refused, so the screen shows an unknown failure and the same message
+   * can simply be sent again.
    */
   async replyToDuplicates(
     handlerPersonId: string,
@@ -290,6 +295,9 @@ export class IssueConversationService {
       );
     }
     if (result === null) {
+      // Deliberately not an `IssueError`: it takes a merge landing in the
+      // moment of each of the attempts, which is not a refusal of anything the
+      // handler sent, and the answer is a failure they can simply repeat.
       throw new Error(
         `Issues kept merging into ${issueId} while a message to their reporters was written.`,
       );
@@ -322,13 +330,9 @@ export class IssueConversationService {
     // Read the clock after the lock waits: a board seat that ended during one
     // must not leave board-only duplicates in reach or the signature on BOARD.
     const now = new Date();
-    await this.requireHandled(tx, issueId, handlerPersonId, now);
-    // `requireHandled` answers the narrower scope for a person who handles
-    // nothing, and the signature below would sign for them as the board: a
-    // role withdrawn since the route's check must not write.
-    if (!(await handlesIssues(tx, handlerPersonId, "EVERY_HANDLER", now))) {
-      throw new IssueError("No such issue.", "issue-not-found");
-    }
+    // The role is asked with the scope: the signature below would sign for a
+    // person who handles nothing as the board.
+    await this.requireHandledForWrite(tx, issueId, handlerPersonId, now);
     const merged = await tx.issue.findMany({
       where: { mergedIntoIssueId: issueId },
       select: { id: true },
@@ -438,10 +442,20 @@ export class IssueConversationService {
     // Before the transaction: a queue is made on the backend's own connection.
     await this.mailer.ensureQueues();
     const message = await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
       await lockErasureEligibility(tx, handlerPersonId);
       await lockIssueForHandling(tx, issueId);
-      const issue = await this.requireHandled(tx, issueId, handlerPersonId);
+      // Read the clock after the lock waits, as the message to duplicates does:
+      // a board seat that ended during one must not leave the message signed
+      // as the board. One instant for access and for the signature.
+      const now = new Date();
+      // The role is asked with the scope: the signature below would sign for
+      // a person who handles nothing as the board.
+      const issue = await this.requireHandledForWrite(
+        tx,
+        issueId,
+        handlerPersonId,
+        now,
+      );
       // A person with no sign-in account cannot open the conversation either.
       const reporterAccount =
         issue.reporterPersonId === null
@@ -516,7 +530,8 @@ export class IssueConversationService {
     const note = await this.prisma.$transaction(async (tx) => {
       await lockErasureEligibility(tx, handlerPersonId);
       await lockIssueForHandling(tx, issueId);
-      await this.requireHandled(tx, issueId, handlerPersonId);
+      const now = new Date();
+      await this.requireHandledForWrite(tx, issueId, handlerPersonId, now);
       const written = await tx.issueNote.create({
         data: { issueId, authorPersonId: handlerPersonId, body },
         select: NOTE_SELECT,
@@ -618,8 +633,17 @@ export class IssueConversationService {
     }>;
     try {
       attachment = await this.prisma.$transaction(async (tx) => {
+        // No erasure lock, unlike a note: the attachment row names nobody, and
+        // the file's uploader was written by the upload above, on its own.
+        // The lock orders a row the person purge detaches from its writer
+        // against that purge, and this transaction writes none.
         await lockIssueForHandling(tx, input.issueId);
-        await this.requireHandled(tx, input.issueId, input.handlerPersonId);
+        await this.requireHandledForWrite(
+          tx,
+          input.issueId,
+          input.handlerPersonId,
+          new Date(),
+        );
         const count = await tx.issueAttachment.count({
           where: { issueId: input.issueId },
         });
@@ -711,11 +735,27 @@ export class IssueConversationService {
       db,
       issueId,
       readerPersonId,
-      {
-        id: true,
-        reporterPersonId: true,
-        _count: { select: { attachments: true } },
-      },
+      HANDLED_ISSUE_SELECT,
+      now,
+    );
+  }
+
+  /**
+   * The same issue for a write, once its locks are held: the writer's
+   * `issues:handle` role is asked at the same instant as their scope
+   * (`requireHandledIssueForWrite`), so a write cannot leave it out.
+   */
+  private async requireHandledForWrite(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+    writerPersonId: string,
+    now: Date,
+  ) {
+    return requireHandledIssueForWrite(
+      tx,
+      issueId,
+      writerPersonId,
+      HANDLED_ISSUE_SELECT,
       now,
     );
   }
@@ -883,6 +923,13 @@ const MESSAGE_SELECT = {
 type MessageRecord = Prisma.IssueMessageGetPayload<{
   select: typeof MESSAGE_SELECT;
 }>;
+
+/** What the conversation reads of an issue it lets a handler write to. */
+const HANDLED_ISSUE_SELECT = {
+  id: true,
+  reporterPersonId: true,
+  _count: { select: { attachments: true } },
+} as const satisfies Prisma.IssueSelect;
 
 const NOTE_SELECT = {
   id: true,

@@ -742,7 +742,7 @@ beforeAll(async () => {
         body: "Titta pa taket igen",
         sentByPersonId: board.personId,
         deliveryStatus: "FAILED",
-        deliveryFailure: "send-failed",
+        deliveryFailure: "delivery-unconfirmed",
         createdAt: new Date("2026-02-22T09:00:00.000Z"),
       },
       {
@@ -755,6 +755,35 @@ beforeAll(async () => {
         deliveryFailure: "mail-not-configured",
         createdAt: new Date("2026-02-24T09:00:00.000Z"),
       },
+    ],
+  });
+
+  // A work order the contractor was given a link to, which showed two
+  // photographs since removed from the issue: the count outlives the files.
+  const linked = await prisma.workOrder.create({
+    data: {
+      issueId: waitingIssue.id,
+      recipientName: `Platslagare ${suffix}`,
+      recipientEmailCipher: "not-a-cipher",
+      body: "Byt kakel",
+      sentByPersonId: board.personId,
+      deliveryStatus: "SENT",
+      createdAt: new Date("2026-02-26T09:00:00.000Z"),
+    },
+    select: { id: true },
+  });
+  await prisma.workOrderLink.create({
+    data: {
+      workOrderId: linked.id,
+      tokenDigest: `${"A".repeat(43)}${suffix}`.slice(-43),
+      expiresAt: new Date("2026-03-28T09:00:00.000Z"),
+      revokedAt: new Date("2026-02-27T09:00:00.000Z"),
+    },
+  });
+  await prisma.workOrderPhotoExposure.createMany({
+    data: [
+      { workOrderId: linked.id, fileId: null },
+      { workOrderId: linked.id, fileId: null },
     ],
   });
 
@@ -1825,13 +1854,18 @@ describe("what the report contains", () => {
         writtenAt: "2026-02-20T09:00:00.000Z",
         deliveryStatus: "SENT",
         notSent: false,
+        linkGiven: false,
+        photosShared: 0,
       },
       {
         recipientName: null,
         writtenAt: "2026-02-22T09:00:00.000Z",
         deliveryStatus: "FAILED",
-        // A server's refusal may have come after it took the message.
+        // The connection broke after the message was on its way, so the
+        // server may have taken it.
         notSent: false,
+        linkGiven: false,
+        photosShared: 0,
       },
       {
         recipientName: `Elektriker ${suffix}`,
@@ -1839,6 +1873,18 @@ describe("what the report contains", () => {
         deliveryStatus: "FAILED",
         // No mail server: nothing left this instance.
         notSent: true,
+        linkGiven: false,
+        photosShared: 0,
+      },
+      {
+        recipientName: `Platslagare ${suffix}`,
+        writtenAt: "2026-02-26T09:00:00.000Z",
+        deliveryStatus: "SENT",
+        notSent: false,
+        // A link that was withdrawn was still given, and what it showed was
+        // disclosed: both stay on the report.
+        linkGiven: true,
+        photosShared: 2,
       },
     ]);
     // Never answered, and the common area by its name.

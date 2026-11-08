@@ -133,7 +133,7 @@ describe("the ring-fence", () => {
     await shown();
 
     const box = screen.getByLabelText(
-      "Vatten: avskärmad, inget når en entreprenör",
+      "Vatten: avskärmad, bara styrelsen och inget lämnar den",
     );
     expect(box).toHaveProperty("checked", false);
     await session.click(box);
@@ -150,11 +150,11 @@ describe("the ring-fence", () => {
     });
   });
 
-  it("is lifted by clearing the box of a ring-fenced type", async () => {
+  it("is lifted by clearing the box of a ring-fenced type nobody has reported under", async () => {
     fetchIssueTypes
       .mockResolvedValueOnce({
         ok: true,
-        value: [type({ ringFenced: true })],
+        value: [type({ ringFenced: true, handledBy: "BOARD" })],
       })
       .mockResolvedValue({
         ok: true,
@@ -165,7 +165,7 @@ describe("the ring-fence", () => {
     await shown();
 
     const box = screen.getByLabelText(
-      "Vatten: avskärmad, inget når en entreprenör",
+      "Vatten: avskärmad, bara styrelsen och inget lämnar den",
     );
     expect(box).toHaveProperty("checked", true);
     await session.click(box);
@@ -182,9 +182,56 @@ describe("the ring-fence", () => {
     });
     await waitFor(() => {
       expect(
-        screen.getByLabelText("Vatten: avskärmad, inget når en entreprenör"),
+        screen.getByLabelText(
+          "Vatten: avskärmad, bara styrelsen och inget lämnar den",
+        ),
       ).toHaveProperty("checked", false);
     });
+  });
+  it("stays on a type issues were reported under, and says why", async () => {
+    fetchIssueTypes.mockResolvedValue({
+      ok: true,
+      value: [type({ ringFenced: true, handledBy: "BOARD", reportCount: 3 })],
+    });
+    render(<IssueTypesPanel />);
+    await shown();
+
+    expect(
+      screen.getByLabelText(
+        "Vatten: avskärmad, bara styrelsen och inget lämnar den",
+      ),
+    ).toHaveProperty("disabled", true);
+    expect(
+      screen.getByText(/Ärenden har anmälts under typen, så den förblir/),
+    ).toBeTruthy();
+    // The board's alone, and never on the website's form.
+    expect(screen.getByLabelText("Vatten: vem hanterar")).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(
+      screen.getByLabelText("Vatten: Webbplatsens formulär"),
+    ).toHaveProperty("disabled", true);
+  });
+
+  it("is not offered on a type the website's form offers", async () => {
+    fetchIssueTypes.mockResolvedValue({
+      ok: true,
+      value: [type({ reporters: ["PUBLIC", "RESIDENTS"] })],
+    });
+    render(<IssueTypesPanel />);
+    await shown();
+
+    expect(
+      screen.getByLabelText(
+        "Vatten: avskärmad, bara styrelsen och inget lämnar den",
+      ),
+    ).toHaveProperty("disabled", true);
+    expect(
+      screen.getByText(
+        "Ta bort webbplatsens formulär från typen innan den avskärmas.",
+      ),
+    ).toBeTruthy();
   });
 });
 

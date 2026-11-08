@@ -21,6 +21,7 @@ import {
 import { IssuePurgeService } from "./issue-purge.service";
 import { WORK_ORDER_BODY_RETENTION_DAYS } from "./issue-retention";
 import { WorkOrderMailerService } from "./work-order-mailer.service";
+import { WorkOrderService } from "./work-order.service";
 
 /**
  * Work orders over HTTP, against a real database (decision 23 of the issue
@@ -652,44 +653,63 @@ describe("a work order", () => {
     }
   });
 
-  it("records a failed mail send as a code on the work order, unconfirmed on the timeline", async () => {
-    const issueId = await filed(plain, "refused");
-    const sent = (
-      await previewAndSend(as(board), issueId, {
-        contractorId: plumber.id,
-        body: "Byt lampan i trapphuset.",
-      })
-    ).json<WorkOrderRow>();
+  it.each([
+    {
+      // The server refused the envelope: the driver says nothing was handed
+      // over, so the work order did not go out and the timeline says so.
+      handover: "not-handed-over",
+      failure: "send-failed",
+      delivery: "failed",
+    },
+    {
+      // The connection broke once the message was on its way: the server may
+      // hold it, so nobody can vouch for it either way.
+      handover: "may-have-been-handed-over",
+      failure: "delivery-unconfirmed",
+      delivery: "unconfirmed",
+    },
+  ] as const)(
+    "records a failed mail send the driver says was $handover as $failure, $delivery on the timeline",
+    async ({ handover, failure, delivery }) => {
+      const issueId = await filed(plain, `refused-${handover}`);
+      const sent = (
+        await previewAndSend(as(board), issueId, {
+          contractorId: plumber.id,
+          body: "Byt lampan i trapphuset.",
+        })
+      ).json<WorkOrderRow>();
 
-    const send = vi
-      .spyOn(mail, "send")
-      .mockRejectedValue(new Error(`550 no such user ${plumber.email ?? ""}`));
-    try {
-      expect(await mailer.send(sent.id)).toBe("failed");
-    } finally {
-      send.mockRestore();
-    }
-    expect(
-      await prisma.workOrder.findUniqueOrThrow({
-        where: { id: sent.id },
-        select: { deliveryStatus: true, deliveryFailure: true },
-      }),
-    ).toEqual({ deliveryStatus: "FAILED", deliveryFailure: "send-failed" });
+      // The driver's error as it reaches the sender: its words quote the
+      // address, and its handover is what decides the record.
+      const send = vi.spyOn(mail, "send").mockRejectedValue(
+        Object.assign(new Error(`550 no such user ${plumber.email ?? ""}`), {
+          handover,
+        }),
+      );
+      try {
+        expect(await mailer.send(sent.id)).toBe("failed");
+      } finally {
+        send.mockRestore();
+      }
+      expect(
+        await prisma.workOrder.findUniqueOrThrow({
+          where: { id: sent.id },
+          select: { deliveryStatus: true, deliveryFailure: true },
+        }),
+      ).toEqual({ deliveryStatus: "FAILED", deliveryFailure: failure });
 
-    // The timeline step says nobody can vouch for the mail, not that it was
-    // sent and not that it was not: the driver's error may have come after the
-    // server took the message.
-    const timeline = await inject({
-      method: "GET",
-      url: `/api/issue-queue/${issueId}/timeline`,
-      cookie: as(board),
-    });
-    expect(
-      timeline.json<{ kind: string; delivery?: string }[]>(),
-    ).toContainEqual(
-      expect.objectContaining({ kind: "workOrder", delivery: "unconfirmed" }),
-    );
-  });
+      const timeline = await inject({
+        method: "GET",
+        url: `/api/issue-queue/${issueId}/timeline`,
+        cookie: as(board),
+      });
+      expect(
+        timeline.json<{ kind: string; delivery?: string }[]>(),
+      ).toContainEqual(
+        expect.objectContaining({ kind: "workOrder", delivery }),
+      );
+    },
+  );
 
   it("is never offered, previewed or sent on a ring-fenced issue", async () => {
     const issueId = await filed(ringFenced, "ring");
@@ -1023,11 +1043,15 @@ describe("what is sent is what was previewed", () => {
     };
 
     // Told "write it again to send it", the handler is not refused for a
-    // sending that never happened. Two of the codes stand for the rest, which
+    // sending that never happened. Three of the codes stand for the rest, which
     // `work-order-delivery.spec.ts` keeps in step with the check. The property
     // manager sends these: each costs two of a handler's twenty sendings an
     // hour, which the board's own tests need.
-    for (const failure of ["sending-interrupted", "mail-not-configured"]) {
+    for (const failure of [
+      "sending-interrupted",
+      "mail-not-configured",
+      "send-failed",
+    ]) {
       const { again, count } = await attempt(`never-left-${failure}`, failure);
       expect(again.statusCode, failure).toBe(201);
       expect(count, failure).toBe(2);
@@ -1035,7 +1059,6 @@ describe("what is sent is what was previewed", () => {
 
     // A mail that may have gone out, or is still on its way, is a sending.
     for (const [failure, status] of [
-      ["send-failed", "FAILED"],
       ["delivery-unconfirmed", "FAILED"],
       ["", "PENDING"],
     ] as const) {
@@ -1227,9 +1250,12 @@ describe("the ring-fence", () => {
     });
     expect(listed.json<{ ringFenced: boolean }>().ringFenced).toBe(true);
 
-    expect((await fence(as(board), { ringFenced: false })).statusCode).toBe(
-      200,
-    );
+    // An issue has been reported under the type, so the ring-fence stays
+    // (ADR 0054, question 5): lifting it would hand that report to whoever it
+    // keeps out. `ring-fence.int-spec.ts` covers the rest of the rule.
+    const lifted = await fence(as(board), { ringFenced: false });
+    expect(lifted.statusCode).toBe(409);
+    expect(lifted.json<{ reason: string }>().reason).toBe("ring-fence-in-use");
     expect(
       await prisma.auditLogEntry.findMany({
         where: { targetKind: "issueType", targetId: type.id },
@@ -1241,11 +1267,6 @@ describe("the ring-fence", () => {
         action: "ISSUE_TYPE_RING_FENCE_CHANGED",
         actorPersonId: board.personId,
         context: { ringFenced: true },
-      },
-      {
-        action: "ISSUE_TYPE_RING_FENCE_CHANGED",
-        actorPersonId: board.personId,
-        context: { ringFenced: false },
       },
     ]);
   });
@@ -1548,7 +1569,7 @@ describe("the sending", () => {
     });
   });
 
-  it("sends nothing of a work order whose type the board ring-fenced after it was written, then or after the ring-fence is lifted", async () => {
+  it("sends nothing of a work order whose type the board ring-fenced after it was written, then or once the ring-fence is gone", async () => {
     const type = await createIssueTypeFixture(prisma, {
       id: `wo-type-fenced-late-${suffix}`,
       name: `Grannar sent ${suffix}`,
@@ -1571,9 +1592,13 @@ describe("the sending", () => {
       expect(await mailer.send(sent.id)).toBe("failed");
       expect(send).not.toHaveBeenCalled();
 
-      // Settled: a retry of the job, even once the ring-fence is lifted,
-      // sends nothing either.
-      expect((await setRingFence(type.id, false)).statusCode).toBe(200);
+      // Settled: a retry of the job sends nothing either, even with the
+      // ring-fence gone. The board cannot lift it from a type with issues, so
+      // the column is cleared directly: the settled record is what refuses.
+      await prisma.issueType.update({
+        where: { id: type.id },
+        data: { ringFenced: false },
+      });
       expect(await mailer.send(sent.id)).toBe("skipped");
       expect(send).not.toHaveBeenCalled();
     } finally {
@@ -1766,6 +1791,103 @@ describe("the sending", () => {
       await prisma.boardPosition.updateMany({
         where: { personId: board.personId },
         data: { endedOn: null },
+      });
+    }
+  });
+
+  /** The issue's work orders and its entries in the audit log. */
+  async function standing(issueId: string) {
+    return {
+      workOrders: await prisma.workOrder.count({ where: { issueId } }),
+      entries: await prisma.auditLogEntry.count({
+        where: { targetId: issueId },
+      }),
+    };
+  }
+
+  it("refuses a sender who holds no issues:handle role, past the route's guard", async () => {
+    const issueId = await filed(plain, "no-role");
+    const payload = {
+      contractorId: plumber.id,
+      body: `Byt silen. ${suffix}`,
+    };
+    const orders = app.get(WorkOrderService);
+    // The preview only reads. It is asked here so the token is valid, and
+    // only the role check is left to refuse the sending.
+    const { previewToken } = await orders.preview(
+      resident.personId,
+      issueId,
+      payload,
+    );
+    const before = await standing(issueId);
+
+    // The resident reads as the narrower scope, which admits every issue of an
+    // every-handler type: only the role check refuses.
+    await expect(
+      orders.send(resident.personId, issueId, { ...payload, previewToken }),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    expect(await standing(issueId)).toEqual(before);
+  });
+
+  it("asks the sender's role after the lock on its sender, so a role withdrawn while the sending waits refuses it", async () => {
+    const issueId = await filed(plain, "sender-lock-role");
+    const payload = {
+      contractorId: plumber.id,
+      body: `Byt ventilen. ${suffix}`,
+    };
+    await prisma.systemRole.create({
+      data: { personId: resident.personId, role: "PROPERTY_MANAGER" },
+    });
+    const key = `work-order-sender:${resident.personId}`;
+    const holding = gate();
+    const released = gate();
+    let held: Promise<void> | undefined;
+    let sending: ReturnType<typeof workOrder> | undefined;
+    try {
+      const preview = await workOrder(
+        as(resident),
+        issueId,
+        payload,
+        "preview",
+      );
+      expect(preview.statusCode).toBe(200);
+      const { previewToken } = preview.json<{ previewToken: string }>();
+      const before = await standing(issueId);
+
+      // The role is withdrawn under the sender's lock, and the withdrawal
+      // commits with the lock's release. The person then reads as the
+      // narrower scope, which still admits this issue: a sending that did not
+      // ask the role once its locks were held would write the work order.
+      held = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+          await tx.systemRole.deleteMany({
+            where: { personId: resident.personId },
+          });
+          holding.reach();
+          await released.opened;
+        },
+        { timeout: 30_000 },
+      );
+      // A rejected holder fails the test here, not after the gate times out.
+      await Promise.race([holding.reached, held]);
+      sending = workOrder(as(resident), issueId, { ...payload, previewToken });
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, false)) > 0n,
+      );
+      released.open();
+      await held;
+      const refused = await sending;
+      expect(refused.statusCode).toBe(404);
+      expect(refused.json<{ reason: string }>().reason).toBe("issue-not-found");
+      expect(await standing(issueId)).toEqual(before);
+    } finally {
+      released.open();
+      await held?.catch(() => undefined);
+      await sending?.catch(() => undefined);
+      // Later tests read the resident as a resident.
+      await prisma.systemRole.deleteMany({
+        where: { personId: resident.personId },
       });
     }
   });

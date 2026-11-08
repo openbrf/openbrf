@@ -24,6 +24,7 @@ import {
 } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
+import type { ActorContext } from "../audit/actor-context";
 import {
   capabilitiesFor,
   type Principal,
@@ -31,7 +32,7 @@ import {
 } from "../authorization/capabilities";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
-import { JOB_SCHEMA, JobQueueService } from "../jobs/job-queue.service";
+import { JobQueueService } from "../jobs/job-queue.service";
 import {
   MailNotConfiguredError,
   MailService,
@@ -42,6 +43,11 @@ import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
+import {
+  clearOfTheSlotTurn,
+  SLOT_MARGIN_MS,
+  TEST_TIMEOUT_MS,
+} from "../testing/notice-slot";
 import { IssueConversationService } from "./issue-conversation.service";
 import {
   ISSUE_NOTICE_QUEUE,
@@ -80,6 +86,11 @@ let mailer: IssueMailer;
 let mail: MailService;
 
 const suffix = process.hrtime.bigint().toString(36);
+
+/** A handler acting on the board's own screen, as the queue's routes do. */
+function web(entry: { personId: string }): ActorContext {
+  return { personId: entry.personId, channel: "WEB" };
+}
 
 function person(key: string, firstName: string, lastName: string) {
   return {
@@ -235,47 +246,6 @@ async function holdsSlot(job: IssueNoticeJob): Promise<boolean> {
   return row?.holds === true;
 }
 
-/**
- * How long one test may run, the integration config's `testTimeout`. A test
- * still running past it has failed.
- */
-const TEST_TIMEOUT_MS = 30_000;
-
-/**
- * Slack kept above {@link TEST_TIMEOUT_MS} when the slot is checked: the
- * test's own timer starts only after the hook returns, and the clock is read
- * before that, so a test needs more than its timeout of the slot left.
- */
-const SLOT_MARGIN_MS = 1_000;
-
-/**
- * Waits for the queue's throttle slot to turn when less than
- * {@link TEST_TIMEOUT_MS} plus {@link SLOT_MARGIN_MS} of it is left.
- *
- * The queue cuts the database's clock into slots of
- * {@link REPEATED_NOTICE_SECONDS}, each starting on the hour, and a repeated
- * assignment or reopening notice is dropped only within the slot of the first.
- * A test that queues a notice and then a repeat expects both in one slot, and
- * one started a second before the hour turns would see the repeat queued. A
- * test that starts with a timeout's worth of its slot left, and a margin, and
- * passes, cannot cross the turn.
- */
-async function clearOfTheSlotTurn(): Promise<void> {
-  const slotMs = REPEATED_NOTICE_SECONDS * 1000;
-  for (;;) {
-    // The clock the queue reads when it cuts the slot.
-    const [row] = await prisma.$queryRawUnsafe<{ nowMs: number }[]>(
-      `SELECT (date_part('epoch', ${JOB_SCHEMA}.job_now()) * 1000)::float8 AS "nowMs"`,
-    );
-    expect(row).toBeDefined();
-    const leftMs = slotMs - ((row?.nowMs ?? 0) % slotMs);
-    if (leftMs >= TEST_TIMEOUT_MS + SLOT_MARGIN_MS) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, leftMs + 100));
-  }
-}
-
 /** The notice last queued for one issue, which a test expects there to be. */
 async function lastNotice(issueId: string): Promise<IssueNoticeJob> {
   const job = (await notices(issueId)).at(-1);
@@ -398,6 +368,21 @@ async function overdueJobs(
     ISSUE_OVERDUE_QUEUE,
     issueId,
   );
+}
+
+/**
+ * The overdue job queued last for an issue, as its worker would receive it.
+ * A test that runs the job queued again runs this one, not a payload it builds,
+ * so a replacement with the wrong target date fails the test.
+ */
+async function lastOverdueJob(
+  issueId: string,
+  targetDate: string,
+): Promise<IssueOverdueJob> {
+  const job = (await overdueJobs(issueId)).at(-1);
+  if (!job) throw new Error("no overdue job is queued");
+  expect(job.data).toEqual({ issueId, targetDate });
+  return job.data;
 }
 
 function recipientsOf(jobs: IssueNoticeJob[]): Map<string, string> {
@@ -774,59 +759,85 @@ describe("a report is filed", () => {
   });
 
   it("mails nobody about an ordinary report from the website's form once the hour's bound is reached, and still mails an Akut one", async () => {
-    const since = new Date(Date.now() - HOUR_MS);
-    const already = await prisma.issue.count({
+    // The bound is one count for every report from the form, so the test owns
+    // the hour rather than counting what is in it: the form's reports already
+    // there, ordinary and Akut, are moved out for the length of the test and
+    // put back after it, and its own are moved out once it is done, so no
+    // later test finds the bound spent. Each worker has a database of its own
+    // and runs one file at a time, so no other suite files a report meanwhile.
+    const others = await prisma.issue.findMany({
       where: {
         reporterPersonId: null,
         enteredByHandler: false,
-        priority: { not: "URGENT" },
-        createdAt: { gte: since },
+        createdAt: { gte: new Date(Date.now() - HOUR_MS) },
       },
+      select: { id: true, createdAt: true, updatedAt: true },
     });
-    const flood = Math.max(0, NOTIFIED_PUBLIC_REPORTS_PER_HOUR - already);
-    for (let index = 0; index < flood; index += 1) {
-      await prisma.issue.create({
+    const filed: string[] = [];
+    try {
+      await outOfTheHour(others.map((other) => other.id));
+      for (
+        let index = 0;
+        index < NOTIFIED_PUBLIC_REPORTS_PER_HOUR;
+        index += 1
+      ) {
+        const flood = await prisma.issue.create({
+          data: {
+            id: `im-flood-${String(index)}-${suffix}`,
+            typeId: unassignedType.id,
+            statusId: unassignedType.statusIds.NEW,
+            description: "Skräp",
+          },
+          select: { id: true },
+        });
+        filed.push(flood.id);
+      }
+      // Through the service the website's form calls, which takes the report
+      // whether or not it may mail.
+      const { id: publicIssueId } = await whilePublicReportingIsOn(() =>
+        issues.reportPublicly({
+          typeId: publicType.id,
+          description: REPORTER_DESCRIPTION,
+        }),
+      );
+      filed.push(publicIssueId);
+
+      expect(
+        await prisma.issue.findUnique({
+          where: { id: publicIssueId },
+          select: { id: true },
+        }),
+      ).toEqual({ id: publicIssueId });
+      expect(await notices(publicIssueId)).toEqual([]);
+
+      // Ordinary reports do not spend Akut's budget (decision 12).
+      const urgentIssue = await prisma.issue.create({
         data: {
-          id: `im-flood-${String(index)}-${suffix}`,
-          typeId: unassignedType.id,
-          statusId: unassignedType.statusIds.NEW,
-          description: "Skräp",
+          typeId: urgentType.id,
+          statusId: urgentType.statusIds.NEW,
+          priority: "URGENT",
+          description: REPORTER_DESCRIPTION,
         },
-      });
-    }
-    // Through the service the website's form calls, which takes the report
-    // whether or not it may mail.
-    const { id: publicIssueId } = await whilePublicReportingIsOn(() =>
-      issues.reportPublicly({
-        typeId: publicType.id,
-        description: REPORTER_DESCRIPTION,
-      }),
-    );
-
-    expect(
-      await prisma.issue.findUnique({
-        where: { id: publicIssueId },
         select: { id: true },
-      }),
-    ).toEqual({ id: publicIssueId });
-    expect(await notices(publicIssueId)).toEqual([]);
-
-    // Ordinary reports do not spend Akut's budget (decision 12).
-    const urgentIssue = await prisma.issue.create({
-      data: {
-        typeId: urgentType.id,
-        statusId: urgentType.statusIds.NEW,
-        priority: "URGENT",
-        description: REPORTER_DESCRIPTION,
-      },
-      select: { id: true },
-    });
-    await prisma.$transaction((tx) =>
-      mailer.filedInTransaction(tx, urgentIssue.id),
-    );
-    const told = recipientsOf(await notices(urgentIssue.id));
-    expect(told.get(admin.personId)).toBe("urgent");
-    expect(told.get(manager.personId)).toBe("urgent");
+      });
+      filed.push(urgentIssue.id);
+      await prisma.$transaction((tx) =>
+        mailer.filedInTransaction(tx, urgentIssue.id),
+      );
+      const told = recipientsOf(await notices(urgentIssue.id));
+      expect(told.get(admin.personId)).toBe("urgent");
+      expect(told.get(manager.personId)).toBe("urgent");
+    } finally {
+      await outOfTheHour(filed);
+      for (const other of others) {
+        await prisma.issue.updateMany({
+          where: { id: other.id },
+          // Both columns in one write: the `@updatedAt` column takes the time
+          // of a write that leaves it out.
+          data: { createdAt: other.createdAt, updatedAt: other.updatedAt },
+        });
+      }
+    }
   });
 
   it("mails about only one of two reports a reporter files together with one slot of the hour's budget left, of two types", async () => {
@@ -978,10 +989,36 @@ describe("the slot-turn guard", () => {
       .mockResolvedValueOnce([{ nowMs: slotMs }]);
     const startedAt = Date.now();
 
-    await clearOfTheSlotTurn();
+    await clearOfTheSlotTurn(prisma);
 
     expect(query).toHaveBeenCalledTimes(2);
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(waitMs);
+  });
+
+  it("waits when a test's timeout and a millisecond of the slot is left", async () => {
+    // Inside the margin: it holds a test's timeout, but not the margin above
+    // it. Were the margin 0, this reading would start the test at once. The
+    // wait is a fake timer's, as a real one would pass the test's timeout.
+    const slotMs = REPEATED_NOTICE_SECONDS * 1000;
+    const query = vi
+      .spyOn(prisma, "$queryRawUnsafe")
+      .mockResolvedValueOnce([{ nowMs: slotMs - TEST_TIMEOUT_MS - 1 }])
+      .mockResolvedValueOnce([{ nowMs: slotMs }]);
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const guard = clearOfTheSlotTurn(prisma);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(TEST_TIMEOUT_MS + 101);
+      await guard;
+
+      expect(query).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("starts at once when a test's worth of the slot is left", async () => {
@@ -992,7 +1029,7 @@ describe("the slot-turn guard", () => {
         { nowMs: slotMs - TEST_TIMEOUT_MS - SLOT_MARGIN_MS },
       ]);
 
-    await clearOfTheSlotTurn();
+    await clearOfTheSlotTurn(prisma);
 
     expect(query).toHaveBeenCalledTimes(1);
   });
@@ -1002,17 +1039,17 @@ describe("a handler acts on an issue", () => {
   // Several tests here count on a notice and its repeat sharing a slot.
   beforeEach(async () => {
     await mailer.ensureQueues();
-    await clearOfTheSlotTurn();
+    await clearOfTheSlotTurn(prisma);
   }, TEST_TIMEOUT_MS + 15_000);
 
   it("mails a new assignee, and nobody who assigns an issue to themselves", async () => {
     const issueId = await report(unassignedType);
     const before = (await notices(issueId)).length;
 
-    await issues.assign(issueId, manager.personId, board.personId);
-    await issues.assign(issueId, board.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
+    await issues.assign(issueId, board.personId, web(board), "show");
     // Assigned again to the person who has it: no change, so no mail.
-    await issues.assign(issueId, board.personId, admin.personId);
+    await issues.assign(issueId, board.personId, web(admin), "show");
 
     expect((await notices(issueId)).slice(before)).toEqual([
       {
@@ -1028,9 +1065,9 @@ describe("a handler acts on an issue", () => {
     const issueId = await report(unassignedType);
     const before = (await notices(issueId)).length;
 
-    await issues.assign(issueId, manager.personId, board.personId);
-    await issues.assign(issueId, admin.personId, board.personId);
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
+    await issues.assign(issueId, admin.personId, web(board), "show");
+    await issues.assign(issueId, manager.personId, web(board), "show");
 
     expect(
       (await notices(issueId))
@@ -1067,13 +1104,15 @@ describe("a handler acts on an issue", () => {
       issues.setStatus(
         issueId,
         { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-        board.personId,
+        web(board),
+        "show",
       );
     const reopen = () =>
       issues.setStatus(
         issueId,
         { statusId: assignedType.statusIds.IN_PROGRESS },
-        board.personId,
+        web(board),
+        "show",
       );
     await close();
     const before = (await notices(issueId)).length;
@@ -1094,9 +1133,9 @@ describe("a handler acts on an issue", () => {
     const before = (await notices(issueId)).length;
     const sent = captureSends();
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const first = await lastNotice(issueId);
-    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
     // The worker takes the first notice while the issue is somebody else's,
     // sends nothing, and the queue completes it.
     await setNoticeState(first, "active");
@@ -1104,7 +1143,7 @@ describe("a handler acts on an issue", () => {
     await setNoticeState(first, "completed");
     expect(await holdsSlot(first)).toBe(false);
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
 
     const queued = (await notices(issueId)).slice(before);
     expect(queued.map((job) => [job.personId, job.event])).toEqual([
@@ -1121,15 +1160,15 @@ describe("a handler acts on an issue", () => {
     const before = (await notices(issueId)).length;
     const sent = captureSends();
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const first = await lastNotice(issueId);
     await setNoticeState(first, "active");
     expect(await mailer.deliver(first)).toBe(true);
     await setNoticeState(first, "completed");
     expect(sent).toHaveLength(1);
 
-    await issues.assign(issueId, admin.personId, board.personId);
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
+    await issues.assign(issueId, manager.personId, web(board), "show");
 
     // The manager was told in the same clock hour, and is not told again.
     expect(
@@ -1146,13 +1185,13 @@ describe("a handler acts on an issue", () => {
     const issueId = await report(unassignedType);
     const before = (await notices(issueId)).length;
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const first = await lastNotice(issueId);
     await setNoticeState(first, "failed");
     // What the dead letter carries: the job's own data.
     expect(await mailer.releaseNoticeSlot(first)).toBe(true);
-    await issues.assign(issueId, admin.personId, board.personId);
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
+    await issues.assign(issueId, manager.personId, web(board), "show");
 
     expect(
       (await notices(issueId))
@@ -1171,13 +1210,15 @@ describe("a handler acts on an issue", () => {
       issues.setStatus(
         issueId,
         { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-        board.personId,
+        web(board),
+        "show",
       );
     const reopen = () =>
       issues.setStatus(
         issueId,
         { statusId: assignedType.statusIds.IN_PROGRESS },
-        board.personId,
+        web(board),
+        "show",
       );
     const sent = captureSends();
     await close();
@@ -1207,15 +1248,15 @@ describe("a handler acts on an issue", () => {
     const before = (await notices(issueId)).length;
     const sent = captureSends();
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const first = await lastNotice(issueId);
-    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
     await setNoticeState(first, "active");
     // The worker looks while the issue is the admin's. Before it takes the
     // issue's lock, the issue is handed back, and that queues nothing: the
     // first notice holds the slot.
     vi.spyOn(mailer, "releaseOverdueClaim").mockImplementationOnce(async () => {
-      await issues.assign(issueId, manager.personId, board.personId);
+      await issues.assign(issueId, manager.personId, web(board), "show");
     });
     expect(await mailer.deliver(first)).toBe(true);
     await setNoticeState(first, "completed");
@@ -1224,8 +1265,8 @@ describe("a handler acts on an issue", () => {
 
     // Away and back once more in the same clock hour: the manager has been
     // told.
-    await issues.assign(issueId, admin.personId, board.personId);
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
+    await issues.assign(issueId, manager.personId, web(board), "show");
     expect(
       (await notices(issueId))
         .slice(before)
@@ -1242,13 +1283,15 @@ describe("a handler acts on an issue", () => {
       issues.setStatus(
         issueId,
         { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-        board.personId,
+        web(board),
+        "show",
       );
     const reopen = () =>
       issues.setStatus(
         issueId,
         { statusId: assignedType.statusIds.IN_PROGRESS },
-        board.personId,
+        web(board),
+        "show",
       );
     const sent = captureSends();
     await close();
@@ -1279,9 +1322,9 @@ describe("a handler acts on an issue", () => {
     const before = (await notices(issueId)).length;
     const sent = captureSends();
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const first = await lastNotice(issueId);
-    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
     await setNoticeState(first, "active");
     // While the first notice gives its slot back under the issue's lock, the
     // issue is handed back to the manager, and that waits for the lock.
@@ -1290,7 +1333,12 @@ describe("a handler acts on an issue", () => {
     let handedBack: Promise<unknown> | undefined;
     vi.spyOn(jobs, "releaseSingleton").mockImplementationOnce(
       async (...args) => {
-        handedBack = issues.assign(issueId, manager.personId, board.personId);
+        handedBack = issues.assign(
+          issueId,
+          manager.personId,
+          web(board),
+          "show",
+        );
         await untilWaitingForIssueLock(issueId);
         return release(...args);
       },
@@ -1312,7 +1360,7 @@ describe("a handler acts on an issue", () => {
 
   it("leaves a notice that finds the issue changed after every look to its retry, holding its slot", async () => {
     const issueId = await report(unassignedType);
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const first = await lastNotice(issueId);
     await setNoticeState(first, "active");
     // Every look finds the notice not owed, as though the issue were handed
@@ -1331,7 +1379,7 @@ describe("a handler acts on an issue", () => {
     const before = (await notices(issueId)).length;
     const sent = captureSends();
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const older = await lastNotice(issueId);
     // Its retries ran into the next hour's slot, where the issue is handed
     // away and back, and that queues a notice of its own.
@@ -1340,8 +1388,8 @@ describe("a handler acts on an issue", () => {
       ISSUE_NOTICE_QUEUE,
       older.jobId,
     );
-    await issues.assign(issueId, admin.personId, board.personId);
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
+    await issues.assign(issueId, manager.personId, web(board), "show");
     const newer = await lastNotice(issueId);
     expect(newer.jobId).not.toBe(older.jobId);
     expect(newer.personId).toBe(manager.personId);
@@ -1359,8 +1407,8 @@ describe("a handler acts on an issue", () => {
 
     // The newer notice was sent in the same clock hour as the repeat, and still
     // keeps it out.
-    await issues.assign(issueId, admin.personId, board.personId);
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
+    await issues.assign(issueId, manager.personId, web(board), "show");
     expect(
       (await notices(issueId))
         .slice(before)
@@ -1376,7 +1424,7 @@ describe("a handler acts on an issue", () => {
     const issueId = await report(unassignedType);
     const before = (await notices(issueId)).length;
 
-    await issues.assign(issueId, restricted.personId, board.personId);
+    await issues.assign(issueId, restricted.personId, web(board), "show");
 
     expect((await notices(issueId)).slice(before)).toEqual([]);
   });
@@ -1385,7 +1433,7 @@ describe("a handler acts on an issue", () => {
     const issueId = await report(assignedType);
     const before = (await notices(issueId)).length;
 
-    await issues.setPriority(issueId, "URGENT", board.personId);
+    await issues.setPriority(issueId, "URGENT", web(board), "show");
     const raised = recipientsOf((await notices(issueId)).slice(before));
     expect(raised.get(admin.personId)).toBe("urgent");
     expect(raised.get(manager.personId)).toBe("urgent");
@@ -1393,8 +1441,8 @@ describe("a handler acts on an issue", () => {
     expect(raised.has(restricted.personId)).toBe(false);
 
     const afterRaise = (await notices(issueId)).length;
-    await issues.setPriority(issueId, "URGENT", admin.personId);
-    await issues.setPriority(issueId, "LOW", admin.personId);
+    await issues.setPriority(issueId, "URGENT", web(admin), "show");
+    await issues.setPriority(issueId, "LOW", web(admin), "show");
     expect(await notices(issueId)).toHaveLength(afterRaise);
   });
 
@@ -1403,14 +1451,16 @@ describe("a handler acts on an issue", () => {
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-      board.personId,
+      web(board),
+      "show",
     );
     const before = (await notices(issueId)).length;
 
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.IN_PROGRESS },
-      board.personId,
+      web(board),
+      "show",
     );
     expect((await notices(issueId)).slice(before)).toEqual([
       {
@@ -1425,13 +1475,15 @@ describe("a handler acts on an issue", () => {
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-      manager.personId,
+      web(manager),
+      "show",
     );
     const reopenedOnce = (await notices(issueId)).length;
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.NEW },
-      manager.personId,
+      web(manager),
+      "show",
     );
     expect(await notices(issueId)).toHaveLength(reopenedOnce);
   });
@@ -1441,14 +1493,16 @@ describe("a handler acts on an issue", () => {
     await issues.setStatus(
       issueId,
       { statusId: unassignedType.statusIds.DONE, outcome: "NO_FAULT" },
-      board.personId,
+      web(board),
+      "show",
     );
     const before = (await notices(issueId)).length;
 
     await issues.setStatus(
       issueId,
       { statusId: unassignedType.statusIds.NEW },
-      board.personId,
+      web(board),
+      "show",
     );
 
     const told = recipientsOf((await notices(issueId)).slice(before));
@@ -1735,7 +1789,12 @@ describe("the overdue reminder", () => {
     const issueId = await report(assignedType);
     const target = addLocalDays(today(), 3);
 
-    await issues.setTargetDate(issueId, formatLocalDay(target), board.personId);
+    await issues.setTargetDate(
+      issueId,
+      formatLocalDay(target),
+      web(board),
+      "show",
+    );
 
     const [job] = await overdueJobs(issueId);
     expect(job?.data).toEqual({ issueId, targetDate: formatLocalDay(target) });
@@ -1748,7 +1807,7 @@ describe("the overdue reminder", () => {
   it("reminds the assignee once for each target date that has passed", async () => {
     const issueId = await report(assignedType);
     const yesterday = formatLocalDay(addLocalDays(today(), -1));
-    await issues.setTargetDate(issueId, yesterday, board.personId);
+    await issues.setTargetDate(issueId, yesterday, web(board), "show");
     const before = (await notices(issueId)).length;
 
     const job = { issueId, targetDate: yesterday };
@@ -1769,14 +1828,15 @@ describe("the overdue reminder", () => {
     await issues.setTargetDate(
       issueId,
       formatLocalDay(addLocalDays(today(), 5)),
-      board.personId,
+      web(board),
+      "show",
     );
-    await issues.setTargetDate(issueId, yesterday, board.personId);
+    await issues.setTargetDate(issueId, yesterday, web(board), "show");
     expect(await mailer.remindOverdue(job)).toBe(false);
 
     // A new date that passes is a new period, reminded of its own.
     const lastWeek = formatLocalDay(addLocalDays(today(), -7));
-    await issues.setTargetDate(issueId, lastWeek, board.personId);
+    await issues.setTargetDate(issueId, lastWeek, web(board), "show");
     expect(await mailer.remindOverdue({ issueId, targetDate: lastWeek })).toBe(
       true,
     );
@@ -1789,17 +1849,17 @@ describe("the overdue reminder", () => {
     const dateA = formatLocalDay(addLocalDays(today(), -2));
     const dateB = formatLocalDay(addLocalDays(today(), -1));
 
-    await issues.setTargetDate(issueId, dateA, board.personId);
+    await issues.setTargetDate(issueId, dateA, web(board), "show");
     expect(await mailer.remindOverdue({ issueId, targetDate: dateA })).toBe(
       true,
     );
-    await issues.setTargetDate(issueId, dateB, board.personId);
+    await issues.setTargetDate(issueId, dateB, web(board), "show");
     expect(await mailer.remindOverdue({ issueId, targetDate: dateB })).toBe(
       true,
     );
 
     // Back to A: its reminder went out before B's, and B's must not erase it.
-    await issues.setTargetDate(issueId, dateA, board.personId);
+    await issues.setTargetDate(issueId, dateA, web(board), "show");
     expect(await mailer.remindOverdue({ issueId, targetDate: dateA })).toBe(
       false,
     );
@@ -1816,18 +1876,20 @@ describe("the overdue reminder", () => {
   it("reminds the assignee given an issue after its job found nobody assigned", async () => {
     const issueId = await report(unassignedType);
     const yesterday = formatLocalDay(addLocalDays(today(), -1));
-    await issues.setTargetDate(issueId, yesterday, board.personId);
+    await issues.setTargetDate(issueId, yesterday, web(board), "show");
     const job = { issueId, targetDate: yesterday };
     // The morning's job runs with nobody to remind and claims nothing.
     expect(await mailer.remindOverdue(job)).toBe(false);
     const queuedBefore = (await overdueJobs(issueId)).length;
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
 
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
-    expect(await mailer.remindOverdue(job)).toBe(true);
+    expect(
+      await mailer.remindOverdue(await lastOverdueJob(issueId, yesterday)),
+    ).toBe(true);
     // Given on to somebody else: the date is claimed, so no second reminder.
-    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
     expect(await mailer.remindOverdue(job)).toBe(false);
   });
@@ -1837,20 +1899,22 @@ describe("the overdue reminder", () => {
     await issues.setTargetDate(
       future,
       formatLocalDay(addLocalDays(today(), 3)),
-      board.personId,
+      web(board),
+      "show",
     );
     const futureJobs = (await overdueJobs(future)).length;
-    await issues.assign(future, manager.personId, board.personId);
+    await issues.assign(future, manager.personId, web(board), "show");
     expect(await overdueJobs(future)).toHaveLength(futureJobs);
 
     const past = await report(unassignedType);
     await issues.setTargetDate(
       past,
       formatLocalDay(addLocalDays(today(), -1)),
-      board.personId,
+      web(board),
+      "show",
     );
     const pastJobs = (await overdueJobs(past)).length;
-    await issues.assign(past, board.personId, board.personId);
+    await issues.assign(past, board.personId, web(board), "show");
     expect(await overdueJobs(past)).toHaveLength(pastJobs);
   });
 
@@ -1860,7 +1924,7 @@ describe("the overdue reminder", () => {
     const tomorrow = formatLocalDay(addLocalDays(today(), 1));
 
     // Queued for yesterday, and the date moved since: stale.
-    await issues.setTargetDate(issueId, tomorrow, board.personId);
+    await issues.setTargetDate(issueId, tomorrow, web(board), "show");
     expect(await mailer.remindOverdue({ issueId, targetDate: yesterday })).toBe(
       false,
     );
@@ -1869,18 +1933,19 @@ describe("the overdue reminder", () => {
       false,
     );
 
-    await issues.setTargetDate(issueId, yesterday, board.personId);
+    await issues.setTargetDate(issueId, yesterday, web(board), "show");
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-      board.personId,
+      web(board),
+      "show",
     );
     expect(await mailer.remindOverdue({ issueId, targetDate: yesterday })).toBe(
       false,
     );
 
     const unassigned = await report(unassignedType);
-    await issues.setTargetDate(unassigned, yesterday, board.personId);
+    await issues.setTargetDate(unassigned, yesterday, web(board), "show");
     expect(
       await mailer.remindOverdue({
         issueId: unassigned,
@@ -1892,11 +1957,12 @@ describe("the overdue reminder", () => {
   it("is queued again when a closed issue past its date is reopened", async () => {
     const issueId = await report(assignedType);
     const yesterday = formatLocalDay(addLocalDays(today(), -1));
-    await issues.setTargetDate(issueId, yesterday, board.personId);
+    await issues.setTargetDate(issueId, yesterday, web(board), "show");
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-      board.personId,
+      web(board),
+      "show",
     );
     expect(await mailer.remindOverdue({ issueId, targetDate: yesterday })).toBe(
       false,
@@ -1906,13 +1972,14 @@ describe("the overdue reminder", () => {
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.IN_PROGRESS },
-      board.personId,
+      web(board),
+      "show",
     );
 
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
-    expect(await mailer.remindOverdue({ issueId, targetDate: yesterday })).toBe(
-      true,
-    );
+    expect(
+      await mailer.remindOverdue(await lastOverdueJob(issueId, yesterday)),
+    ).toBe(true);
   });
 });
 
@@ -1925,7 +1992,7 @@ describe("an overdue reminder that is never sent", () => {
   }> {
     const issueId = await report(assignedType);
     const targetDate = formatLocalDay(addLocalDays(today(), -1));
-    await issues.setTargetDate(issueId, targetDate, board.personId);
+    await issues.setTargetDate(issueId, targetDate, web(board), "show");
     expect(await mailer.remindOverdue({ issueId, targetDate })).toBe(true);
     const notice = (await notices(issueId)).at(-1);
     expect(notice?.event).toBe("overdue");
@@ -1952,7 +2019,7 @@ describe("an overdue reminder that is never sent", () => {
   it("gives the date back, and reminds the new assignee, when the issue was handed on", async () => {
     const { issueId, targetDate, notice } = await remindedIssue();
     const sent = captureSends();
-    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
     const queuedBefore = (await overdueJobs(issueId)).length;
 
     expect(await mailer.deliver(notice)).toBe(false);
@@ -1960,7 +2027,9 @@ describe("an overdue reminder that is never sent", () => {
     expect(sent).toEqual([]);
     expect(await claimed(issueId)).toEqual([]);
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
-    expect(await mailer.remindOverdue({ issueId, targetDate })).toBe(true);
+    expect(
+      await mailer.remindOverdue(await lastOverdueJob(issueId, targetDate)),
+    ).toBe(true);
     expect((await notices(issueId)).at(-1)).toEqual({
       issueId,
       personId: admin.personId,
@@ -1980,12 +2049,160 @@ describe("an overdue reminder that is never sent", () => {
     expect(await overdueJobs(issueId)).toHaveLength(queuedBefore);
   });
 
-  it("gives the date back when the delivery is given up on after its retries", async () => {
+  it("gives the date back, and reminds the same assignee at their new address, when it changed while it was decrypted", async () => {
+    const { issueId, targetDate, notice } = await remindedIssue();
+    const sent = captureSends();
+    const encryption = app.get(FieldEncryptionService);
+    const decrypt = encryption.decrypt.bind(encryption);
+    const before = await prisma.person.findUniqueOrThrow({
+      where: { id: manager.personId },
+      select: { emailCipher: true },
+    });
+    const moved = `moved-${randomUUID()}@example.test`;
+    const spy = vi
+      .spyOn(encryption, "decrypt")
+      .mockImplementationOnce(async (...args) => {
+        const plain = await decrypt(...args);
+        // The address is changed after the first read found it.
+        await prisma.person.update({
+          where: { id: manager.personId },
+          data: {
+            emailCipher: (await encryption.encrypt("person.email", moved))
+              .cipher,
+          },
+        });
+        return plain;
+      });
+    try {
+      const queuedBefore = (await overdueJobs(issueId)).length;
+
+      expect(await mailer.deliver(notice)).toBe(false);
+
+      expect(sent).toEqual([]);
+      expect(await claimed(issueId)).toEqual([]);
+      expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
+      expect(
+        await mailer.remindOverdue(await lastOverdueJob(issueId, targetDate)),
+      ).toBe(true);
+      const again = await lastNotice(issueId);
+      expect(again).toEqual({
+        issueId,
+        personId: manager.personId,
+        event: "overdue",
+        targetDate,
+      });
+      expect(await mailer.deliver(again)).toBe(true);
+      expect(sent.map((input) => input.to)).toEqual([moved]);
+      expect(await claimed(issueId)).toEqual([targetDate]);
+    } finally {
+      spy.mockRestore();
+      await prisma.person.update({
+        where: { id: manager.personId },
+        data: { emailCipher: before.emailCipher },
+      });
+    }
+  });
+
+  it("gives the date back, and claims nothing again while the same assignee is still restricted, when they were restricted while it was decrypted", async () => {
+    const { issueId, targetDate, notice } = await remindedIssue();
+    const sent = captureSends();
+    const encryption = app.get(FieldEncryptionService);
+    const decrypt = encryption.decrypt.bind(encryption);
+    const spy = vi
+      .spyOn(encryption, "decrypt")
+      .mockImplementationOnce(async (...args) => {
+        const plain = await decrypt(...args);
+        // The restriction is granted after the first read found them in reach.
+        await prisma.person.update({
+          where: { id: manager.personId },
+          data: { processingRestrictedAt: new Date() },
+        });
+        return plain;
+      });
+    try {
+      const queuedBefore = (await overdueJobs(issueId)).length;
+
+      expect(await mailer.deliver(notice)).toBe(false);
+
+      expect(sent).toEqual([]);
+      expect(await claimed(issueId)).toEqual([]);
+      expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
+      // Still restricted when the job queued again runs: nothing is claimed,
+      // and nothing more is queued.
+      const noticesBefore = (await notices(issueId)).length;
+      expect(
+        await mailer.remindOverdue(await lastOverdueJob(issueId, targetDate)),
+      ).toBe(false);
+      expect(await claimed(issueId)).toEqual([]);
+      expect(await notices(issueId)).toHaveLength(noticesBefore);
+      expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
+    } finally {
+      spy.mockRestore();
+      await prisma.person.update({
+        where: { id: manager.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
+  it("reminds the same assignee when the job queued again runs after their restriction is lifted", async () => {
+    const { issueId, targetDate, notice } = await remindedIssue();
+    const sent = captureSends();
+    const encryption = app.get(FieldEncryptionService);
+    const decrypt = encryption.decrypt.bind(encryption);
+    const spy = vi
+      .spyOn(encryption, "decrypt")
+      .mockImplementationOnce(async (...args) => {
+        const plain = await decrypt(...args);
+        await prisma.person.update({
+          where: { id: manager.personId },
+          data: { processingRestrictedAt: new Date() },
+        });
+        return plain;
+      });
+    try {
+      const queuedBefore = (await overdueJobs(issueId)).length;
+
+      expect(await mailer.deliver(notice)).toBe(false);
+
+      expect(sent).toEqual([]);
+      expect(await claimed(issueId)).toEqual([]);
+      expect(await overdueJobs(issueId)).toHaveLength(queuedBefore + 1);
+      // The restriction is lifted before the job queued again runs.
+      await prisma.person.update({
+        where: { id: manager.personId },
+        data: { processingRestrictedAt: null },
+      });
+      expect(
+        await mailer.remindOverdue(await lastOverdueJob(issueId, targetDate)),
+      ).toBe(true);
+      const again = await lastNotice(issueId);
+      expect(again).toEqual({
+        issueId,
+        personId: manager.personId,
+        event: "overdue",
+        targetDate,
+      });
+      expect(await mailer.deliver(again)).toBe(true);
+      expect(sent.map((input) => input.to)).toEqual([manager.email]);
+      expect(await claimed(issueId)).toEqual([targetDate]);
+    } finally {
+      spy.mockRestore();
+      await prisma.person.update({
+        where: { id: manager.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
+  it("gives the date back, without queueing it again for the same assignee, when the delivery is given up on after its retries", async () => {
     const { issueId, notice } = await remindedIssue();
+    const queuedBefore = (await overdueJobs(issueId)).length;
 
     await mailer.releaseOverdueClaim(notice);
 
     expect(await claimed(issueId)).toEqual([]);
+    expect(await overdueJobs(issueId)).toHaveLength(queuedBefore);
   });
 
   it("gives back no date that a reminder of another notice or another date claimed", async () => {
@@ -2170,8 +2387,8 @@ describe("delivering a mail", () => {
     const issueId = await report(urgentType);
     const sent = captureSends();
 
-    await issues.assign(issueId, manager.personId, admin.personId);
-    await issues.setPriority(issueId, "NORMAL", admin.personId);
+    await issues.assign(issueId, manager.personId, web(admin), "show");
+    await issues.setPriority(issueId, "NORMAL", web(admin), "show");
 
     // Queued when it was the board member's and Akut; neither holds now.
     expect(
@@ -2203,7 +2420,7 @@ describe("delivering a mail", () => {
     expect(await mailer.deliver(filed)).toBe(true);
     expect(sent).toHaveLength(1);
 
-    await issues.assign(issueId, manager.personId, board.personId);
+    await issues.assign(issueId, manager.personId, web(board), "show");
 
     // "Nobody is assigned" is untrue now, for the handler and the assignee.
     expect(await mailer.deliver(filed)).toBe(false);
@@ -2224,7 +2441,7 @@ describe("delivering a mail", () => {
     }
     expect(sent).toHaveLength(2);
 
-    await issues.assign(issueId, admin.personId, board.personId);
+    await issues.assign(issueId, admin.personId, web(board), "show");
 
     for (const event of ["reopened", "message"] as const) {
       // Queued for the manager, who is no longer the assignee.
@@ -2250,21 +2467,24 @@ describe("delivering a mail", () => {
         ).id,
         waitingReason: "CONTRACTOR",
       },
-      board.personId,
+      web(board),
+      "show",
     );
-    await issues.setPriority(issueId, "URGENT", board.personId);
+    await issues.setPriority(issueId, "URGENT", web(board), "show");
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.DONE, outcome: "FIXED" },
-      board.personId,
+      web(board),
+      "show",
     );
     await issues.setStatus(
       issueId,
       { statusId: assignedType.statusIds.IN_PROGRESS },
-      board.personId,
+      web(board),
+      "show",
     );
     const yesterday = formatLocalDay(addLocalDays(today(), -1));
-    await issues.setTargetDate(issueId, yesterday, board.personId);
+    await issues.setTargetDate(issueId, yesterday, web(board), "show");
     await mailer.remindOverdue({ issueId, targetDate: yesterday });
     const fromReporter = await storeMessage(
       issueId,

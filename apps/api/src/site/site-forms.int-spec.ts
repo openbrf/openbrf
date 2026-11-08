@@ -571,7 +571,13 @@ describe("sending the contact form", () => {
     }
 
     expect(refused?.statusCode).toBe(429);
-    expect(refused?.json()).toMatchObject({ reason: "too-many-requests" });
+    // A page, in the visitor's language, and never the API's JSON: the form
+    // posted here has no script to translate a code, so the browser shows
+    // whatever this answer is.
+    expect(refused?.headers["content-type"]).toBe("text/html; charset=utf-8");
+    expect(refused?.body).toContain("För många försök");
+    expect(refused?.body).not.toContain("too-many-requests");
+    expect(Number(refused?.headers["retry-after"])).toBeGreaterThan(0);
 
     // The budget is per address: another visitor is not turned away by it.
     const neighbour = await submit(`/${publicSlug}/kontakt`, fields, {
@@ -797,6 +803,22 @@ describe("the board's switch for public reports", () => {
       );
       expect(response.body.includes(NON_MEMBER_TYPE)).toBe(false);
     });
+  });
+
+  it("reads the responsibility guide only while the report form is on the page", async () => {
+    const guides = app.get(ResponsibilityGuideService);
+    const read = vi.spyOn(guides, "readForReporter");
+    try {
+      await withPublicReporting(false, async () => {
+        await inject({ method: "GET", url: `/${publicSlug}` });
+      });
+      expect(read).not.toHaveBeenCalled();
+
+      await inject({ method: "GET", url: `/${publicSlug}` });
+      expect(read).toHaveBeenCalledTimes(1);
+    } finally {
+      read.mockRestore();
+    }
   });
 
   it("answers the endpoint exactly as it answers a page that was never written", async () => {

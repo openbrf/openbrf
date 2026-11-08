@@ -16,7 +16,10 @@ import { Prisma } from "../generated/prisma/client";
 import { failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
 import { ContractorService } from "./contractor.service";
-import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
+import {
+  requireHandledIssue,
+  requireHandledIssueForWrite,
+} from "./issue-handlers";
 import { lockIssue, lockIssueType, lockWorkOrderSender } from "./issue-lock";
 import type { IssueHandlerView } from "./issue.service";
 import { IssueError } from "./issue.error";
@@ -24,6 +27,11 @@ import {
   WORK_ORDER_NEVER_LEFT,
   type WorkOrderDeliveryFailure,
 } from "./work-order-delivery";
+import {
+  type ChoosablePhotoView,
+  WorkOrderLinkService,
+  type WorkOrderLinkRecordView,
+} from "./work-order-link.service";
 import { WorkOrderMailerService } from "./work-order-mailer.service";
 import {
   previewKey,
@@ -114,6 +122,13 @@ export interface WorkOrderView {
   sentAt: string;
   deliveryStatus: "PENDING" | "SENT" | "FAILED";
   deliveryFailure: WorkOrderDeliveryFailure | null;
+  /**
+   * The contractor's link to it (ADR 0055): where the link stands, the
+   * contractor's answer, notes and photographs, and the photographs chosen
+   * for it. Listed whether or not the switch is on, so what came through a
+   * link stays on the record after the switch is turned off.
+   */
+  contractorLink: WorkOrderLinkRecordView;
 }
 
 export interface IssueWorkOrdersView {
@@ -130,6 +145,23 @@ export interface IssueWorkOrdersView {
    * handler reopens the issue to write one.
    */
   closed: boolean;
+  /**
+   * Whether contractors' links are switched on (decision 25). Off, the screen
+   * offers no link and no choice of photographs, only the withdrawal of a link
+   * issued while it was on, which the record still lists as `live`.
+   */
+  linksEnabled: boolean;
+  /**
+   * The issue's photographs a handler may choose for a link, while the switch
+   * is on; none while it is off.
+   */
+  choosablePhotos: ChoosablePhotoView[];
+  /**
+   * Whether somebody the issue concerns, its reporter or a person who lives
+   * in its apartment today, has protected personal data. No link is given
+   * then, and every link given before is ended (ADR 0055).
+   */
+  protectedHousehold: boolean;
   workOrders: WorkOrderView[];
 }
 
@@ -173,6 +205,7 @@ export class WorkOrderService {
     private readonly mail: MailService,
     private readonly mailer: WorkOrderMailerService,
     private readonly contractors: ContractorService,
+    private readonly links: WorkOrderLinkService,
   ) {
     this.previewKey = previewKey(env.BETTER_AUTH_SECRET);
   }
@@ -187,22 +220,42 @@ export class WorkOrderService {
     readerPersonId: string,
     issueId: string,
   ): Promise<IssueWorkOrdersView> {
-    const { issue, rows } = await this.prisma.$transaction(
-      async (tx) => {
-        const handled = await this.requireHandled(tx, issueId, readerPersonId);
-        const found = await tx.workOrder.findMany({
-          where: { issueId: handled.id },
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          select: WORK_ORDER_SELECT,
-        });
-        return { issue: handled, rows: found };
-      },
-      { isolationLevel: "RepeatableRead" },
-    );
+    const { issue, rows, linkViews, choosable } =
+      await this.prisma.$transaction(
+        async (tx) => {
+          const handled = await this.requireHandled(
+            tx,
+            issueId,
+            readerPersonId,
+          );
+          const found = await tx.workOrder.findMany({
+            where: { issueId: handled.id },
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            select: WORK_ORDER_SELECT,
+          });
+          return {
+            issue: handled,
+            rows: found,
+            linkViews: await this.links.recordViews(
+              tx,
+              handled.id,
+              found.map((row) => row.id),
+            ),
+            choosable:
+              this.links.enabled && !handled.type.ringFenced
+                ? await this.links.choosableOf(tx, handled.id)
+                : [],
+          };
+        },
+        { isolationLevel: "RepeatableRead" },
+      );
     return {
       ringFenced: issue.type.ringFenced,
       closed: issue.closed,
-      workOrders: await this.views(rows),
+      linksEnabled: this.links.enabled,
+      choosablePhotos: choosable,
+      protectedHousehold: linkViews.protectedHousehold,
+      workOrders: await this.views(rows, linkViews.views),
     };
   }
 
@@ -288,8 +341,12 @@ export class WorkOrderService {
       await lockWorkOrderSender(tx, readerPersonId);
       await this.contractors.lockForSending(tx, input.contractorId);
 
-      const prepared = await this.prepare(tx, issueId, readerPersonId, input);
+      // Read once the locks are held: the sender's role and scope, the
+      // preview's age and the repeat window are all judged at this instant.
       const now = new Date();
+      const prepared = await this.prepare(tx, issueId, readerPersonId, input, {
+        writtenAt: now,
+      });
       if (
         !previewMatches(
           this.previewKey,
@@ -390,8 +447,8 @@ export class WorkOrderService {
           {
             // An order known not to have left this instance is not an earlier
             // sending: its handler is told to write it again, and a refusal
-            // that says it was sent would be false. One that failed with
-            // `send-failed` or is unconfirmed may have gone out, and counts.
+            // that says it was sent would be false. One that is unconfirmed
+            // may have gone out, and counts.
             OR: [
               { deliveryStatus: { not: "FAILED" } },
               { deliveryFailure: null },
@@ -434,18 +491,22 @@ export class WorkOrderService {
    *
    * The text is folded as the identity-number scan folds it, and that is what
    * is both checked and stored, so what was checked is what is sent.
+   *
+   * A sending passes `write`, with the instant it read once its locks were
+   * held, and its issue is read as a write's (`requireHandled`).
    */
   private async prepare(
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
     input: WorkOrderInput,
+    write?: { writtenAt: Date },
   ): Promise<{
     contractorId: string;
     recipient: { name: string; email: string };
     body: string;
   }> {
-    const issue = await this.requireHandled(db, issueId, readerPersonId);
+    const issue = await this.requireHandled(db, issueId, readerPersonId, write);
     if (issue.type.ringFenced) {
       throw new IssueError(
         "Nothing about an issue of this type may reach a contractor.",
@@ -491,24 +552,34 @@ export class WorkOrderService {
   /**
    * An issue this person handles, or the refusal that answers an issue that
    * does not exist: one the reader may not open is not one they may learn of.
+   *
+   * A read (`list`, `preview`) asks `requireHandledIssue`. A sending passes
+   * `write` and asks `requireHandledIssueForWrite` at the instant it read once
+   * its locks were held, so a person whose `issues:handle` role was withdrawn
+   * while the sending waited is refused rather than read as the narrower
+   * scope, and no contractor is mailed for them.
    */
   private async requireHandled(
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
+    write?: { writtenAt: Date },
   ) {
-    const scope = await issueReaderScope(db, readerPersonId, new Date());
-    const issue = await db.issue.findFirst({
-      where: { id: issueId, ...issuesHandledWhere(scope) },
-      select: {
-        id: true,
-        type: { select: { ringFenced: true } },
-        status: { select: { meaning: true } },
-      },
-    });
-    if (issue === null) {
-      throw new IssueError("No such issue.", "issue-not-found");
-    }
+    const select = {
+      id: true,
+      type: { select: { ringFenced: true } },
+      status: { select: { meaning: true } },
+    } satisfies Prisma.IssueSelect;
+    const issue =
+      write === undefined
+        ? await requireHandledIssue(db, issueId, readerPersonId, select)
+        : await requireHandledIssueForWrite(
+            db,
+            issueId,
+            readerPersonId,
+            select,
+            write.writtenAt,
+          );
     return {
       id: issue.id,
       type: issue.type,
@@ -516,7 +587,10 @@ export class WorkOrderService {
     };
   }
 
-  private async views(rows: WorkOrderRow[]): Promise<WorkOrderView[]> {
+  private async views(
+    rows: WorkOrderRow[],
+    linkViews: ReadonlyMap<string, WorkOrderLinkRecordView> = new Map(),
+  ): Promise<WorkOrderView[]> {
     const viewOf = await readAuthors(
       this.prisma,
       rows.flatMap((row) =>
@@ -535,6 +609,7 @@ export class WorkOrderService {
         sentAt: row.createdAt.toISOString(),
         deliveryStatus: row.deliveryStatus,
         deliveryFailure: row.deliveryFailure as WorkOrderDeliveryFailure | null,
+        contractorLink: linkViews.get(row.id) ?? NO_LINK,
       })),
     );
   }
@@ -564,6 +639,16 @@ export class WorkOrderService {
     }
   }
 }
+
+/** The link part of a work order nobody has given a link to. */
+const NO_LINK: WorkOrderLinkRecordView = {
+  link: { state: "none", expiresAt: null },
+  answer: null,
+  answeredAt: null,
+  chosenFileIds: [],
+  notes: [],
+  files: [],
+};
 
 const WORK_ORDER_SELECT = {
   id: true,

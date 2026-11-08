@@ -31,6 +31,11 @@ import {
   erasureWaitingOn,
   type ErasureRequestStatus,
 } from "../retention/erasure-waiting-on";
+import {
+  HOUSEHOLD_PROTECTION_TRANSACTION,
+  lockHouseholdProtection,
+} from "../issues/issue-lock";
+import { revokeLinksOfProtectedHousehold } from "../issues/work-order-link";
 import { computePersonPurgeDate } from "../retention/purge-date";
 import type { RequestPurgeRefusal } from "../retention/purge-refusal";
 import { isErasureInForce } from "../retention/withheld-persons";
@@ -401,6 +406,7 @@ export class PersonService {
           residencies: person.residencies,
           boardPositions: person.boardPositions,
           systemRoles: person.systemRoles,
+          pluginAccesses: person.pluginAccesses,
           withheld:
             person.legalHolds.length > 0 ||
             person.processingRestrictedAt !== null,
@@ -846,10 +852,28 @@ export class PersonService {
         return { protectedPersonalData: person.protectedPersonalData };
       }
 
+      if (input.protectedPersonalData) {
+        // Before the person's row is written, not after: a move-in or an
+        // import chunk holds this lock and then writes this person, so holding
+        // the row while waiting for the lock would close a cycle (see
+        // lockHouseholdProtection).
+        await lockHouseholdProtection(tx);
+      }
+
       await tx.person.update({
         where: { id: input.personId },
         data: { protectedPersonalData: input.protectedPersonalData },
       });
+
+      if (input.protectedPersonalData) {
+        // A contractor's link to an issue this person is concerned in ends
+        // with the protection's start, not only while it lasts (ADR 0055).
+        await revokeLinksOfProtectedHousehold(tx, this.audit, {
+          personId: input.personId,
+          actorPersonId: input.actorPersonId,
+          channel: "WEB",
+        });
+      }
 
       await this.audit.record(
         {
@@ -867,7 +891,7 @@ export class PersonService {
       );
 
       return { protectedPersonalData: input.protectedPersonalData };
-    });
+    }, HOUSEHOLD_PROTECTION_TRANSACTION);
   }
 }
 

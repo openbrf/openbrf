@@ -25,7 +25,9 @@ import { IssueQueuePanel } from "./IssueQueuePanel";
  * The case worth having is the protected reporter. This queue is read by an
  * external property manager, and a person with protected personal data
  * (skyddade personuppgifter) is masked in it - the server sends no name, and
- * the panel must not invent one from the identifier it does get.
+ * the panel must not invent one from the identifier it does get. Nor does it
+ * name their apartment; whether the issue is about one at all is not their
+ * home and is said (`aboutApartment`).
  *
  * And the move between statuses (ADR 0054): the type's own statuses are
  * offered, a status that means waiting asks whom or what for, and closing asks
@@ -138,6 +140,7 @@ const TYPES: readonly IssueTypeView[] = [
     sortOrder: 0,
     handledBy: "EVERY_HANDLER",
     defaultPriority: "NORMAL",
+    ringFenced: false,
     reportCount: 1,
     statuses: [
       status({ id: "s-new", meaning: "NEW", label: "Ny" }),
@@ -197,6 +200,7 @@ function issue(
     locationRedactedAt: null,
     freeTextRemovedAt: null,
     typeHandledBy: "EVERY_HANDLER",
+    typeRingFenced: false,
     priority: "NORMAL",
     targetDate: null,
     overdue: false,
@@ -205,6 +209,7 @@ function issue(
     boardOnly: false,
     knownFault: null,
     legalHoldAt: null,
+    damageCase: null,
     costResponsibility: null,
     ...overrides,
   } as QueuedIssue;
@@ -302,6 +307,26 @@ describe("the issue number", () => {
   });
 });
 
+describe("a ring-fenced issue", () => {
+  it("says on the row that it is the board's alone and leaves nothing", () => {
+    render(
+      <IssueQueuePanel
+        issues={[
+          issue({ typeRingFenced: true, typeHandledBy: "BOARD" }),
+          issue({ id: "issue-2", number: 8 }),
+        ]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+
+    // Once, on the ring-fenced row and not on the ordinary one.
+    expect(
+      screen.getAllByText(/Avskärmat ärende\. Bara styrelsen/),
+    ).toHaveLength(1);
+  });
+});
+
 describe("who reported it", () => {
   it("names an ordinary reporter", () => {
     render(
@@ -330,7 +355,7 @@ describe("who reported it", () => {
     expect(screen.queryByText("Rune Boende")).toBeNull();
   });
 
-  it("says the apartment of a protected reporter is withheld, not missing", () => {
+  it("says the apartment of a protected reporter is withheld, not missing, where the issue is about one", () => {
     // The server sends no apartment for them: on their report it is where they
     // live. "Not about an apartment" would tell the handler something false.
     render(
@@ -339,6 +364,7 @@ describe("who reported it", () => {
           issue({
             reporter: { kind: "protected" },
             apartment: null,
+            aboutApartment: true,
           }),
         ]}
         types={TYPES}
@@ -350,6 +376,32 @@ describe("who reported it", () => {
       screen.getByText("Visas inte, skyddade personuppgifter."),
     ).toBeTruthy();
     expect(screen.queryByText(/gäller ingen lägenhet/i)).toBeNull();
+  });
+
+  it("says a protected reporter's common-area issue is about no apartment, as for any reporter", () => {
+    // `aboutApartment` is the one fact the server gives without naming the
+    // apartment, so it tells nothing about where the reporter lives; the row
+    // then says what the fit screen beside it says.
+    render(
+      <IssueQueuePanel
+        issues={[
+          issue({
+            reporter: { kind: "protected" },
+            apartment: null,
+            aboutApartment: false,
+            place: { id: "p1", name: "Cykelrummet" },
+          }),
+        ]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText(/gäller ingen lägenhet/i)).toBeTruthy();
+    expect(screen.getByText(/Cykelrummet/)).toBeTruthy();
+    expect(
+      screen.queryByText("Visas inte, skyddade personuppgifter."),
+    ).toBeNull();
   });
 
   it("says plainly when the register no longer holds the reporter", () => {
@@ -608,6 +660,35 @@ describe("moving a report to another status", () => {
 
     expect(screen.getByText(/statusarna kunde inte läsas/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Spara status" })).toBeNull();
+    // A standing notice unless the caller says the failure is news.
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("announces the statuses' failure when the caller says it is news", () => {
+    const { rerender } = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={null}
+        onChanged={() => undefined}
+        announceTypesFailure
+      />,
+    );
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /statusarna kunde inte läsas/i,
+    );
+
+    rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={null}
+        onChanged={() => undefined}
+        onRetryTypes={() => undefined}
+        announceTypesFailure
+      />,
+    );
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /statusarna kunde inte läsas/i,
+    );
   });
 
   it("offers a retry of the types when the caller can read them again", async () => {
@@ -973,6 +1054,38 @@ describe("handling an issue", () => {
     expect(await screen.findByText(/7 kap\. 12 a §/)).toBeTruthy();
   });
 
+  it("says a reply is not a notice to remedy once for an issue, not in the status form and the handling panel both", async () => {
+    const session = userEvent.setup();
+    show(issue({ costResponsibility: "TENANT_OWNER" }));
+    await openHandling(session);
+    // The panel's, which stands while the cost is the tenant-owner's.
+    expect(await screen.findAllByText(/7 kap\. 12 a §/)).toHaveLength(1);
+
+    await session.selectOptions(statusSelect(), "s-done");
+    await session.selectOptions(
+      screen.getByLabelText("Vatten anmält 2026-08-20: utfall"),
+      "TENANT_OWNER_RESPONSIBILITY",
+    );
+    // The form's draft takes it over; the panel does not repeat it. Counted in
+    // the form too, so the one sentence cannot be the panel's.
+    const statusForm = screen
+      .getByLabelText("Vatten anmält 2026-08-20: utfall")
+      .closest("form") as HTMLElement;
+    await waitFor(() => {
+      expect(screen.getAllByText(/7 kap\. 12 a §/)).toHaveLength(1);
+      expect(within(statusForm).getAllByText(/7 kap\. 12 a §/)).toHaveLength(1);
+    });
+
+    await session.selectOptions(
+      screen.getByLabelText("Vatten anmält 2026-08-20: utfall"),
+      "FIXED",
+    );
+    await waitFor(() => {
+      expect(screen.getAllByText(/7 kap\. 12 a §/)).toHaveLength(1);
+      expect(within(statusForm).queryByText(/7 kap\. 12 a §/)).toBeNull();
+    });
+  });
+
   it("keeps saying a reply is not a notice to remedy on an issue closed as the tenant-owner's", async () => {
     const session = userEvent.setup();
     show(
@@ -1085,7 +1198,7 @@ describe("handling an issue", () => {
     ).toBeNull();
   });
 
-  it("reads the charges and the guide again when the queue brings the issue again, so an open panel does not keep an earlier answer", async () => {
+  it("reads the charges and the guide again when the queue brings a newer revision of the issue, so an open panel does not keep an earlier answer", async () => {
     const session = userEvent.setup();
     const view = render(
       <IssueQueuePanel
@@ -1123,7 +1236,7 @@ describe("handling an issue", () => {
     );
     view.rerender(
       <IssueQueuePanel
-        issues={[issue()]}
+        issues={[issue({ updatedAt: "2026-08-21T09:00:00.000Z" })]}
         types={TYPES}
         onChanged={() => undefined}
         canManageCharges
@@ -1144,6 +1257,176 @@ describe("handling an issue", () => {
     expect(fetchHandlerResponsibilityGuide.mock.calls.length).toBeGreaterThan(
       guides,
     );
+  });
+
+  it("withholds the charges already read as soon as the queue shows the reporter as protected, though the issue's revision is the same", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    const charges = fetchIssueCharges.mock.calls.length;
+
+    // Protecting a person changes the person, not the issue's revision.
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue({ reporter: { kind: "protected" }, apartment: null })]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    expect(screen.queryByText("1250.00")).toBeNull();
+    expect(
+      screen.getByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeTruthy();
+    expect(fetchIssueCharges.mock.calls.length).toBe(charges);
+  });
+
+  it("reads the charges again when the reporter stops being protected, though the issue's revision is the same", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue({ reporter: { kind: "protected" }, apartment: null })]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(
+      await screen.findByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeTruthy();
+    const charges = fetchIssueCharges.mock.calls.length;
+
+    // The protection ends: the person changes, the issue's revision does not.
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    expect(
+      screen.queryByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeNull();
+    expect(fetchIssueCharges.mock.calls.length).toBe(charges + 1);
+  });
+
+  it("shows the charges as being read, not as withheld, when the reporter stops being protected after a read that was withheld", async () => {
+    // The first read was taken while the API withheld the charges.
+    fetchIssueCharges.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        issue: {
+          issueId: "issue-1",
+          typeName: "Vatten",
+          costResponsibility: "TENANT_OWNER",
+          party: null,
+        },
+        charges: null,
+      },
+    });
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(
+      await screen.findByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeTruthy();
+
+    // The queue shows the reporter as protected, then as not protected again.
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue({ reporter: { kind: "protected" }, apartment: null })]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    // Held, so that the window while the new read is pending is seen.
+    let release: () => void = () => undefined;
+    fetchIssueCharges.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = () => {
+          resolve({
+            ok: true,
+            value: {
+              issue: {
+                issueId: "issue-1",
+                typeName: "Vatten",
+                costResponsibility: "TENANT_OWNER",
+                party: null,
+              },
+              charges: [],
+            },
+          });
+        };
+      }),
+    );
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    expect(screen.getByText("Läser debiteringarna...")).toBeTruthy();
+    expect(
+      screen.queryByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeNull();
+    release();
+    expect(
+      await screen.findByText("Ingen debitering har gjorts från ärendet."),
+    ).toBeTruthy();
+  });
+
+  it("does not read the charges or the guide again when the queue brings the same revision in a new object", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    const charges = fetchIssueCharges.mock.calls.length;
+    const guides = fetchHandlerResponsibilityGuide.mock.calls.length;
+
+    // A filter or a search reads the queue again; the issue is as it was.
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    expect(screen.getByText("1250.00")).toBeTruthy();
+    expect(fetchIssueCharges.mock.calls.length).toBe(charges);
+    expect(fetchHandlerResponsibilityGuide.mock.calls.length).toBe(guides);
   });
 
   it("offers no access switch on a type the board handles alone", async () => {

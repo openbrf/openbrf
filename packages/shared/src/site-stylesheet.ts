@@ -884,6 +884,38 @@ export const SITE_LAYOUT_STYLESHEET = `.site {
 }
 
 /*
+ * The page a contractor's link opens: the answers side by side where they fit,
+ * and the photographs as a grid of thumbnails, each a link to the whole image.
+ */
+.site-work-order-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.site-work-order-actions form {
+  margin: 0;
+}
+
+.site-work-order-photos {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+}
+
+.site-work-order-photos img {
+  aspect-ratio: 1;
+  border-radius: var(--obrf-radius-control);
+  display: block;
+  height: auto;
+  object-fit: cover;
+  width: 100%;
+}
+
+/*
  * The decoy field on every public form: out of sight, and out of the
  * accessibility tree by the aria-hidden the markup carries. Clipped rather than
  * displayed as none, because a script reading the page has to find it - that is

@@ -5,7 +5,9 @@ Date: 2026-11-02
 ## Status
 
 Accepted. The questions under [Open questions](#open-questions) are left to the
-owner, except questions 4 and 6, which the owner has decided. The first of four
+owner, except questions 4 and 6, which the owner has decided, and question 5,
+which has an interim answer the owner may change (see
+[The interim answer to question 5](#the-interim-answer-to-question-5)). The first of four
 records for the issue module (ADRs 0054 to 0057). It replaces the rule the schema
 states over `IssueStatus`, "Deliberately three states", and the audience on
 `IssueType`. Changes the glossary rows _issue_ (ärende) and _issue type_
@@ -228,6 +230,17 @@ against the word itself, so what a search matches is the same with the index
 as without it. A word shorter than three characters has no trigram, and for it
 the database still reads every message and note.
 
+Each word asks whether an issue has a message or a note that holds it, and the
+database chooses how to answer. With many issues left to ask about it reads the
+trigram index once and looks each issue up in what it found; with few, it reads
+each issue's messages and notes through the index on the issue instead. With
+20,000 issues, 100,000 messages and 40,000 notes on PostgreSQL 18, the plans of
+the statements a search of the whole queue sends showed the first for every
+list and count that had issues to ask about (a one-word list in 111 ms, a
+six-word one in 286 ms), and the second only where the other conditions had left
+no issue. A test holds the statements to a shape the indexes can answer
+(`issue-board-views.int-spec.ts`).
+
 The views and the search are the board's screen alone. No action reads a view or
 searches the queue, because a new read on `mcp` or `ai` needs a decision of its
 own (ADR 0040).
@@ -437,6 +450,54 @@ handling change had taken.
   the apartment first, then who lives there today, with protected residents
   masked and no search. The address book stays closed to the property manager.
 
+### The interim answer to question 5
+
+Taken on 2026-11-04 by the change that built the ring-fence, as a default the
+plan allows ("the CTO may change a default and must say so"); the owner may
+change it.
+
+- **A setting any type may carry**, `IssueType.ringFenced`, rather than the
+  seeded type alone. A board that calls its complaints about neighbours
+  something else, or keeps two such types, holds them to the same rules. The
+  Swedish set a new instance starts with has Störningar ring-fenced, offered to
+  residents and handled by the board only. An instance seeded before it has no
+  Störningar type, and the board adds one and ring-fences it.
+- **Set by the board**, under `issues:configure` - a board member with a seat
+  or an administrator, never the property manager - through a request of its
+  own, audited as `ISSUE_TYPE_RING_FENCE_CHANGED`.
+- **Ring-fencing hands the type to the board.** `handledBy` becomes `BOARD`, and
+  whoever that shuts out is unassigned as when the board keeps any type to
+  itself. A CHECK holds a ring-fenced type to `BOARD`, so the property manager
+  is kept out by the board-only rule every read and write already asks, and no
+  second rule had to be threaded through them.
+- **Never on the website's form.** A type the form offers is not ring-fenced
+  until the board takes the form off it, and a ring-fenced type cannot be put on
+  the form, held by a second CHECK. The form's reporter is answered by mail
+  alone, and nothing about a ring-fenced issue is mailed.
+- **Never lifted once anything was reported under the type.** Lifting would hand
+  the earlier reports to the property manager, the AI package and connected
+  apps, and put them back on the board's own clock, which the plan says the
+  board may not set for them. A type ring-fenced by mistake is switched off and
+  replaced.
+- **Held for what is filed after it, on a type that already has issues.** The
+  switch may be set on a type that has issues, and it takes hold of their reads,
+  mails and clock from then on. A post an earlier issue was filed from keeps its
+  link, though, so the feed still answers that post as already reported, and the
+  house can see that a report was made. Only a report made after the ring-fence
+  is kept off the post (`ring-fenced-post`). The owner may ask for earlier links
+  to be hidden as well.
+- **A legal hold stands over the ring-fenced clock.** The year after closing
+  applies to a ring-fenced case that no legal hold stands on, and whose reporter
+  has neither a legal hold nor a restriction on them. A damage case places a
+  hold, and a handler may place one, so such a case keeps its text until the
+  hold is released ([ADR 0057](0057-purging-issues-in-two-layers.md#the-clock)).
+
+What else the ring-fence does is in the glossary's row _ring-fenced issue type_
+(avskärmad ärendetyp): no mail about one to anybody, no report under it from a
+post, nothing on `mcp` or `ai` ([ADR 0056](0056-issue-handling-on-mcp-and-ai.md)),
+no work order ([ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md)),
+and its own clock ([ADR 0057](0057-purging-issues-in-two-layers.md)).
+
 ## Consequences
 
 - `IssueStatus` and `IssueAudience` give way to status rows with a meaning, and
@@ -455,4 +516,4 @@ handling change had taken.
   ships with PostgreSQL's contrib modules, in the image the bundled database
   runs and on the common managed servers, and it is a trusted extension, so the
   schema owner creates it without being a superuser
-  ([docs/deployment.md](../deployment.md)).
+  ([docs/deployment.md](../deployment.md#the-searchs-extension)).

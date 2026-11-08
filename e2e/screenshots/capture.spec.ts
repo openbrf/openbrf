@@ -283,14 +283,18 @@ function matching(where: Page | Locator, target: Target): Locator {
  * fails rather than photographing whichever one came first.
  */
 function locate(page: Page, target: Target): Locator {
-  const found = matching(
+  const scope =
     target.inDialog === true
       ? page.getByRole("dialog")
       : target.inNavigation === true
         ? page.getByRole("navigation")
         : target.within === undefined
           ? page
-          : panelOf(page, target.within),
+          : panelOf(page, target.within);
+  const found = matching(
+    target.inRowWith === undefined
+      ? scope
+      : scope.locator("li", { hasText: target.inRowWith }),
     target,
   );
   return target.first === true ? found.first() : found;
@@ -457,6 +461,23 @@ async function perform(
       action.proposeAgenda,
       holdPendingChange,
     );
+    await page.reload();
+    return;
+  }
+  if ("proposeUrgentIssue" in action) {
+    const viewer = await api.viewer(page.request, stack.baseUrl);
+    const address = walkAddress(action.proposeUrgentIssue);
+    const issue = (await api.listIssueQueue(page.request, stack.baseUrl)).find(
+      (row) => row.reporter.email === address,
+    );
+    if (issue === undefined) {
+      throw new Error(`no issue in the queue was reported from ${address}`);
+    }
+    await holdPendingChange({
+      actionName: "issue_set_priority",
+      input: { id: issue.id, priority: "URGENT" },
+      proposedByPersonId: viewer.personId,
+    });
     await page.reload();
     return;
   }

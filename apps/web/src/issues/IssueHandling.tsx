@@ -41,6 +41,7 @@ import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import { usePoll } from "../ui/use-poll";
 import {
   ISSUE_COST_RESPONSIBILITY_LABEL,
+  ISSUE_DAMAGE_CAUSE_LABEL,
   ISSUE_MEANING_LABEL,
   ISSUE_OUTCOME_LABEL,
   ISSUE_PRIORITY_LABEL,
@@ -56,7 +57,7 @@ const WORK_ORDER_POLL_MS = 4000;
 const HANDLING_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.handling.errors.issueNotFound",
   "assignee-not-a-handler": "issues.handling.errors.assigneeNotAHandler",
-  "target-date-invalid": "issues.handling.errors.targetDateInvalid",
+  "date-invalid": "issues.handling.errors.targetDateInvalid",
   // An issue marked as a finding keeps a target date, and a lift's within a
   // month of its inspection; this form is where a handler clears or moves it.
   "finding-needs-target-date": "issues.fit.errors.findingNeedsTargetDate",
@@ -137,6 +138,7 @@ export function IssueHandling({
   type,
   workOrdersSent,
   canManageCharges = false,
+  remedyNoticeInForm = false,
   filesRevision = 0,
   onChanged,
 }: {
@@ -151,6 +153,12 @@ export function IssueHandling({
    * refuses the read without it.
    */
   canManageCharges?: boolean;
+  /**
+   * The status form beside this panel is already saying that a reply is not a
+   * notice to remedy, so it is not said here as well: a reader of the page by
+   * ear would hear the same sentence twice for one issue.
+   */
+  remedyNoticeInForm?: boolean;
   /**
    * Changes when a file is added to or removed from the issue beside this
    * panel, which the finding's protocol list reads again on.
@@ -173,7 +181,7 @@ export function IssueHandling({
    * still answers only the issue and revision that asked for it: the cleanup
    * below drops a superseded one.
    */
-  const revision = `${issue.updatedAt}:${issue.status.id}`;
+  const revision = issueRevision(issue);
 
   /*
    * Counts the main read's starts and finishes. A timeline poll notes the count
@@ -230,7 +238,7 @@ export function IssueHandling({
     { intervalMs: WORK_ORDER_POLL_MS, enabled: mailPending },
   );
 
-  const guide = useHandlerGuide(issue);
+  const guide = useHandlerGuide(revision);
 
   const save = useSaveAction(
     (act: HandlingAct) => perform(issue.id, act),
@@ -398,8 +406,9 @@ export function IssueHandling({
           for that. It stays on an issue closed with that outcome, because the
           reply field stays with it.
         */}
-        {issue.costResponsibility === "TENANT_OWNER" ||
-        issue.outcome === "TENANT_OWNER_RESPONSIBILITY" ? (
+        {!remedyNoticeInForm &&
+        (issue.costResponsibility === "TENANT_OWNER" ||
+          issue.outcome === "TENANT_OWNER_RESPONSIBILITY") ? (
           <Notice tone="info">{t("issues.handling.notANoticeToRemedy")}</Notice>
         ) : null}
         <details className="flex flex-col gap-2">
@@ -460,18 +469,28 @@ export function IssueHandling({
 }
 
 /**
+ * What changes when the queue brings a newer state of the issue. `issue` is a
+ * new object with every read of the queue, a filter or a search included, and
+ * the same state in most of them, so a read that should follow the issue keys
+ * on this and not on the object.
+ */
+function issueRevision(issue: QueuedIssue): string {
+  return `${issue.updatedAt}:${issue.status.id}`;
+}
+
+/**
  * The responsibility guide as a handler reads it, adopted or not.
  *
- * Read again whenever the queue brings the issue again - `issue` is a new
- * object with every read of the queue and the same one between them - so a
- * guide the board has changed since the panel opened reaches a handler who
- * keeps it open, and a handler does not choose who pays from superseded
- * guidance. The last guide stays on screen while the next is read; a read
- * that fails replaces it with the failure, because the guide on screen can no
- * longer be said to be the board's current one.
+ * Read again whenever the issue moves to a newer revision (`revision`), and
+ * not with every read of the queue, so a guide the board has changed reaches a
+ * handler who keeps the panel open once the issue is saved, and a filter typed
+ * beside it does not read the guide again for the same issue. The last guide
+ * stays on screen while the next is read; a read that fails replaces it with
+ * the failure, because the guide on screen can no longer be said to be the
+ * board's current one.
  */
 function useHandlerGuide(
-  issue: QueuedIssue,
+  revision: string,
 ): ResponsibilityGuide | "failed" | null {
   const [guide, setGuide] = useState<ResponsibilityGuide | "failed" | null>(
     null,
@@ -487,7 +506,7 @@ function useHandlerGuide(
     return () => {
       active = false;
     };
-  }, [issue]);
+  }, [revision]);
   return guide;
 }
 
@@ -496,12 +515,12 @@ function useHandlerGuide(
  * another ("Skapa debitering", decision 26).
  *
  * Mounted only for a reader who may read charges. Read again whenever the
- * queue is read - `issue` is a new object with every read of the queue and the
- * same one between them - so a charge made in another tab shows, and charges
- * withheld because the reporter has become protected stop being shown, without
- * closing the panel; an answer for an earlier read is dropped. Making one
- * opens the charges screen with the form filled in from the issue, where the
- * amount is entered and where it lives.
+ * issue moves to a newer revision (`issueRevision`), and not with every read of
+ * the queue, so a charge made in another tab shows once the issue is saved or
+ * the panel opened again; an answer for an earlier read is dropped. Charges are
+ * withheld at once where the queue shows the reporter as protected, whatever
+ * was read before. Making one opens the charges screen with the form filled in
+ * from the issue, where the amount is entered and where it lives.
  */
 function IssueCharges({ issue }: { issue: QueuedIssue }): ReactElement {
   const { t } = useTranslation();
@@ -512,12 +531,33 @@ function IssueCharges({ issue }: { issue: QueuedIssue }): ReactElement {
     charges: ChargeRow[] | null | "failed";
   } | null>(null);
 
+  const revision = issueRevision(issue);
+  const issueId = issue.id;
+  const reporterProtected = issue.reporter.kind === "protected";
+
+  /*
+   * An answer taken before the reporter was protected is dropped when they
+   * become so. It was taken for another person: it may be a withheld answer or
+   * a list from before, and the panel shows "reading" when the protection ends
+   * until the new answer arrives. Adjusted while rendering, not in the effect
+   * below, so that the dropped answer is never shown.
+   */
+  const [wasProtected, setWasProtected] = useState(reporterProtected);
+  if (wasProtected !== reporterProtected) {
+    setWasProtected(reporterProtected);
+    if (reporterProtected) setRead(null);
+  }
+
   useEffect(() => {
+    // A protected reporter's charges are withheld at render, so no read is
+    // made; it is made again when the protection ends, as that changes the
+    // person and not the issue's revision.
+    if (reporterProtected) return;
     let active = true;
-    void fetchIssueCharges(issue.id).then((answer) => {
+    void fetchIssueCharges(issueId).then((answer) => {
       if (active) {
         setRead({
-          issueId: issue.id,
+          issueId,
           charges: answer.ok ? answer.value.charges : "failed",
         });
       }
@@ -525,14 +565,21 @@ function IssueCharges({ issue }: { issue: QueuedIssue }): ReactElement {
     return () => {
       active = false;
     };
-  }, [issue]);
+  }, [issueId, revision, reporterProtected]);
 
   /*
    * Another issue's answer is never shown under this one. The same issue's
    * last answer stays while a newer revision is read, rather than flashing
-   * back to "reading".
+   * back to "reading". A reporter who has become protected withholds them at
+   * once, from the issue as the queue reads it now, whatever the last answer
+   * held, and one whose protection has ended is read again, with "reading"
+   * shown meanwhile.
    */
-  const charges = read?.issueId === issue.id ? read.charges : "reading";
+  const charges = reporterProtected
+    ? null
+    : read?.issueId === issue.id
+      ? read.charges
+      : "reading";
 
   return (
     <section className="flex flex-col gap-2">
@@ -754,6 +801,13 @@ const WORK_ORDER_STEP_LABELS = {
   unconfirmed: "issues.timeline.workOrder.unconfirmed",
 } as const;
 
+/** What a contractor's answer through a work order's link says. */
+const WORK_ORDER_ANSWER_STEP_LABELS = {
+  ACCEPTED: "issues.timeline.workOrderAnswer.accepted",
+  DECLINED: "issues.timeline.workOrderAnswer.declined",
+  DONE: "issues.timeline.workOrderAnswer.done",
+} as const;
+
 /** What one step of the timeline says happened. */
 function TimelineSentence({
   step,
@@ -892,6 +946,16 @@ function TimelineSentence({
       );
     case "workOrder":
       return <>{t(WORK_ORDER_STEP_LABELS[step.delivery ?? "written"])}</>;
+    case "workOrderAnswer":
+      return (
+        <>
+          {t(
+            step.answer === null
+              ? "issues.timeline.workOrderAnswer.unknown"
+              : WORK_ORDER_ANSWER_STEP_LABELS[step.answer],
+          )}
+        </>
+      );
     case "redacted":
       return (
         <>
@@ -908,6 +972,18 @@ function TimelineSentence({
           {step.held
             ? t("issues.timeline.legalHoldPlaced")
             : t("issues.timeline.legalHoldReleased")}
+        </>
+      );
+    case "damageCase":
+      return (
+        <>
+          {!step.marked
+            ? t("issues.timeline.damageCaseRemoved")
+            : step.cause === null
+              ? t("issues.timeline.damageCaseMarkedUnknown")
+              : t("issues.timeline.damageCaseMarked", {
+                  cause: t(ISSUE_DAMAGE_CAUSE_LABEL[step.cause]),
+                })}
         </>
       );
     case "costResponsibility":
@@ -932,4 +1008,6 @@ const REDACTED_STEP: Readonly<Record<IssueRedactionTarget, TranslationKey>> = {
   photo: "issues.timeline.redacted.photo",
   attachment: "issues.timeline.redacted.attachment",
   workOrder: "issues.timeline.redacted.workOrder",
+  workOrderNote: "issues.timeline.redacted.workOrderNote",
+  workOrderFile: "issues.timeline.redacted.workOrderFile",
 };

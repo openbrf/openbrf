@@ -613,9 +613,25 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ISSUE_LEGAL_HOLD_RELEASED",
   ISSUE_RETENTION_RECORDED:
     "register.person.report.action.ISSUE_RETENTION_RECORDED",
+  ISSUE_DAMAGE_CASE_MARKED:
+    "register.person.report.action.ISSUE_DAMAGE_CASE_MARKED",
+  ISSUE_DAMAGE_CASE_REMOVED:
+    "register.person.report.action.ISSUE_DAMAGE_CASE_REMOVED",
   ISSUE_RESIDENTS_LISTED:
     "register.person.report.action.ISSUE_RESIDENTS_LISTED",
   ISSUE_WORK_ORDER_SENT: "register.person.report.action.ISSUE_WORK_ORDER_SENT",
+  ISSUE_WORK_ORDER_LINK_ISSUED:
+    "register.person.report.action.ISSUE_WORK_ORDER_LINK_ISSUED",
+  ISSUE_WORK_ORDER_LINK_REVOKED:
+    "register.person.report.action.ISSUE_WORK_ORDER_LINK_REVOKED",
+  ISSUE_WORK_ORDER_ANSWERED:
+    "register.person.report.action.ISSUE_WORK_ORDER_ANSWERED",
+  ISSUE_WORK_ORDER_NOTE_ADDED:
+    "register.person.report.action.ISSUE_WORK_ORDER_NOTE_ADDED",
+  ISSUE_WORK_ORDER_PHOTO_ADDED:
+    "register.person.report.action.ISSUE_WORK_ORDER_PHOTO_ADDED",
+  ISSUE_WORK_ORDER_PHOTOS_CHOSEN:
+    "register.person.report.action.ISSUE_WORK_ORDER_PHOTOS_CHOSEN",
   CONTRACTOR_LIST_CHANGED:
     "register.person.report.action.CONTRACTOR_LIST_CHANGED",
   ISSUE_TYPE_RING_FENCE_CHANGED:
@@ -713,6 +729,22 @@ const DELIVERY_STATUS_LABEL = {
 >;
 
 /**
+ * The outcome of one copy, in words. A copy whose send ended in an error after
+ * which the mail server may hold it is failed in the ledger, as nothing
+ * confirmed it, but it is not known not to have gone out: the person is told
+ * it is unconfirmed rather than not sent.
+ */
+function deliveryOutcomeLabel(delivery: {
+  status: Report["newsDeliveries"][number]["status"];
+  failure: NewsDeliveryFailure | MeetingNoticeDeliveryFailure | null;
+}): TranslationKey {
+  return delivery.status === "FAILED" &&
+    delivery.failure === "delivery-unconfirmed"
+    ? "register.person.report.deliveryUnconfirmed"
+    : DELIVERY_STATUS_LABEL[delivery.status];
+}
+
+/**
  * Why a copy did not go out, in words addressed to the person the document is
  * about. Every code either ledger can hold, so a code added to one without a
  * sentence here fails to compile rather than printing a code on the page.
@@ -723,6 +755,8 @@ const DELIVERY_FAILURE_LABEL = {
   "sms-not-configured":
     "register.person.report.deliveryFailure.sms-not-configured",
   "send-failed": "register.person.report.deliveryFailure.send-failed",
+  "delivery-unconfirmed":
+    "register.person.report.deliveryFailure.delivery-unconfirmed",
   "recipient-gone": "register.person.report.deliveryFailure.recipient-gone",
   "no-phone-number": "register.person.report.deliveryFailure.no-phone-number",
   "no-email-address": "register.person.report.deliveryFailure.no-email-address",
@@ -1730,9 +1764,11 @@ export function DataSubjectReport({
                                 ? "issues.entry.answerYes"
                                 : "issues.entry.answerNo",
                             ),
-                            // Each answer as it was recorded, a "no" as much
-                            // as a "yes": the copy states what is held, and
-                            // leaves out only what was never asked.
+                            // Each part as it is held. A yes always records
+                            // pets and the master key, false when the entry
+                            // gave neither, so it prints "no pets" and "master
+                            // key may not be used" then too; a no holds
+                            // neither and prints neither.
                             details: [
                               recordedFlag(
                                 issue.entry.pets,
@@ -1785,6 +1821,12 @@ export function DataSubjectReport({
                                     : order.deliveryStatus
                                 ],
                               )}
+                              {order.linkGiven
+                                ? ` · ${t(
+                                    "register.person.report.field.workOrderLinkGiven",
+                                    { count: order.photosShared },
+                                  )}`
+                                : null}
                             </span>
                           ))}
                     </td>
@@ -2558,7 +2600,7 @@ export function DataSubjectReport({
                       {t(DELIVERY_CHANNEL_LABEL[delivery.channel])}
                     </td>
                     <td className={TEXT_CELL}>
-                      {t(DELIVERY_STATUS_LABEL[delivery.status])}
+                      {t(deliveryOutcomeLabel(delivery))}
                     </td>
                     <td className={TEXT_CELL}>
                       {delivery.failure === null
@@ -2923,7 +2965,7 @@ export function DataSubjectReport({
                       {t(DELIVERY_CHANNEL_LABEL[delivery.channel])}
                     </td>
                     <td className={TEXT_CELL}>
-                      {t(DELIVERY_STATUS_LABEL[delivery.status])}
+                      {t(deliveryOutcomeLabel(delivery))}
                     </td>
                     <td className={TEXT_CELL}>
                       {delivery.failure === null

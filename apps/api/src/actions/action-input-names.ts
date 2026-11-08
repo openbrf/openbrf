@@ -16,13 +16,18 @@ export interface InputName {
 }
 
 /**
- * Finds the names for the ids an action's input carries.
+ * Finds the names for the ids an action's input carries, as the person viewing
+ * the held change may read them.
  *
  * The answer maps an id, exactly as it stands in the input, to what a person
  * knows it by. An id with no name is left out, and the caller then shows it as
- * it is.
+ * it is. `readerPersonId` is the viewer, for a namer whose names depend on
+ * what that person may open.
  */
-export type InputNamer = (input: unknown) => Promise<Record<string, InputName>>;
+export type InputNamer = (
+  input: unknown,
+  readerPersonId: string,
+) => Promise<Record<string, InputName>>;
 
 /**
  * Where a core feature says what the ids in its actions' inputs stand for.
@@ -72,7 +77,7 @@ export class ActionInputNames {
   async namesOf(
     actionName: string,
     input: unknown,
-    viewer: Pick<Principal, "capabilities">,
+    viewer: Pick<Principal, "personId" | "capabilities">,
   ): Promise<Record<string, InputName>> {
     const registered = this.namers.get(actionName);
     if (
@@ -82,7 +87,7 @@ export class ActionInputNames {
       return {};
     }
     try {
-      return await registered.namer(input);
+      return await registered.namer(input, viewer.personId);
     } catch (cause) {
       this.logger.warn(
         `Could not name the ids in a held input for ${actionName}: ${failureName(cause)}`,

@@ -717,6 +717,11 @@ export class DataSubjectReportService {
             createdAt: true,
             deliveryStatus: true,
             deliveryFailure: true,
+            // Whether the contractor was given a link, and how many of the
+            // issue's photographs it showed them (ADR 0055): from the record
+            // the handler's acts leave, which a changed choice or a removed
+            // file does not shorten.
+            _count: { select: { links: true, exposures: true } },
           },
         },
       },
@@ -1483,13 +1488,15 @@ export class DataSubjectReportService {
      * The issues among those the entries name by identifier (a charge made from
      * an issue records which) whose reporter has protected personal data. The
      * charge list withholds that link, so an entry's context must not hand it
-     * back: see `subjectScopedContext`.
+     * back: see `subjectScopedContext`. Not the issues this person reported
+     * themselves: their own copy states their own report.
      */
     const withheldIssueIds = await issuesReportedByProtectedPersons(
       tx,
       auditEntries
         .map((entry) => asContext(entry.context)?.[ISSUE_KEY])
         .filter((id): id is string => typeof id === "string"),
+      personId,
     );
 
     /*
@@ -1784,6 +1791,8 @@ export class DataSubjectReportService {
           notSent:
             order.deliveryStatus === "FAILED" &&
             workOrderKnownNotSent(order.deliveryFailure),
+          linkGiven: order._count.links > 0,
+          photosShared: order._count.exposures,
         })),
       })),
       issueAssignments: [
@@ -2996,9 +3005,11 @@ function subjectScopedContext(
 
   /*
    * The issue a charge was made from, while its reporter has protected personal
-   * data. The charge list withholds the same link, because an issue identifier
-   * beside the charged person or apartment pairs the report with the identity
-   * the queue withholds. The fact that the charge came from an issue stays.
+   * data, and is somebody else (the caller leaves this person's own reports out
+   * of the set). The charge list withholds the same link, because an issue
+   * identifier beside the charged person or apartment pairs the report with the
+   * identity the queue withholds. The fact that the charge came from an issue
+   * stays.
    */
   const issueId = context[ISSUE_KEY];
   if (typeof issueId === "string" && withheldIssueIds.has(issueId)) {

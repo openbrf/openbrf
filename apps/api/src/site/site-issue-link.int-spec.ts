@@ -19,10 +19,12 @@ import { NORMALIZATION_VERSION } from "../crypto/personal-data";
 import { registerMultipart } from "../http/multipart";
 import { PrismaService } from "../database/prisma.service";
 import { IssueConversationService } from "../issues/issue-conversation.service";
+import { lockIssueType } from "../issues/issue-lock";
 import {
   ISSUE_NOTICE_QUEUE,
   ISSUE_OVERDUE_QUEUE,
 } from "../issues/issue-mailer.service";
+import { lockIssueForHandling } from "../issues/issue-lock";
 import { IssuePurgeService } from "../issues/issue-purge.service";
 import {
   REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY,
@@ -31,6 +33,7 @@ import {
   REPORTER_LINK_QUEUE,
   IssueReporterLinkService,
 } from "../issues/issue-reporter-link.service";
+import { IssueError } from "../issues/issue.error";
 import { IssueService } from "../issues/issue.service";
 import type { SendMailInput } from "../mail/mail.service";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
@@ -47,6 +50,7 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { LINK_READS_PER_MINUTE } from "./site-issue-link.controller";
+import { SiteRenderer } from "./site-renderer.service";
 
 /**
  * The page a reporter's private link opens, through the application as it
@@ -231,6 +235,37 @@ async function auditFor(issueId: string) {
   });
 }
 
+const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+/**
+ * The database's clock, read the way a `TIMESTAMP(3)` column is read. A link's
+ * `expiresAt` is set on that clock, so a check against `Date.now()` would take
+ * the gap between the two clocks for the link's fault. The cast is the one the
+ * column goes through, so the zone cancels, but only in a zone without
+ * daylight saving: a reading taken across a fall-back, or an expiry that
+ * lands in a spring-forward gap, would not bracket. Like the rest of this file
+ * the helper therefore requires a UTC session and says so when it is not one.
+ */
+async function databaseClock(): Promise<Date> {
+  const [row] = await prisma.$queryRaw<{ now: Date; zone: string }[]>`
+    SELECT clock_timestamp()::timestamp(3) AS "now",
+           current_setting('TimeZone') AS "zone"`;
+  if (row === undefined || !["UTC", "Etc/UTC"].includes(row.zone)) {
+    throw new Error(
+      `The year checks read local timestamps as UTC, and the session's time zone is ${row?.zone ?? "unknown"}.`,
+    );
+  }
+  return row.now;
+}
+
+/** `expiresAt` ends a year after a moment between two readings of the clock. */
+function expectYearAfterBetween(expiresAt: Date, before: Date, after: Date) {
+  expect(expiresAt.getTime()).toBeGreaterThanOrEqual(
+    before.getTime() + YEAR_MS,
+  );
+  expect(expiresAt.getTime()).toBeLessThanOrEqual(after.getTime() + YEAR_MS);
+}
+
 /** Everything a GET could write, for one issue (E1). */
 async function snapshot(issueId: string) {
   const [issue, link, messages, audit, jobs] = await Promise.all([
@@ -324,6 +359,7 @@ afterAll(async () => {
     board.personId,
     `rl-restricted-${suffix}`,
     `rl-restricted-late-${suffix}`,
+    `rl-retry-restricted-${suffix}`,
   ];
   // The notices a reopening queued, for this run's issues only.
   const issueIds = (
@@ -741,6 +777,151 @@ describe("B. lifetime and revocation", () => {
     expect((await post(token, "För sent")).statusCode).toBe(404);
   });
 
+  it("B4: the reopening window is judged on the database's clock, whatever the API process's reads", async () => {
+    const { issueId, token } = await reported();
+    // Closed 29 days ago on the database's clock, the one `closedAt` and the
+    // link's own liveness are judged on.
+    await prisma.$executeRaw`
+      UPDATE "issue"
+      SET "statusId" = ${publicType.statusIds.DONE},
+          "outcome" = 'FIXED',
+          "closedAt" = clock_timestamp() - interval '29 days',
+          "assigneePersonId" = ${board.personId}
+      WHERE "id" = ${issueId}`;
+
+    // The API process's clock two days ahead: read against it the issue closed
+    // 31 days ago, and the page and the reply would call it closed.
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000));
+    try {
+      const reading = await page(token);
+      expect(reading.statusCode).toBe(200);
+      expect(reading.body).toContain("<textarea");
+      expect(reading.body).toContain("öppnas det igen");
+
+      const sentReply = await post(token, "Det läcker igen");
+      expect(sentReply.headers.location).toBe(`/arende/${token}?svar=sent`);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: { statusId: true, closedAt: true },
+      }),
+    ).toEqual({ statusId: publicType.statusIds.IN_PROGRESS, closedAt: null });
+  });
+
+  it("B4: the page does not promise a reopening that the hour's limit would refuse", async () => {
+    const { issueId, token } = await reported();
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      },
+    });
+    expect((await page(token)).body).toContain("öppnas det igen");
+
+    await prisma.issueMessage.createMany({
+      data: Array.from({ length: REPORTER_LINK_MESSAGES_PER_HOUR }, () => ({
+        issueId,
+        side: "REPORTER" as const,
+        authorPersonId: null,
+        body: "Ett tidigare svar",
+      })),
+    });
+    const limited = await page(token);
+    expect(limited.statusCode).toBe(200);
+    expect(limited.body).not.toContain("öppnas det igen");
+    // What the page does not promise, the reply does not do.
+    const refused = await post(token, "En sak till");
+    expect(refused.headers.location).toBe(`/arende/${token}?svar=limited`);
+    expect(
+      (
+        await prisma.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          select: { statusId: true },
+        })
+      ).statusId,
+    ).toBe(publicType.statusIds.DONE);
+  });
+
+  it("B4: the hour's limit is counted when the reply decides, not when its transaction began", async () => {
+    const { issueId, token } = await reported();
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      },
+    });
+    await prisma.issueMessage.createMany({
+      data: Array.from({ length: REPORTER_LINK_MESSAGES_PER_HOUR }, () => ({
+        issueId,
+        side: "REPORTER" as const,
+        authorPersonId: null,
+        body: "Ett tidigare svar",
+      })),
+    });
+    // The link's ten messages are two seconds inside the hour when the reply
+    // starts, and out of it once the reply has waited for the issue's locks.
+    // Dated in SQL, on the clock the hour is judged on: from this process's
+    // clock the margin would be two seconds less or more by however far the
+    // two clocks differ, and the test would pass without the guard or fail
+    // with it.
+    await prisma.$executeRaw`
+      UPDATE "issue_message"
+      SET "createdAt" = clock_timestamp() - interval '3598 seconds'
+      WHERE "issueId" = ${issueId}`;
+
+    let letGo: () => void = () => undefined;
+    const letGoSignal = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    let held: () => void = () => undefined;
+    const holding = new Promise<void>((resolve) => {
+      held = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await lockIssueForHandling(tx, issueId);
+        held();
+        await letGoSignal;
+      },
+      { timeout: 30_000 },
+    );
+    try {
+      await Promise.race([holding, holder]);
+      const replying = post(token, "En sak till");
+      replying.catch(() => undefined);
+      await waitFor(
+        async () =>
+          (await advisoryLockCount(
+            prisma,
+            `issue-type:${publicType.id}`,
+            false,
+          )) > 0n,
+        10_000,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 3500));
+      letGo();
+      await holder;
+      const answer = await replying;
+      expect(answer.headers.location).toBe(`/arende/${token}?svar=sent`);
+    } finally {
+      letGo();
+      await holder.catch(() => undefined);
+    }
+    expect(
+      await prisma.issueMessage.count({
+        where: { issueId, side: "REPORTER" },
+      }),
+    ).toBe(REPORTER_LINK_MESSAGES_PER_HOUR + 1);
+  });
+
   it("B4: a message on an issue merged into another is refused as closed, and the page offers no field", async () => {
     const duplicate = await reported();
     const target = await reported();
@@ -773,31 +954,31 @@ describe("B. lifetime and revocation", () => {
   });
 
   it("B4: an issue that stays open keeps the link a year after its latest message, and no longer", async () => {
+    const beforeIssue = await databaseClock();
     const { issueId, token } = await reported();
+    const afterIssue = await databaseClock();
     const issued = await prisma.issueReporterLink.findUniqueOrThrow({
       where: { issueId },
     });
-    const year = 365 * 24 * 60 * 60 * 1000;
-    expect(issued.expiresAt.getTime() - Date.now()).toBeLessThanOrEqual(year);
+    expectYearAfterBetween(issued.expiresAt, beforeIssue, afterIssue);
 
+    // A minute ahead on the database's clock, which `replyAsHandler` judges
+    // the link on; the process's clock could put it in the past.
     await prisma.issueReporterLink.update({
       where: { issueId },
-      data: { expiresAt: new Date(Date.now() + 60_000) },
+      data: { expiresAt: new Date((await databaseClock()).getTime() + 60_000) },
     });
+    const beforeReply = await databaseClock();
     await conversation.replyAsHandler(
       board.personId,
       issueId,
       "Fortfarande på gång.",
     );
+    const afterReply = await databaseClock();
     const extended = await prisma.issueReporterLink.findUniqueOrThrow({
       where: { issueId },
     });
-    expect(extended.expiresAt.getTime()).toBeGreaterThan(
-      Date.now() + year - 60_000,
-    );
-    expect(extended.expiresAt.getTime()).toBeLessThanOrEqual(
-      Date.now() + year + 60_000,
-    );
+    expectYearAfterBetween(extended.expiresAt, beforeReply, afterReply);
     expect((await page(token)).statusCode).toBe(200);
   });
 
@@ -1053,6 +1234,62 @@ describe("D. rate limits and abuse", () => {
     expect(liveRest).toEqual(unknownRest);
   });
 
+  it("D2: a link's refusal has no menu, where a website address's has the board's", async () => {
+    // An entry the board pointed at another host: on a page whose address is a
+    // credential it would be the one way off this origin. Last in the menu, so
+    // a suite asserting what the menu starts with is not disturbed by it.
+    const external = `https://grannar-${suffix}.example/`;
+    const highest = await prisma.menuItem.aggregate({
+      where: { parentId: null },
+      _max: { sortOrder: true },
+    });
+    const entry = await prisma.menuItem.create({
+      data: {
+        label: `Grannföreningen ${suffix}`,
+        kind: "EXTERNAL",
+        url: external,
+        sortOrder: (highest._max.sortOrder ?? 0) + 1,
+      },
+    });
+    // Whatever refusal page an earlier test left kept is dropped, so both pages
+    // below are drawn after the entry was written; and the pages drawn here are
+    // dropped after, so no later test is served the entry this one deletes.
+    const renderer = app.get(SiteRenderer);
+    renderer.forgetRefusalPages();
+    try {
+      const websiteAddress = "10.211.250.2";
+      let website: Awaited<ReturnType<typeof inject>> | undefined;
+      for (let n = 0; n < 50 && website === undefined; n += 1) {
+        const answer = await inject({
+          method: "POST",
+          url: `/rl-no-page-${suffix}/kontakt`,
+          payload: new URLSearchParams({ message: "Hej" }).toString(),
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          address: websiteAddress,
+        });
+        if (answer.statusCode === 429) {
+          website = answer;
+        }
+      }
+      expect(website?.statusCode).toBe(429);
+      expect(website?.body).toContain(`href="${external}"`);
+
+      const linkAddress = "10.211.250.3";
+      for (let n = 0; n < LINK_READS_PER_MINUTE; n += 1) {
+        await page(`obrf_rl_${String(n).padStart(43, "M")}`, linkAddress);
+      }
+      const link = await page(`obrf_rl_${"N".repeat(43)}`, linkAddress);
+      expect(link.statusCode).toBe(429);
+      expect(link.body).toContain("För många försök");
+      expect(link.body).not.toContain(external);
+      expect(link.body).not.toContain(`Grannföreningen ${suffix}`);
+      expectLinkHeaders(link.headers);
+    } finally {
+      await prisma.menuItem.deleteMany({ where: { id: entry.id } });
+      renderer.forgetRefusalPages();
+    }
+  });
+
   it("D4: a link's messages share one budget whatever address they come from", async () => {
     const { issueId, token } = await reported();
     const addresses = ["10.211.251.1", "10.211.251.2", "10.211.251.3"];
@@ -1178,6 +1415,73 @@ describe("D. rate limits and abuse", () => {
       await prisma.person.update({
         where: { id: personId },
         data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
+  it("D6: a report waits for the type's lock and is refused when the board took the type off the form meanwhile", async () => {
+    const type = await prisma.issueType.findUniqueOrThrow({
+      where: { id: publicType.id },
+      select: { reporters: true },
+    });
+    const before = await prisma.issue.count({
+      where: { typeId: publicType.id },
+    });
+
+    // Stands in for the board's change of the type, which holds the type's lock
+    // until it commits.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let locked: () => void = () => undefined;
+    const lockTaken = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const changing = prisma.$transaction(async (tx) => {
+      await lockIssueType(tx, publicType.id);
+      locked();
+      await held;
+      await tx.issueType.update({
+        where: { id: publicType.id },
+        data: { reporters: ["RESIDENTS"] },
+      });
+    });
+    try {
+      await lockTaken;
+      const reporting = issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Efter att formuläret togs bort",
+        reporterName: null,
+        reporterEmail: null,
+      });
+      const settled = reporting.then(
+        () => "filed",
+        (error: unknown) => (error instanceof IssueError ? error.reason : "?"),
+      );
+      await waitFor(
+        async () =>
+          (await advisoryLockCount(
+            prisma,
+            `issue-type:${publicType.id}`,
+            false,
+          )) > 0n,
+        10_000,
+      );
+      release();
+      await changing;
+
+      expect(await settled).toBe("type-not-found");
+      expect(
+        await prisma.issue.count({ where: { typeId: publicType.id } }),
+      ).toBe(before);
+    } finally {
+      release();
+      await changing.catch(() => undefined);
+      await prisma.issueType.update({
+        where: { id: publicType.id },
+        data: { reporters: type.reporters },
       });
     }
   });
@@ -1534,18 +1838,14 @@ describe("D. rate limits and abuse", () => {
       data: { expiresAt: soon },
     });
 
+    const before = await databaseClock();
     expect(await links.deliver(id)).toBe(true);
+    const after = await databaseClock();
     const link = await prisma.issueReporterLink.findUniqueOrThrow({
       where: { issueId: id },
       select: { expiresAt: true },
     });
-    const year = 365 * 24 * 60 * 60 * 1000;
-    expect(link.expiresAt.getTime()).toBeGreaterThan(
-      Date.now() + year - 60_000,
-    );
-    expect(link.expiresAt.getTime()).toBeLessThanOrEqual(
-      Date.now() + year + 60_000,
-    );
+    expectYearAfterBetween(link.expiresAt, before, after);
   });
 
   it("D6: an instance without mail settings issues no link that holds a slot", async () => {
@@ -1562,6 +1862,75 @@ describe("D. rate limits and abuse", () => {
     expect(
       await prisma.issueReporterLink.count({ where: { issueId: id } }),
     ).toBe(0);
+  });
+
+  it("D6: a report filed under the type while a link mail is being sent does not wait for it", async () => {
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Mejlet dröjer",
+      reporterName: null,
+      reporterEmail: `rl-slow-mail-${suffix}@exempel.se`,
+    });
+    const before = sent.length;
+
+    // The mail server holds the message until released.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const sendEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    vi.spyOn(mail, "send").mockImplementation(async (input) => {
+      entered();
+      await held;
+      sent.push(input as SendMailInput<unknown>);
+      return {
+        messageId: `<rl-${String(sent.length)}@exempel.se>`,
+      } as SentMail;
+    });
+
+    let delivering: Promise<boolean> | undefined;
+    try {
+      delivering = links.deliver(id);
+      // Awaited below; this keeps a failed delivery from surfacing as an
+      // unhandled rejection when an expectation before that throws first.
+      delivering.catch(() => undefined);
+      await sendEntered;
+      // The handoff holds the type's ring-fence, shared, and not its lock.
+      expect(
+        await advisoryLockCount(
+          prisma,
+          `issue-type-ring-fence:${publicType.id}`,
+          true,
+        ),
+      ).toBeGreaterThan(0n);
+
+      // Bounded, so a filing that queues behind the mail server fails here
+      // rather than at the suite's time limit with the send still held.
+      const filing = issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Anmäld medan mejlet dröjer",
+        reporterName: null,
+        reporterEmail: `rl-slow-mail-other-${suffix}@exempel.se`,
+      });
+      filing.catch(() => undefined);
+      const filed = await Promise.race([
+        filing.then(() => "filed" as const),
+        new Promise<"waiting">((resolve) =>
+          setTimeout(() => resolve("waiting"), 10_000),
+        ),
+      ]);
+      expect(filed).toBe("filed");
+      expect(sent.length).toBe(before);
+    } finally {
+      release();
+    }
+    expect(await delivering).toBe(true);
+    expect(sent.length).toBe(before + 1);
   });
 
   it("D6: an issue closed while the mail is being sent waits for the stamp", async () => {
@@ -1601,7 +1970,8 @@ describe("D. rate limits and abuse", () => {
         .setStatus(
           id,
           { statusId: publicType.statusIds.DONE, outcome: "FIXED" },
-          board.personId,
+          { personId: board.personId, channel: "WEB" },
+          "show",
         )
         .finally(() => {
           closeSettled = true;
@@ -1612,7 +1982,9 @@ describe("D. rate limits and abuse", () => {
       // Neither of the two awaits the other here: the delivery holds the
       // issue's lock until the send is released, so awaiting the close first
       // would never return. The close is seen queued on that lock, which a
-      // delay could not tell from a close that is merely slow.
+      // delay could not tell from a close that is merely slow. A close takes
+      // the issue's type's lock before the issue's own; the delivery holds the
+      // issue's and not the type's, so the close waits at the issue's.
       await waitFor(
         async () =>
           (await advisoryLockCount(prisma, `issue:${id}`, false)) > 0n,
@@ -2011,6 +2383,22 @@ describe("the board's side of the link", () => {
 
     await prisma.issueReporterLink.delete({ where: { issueId } });
     expect(await stateOf()).toMatchObject({ kind: "external", link: "none" });
+  });
+
+  it("does not let a person who holds no issues:handle role withdraw a link", async () => {
+    const { issueId } = await reported();
+    // Past the route's guard, as a role withdrawn in between.
+    await expect(
+      links.revoke(`rl-nobody-${suffix}`, issueId),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    expect(
+      (
+        await prisma.issueReporterLink.findUniqueOrThrow({
+          where: { issueId },
+          select: { revokedAt: true },
+        })
+      ).revokedAt,
+    ).toBeNull();
   });
 
   it("refuses to withdraw a link that was never mailed, and withdraws a link once", async () => {

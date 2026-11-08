@@ -14,6 +14,8 @@ import {
   ISSUE_CLOSING_OUTCOMES,
   ISSUE_COST_RESPONSIBILITIES,
   ISSUE_CONVERSATION_LIMITS,
+  ISSUE_DAMAGE_CASE_LIMITS,
+  ISSUE_DAMAGE_CAUSES,
   ISSUE_ENTRY_ANSWERS,
   ISSUE_FINDING_KINDS,
   ISSUE_FIT_LIMITS,
@@ -33,6 +35,7 @@ import {
 } from "@openbrf/shared";
 import { z } from "zod";
 
+import { webActor } from "../audit/actor-context";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import type { Principal } from "../authorization/capabilities";
 import { RequireCapability } from "../authorization/require-capability.decorator";
@@ -199,17 +202,13 @@ const assignSchema = z.object({
 
 const prioritySchema = z.object({ priority: z.enum(ISSUE_PRIORITIES) });
 
-/** A calendar date, or null for none; the service reads it as one. */
-const targetDateSchema = z.object({
-  targetDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .nullable(),
-});
-
 const accessSchema = z.object({ boardOnly: z.boolean() });
 
+/** A calendar date's form; the service reads it as one (`requireCalendarDay`). */
 const calendarDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+/** A calendar date, or null for none. */
+const targetDateSchema = z.object({ targetDate: calendarDay.nullable() });
 
 /**
  * The resident's answer to the entry question (decision 29). Strict, so a field
@@ -248,6 +247,37 @@ const placeInputSchema = z.strictObject({
 
 /** Strict: the ring-fence is changed by a request that names it and nothing else. */
 const ringFenceSchema = z.strictObject({ ringFenced: z.boolean() });
+
+/**
+ * A damage case (decision 28). Trimmed and bounded here; folded, scanned for a
+ * personal identity number and held to a day that has come in the service, so
+ * a refusal it makes has a reason the screen can put a sentence to.
+ */
+const damageCaseFields = {
+  insurer: z.string().trim().min(1).max(ISSUE_DAMAGE_CASE_LIMITS.insurer),
+  claimNumber: z
+    .string()
+    .trim()
+    .min(1)
+    .max(ISSUE_DAMAGE_CASE_LIMITS.claimNumber),
+  occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  cause: z.enum(ISSUE_DAMAGE_CAUSES),
+};
+
+/** The mark a removal means to take off, as the screen read it. */
+const removeDamageCaseSchema = z.strictObject({
+  replaces: z.strictObject(damageCaseFields),
+});
+
+const damageCaseSchema = z.strictObject({
+  ...damageCaseFields,
+  /**
+   * The mark the change was made from, as the screen read it, or null for
+   * none. Required: a change that does not say what it began from cannot be
+   * told from one that writes over another handler's.
+   */
+  replaces: z.strictObject(damageCaseFields).nullable(),
+});
 
 /** Who pays, or null to say nothing again (decision 26). Never an amount. */
 const costResponsibilitySchema = z.strictObject({
@@ -336,8 +366,10 @@ function requirePrincipal(request: RequestWithPrincipal): Principal {
  * server-rendered by the site layer, which calls the services directly, and
  * the ways to an issue without a session are the site layer's link controllers
  * alone: the reporter's private link (`SiteIssueLinkController`), and the
- * contractor's once it is built. Each resolves its token before it reads
- * anything else and reaches one issue's own part, never a principal's.
+ * contractor's link to a work order (`SiteWorkOrderLinkController`), which is
+ * behind a switch that is off until its legal review clears it. Each resolves
+ * its token before it reads anything else and reaches one issue's own part,
+ * never a principal's.
  */
 @Controller("api/issues")
 @RequireCapability("issues:report")
@@ -581,7 +613,7 @@ export class IssueQueueController {
   async listTypes(
     @Req() request: RequestWithPrincipal,
   ): Promise<IssueTypeView[]> {
-    return this.issues.handledTypes(actingPersonId(request));
+    return this.issues.handledTypes(actingPersonId(request), "show");
   }
 
   /**
@@ -800,7 +832,7 @@ export class IssueQueueController {
     @Param("id") id: string,
     @Req() request: RequestWithPrincipal,
   ): Promise<IssueHandlerView[]> {
-    return this.issues.handlers(actingPersonId(request), id);
+    return this.issues.handlers(actingPersonId(request), id, "show");
   }
 
   /** Who did what to the issue, and when (decision 16). */
@@ -821,7 +853,8 @@ export class IssueQueueController {
     return this.issues.assign(
       id,
       assignSchema.parse(body).assigneePersonId,
-      actingPersonId(request),
+      webActor(request),
+      "show",
     );
   }
 
@@ -834,7 +867,8 @@ export class IssueQueueController {
     return this.issues.setPriority(
       id,
       prioritySchema.parse(body).priority,
-      actingPersonId(request),
+      webActor(request),
+      "show",
     );
   }
 
@@ -847,7 +881,8 @@ export class IssueQueueController {
     return this.issues.setTargetDate(
       id,
       targetDateSchema.parse(body).targetDate,
-      actingPersonId(request),
+      webActor(request),
+      "show",
     );
   }
 
@@ -947,6 +982,36 @@ export class IssueQueueController {
     );
   }
 
+  /** Marks the issue as a damage case, or changes the mark (decision 28). */
+  @Put(":id/damage-case")
+  async markDamageCase(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    const { replaces, ...mark } = damageCaseSchema.parse(body);
+    return this.issues.markDamageCase(
+      id,
+      mark,
+      replaces,
+      actingPersonId(request),
+    );
+  }
+
+  /**
+   * Takes the damage-case mark off; the legal hold it placed stays. The body
+   * names the mark taken off, which is refused when it is another by then.
+   */
+  @Delete(":id/damage-case")
+  async removeDamageCase(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedIssueView> {
+    const { replaces } = removeDamageCaseSchema.parse(body);
+    return this.issues.removeDamageCase(id, replaces, actingPersonId(request));
+  }
+
   @Post(":id/status")
   async setStatus(
     @Param("id") id: string,
@@ -956,7 +1021,8 @@ export class IssueQueueController {
     return this.issues.setStatus(
       id,
       statusMoveSchema.parse(body),
-      actingPersonId(request),
+      webActor(request),
+      "show",
     );
   }
 

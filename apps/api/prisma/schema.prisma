@@ -1879,6 +1879,18 @@ enum AuditAction {
   ISSUE_REPORTER_LINK_ISSUED
   /// A handler withdrew the private link of an issue's reporter (ADR 0055). The entry names the issue, the link and the handler as its actor.
   ISSUE_REPORTER_LINK_REVOKED
+  /// A handler gave the contractor of a work order a link to it (ADR 0055). The entry names the issue, the work order and the link, and the handler as its actor; never the token.
+  ISSUE_WORK_ORDER_LINK_ISSUED
+  /// A handler withdrew the link of a work order, or issued a new one in its place (ADR 0055). The entry names the issue, the work order and the link, and the handler as its actor.
+  ISSUE_WORK_ORDER_LINK_REVOKED
+  /// The contractor answered a work order through its link: accepted, declined or done (ADR 0055). The entry names the issue, the work order, the link and the answer, on the link's channel with no actor.
+  ISSUE_WORK_ORDER_ANSWERED
+  /// The contractor wrote a note on a work order through its link. The entry names the issue, the work order, the link and the note, never the text.
+  ISSUE_WORK_ORDER_NOTE_ADDED
+  /// The contractor added a photograph to a work order through its link. The entry names the issue, the work order, the link and the file, never its name.
+  ISSUE_WORK_ORDER_PHOTO_ADDED
+  /// A handler chose which of an issue's photographs the contractor of a work order sees through its link. The entry names the issue, the work order and how many were chosen, and the handler as its actor.
+  ISSUE_WORK_ORDER_PHOTOS_CHOSEN
   /// A handler redacted a text on an issue or removed one of its files (ADR 0057). The entry names the issue, what was reached and the row's identifier, never the text or the file's name.
   ISSUE_REDACTED
   /// A legal hold was placed on an issue, so its free text outlasts its purge clock (ADR 0057).
@@ -1887,6 +1899,10 @@ enum AuditAction {
   ISSUE_LEGAL_HOLD_RELEASED
   /// The board set how many years after closing an issue's free text is kept. The entry names the number either side.
   ISSUE_RETENTION_RECORDED
+  /// A handler marked an issue as a damage case, or changed the mark (decision 28). The entry names the issue, the cause and the day of the damage; never the insurer or the claim number.
+  ISSUE_DAMAGE_CASE_MARKED
+  /// A handler took the damage-case mark off an issue. The legal hold the mark placed stays until a handler releases it.
+  ISSUE_DAMAGE_CASE_REMOVED
   /// A person was moved into an apartment.
   MOVE_IN_RECORDED
   /// A residency was given its move-out date.
@@ -4033,6 +4049,9 @@ model MediaFile {
   associationLogoDark     Association[]            @relation("AssociationLogoDark")
   issuePhotos             IssuePhoto[]
   issueAttachment         IssueAttachment?
+  workOrderPhotos         WorkOrderPhoto[]
+  workOrderExposures      WorkOrderPhotoExposure[]
+  workOrderFile           WorkOrderFile?
   document                Document?                @relation("DocumentFile")
   apartmentDocument       ApartmentDocument?       @relation("ApartmentDocumentFile")
   boardMailboxAttachments BoardMailboxAttachment[]
@@ -4440,15 +4459,22 @@ model IssueType {
   /// access report answers for it in `issueAssignments` (ADR 0057).
   defaultAssigneePersonId String?
 
-  /// Whether its issues are ring-fenced (decision 32 of the issue module's
-  /// plan): nothing about them reaches a contractor, whoever handles them. A
-  /// work order on such an issue is refused inside `WorkOrderService`, its
-  /// preview included (ADR 0055).
+  /// Whether its issues are ring-fenced (avskärmad ärendetyp, decision 32 of the
+  /// issue module's plan): read by the board alone, and nothing about them
+  /// leaves it. Handled by the board only, which a CHECK holds it to, so the
+  /// property manager never reads one; no work order is written or previewed on
+  /// one (`WorkOrderService`, ADR 0055); no mail about one is sent to anybody;
+  /// it is left out of every read on `mcp` and `ai` (ADR 0056); it is offered on
+  /// no form but a signed-in one, with a warning; and its free text is removed
+  /// one year after closing (`RING_FENCED_ISSUE_TEXT_RETENTION_YEARS`), a clock
+  /// the board does not set.
   ///
-  /// Set by the board under issues:configure (`IssueTypeService.setRingFence`),
-  /// each change audited. Which types carry it by default is ADR 0054's open
-  /// question 5, answered with the rest of the ring-fence; until then a type
-  /// is ring-fenced when the board says so.
+  /// Any type may carry it: the Swedish set a new instance starts with has
+  /// Störningar ring-fenced, and the board ring-fences another type under
+  /// issues:configure (`IssueTypeService.setRingFence`), each change audited.
+  /// It is lifted only from a type nobody has reported under, so a board cannot
+  /// hand earlier reports to the property manager or the AI package, or give
+  /// them a longer clock, by lifting it (ADR 0054, question 5).
   ringFenced Boolean @default(false)
 
   /// Its statuses: at least one of each meaning, one of which is the default
@@ -4620,7 +4646,7 @@ model Issue {
   /// to another date and processing its reminder must not forget the first.
   /// Grows by one for each reminder sent. Written with the claim that queues the
   /// mail, under the issue's lock. Not personal data.
-  overdueRemindedFor DateTime[] @db.Date @default([])
+  overdueRemindedFor DateTime[] @default([]) @db.Date
 
   /// Closed to every handler but the board, whatever its type allows (decision
   /// 13). A handler tightens an issue; only the board loosens it again, and
@@ -4685,8 +4711,9 @@ model Issue {
   /// or on its reporter's granted erasure request (ADR 0057). The board's
   /// screen says so with the date rather than showing an empty issue. Written
   /// when the text goes, also while a file attached during the run stands,
-  /// and again by the run that takes that file. Not a selector: what the purge reaches is whatever free text still stands, so
-  /// text written after a reopening is reached on the next closing's clock.
+  /// and again by the run that takes that file. Not a selector: what the
+  /// purge reaches is whatever free text still stands, so text written after
+  /// a reopening is reached on the next closing's clock.
   freeTextRemovedAt DateTime?
 
   /// Since when a legal hold stands on the issue, or null when none does
@@ -4698,6 +4725,10 @@ model Issue {
   legalHoldAt DateTime?
 
   photos IssuePhoto[]
+
+  /// The insurance damage it is marked as, when a handler marked it (decision
+  /// 28).
+  damageCase IssueDamageCase?
 
   /// What the handlers sent contractors about it, oldest first.
   workOrders  WorkOrder[]
@@ -4771,6 +4802,64 @@ model Issue {
   @@index([placeId])
   @@index([closedAt])
   @@map("issue")
+}
+
+/// What caused an insurance damage, as a handler records it on a damage case.
+/// Spelled once for both applications in `@openbrf/shared`
+/// (issue-damage-case.ts).
+enum IssueDamageCause {
+  /// Vattenskada.
+  WATER
+  /// Brand.
+  FIRE
+  /// Inbrott.
+  BURGLARY
+  /// Skadegörelse.
+  VANDALISM
+  /// Storm eller annat väder.
+  WEATHER
+  /// Annat.
+  OTHER
+}
+
+/// An issue marked as an insurance damage (skadeärende, decision 28 of the
+/// issue module's plan): the insurer, the claim number, the day of the damage
+/// and its cause.
+///
+/// A mark on an issue rather than an issue type, so a water leak filed under
+/// Vattenläcka becomes a damage case when the board reports it to the insurer.
+/// Marking an issue places a legal hold on it (`Issue.legalHoldAt`, ADR 0057)
+/// where none stands, so its free text and photographs outlast its clock for as
+/// long as the claim may need them. Taking the mark off leaves the hold: it is
+/// one date with no reason beside it, and a handler releases it as its own act.
+///
+/// Part of the issue's building record, which the purge keeps: none of it is
+/// text about a person. The insurer is a firm and the claim number the
+/// insurer's label for the claim; both are refused when they hold a personal
+/// identity number. Not on any `mcp` or `ai` read (ADR 0056 adds no field by
+/// analogy).
+model IssueDamageCase {
+  id String @id @default(cuid())
+
+  /// Cascade: the mark is part of its issue.
+  issueId String @unique
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The insurance company, as the handler wrote it.
+  insurer String
+
+  /// The insurer's number for the claim (skadenummer).
+  claimNumber String
+
+  /// The day the damage happened, in the association's calendar.
+  occurredOn DateTime @db.Date
+
+  cause IssueDamageCause
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("issue_damage_case")
 }
 
 /// A photograph attached to an issue.
@@ -4929,11 +5018,170 @@ model WorkOrder {
   /// When the handler sent it: the date the record answers with.
   createdAt DateTime @default(now())
 
+  /// What the contractor answered through the work order's link (ADR 0055),
+  /// or null while they have not. A fact about the work, not free text, so it
+  /// stays with the building record when the purge removes the words.
+  answer     WorkOrderAnswer?
+  /// When the answer was given.
+  answeredAt DateTime?
+
+  links        WorkOrderLink[]
+  chosenPhotos WorkOrderPhoto[]
+  exposures    WorkOrderPhotoExposure[]
+  notes        WorkOrderNote[]
+  files        WorkOrderFile[]
+
   @@index([issueId, createdAt])
   @@index([contractorId])
   /// The sender's own work orders in the last hour, for the sending budget.
   @@index([sentByPersonId, createdAt])
   @@map("work_order")
+}
+
+/// What a contractor answered a work order through its link (ADR 0055).
+enum WorkOrderAnswer {
+  /// They take the job. The link stays open for notes, photographs and done.
+  ACCEPTED
+  /// They do not. The link ends.
+  DECLINED
+  /// They finished it. The link ends.
+  DONE
+}
+
+/// A contractor's link (arbetsorderlänk) to one work order (decision 24 of the
+/// issue module plan, ADR 0055): whoever holds it sees that work order's text
+/// and the photographs the board chose for it, answers it, and adds notes and
+/// photographs of their own. Never the report, the reporter or the
+/// conversation.
+///
+/// Built behind a switch that is off until the legal review clears it
+/// (decision 25, `OPENBRF_CONTRACTOR_LINKS_ENABLED`). While it is off nothing
+/// is issued and no token opens anything.
+///
+/// The token is never stored. `tokenDigest` is its SHA-256 digest
+/// (`hashOpaqueToken`), unique, and the link is looked up by it alone, with
+/// whether it still opens anything read in the same query on the database's
+/// clock (`work-order-link.ts`). A work order has one live link at most:
+/// issuing a new one revokes the one before, which a partial unique index in
+/// the migration holds.
+///
+/// No column names the handler who issued it. The audit entry does, and a
+/// person column here would be one more for the person purge to reach.
+model WorkOrderLink {
+  id String @id @default(cuid())
+
+  /// Cascade: a link to a work order that is gone opens nothing.
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  /// The token's SHA-256 digest, base64url.
+  tokenDigest String @unique
+
+  issuedAt  DateTime  @default(now())
+  /// Thirty days after it was issued, on the database's clock, and never moved
+  /// (`WORK_ORDER_LINK_DAYS`). A new link is the only way to more time.
+  expiresAt DateTime
+  /// When a handler withdrew it, a new link replaced it, or something it opens
+  /// stopped being one a contractor may see. A revoked link stays revoked.
+  revokedAt DateTime?
+
+  @@index([workOrderId])
+  @@map("work_order_link")
+}
+
+/// A photograph of an issue that a handler chose for the contractor of a work
+/// order to see through its link (decision 24).
+///
+/// The one way a contractor reads a file of the issue: the link serves a file
+/// only when it is chosen here for its own work order and is still on that
+/// issue. A file removed from the issue takes the row with it by its cascade,
+/// so a photograph redacted or purged stops answering on the next request.
+model WorkOrderPhoto {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  fileId String
+  file   MediaFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  @@unique([workOrderId, fileId])
+  @@index([fileId])
+  @@map("work_order_photo")
+}
+
+/// One photograph of an issue that a work order's link has shown a contractor,
+/// kept so the data subject access report can state how many were disclosed
+/// (GDPR art. 15(1)(c)) after the choice is changed or a file is removed.
+///
+/// Written by the handler's acts, never by a read of the link (ADR 0055: reads
+/// write nothing): when a link is issued, for the photographs already chosen,
+/// and when a photograph is chosen while a link stands. One row per photograph
+/// per work order, so choosing it again counts it once. The file reference is
+/// cleared, not the row, when the file is removed: the count outlives the file.
+model WorkOrderPhotoExposure {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  fileId String?
+  file   MediaFile? @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  exposedAt DateTime @default(now())
+
+  @@unique([workOrderId, fileId])
+  @@index([fileId])
+  @@map("work_order_photo_exposure")
+}
+
+/// A note a contractor wrote on a work order through its link.
+///
+/// The contractor's own words, and free text: part of the issue's free-text
+/// layer, removed with it on the board's clock (ADR 0057), and redacted by a
+/// handler like any other text there. Never shown to the reporter.
+model WorkOrderNote {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  body       String
+  /// When a handler redacted it (ADR 0057). The body is empty then.
+  redactedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([workOrderId, createdAt])
+  @@map("work_order_note")
+}
+
+/// A photograph a contractor added to a work order through its link: the
+/// first upload in the product that no account stands behind (ADR 0055).
+///
+/// Its own join, never `IssuePhoto`, which the reporter reads: the file is
+/// `INTERNAL` under `issues:handle` and read by the handlers the issue lets in
+/// (`issueFileAccess`), and by the link of its own work order. Part of the
+/// issue's free-text layer, as every photograph on an issue is.
+model WorkOrderFile {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  /// Cascade, for the reason `IssuePhoto.fileId` gives. Unique: a file is on
+  /// one work order and decided by it alone.
+  fileId String    @unique
+  file   MediaFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([workOrderId, sortOrder])
+  @@map("work_order_file")
 }
 
 /// The association's responsibility guide (ansvarsfördelning) as a whole:
@@ -5246,7 +5494,7 @@ model IssueFinding {
   /// The day of the inspection the protocol is dated.
   inspectedOn DateTime @db.Date
 
-  protocolAttachmentId String?                @unique
+  protocolAttachmentId String?          @unique
   protocolAttachment   IssueAttachment? @relation(fields: [protocolAttachmentId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
@@ -6342,8 +6590,9 @@ enum NewsDeliveryStatus {
   PENDING
   /// Accepted by the mail server. It is not a claim that anybody read it.
   SENT
-  /// The mail server refused it, or this instance has none configured. The
-  /// news item is published either way: only the mailing failed.
+  /// Not confirmed as handed over: the copy did not go out, or the send ended in
+  /// an error that leaves it unknown whether it did. `failureReason` says which.
+  /// The news item is published either way: only the mailing failed.
   FAILED
 }
 
@@ -7457,8 +7706,9 @@ enum MeetingNoticeDeliveryStatus {
   /// is not a claim that the notice was lawfully given: see MeetingNotice.
   SENT
 
-  /// The mail server refused it, or this instance has none configured. The
-  /// notice is issued either way: only this copy of it failed.
+  /// Not confirmed as handed over: the copy did not go out, or the send ended in
+  /// an error that leaves it unknown whether it did. `failureReason` says which.
+  /// The notice is issued either way: only this copy of it failed.
   FAILED
 }
 

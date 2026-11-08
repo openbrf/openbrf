@@ -8,7 +8,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { NO_ENTRY_PERMISSION } from "../issues/issue-fit-views";
-import { ISSUE_FREE_TEXT_STANDING } from "../issues/issue-free-text";
+import { ISSUE_FREE_TEXT_STANDING_UNREDACTED } from "../issues/issue-free-text";
 import { lockIssue, lockWorkOrderSender } from "../issues/issue-lock";
 import { WORK_ORDER_TEXT_STANDING } from "../issues/issue-retention";
 import { JobQueueService } from "../jobs/job-queue.service";
@@ -676,12 +676,15 @@ export class PurgeService implements OnModuleInit {
     ] = await Promise.all([
       // Only where neither the free text nor a work order's text stands: an
       // issue on which either does keeps its reporter, so naming them here
-      // would select somebody this job then leaves as it found them.
+      // would select somebody this job then leaves as it found them. A
+      // contractor's note a handler redacted is blank and does not count, as it
+      // does not for the detaching of an erased reporter (the clock still takes
+      // its row).
       this.prisma.issue.groupBy({
         by: ["reporterPersonId"],
         where: {
           reporterPersonId: { not: null },
-          NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
+          NOT: [ISSUE_FREE_TEXT_STANDING_UNREDACTED, WORK_ORDER_TEXT_STANDING],
         },
       }),
       this.prisma.issue.groupBy({
@@ -789,16 +792,17 @@ export class PurgeService implements OnModuleInit {
       /*
        * The hold, then what refuses an erasure, before the read. The lock
        * files' own comments describe the gap this closes: without them a hold
-       * placed, a residency reopened, a board seat or a system role granted
-       * between the read below and the writes that follow would be decided by
-       * whichever transaction committed last.
+       * placed, a residency reopened, a board seat, a system role or a plugin
+       * access granted between the read below and the writes that follow
+       * would be decided by whichever transaction committed last.
        *
        * The order is fixed across the product - hold, then residency, then the
        * seat and the roles (`erasure-lock.ts`) - and no writer of one of the
        * later keys takes an earlier one after it: LegalHoldService takes the
-       * hold lock, MoveService the residency lock, the role services their
-       * own. So no transaction ever holds a later key while waiting for an
-       * earlier one, and the set cannot deadlock.
+       * hold lock, MoveService and the plugin access grant the residency
+       * lock, the role services their own. So no transaction ever holds a
+       * later key while waiting for an earlier one, and the set cannot
+       * deadlock.
        */
       await lockLegalHold(tx, personId);
       await lockErasureEligibility(tx, personId);
@@ -992,7 +996,7 @@ export class PurgeService implements OnModuleInit {
       const { count: issuesDetachedFromPerson } = await tx.issue.updateMany({
         where: {
           reporterPersonId: personId,
-          NOT: [ISSUE_FREE_TEXT_STANDING, WORK_ORDER_TEXT_STANDING],
+          NOT: [ISSUE_FREE_TEXT_STANDING_UNREDACTED, WORK_ORDER_TEXT_STANDING],
         },
         data: {
           reporterPersonId: null,

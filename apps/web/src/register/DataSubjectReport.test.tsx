@@ -1998,18 +1998,24 @@ describe("what the document prints", () => {
               writtenAt: "2026-01-06T09:00:00.000Z",
               deliveryStatus: "SENT",
               notSent: false,
+              linkGiven: true,
+              photosShared: 2,
             },
             {
               recipientName: null,
               writtenAt: "2026-01-07T09:00:00.000Z",
               deliveryStatus: "FAILED",
               notSent: false,
+              linkGiven: false,
+              photosShared: 0,
             },
             {
               recipientName: "Elektriker Ab",
               writtenAt: "2026-01-08T09:00:00.000Z",
               deliveryStatus: "FAILED",
               notSent: true,
+              linkGiven: false,
+              photosShared: 0,
             },
           ],
         },
@@ -2030,6 +2036,14 @@ describe("what the document prints", () => {
     expect(cell.getByText(/2026-01-07/)).toBeTruthy();
     // A failure known not to have gone out is said to be that.
     expect(cell.getByText(/Elektriker Ab · Inte skickad/)).toBeTruthy();
+    // A link given to the contractor is said, with how many photographs it
+    // showed, and only where one was given.
+    expect(
+      cell.getByText(
+        /Rörmokare Ab · Skickad · Länk given till entreprenören; 2 foton visas/,
+      ),
+    ).toBeTruthy();
+    expect(cell.getAllByText(/Länk given/)).toHaveLength(1);
   });
 
   it("says an issue's text was removed instead of printing it blank", async () => {
@@ -2831,6 +2845,69 @@ describe("what the document answers for", () => {
       expect(sectionOf(section).textContent).not.toMatch(
         /recipient-objected|no-email-address|FAILED|SENT/,
       );
+    }
+  });
+
+  it("says a copy nobody confirmed is unconfirmed, not that it was not sent", async () => {
+    /*
+     * The send ended in an error after which the mail server may hold the
+     * message. The ledger fails the row, as nothing confirmed it, but the
+     * person it is about is not told it did not go out.
+     */
+    renderReport({
+      ...FULL_REPORT,
+      newsDeliveries: [
+        {
+          newsTitle: "Portkoden byts",
+          newsSlug: "portkoden-byts",
+          channel: "EMAIL",
+          status: "FAILED",
+          failure: "delivery-unconfirmed",
+          queuedAt: "2026-01-19T08:00:00.000Z",
+          sentAt: null,
+        },
+      ],
+      meetingNoticeDeliveries: [
+        {
+          meetingHeldOn: "2027-05-12",
+          meetingKind: "ORDINARY",
+          channel: "EMAIL",
+          status: "FAILED",
+          failure: "delivery-unconfirmed",
+          queuedAt: "2027-04-14T09:00:00.000Z",
+          sentAt: null,
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const mailing = within(
+      sectionOf("Nyhetsutskick och smsutskick till dig"),
+    ).getByText("Portkoden byts");
+    const notice = within(
+      sectionOf("Kallelser till föreningsstämma som skickats till dig"),
+    ).getByText("2027-05-12");
+    /*
+     * The column that holds the reason must not be headed as if the copy were
+     * known not to have gone out.
+     */
+    for (const name of [
+      "Nyhetsutskick och smsutskick till dig",
+      "Kallelser till föreningsstämma som skickats till dig",
+    ]) {
+      const headings = within(sectionOf(name))
+        .getAllByRole("columnheader")
+        .map((heading) => heading.textContent);
+      expect(headings).toContain("Varför det inte bekräftades som skickat");
+      expect(headings).not.toContain("Varför det inte skickades");
+    }
+    for (const row of [mailing.closest("tr"), notice.closest("tr")]) {
+      expect(row?.textContent).toContain("Obekräftat");
+      expect(row?.textContent).toContain(
+        "Utskicket avbröts innan e-postservern bekräftade det, så det går inte att veta om det nådde dig",
+      );
+      expect(row?.textContent).not.toContain("Inte skickat");
+      expect(row?.textContent).not.toContain("delivery-unconfirmed");
     }
   });
 
