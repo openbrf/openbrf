@@ -316,7 +316,25 @@ describe("an upgraded instance's type for disturbances or insurance", () => {
         select: { id: true, assigneePersonId: true },
       });
       const types = await readTypes(tx, [disturbances, insurance, leak]);
+      const audit = await tx.auditLogEntry.findMany({
+        where: { targetKind: "issue", targetId: { in: Object.values(issues) } },
+        select: {
+          action: true,
+          actorPersonId: true,
+          channel: true,
+          targetId: true,
+          context: true,
+        },
+      });
       return {
+        audit: Object.fromEntries(
+          Object.entries(issues).map(([key, id]) => [
+            key,
+            audit
+              .filter((entry) => entry.targetId === id)
+              .map(({ targetId: _target, ...entry }) => entry),
+          ]),
+        ),
         assignees: Object.fromEntries(
           Object.entries(issues).map(([key, id]) => [
             key,
@@ -337,5 +355,24 @@ describe("an upgraded instance's type for disturbances or insurance", () => {
       managerOnLeak: managerId,
     });
     expect(after.defaultAssignees).toEqual([null, boardMemberId, managerId]);
+
+    // Each unassignment is on the issue's timeline with who it was taken from;
+    // an assignee who keeps the issue, or an issue of another type, has none.
+    const unassigned = (previous: string) => [
+      {
+        action: "ISSUE_ASSIGNED",
+        actorPersonId: null,
+        channel: "SYSTEM",
+        context: { previousAssigneePersonId: previous },
+      },
+    ];
+    expect(after.audit).toEqual({
+      manager: unassigned(managerId),
+      former: unassigned(formerBoardMemberId),
+      board: [],
+      admin: [],
+      managerOnInsurance: unassigned(managerId),
+      managerOnLeak: [],
+    });
   });
 });

@@ -55,9 +55,11 @@ UPDATE "issue_type"
 -- Whoever that shuts out is unassigned from the type's issues and cleared as its
 -- default assignee, as `IssueTypeService.update` does when the board keeps a
 -- type to itself and `20261104140100_issue_damage_case_and_ring_fence` did for a
--- ring-fenced one. The service writes an audit entry for each issue, which a
--- migration has no actor to write. An issue an upgrade carries over has no
--- assignee yet, so on an upgrade from a release this finds nobody.
+-- ring-fenced one. Each unassignment gets the entry the service writes for it
+-- (`ISSUE_ASSIGNED`, the previous assignee in its context), so the issue's
+-- timeline shows it. Nobody acted, so the entry has no actor and is on the
+-- system channel. An issue an upgrade carries over has no assignee yet, so on
+-- an upgrade from a release this finds nobody.
 --
 -- The board is an administrator, or a board member whose seat is held today on
 -- the association's calendar (Stockholm's, ADR 0014), the rule
@@ -70,6 +72,21 @@ CREATE TEMPORARY TABLE "board_only_board" AS
     WHERE "electedOn" <= (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Stockholm')::date
       AND ("endedOn" IS NULL
         OR "endedOn" > (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Stockholm')::date);
+
+INSERT INTO "audit_log_entry"
+  ("id", "action", "channel", "targetKind", "targetId", "context", "createdAt")
+SELECT
+  gen_random_uuid()::text,
+  'ISSUE_ASSIGNED',
+  'SYSTEM',
+  'issue',
+  "id",
+  jsonb_build_object('previousAssigneePersonId', "assigneePersonId"),
+  CURRENT_TIMESTAMP
+  FROM "issue"
+  WHERE "typeId" IN (SELECT "id" FROM "board_only_type")
+    AND "assigneePersonId" IS NOT NULL
+    AND "assigneePersonId" NOT IN (SELECT "id" FROM "board_only_board");
 
 UPDATE "issue"
   SET "assigneePersonId" = NULL
