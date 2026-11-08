@@ -16,7 +16,11 @@ export type Message = {
   readonly Created: string;
 };
 
-type MessageList = { readonly messages: readonly Message[] };
+type MessageList = {
+  readonly messages: readonly Message[];
+  /** How many messages the mailbox holds, whatever this page carries. */
+  readonly total: number;
+};
 
 const POLL_INTERVAL_MS = 500;
 
@@ -43,6 +47,33 @@ export async function clearMailbox(): Promise<void> {
 export async function listMessages(): Promise<readonly Message[]> {
   const list = await readJson<MessageList>("/api/v1/messages?limit=200");
   return list.messages;
+}
+
+/**
+ * Every message the mailbox holds, read a page at a time. `listMessages`
+ * answers with the newest 200, so a scan that must not miss one reads this
+ * instead and fails when the pages do not add up to the mailbox's own count.
+ */
+export async function listEveryMessage(): Promise<readonly Message[]> {
+  const pageSize = 200;
+  const all: Message[] = [];
+  let total = 0;
+  do {
+    const page = await readJson<MessageList>(
+      `/api/v1/messages?start=${String(all.length)}&limit=${String(pageSize)}`,
+    );
+    total = page.total;
+    if (page.messages.length === 0) {
+      break;
+    }
+    all.push(...page.messages);
+  } while (all.length < total);
+  if (all.length !== total) {
+    throw new Error(
+      `mailpit holds ${String(total)} messages but ${String(all.length)} were read`,
+    );
+  }
+  return all;
 }
 
 /**

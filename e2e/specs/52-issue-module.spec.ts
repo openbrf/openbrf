@@ -15,7 +15,7 @@ import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { grantPropertyManager } from "../src/issues";
 import {
   linkFrom,
-  listMessages,
+  listEveryMessage,
   messageContent,
   waitForMessage,
 } from "../src/mailpit";
@@ -413,7 +413,7 @@ test("an issue goes from a report to a reopened case, and nothing leaks on the w
   // By what the mailbox held rather than by the clock, which the mail
   // server's container keeps for itself.
   const sentBefore = new Set(
-    (await listMessages()).map((message) => message.ID),
+    (await listEveryMessage()).map((message) => message.ID),
   );
 
   try {
@@ -1025,8 +1025,10 @@ test("an issue goes from a report to a reopened case, and nothing leaks on the w
       );
       // Every mail the mailbox gained since the flow began, whoever it went
       // to: the scan below reads them all, so one that went to somebody the
-      // flow does not know of is read as well.
-      const mails = (await listMessages()).filter(
+      // flow does not know of is read as well. `listEveryMessage` pages
+      // through the whole mailbox and fails when it cannot, so a mail past
+      // the first page is not skipped.
+      const mails = (await listEveryMessage()).filter(
         (message) => !sentBefore.has(message.ID),
       );
       // At least the ones waited for above, to the people the flow made.

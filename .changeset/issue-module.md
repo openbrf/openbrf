@@ -31,7 +31,10 @@ Connected apps and the AI package can assign and move issues.
   run, oldest closing first. A board that wants to keep it longer sets a longer
   period under Settings before that night. An issue of a type the board has
   ring-fenced before that night loses its free text after one year instead,
-  whatever the period says, unless a legal hold stands.
+  whatever the period says. A legal hold on the issue or on its reporter, or a
+  restriction of the reporter's processing, stops the removal; a board that
+  answers a data subject access request about these issues says so, and checks
+  what was actually removed rather than reading it from the date.
 - **Types and statuses.** Types with the same name are merged into one offered
   to all of their audiences, as long as they agree on being switched on: the
   switched-on ones of a name merge into one type and the switched-off ones into
@@ -399,10 +402,13 @@ file, removed from storage and not only from the issue.
 
 - **The period.** A nightly job removes the free text a number of years after
   the issue closed, set by the board under Settings from one to ten years; new
-  and upgraded instances start at two. A year is counted as 365 days, so the
-  text goes at the first night after that many days, which can be a few days
-  before the calendar anniversary of the closing. A file whose stored copy cannot be
-  removed stays, with the text, and the next night tries again.
+  and upgraded instances start at two. A year is counted as 365 days, so an
+  issue is eligible at the first night after that many days, which can be a few
+  days before the calendar anniversary of the closing. Eligible is not removed:
+  a run takes at most 500 issues, and a file whose stored copy cannot be
+  removed stays, with the text, until a later night succeeds. An issue of a
+  ring-fenced type is eligible after one year whatever period is set, unless a
+  legal hold stands, so a longer period does not protect its text.
 - **Legal hold on an issue.** A handler places and releases one. While it
   stands, the issue keeps its free text past its period and nobody can redact
   it. A legal hold or restriction on the reporter does the same for their
