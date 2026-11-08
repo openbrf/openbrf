@@ -647,6 +647,8 @@ describe("the sweep of the issues module's unattached files", () => {
       });
       expect(summary.removed).toBe(1);
       expect(summary.failed).toBeGreaterThanOrEqual(1);
+      // Every file the run tried came off or failed: none was kept.
+      expect(summary.tried).toBe(summary.removed + summary.failed);
       expect(await hasRow(failingId)).toBe(true);
       expect(await hasRow(behindId)).toBe(false);
     } finally {
@@ -767,11 +769,66 @@ describe("the sweep of the issues module's unattached files", () => {
         pageSize: 100,
       });
       expect(summary).toMatchObject({
+        tried: 3,
         removed: 0,
         failed: 3,
         stoppedOnFailures: true,
       });
       expect(refuse).toHaveBeenCalledTimes(3);
+      expect(
+        error.mock.calls
+          .map(([message]) => String(message))
+          .filter((message) => message.startsWith("Issue file sweep stopped")),
+      ).toHaveLength(1);
+      for (const fileId of fileIds) {
+        expect(await hasRow(fileId)).toBe(true);
+      }
+    } finally {
+      refuse.mockRestore();
+      error.mockRestore();
+      warn.mockRestore();
+    }
+
+    await sweep.run();
+    for (const fileId of fileIds) {
+      expect(await hasRow(fileId)).toBe(false);
+    }
+  });
+
+  it("stops at twenty removals failing in a row when the run is given no limits of its own", async () => {
+    /*
+     * The run's defaults, not the small limits the tests above pass in. Storage
+     * refuses every removal and this suite stores twenty-one files, so the run
+     * fails twenty times in a row, tries the newest candidate, which fails too,
+     * and stops: storage is asked exactly twenty-one times, whichever files of
+     * the database's they were, and the files behind are left to the next run.
+     */
+    const fileIds: string[] = [];
+    for (let count = 0; count < 21; count += 1) {
+      fileIds.push(await storeIssueFile(residentPersonId));
+    }
+    for (const fileId of fileIds) {
+      await age(fileId, UNATTACHED_ISSUE_FILE_HOURS + 1);
+    }
+
+    const warn = vi
+      .spyOn(Logger.prototype, "warn")
+      .mockImplementation(() => {});
+    const error = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => {});
+    const refuse = vi
+      .spyOn(storage, "remove")
+      .mockRejectedValue(new Error("storage is down"));
+    try {
+      const summary = await sweep.run();
+      expect(summary).toMatchObject({
+        tried: 21,
+        removed: 0,
+        failed: 21,
+        stoppedOnFailures: true,
+      });
+      expect(refuse).toHaveBeenCalledTimes(21);
       expect(
         error.mock.calls
           .map(([message]) => String(message))
