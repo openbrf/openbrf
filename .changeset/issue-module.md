@@ -26,10 +26,12 @@ Connected apps and the AI package can assign and move issues.
   schema, the schema owner needs `USAGE` on that schema. `docs/deployment.md`,
   "The search's extension", says more.
 - **Free text is removed on the first night.** From the first night after
-  upgrading, the free text of every issue closed more than two years earlier is
-  removed, at most 500 issues in each run, oldest closing first. A board that
-  wants to keep it longer sets a longer period under Settings before that
-  night.
+  upgrading, the free text of every issue closed more than two years earlier
+  (730 days, a year counted as 365 days) is removed, at most 500 issues in each
+  run, oldest closing first. A board that wants to keep it longer sets a longer
+  period under Settings before that night. An issue of a type the board has
+  ring-fenced before that night loses its free text after one year instead,
+  whatever the period says, unless a legal hold stands.
 - **Types and statuses.** Types with the same name are merged into one offered
   to all of their audiences, as long as they agree on being switched on: the
   switched-on ones of a name merge into one type and the switched-off ones into
@@ -133,9 +135,10 @@ data subject access report read the meaning and never the board's label.
   counts unassigned open issues rather than new ones.
 - **API.** `GET /api/issue-queue` takes `view` (`MINE`, `UNASSIGNED`,
   `OVERDUE`, `ALL`), `meaning` (a status meaning or `OPEN`), `typeId`,
-  `priority` and `q`, and refuses a parameter it does not read; without any it
+  `placeId` (only the issues that name that common-area place), `priority` and
+  `q`, and refuses a parameter it does not read; without any it
   still lists every issue the reader handles. `GET /api/issue-queue/counts`
-  takes the same filter without `view`. `GET /api/issue-queue/snapshot` takes
+  takes the same filter without `view`, `placeId` included. `GET /api/issue-queue/snapshot` takes
   the parameters of `GET /api/issue-queue` and answers `{ issues, counts }`,
   read in one transaction. None of them is an action.
 
@@ -212,7 +215,9 @@ number, shown in the queue, on the reporter's own list and in every mail.
   number and type; a handler's also gives the priority, a link to the queue
   and, for a reminder, the target date. A mail never includes what the
   reporter or a handler wrote, where in the building the issue is, or who
-  reported it, so that text does not pass through the mail provider.
+  reported it, so that text does not pass through the mail provider. The one
+  exception is a work order, whose mail carries the handler's text (see "Contractors and work orders"), including any place in the building the handler
+  chose to write in it.
 - **Bounds.** Handlers get mail about at most ten ordinary and ten urgent
   reports an hour from the website's form. Each signed-in reporter has five
   ordinary and five urgent reports an hour, and ten of their own messages an
@@ -333,7 +338,8 @@ number, shown in the queue, on the reporter's own list and in every mail.
   is offered none.
 - **What the mail carries.** The handler's text and nothing else: never the
   report, the place, the reporter, the photographs or a link into the
-  application. A text holding a personal identity number is refused.
+  application. What the handler writes is sent as written, so a place or other
+  personal data they put in it goes to the contractor. A text holding a personal identity number is refused.
 - **The record.** Each work order is stored on the issue before it is mailed,
   with whom it went to, when, what it said and who sent it (GDPR art. 15(1)(c)
   and 19), and its mail shows as on its way, sent, not sent or unconfirmed. The
@@ -393,7 +399,9 @@ file, removed from storage and not only from the issue.
 
 - **The period.** A nightly job removes the free text a number of years after
   the issue closed, set by the board under Settings from one to ten years; new
-  and upgraded instances start at two. A file whose stored copy cannot be
+  and upgraded instances start at two. A year is counted as 365 days, so the
+  text goes at the first night after that many days, which can be a few days
+  before the calendar anniversary of the closing. A file whose stored copy cannot be
   removed stays, with the text, and the next night tries again.
 - **Legal hold on an issue.** A handler places and releases one. While it
   stands, the issue keeps its free text past its period and nobody can redact

@@ -628,11 +628,13 @@ test("an issue goes from a report to a reopened case, and nothing leaks on the w
       const queue = await openQueue(admin, "all");
       const row = rowOf(queue, LEAK_TEXT);
       await openHandling(row, LEAK);
-      const yesterday = formatLocalDay(
-        addLocalDays(localDayOf(new Date()), -1),
+      // Two days back, so the morning after it has passed whatever the hour
+      // and the reminder is owed at once.
+      const overdueSince = formatLocalDay(
+        addLocalDays(localDayOf(new Date()), -2),
       );
       const field = row.getByLabel(`${LEAK}: senast klart`, { exact: true });
-      await field.fill(yesterday);
+      await field.fill(overdueSince);
       const saved = admin.waitForResponse(
         (response) =>
           response.request().method() === "POST" &&
@@ -654,6 +656,16 @@ test("an issue goes from a report to a reopened case, and nothing leaks on the w
       const late = rowOf(admin.getByRole("main"), LEAK_TEXT);
       await expect(late).toBeVisible();
       await expect(late.getByText("Försenat", { exact: true })).toBeVisible();
+
+      // The assignee, the board member, is reminded once, and the mail is in
+      // the box before the privacy scan at the end reads it.
+      const leak = await queuedByDescription(board, LEAK_TEXT);
+      await waitForMessage(ADMINISTRATOR.email, {
+        subjectMatch: new RegExp(
+          `^Ärende ${String(leak.number)} har passerat senast klart`,
+        ),
+        timeoutMs: 60_000,
+      });
     });
 
     // --- 3 and 4. the conversation with the resident, and a note -------------
@@ -1011,16 +1023,41 @@ test("an issue goes from a report to a reopened case, and nothing leaks on the w
           ADMINISTRATOR.email,
         ].map((address) => address.toLowerCase()),
       );
+      // Every mail the mailbox gained since the flow began, whoever it went
+      // to: the scan below reads them all, so one that went to somebody the
+      // flow does not know of is read as well.
       const mails = (await listMessages()).filter(
-        (message) =>
-          !sentBefore.has(message.ID) &&
-          message.To.some((to) => ours.has(to.Address.toLowerCase())),
+        (message) => !sentBefore.has(message.ID),
       );
-      // At least the ones waited for above.
-      expect(mails.length).toBeGreaterThanOrEqual(8);
+      // At least the ones waited for above, to the people the flow made.
+      const toOurs = mails.filter((message) =>
+        message.To.some((to) => ours.has(to.Address.toLowerCase())),
+      );
+      expect(toOurs.length).toBeGreaterThanOrEqual(9);
+      // The overdue reminder is among those read.
+      expect(
+        mails.some((message) =>
+          /^Ärende \d+ har passerat senast klart/.test(message.Subject),
+        ),
+      ).toBe(true);
+      // The ring-fenced issue is never mailed about, so no mail names its
+      // type or carries its number.
+      const fencedIssue = await queuedByDescription(board, FENCED_TEXT);
+      const fencedNumber = new RegExp(
+        `ärende\\s+${String(fencedIssue.number)}(?!\\d)`,
+        "i",
+      );
       for (const mail of mails) {
         const content = await messageContent(mail.ID);
         const to = mail.To.map((recipient) => recipient.Address).join(", ");
+        expect(
+          `${mail.Subject}\n${content}`,
+          `"${mail.Subject}" to ${to} names the ring-fenced type`,
+        ).not.toContain(FENCED);
+        expect(
+          `${mail.Subject}\n${content}`,
+          `"${mail.Subject}" to ${to} is about the ring-fenced issue`,
+        ).not.toMatch(fencedNumber);
         for (const written of FREE_TEXT) {
           expect(
             content,
