@@ -75,3 +75,17 @@ export async function releasePendingChanges(
     await client.end();
   }
 }
+
+/**
+ * Removes the one pending change with this id, for a flow that holds a change
+ * for a person other flows share and puts back only what it held.
+ */
+export async function releasePendingChange(id: string): Promise<void> {
+  const client = new pg.Client({ connectionString: stack.databaseUrl });
+  await client.connect();
+  try {
+    await client.query(`DELETE FROM public.pending_change WHERE id = $1`, [id]);
+  } finally {
+    await client.end();
+  }
+}

@@ -64,22 +64,25 @@ export class SiteRateLimitFilter implements ExceptionFilter {
     }
 
     const acceptLanguage = request.headers["accept-language"];
+    const place = isLinkRequest(request) ? "link" : "website";
     let html: string;
     try {
       html = await this.renderer.tooManyRequests(
         typeof acceptLanguage === "string" ? acceptLanguage : undefined,
-        isLinkRequest(request) ? "link" : "website",
+        place,
       );
     } catch (cause) {
       /*
        * The renderer reads the theme and the association's name, so it can
        * fail as a database read does. The visitor is still owed the refusal
        * and its delay rather than a 500: the status and nothing else, as the
-       * not-found route answers when its own page cannot be drawn. The class
-       * and frames are logged, never the message (ADR 0007).
+       * not-found route answers when its own page cannot be drawn. The place
+       * is named, so that a link's failure can be told from the website's; the
+       * class and frames are logged, never the message (ADR 0007), nor the
+       * address, which on a link is a credential.
        */
       this.logger.error(
-        `The website's rate-limit page could not be rendered: ${failureName(cause)}`,
+        `The rate-limit page for ${place === "link" ? "a link to an issue" : "the website"} could not be rendered: ${failureName(cause)}`,
         failureFrames(cause),
       );
       void reply.code(HttpStatus.TOO_MANY_REQUESTS).send();

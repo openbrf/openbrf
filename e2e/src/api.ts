@@ -713,6 +713,10 @@ export async function createIssueType(
     name: string;
     reporters: readonly IssueReporterGroup[];
     sortOrder?: number;
+    /** Every handler by default; `BOARD` keeps the type's issues to the board. */
+    handledBy?: "EVERY_HANDLER" | "BOARD";
+    /** Who a new report of the type is given to, and mailed (decision 12). */
+    defaultAssigneePersonId?: string | null;
   },
 ): Promise<IssueTypeRow> {
   const response = await request.post(`${baseUrl}/api/issue-types`, {
@@ -720,6 +724,92 @@ export async function createIssueType(
   });
   await expectOk(response, "POST /api/issue-types");
   return (await response.json()) as IssueTypeRow;
+}
+
+/**
+ * Ring-fences an issue type (decision 32): its issues are the board's alone,
+ * and never reach a property manager, a contractor, a notice, MCP or AI.
+ */
+export async function ringFenceIssueType(
+  request: APIRequestContext,
+  baseUrl: string,
+  typeId: string,
+): Promise<void> {
+  const response = await request.put(
+    `${baseUrl}/api/issue-types/${encodeURIComponent(typeId)}/ring-fence`,
+    { data: { ringFenced: true } },
+  );
+  await expectOk(response, "PUT /api/issue-types/:id/ring-fence");
+}
+
+/** Adds a contractor to the board's list (decision 23). */
+export async function createContractor(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: { name: string; trade: string; email: string },
+): Promise<{ id: string }> {
+  const response = await request.post(`${baseUrl}/api/contractors`, {
+    data: input,
+  });
+  await expectOk(response, "POST /api/contractors");
+  return (await response.json()) as { id: string };
+}
+
+/**
+ * The status an issue's timeline answers with for whoever this context is
+ * signed in as: 200 to a handler of the issue, 404 to anybody it is kept from.
+ */
+export async function issueTimelineStatus(
+  request: APIRequestContext,
+  baseUrl: string,
+  issueId: string,
+): Promise<number> {
+  const response = await request.get(
+    `${baseUrl}/api/issue-queue/${encodeURIComponent(issueId)}/timeline`,
+  );
+  return response.status();
+}
+
+/** One pending change as its proposer's own list answers it (ADR 0039). */
+export type PendingChangeRow = {
+  readonly id: string;
+  readonly actionName: string;
+  readonly target: {
+    readonly kind: string;
+    readonly id: string;
+    readonly state: string;
+  } | null;
+};
+
+/** The pending changes this context's person proposed or was proposed. */
+export async function listPendingChanges(
+  request: APIRequestContext,
+  baseUrl: string,
+): Promise<readonly PendingChangeRow[]> {
+  const response = await request.get(`${baseUrl}/api/pending-changes/mine`);
+  await expectOk(response, "GET /api/pending-changes/mine");
+  return (
+    (await response.json()) as { pendingChanges: readonly PendingChangeRow[] }
+  ).pendingChanges;
+}
+
+/**
+ * Confirms a pending change, answering the status and refusal reason rather
+ * than throwing: a refusal is what a caller of this asserts.
+ */
+export async function confirmPendingChange(
+  request: APIRequestContext,
+  baseUrl: string,
+  id: string,
+): Promise<{ status: number; reason: string | null }> {
+  const response = await request.post(
+    `${baseUrl}/api/pending-changes/mine/${encodeURIComponent(id)}/confirm`,
+  );
+  const body = jsonBodyOrNothing(await response.text());
+  return {
+    status: response.status(),
+    reason: typeof body.reason === "string" ? body.reason : null,
+  };
 }
 
 /** Whether the association's website carries an issue report form. */

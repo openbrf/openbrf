@@ -153,6 +153,18 @@ interface ChromeSource {
  */
 export type RefusalPlace = "website" | "link";
 
+/**
+ * The chrome of a link to an issue (ADR 0055): the anonymous visitor's, with
+ * no menu.
+ *
+ * The link's pages and its rate-limit page are both drawn through this, so
+ * that the refusal a link answers has the same chrome as the link's own pages.
+ * Why it has no menu is issueLink()'s to say.
+ */
+function asIssueLinkChrome(chrome: SiteChrome): SiteChrome {
+  return { ...chrome, menu: [] };
+}
+
 /** The rate-limit page in every language this instance has, for each place. */
 interface RefusalPages {
   defaultLocale: string | null;
@@ -507,7 +519,7 @@ export class SiteRenderer {
   private async issueLinkChrome(
     acceptLanguage: string | undefined,
   ): Promise<SiteChrome> {
-    return { ...(await this.chrome(acceptLanguage, false)), menu: [] };
+    return asIssueLinkChrome(await this.chrome(acceptLanguage, false));
   }
 
   /**
@@ -560,19 +572,20 @@ export class SiteRenderer {
     }
 
     const pages = this.chromeSource(false).then((source) => {
-      const drawn = (menu: SiteMenu): ReadonlyMap<Locale, string> =>
+      const drawn = (
+        forPlace: (chrome: SiteChrome) => SiteChrome,
+      ): ReadonlyMap<Locale, string> =>
         new Map(
           SUPPORTED_LOCALES.map((locale) => [
             locale,
-            renderTooManyRequests({ ...this.chromeIn(source, locale), menu }),
+            renderTooManyRequests(forPlace(this.chromeIn(source, locale))),
           ]),
         );
       return {
         defaultLocale: source.defaultLocale,
         html: new Map<RefusalPlace, ReadonlyMap<Locale, string>>([
-          ["website", drawn(source.menu)],
-          // The link's chrome (issueLinkChrome): no menu.
-          ["link", drawn([])],
+          ["website", drawn((chrome) => chrome)],
+          ["link", drawn(asIssueLinkChrome)],
         ]),
       };
     });
@@ -584,6 +597,18 @@ export class SiteRenderer {
       }
     });
     return pages;
+  }
+
+  /**
+   * Drops the rate-limit pages kept, so that the next refusal draws them anew.
+   *
+   * For a suite that changes what the chrome is drawn from and then reads a
+   * refusal: without it the page it reads may have been drawn before the
+   * change, and moving the clock past the TTL instead would leave a page drawn
+   * from the suite's own fixtures kept for the tests after it.
+   */
+  forgetRefusalPages(): void {
+    this.refusal = null;
   }
 
   /**
