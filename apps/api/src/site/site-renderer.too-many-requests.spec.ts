@@ -19,8 +19,8 @@ import { REFUSAL_PAGE_TTL_MS, SiteRenderer } from "./site-renderer.service";
  * The rate-limit page answers requests the limit already turned away, so
  * drawing it must not read the database per request. These pin that one read
  * serves every refusal for a TTL, the website's and the links' alike, that a
- * burst shares the read in flight, that a failed read is not kept, and that a
- * link's refusal has no menu.
+ * burst shares the read in flight, that a failed read is not kept, that the
+ * pages kept can be dropped, and that a link's refusal has no menu.
  */
 
 const i18n = new I18nService();
@@ -168,6 +168,23 @@ describe("SiteRenderer.tooManyRequests", () => {
     expect(await site.tooManyRequests("en", "website")).toContain(
       "Too many attempts",
     );
+    expect(findUnique).toHaveBeenCalledTimes(2);
+  });
+
+  it("draws the pages anew once they are dropped, within the TTL", async () => {
+    const site = renderer();
+    await site.tooManyRequests("sv", "website");
+    findUnique.mockResolvedValue({
+      name: "Brf Omdöpt",
+      defaultLocale: "sv",
+      logoFileId: null,
+      primaryColor: null,
+      selfSignupEnabled: false,
+    });
+
+    site.forgetRefusalPages();
+
+    expect(await site.tooManyRequests("sv", "link")).toContain("Brf Omdöpt");
     expect(findUnique).toHaveBeenCalledTimes(2);
   });
 });
