@@ -46,9 +46,34 @@ function commands(): string[] {
       if (program !== "docker") {
         return program;
       }
+      if (args[0] !== "compose") {
+        return `docker ${args.join(" ")}`;
+      }
       const envFile = args.indexOf("--env-file");
       return `docker compose ${args.slice(envFile + 2).join(" ")}`;
     });
+}
+
+/** The id `docker compose ps` answers with for the application container. */
+const APP_CONTAINER = "0123456789ab";
+
+/**
+ * Docker, as far as startStack asks it anything: the application container's
+ * id, and the gateway of its network. Every other command answers nothing.
+ */
+function dockerAnswering(gateway: string) {
+  return ((program: string, args?: readonly string[]) => {
+    if (program !== "docker") {
+      return "";
+    }
+    if (args?.[0] === "compose" && args.includes("ps")) {
+      return `${APP_CONTAINER}\n`;
+    }
+    if (args?.[0] === "inspect") {
+      return `${gateway} \n`;
+    }
+    return "";
+  }) as unknown as typeof execFileSync;
 }
 
 describe("startStack", () => {
@@ -71,15 +96,18 @@ describe("startStack", () => {
     expect(commands()).toEqual([]);
   });
 
+  const pulled = {
+    pid: 1,
+    output: [],
+    stdout: "",
+    stderr: "",
+    status: 0,
+    signal: null,
+  };
+
   it("pulls the registry images before it builds and starts the stack", () => {
-    vi.mocked(spawnSync).mockReturnValue({
-      pid: 1,
-      output: [],
-      stdout: "",
-      stderr: "",
-      status: 0,
-      signal: null,
-    });
+    vi.mocked(execFileSync).mockImplementation(dockerAnswering("172.18.0.1"));
+    vi.mocked(spawnSync).mockReturnValue(pulled);
 
     startStack();
 
@@ -90,7 +118,45 @@ describe("startStack", () => {
       "node",
       "docker compose pull --ignore-buildable",
       "docker compose up --build --detach --wait",
+      // Then where the suite's requests will come from.
+      "docker compose ps --all --quiet app",
+      `docker inspect --format {{range .NetworkSettings.Networks}}{{.Gateway}} {{end}} ${APP_CONTAINER}`,
     ]);
+  });
+
+  it("passes a gateway from a daemon whose address pools are in 10.0.0.0/8", () => {
+    vi.mocked(execFileSync).mockImplementation(dockerAnswering("10.128.10.1"));
+    vi.mocked(spawnSync).mockReturnValue(pulled);
+
+    expect(() => startStack()).not.toThrow();
+  });
+
+  it("stops at start when the gateway is outside TRUSTED_PROXIES", () => {
+    vi.mocked(execFileSync).mockImplementation(dockerAnswering("100.80.0.1"));
+    vi.mocked(spawnSync).mockReturnValue(pulled);
+
+    expect(() => startStack()).toThrow(
+      /gateway 100\.80\.0\.1 is not in TRUSTED_PROXIES \(10\.0\.0\.0\/8,.*in .*stack\.env\./,
+    );
+  });
+
+  it("checks the TRUSTED_PROXIES the environment gives, which Compose prefers", async () => {
+    vi.stubEnv("TRUSTED_PROXIES", "172.16.0.0/12");
+    vi.resetModules();
+    const childProcess = await import("node:child_process");
+    const { startStack: start } = await import("./stack");
+    vi.mocked(childProcess.execFileSync).mockImplementation(
+      dockerAnswering("10.128.10.1"),
+    );
+    vi.mocked(childProcess.spawnSync).mockReturnValue(pulled);
+
+    try {
+      expect(() => start()).toThrow(
+        /gateway 10\.128\.10\.1 is not in TRUSTED_PROXIES \(172\.16\.0\.0\/12\).*the TRUSTED_PROXIES this process was started with/,
+      );
+    } finally {
+      vi.resetModules();
+    }
   });
 
   it("starts nothing when the pull fails for good", () => {
@@ -137,8 +203,9 @@ describe("startStack with a CI image mirror", () => {
     const childProcess = await import("node:child_process");
     const fs = await import("node:fs");
     const { startStack: start } = await import("./stack");
-    vi.mocked(childProcess.execFileSync).mockImplementation((program) =>
-      program === "node" ? JSON.stringify(refs) : Buffer.alloc(0),
+    const docker = dockerAnswering("172.18.0.1");
+    vi.mocked(childProcess.execFileSync).mockImplementation((program, args) =>
+      program === "node" ? JSON.stringify(refs) : docker(program, args),
     );
     vi.mocked(childProcess.spawnSync).mockReturnValue({
       pid: 1,
@@ -176,7 +243,9 @@ describe("startStack with a CI image mirror", () => {
       ...vi.mocked(childProcess.spawnSync).mock.calls,
     ]
       .filter(([program]) => program === "docker")
-      .map(([, args]) => (args ?? []) as readonly string[]);
+      .map(([, args]) => (args ?? []) as readonly string[])
+      // Of the program's own commands; `docker inspect` reads no compose file.
+      .filter((args) => args[0] === "compose");
     expect(composeCalls.length).toBeGreaterThan(0);
     for (const args of composeCalls) {
       expect(args.join(" ")).toContain(`-f ${String(path)} --env-file`);
