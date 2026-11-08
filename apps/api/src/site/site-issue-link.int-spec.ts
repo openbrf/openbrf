@@ -240,13 +240,22 @@ const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 /**
  * The database's clock, read the way a `TIMESTAMP(3)` column is read. A link's
  * `expiresAt` is set on that clock, so a check against `Date.now()` would take
- * the gap between the two clocks, and the session's time zone, for the link's
- * fault. The cast is the one the column goes through, so the zone cancels.
+ * the gap between the two clocks for the link's fault. The cast is the one the
+ * column goes through, so the zone cancels, but only in a zone without
+ * daylight saving: a reading taken across a fall-back, or an expiry that
+ * lands in a spring-forward gap, would not bracket. Like the rest of this file
+ * the helper therefore requires a UTC session and says so when it is not one.
  */
 async function databaseClock(): Promise<Date> {
-  const [row] = await prisma.$queryRaw<{ now: Date }[]>`
-    SELECT clock_timestamp()::timestamp(3) AS "now"`;
-  return row!.now;
+  const [row] = await prisma.$queryRaw<{ now: Date; zone: string }[]>`
+    SELECT clock_timestamp()::timestamp(3) AS "now",
+           current_setting('TimeZone') AS "zone"`;
+  if (row === undefined || !["UTC", "Etc/UTC"].includes(row.zone)) {
+    throw new Error(
+      `The year checks read local timestamps as UTC, and the session's time zone is ${row?.zone ?? "unknown"}.`,
+    );
+  }
+  return row.now;
 }
 
 /** `expiresAt` ends a year after a moment between two readings of the clock. */
@@ -946,9 +955,11 @@ describe("B. lifetime and revocation", () => {
     });
     expectYearAfterBetween(issued.expiresAt, beforeIssue, afterIssue);
 
+    // A minute ahead on the database's clock, which `replyAsHandler` judges
+    // the link on; the process's clock could put it in the past.
     await prisma.issueReporterLink.update({
       where: { issueId },
-      data: { expiresAt: new Date(Date.now() + 60_000) },
+      data: { expiresAt: new Date((await databaseClock()).getTime() + 60_000) },
     });
     const beforeReply = await databaseClock();
     await conversation.replyAsHandler(
