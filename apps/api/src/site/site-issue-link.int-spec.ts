@@ -1487,6 +1487,66 @@ describe("D. rate limits and abuse", () => {
     }
   });
 
+  it("D6: two deliveries at once for the instance's last slot issue one link between them", async () => {
+    const env = app.get<Env>(ENV);
+    const ceiling = env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR;
+    const [issued] = await prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT count(*) AS "count" FROM "issue_reporter_link"
+      WHERE "issuedAt" > now() - interval '1 hour'`;
+    env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR = Number(issued?.count ?? 0) + 1;
+    try {
+      // Filed first, delivered together: each finds the one slot free when it
+      // counts, unless the count and the issue of the link are one step.
+      const filed = await Promise.all(
+        [1, 2].map((n) =>
+          issues.reportPublicly({
+            typeId: publicType.id,
+            location: null,
+            description: `Porten låser inte ${String(n)} ${suffix}`,
+            reporterName: null,
+            reporterEmail: `rl-last-${String(n)}-${suffix}@exempel.se`,
+          }),
+        ),
+      );
+      const mailed = await Promise.all(
+        filed.map(({ id }) => links.deliver(id)),
+      );
+
+      expect(mailed.filter(Boolean)).toHaveLength(1);
+      expect(
+        await prisma.issueReporterLink.count({
+          where: { issueId: { in: filed.map(({ id }) => id) } },
+        }),
+      ).toBe(1);
+    } finally {
+      env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR = ceiling;
+    }
+  });
+
+  it("D6: an address of today's links that cannot be read does not stop another report's link", async () => {
+    const damaged = await reportAndDeliver(`rl-damaged-${suffix}@exempel.se`);
+    expect(damaged.mailed).toBe(true);
+    const before = await prisma.issue.findUniqueOrThrow({
+      where: { id: damaged.id },
+      select: { reporterEmailCipher: true },
+    });
+    await prisma.issue.update({
+      where: { id: damaged.id },
+      data: { reporterEmailCipher: "not-a-sealed-address" },
+    });
+    try {
+      // The damaged address names no recipient, so another one is still mailed.
+      expect(
+        (await reportAndDeliver(`rl-undamaged-${suffix}@exempel.se`)).mailed,
+      ).toBe(true);
+    } finally {
+      await prisma.issue.update({
+        where: { id: damaged.id },
+        data: { reporterEmailCipher: before.reporterEmailCipher },
+      });
+    }
+  });
+
   it("D6: a person who restricted processing is not mailed", async () => {
     const email = `rl-restricted-${suffix}@exempel.se`;
     const sealed = await encryption.encrypt("person.email", email);

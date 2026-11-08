@@ -181,7 +181,9 @@ a script typing a new tag each time could fill one inbox from the
 association's mail account. The addresses are compared decrypted, under the
 lock the count takes, rather than by an index of their own: the blind index of
 the reporter's address stays the one matched against the register, and the
-budget adds nothing for the purges to clear. Two people whose addresses fold
+budget adds nothing for the purges to clear. An address among the day's
+that cannot be read is skipped, not counted, so one damaged report does not
+stop other reports' links. Two people whose addresses fold
 to one form share three a day.
 
 The hourly ceiling is for the instance as a whole, so a script typing many

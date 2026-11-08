@@ -586,10 +586,19 @@ export class IssueReporterLinkService implements OnModuleInit {
         AND i."reporterEmailCipher" IS NOT NULL`;
     let sentToday = 0;
     for (const { cipher } of today) {
-      const address = await this.encryption.decrypt(
-        "issue.reporterEmail",
-        cipher,
-      );
+      let address: string;
+      try {
+        address = await this.encryption.decrypt("issue.reporterEmail", cipher);
+      } catch {
+        // Another report's damaged address is no reason to refuse this one a
+        // link: it names no recipient, so it counts against none. Its own
+        // delivery fails on it, as it does without a budget. Not logged with
+        // the address, nor the cipher.
+        this.logger.warn(
+          `Issue ${issueId}: an address issued a link today could not be read, and is not counted.`,
+        );
+        continue;
+      }
       if (reporterLinkRecipient(address) === recipient) {
         sentToday += 1;
         if (sentToday >= REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY) {
