@@ -425,9 +425,11 @@ file, removed from storage and not only from the issue.
   and the request stays open and says why.
 - **Unattached files.** A nightly job removes a photograph or file uploaded to
   an issue but never placed on it, a day after the upload, at most 500 a run,
-  keeping one whose uploader is under a legal hold or a restriction. A run
-  stops when 20 removals in a row fail, as they do when storage is down, and
-  leaves the rest to the next night.
+  keeping one whose uploader is under a legal hold or a restriction. When 20
+  removals in a row fail, the run tries the newest file before it goes on: if
+  that one fails too, as it does when storage is down, the run stops and leaves
+  the rest to the next night, and if it is removed, the scan carries on past the
+  files that fail on their own.
 
 Every redaction, legal hold and change of the period is recorded in the audit
 log with who did it, never the text or a file's name. A person's data subject

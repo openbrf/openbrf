@@ -658,12 +658,65 @@ describe("the sweep of the issues module's unattached files", () => {
     expect(await hasRow(failingId)).toBe(false);
   });
 
+  it("reaches the files behind a run of files that fail on their own, which a stop at the front would keep stored", async () => {
+    /*
+     * The two oldest files fail every time and the limit is two in a row, with
+     * a page of one. Storage works for the third, so the newest candidate comes
+     * off and the scan goes on to the files behind the two. Twenty years back
+     * puts the three ahead of what any other suite leaves behind.
+     */
+    const failing = [
+      await storeIssueFile(residentPersonId),
+      await storeIssueFile(residentPersonId),
+    ];
+    const behindId = await storeIssueFile(residentPersonId);
+    for (const [index, fileId] of failing.entries()) {
+      await age(fileId, 20 * 365 * 24 + 2 - index);
+    }
+    await age(behindId, 20 * 365 * 24);
+    const failingKeys = await Promise.all(failing.map(storageKeyOf));
+
+    const warn = vi
+      .spyOn(Logger.prototype, "warn")
+      .mockImplementation(() => {});
+    const remove = storage.remove.bind(storage);
+    const refuse = vi
+      .spyOn(storage, "remove")
+      .mockImplementation(async (storageKey) => {
+        if (failingKeys.includes(storageKey)) {
+          throw new Error("storage refused the file");
+        }
+        await remove(storageKey);
+      });
+    try {
+      const summary = await sweep.run(new Date(), {
+        maxRemovals: 500,
+        maxFailuresInARow: 2,
+        pageSize: 1,
+      });
+      expect(summary.stoppedOnFailures).toBe(false);
+      expect(summary.removed).toBeGreaterThanOrEqual(1);
+      expect(await hasRow(behindId)).toBe(false);
+      for (const fileId of failing) {
+        expect(await hasRow(fileId)).toBe(true);
+      }
+    } finally {
+      refuse.mockRestore();
+      warn.mockRestore();
+    }
+
+    await sweep.run();
+    for (const fileId of failing) {
+      expect(await hasRow(fileId)).toBe(false);
+    }
+  });
+
   it("stops once removals have failed a number of times in a row, as when storage is down", async () => {
     /*
      * Three of this suite's files, and storage refuses every removal. The run
-     * stops at the second failure in a row, whichever files of the database's
-     * they were, so storage is asked exactly twice, and the third file is never
-     * tried.
+     * tries the newest candidate at the second failure in a row, whichever
+     * files of the database's they were, and stops when that fails too, so
+     * storage is asked exactly three times.
      */
     const fileIds = [
       await storeIssueFile(residentPersonId),
@@ -691,10 +744,10 @@ describe("the sweep of the issues module's unattached files", () => {
       });
       expect(summary).toMatchObject({
         removed: 0,
-        failed: 2,
+        failed: 3,
         stoppedOnFailures: true,
       });
-      expect(refuse).toHaveBeenCalledTimes(2);
+      expect(refuse).toHaveBeenCalledTimes(3);
       expect(
         error.mock.calls
           .map(([message]) => String(message))
