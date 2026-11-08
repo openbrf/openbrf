@@ -870,9 +870,10 @@ describe("B. lifetime and revocation", () => {
     // starts, and out of it once the reply has waited for the issue's locks.
     // Dated on this process's clock, the one the hour is judged on and a
     // message's `createdAt` is filled from: the API runs in this process.
+    const datedAt = Date.now() - 3598 * 1000;
     await prisma.issueMessage.updateMany({
       where: { issueId },
-      data: { createdAt: new Date(Date.now() - 3598 * 1000) },
+      data: { createdAt: new Date(datedAt) },
     });
 
     let letGo: () => void = () => undefined;
@@ -904,6 +905,9 @@ describe("B. lifetime and revocation", () => {
           )) > 0n,
         10_000,
       );
+      // A slow setup must fail here, not pass without testing anything: the
+      // messages are still inside the hour when the reply begins to wait.
+      expect(Date.now() - datedAt).toBeLessThan(60 * 60 * 1000);
       await new Promise((resolve) => setTimeout(resolve, 3500));
       letGo();
       await holder;

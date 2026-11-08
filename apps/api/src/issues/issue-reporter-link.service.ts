@@ -893,6 +893,8 @@ async function reporterLinkReading(
   tx: Prisma.TransactionClient,
   issueId: string,
 ): Promise<{ now: Date; lastHour: number; total: number }> {
+  // Bound as an ISO string with its offset, so the cutoff is the same instant
+  // whatever time zone the database session runs in.
   const hourAgo = new Date(Date.now() - ONE_HOUR_MS);
   const [reading] = await tx.$queryRaw<
     { now: Date; lastHour: bigint; total: bigint }[]
@@ -900,7 +902,7 @@ async function reporterLinkReading(
     WITH "clock" AS (SELECT clock_timestamp() AS "now")
     SELECT
       "clock"."now",
-      count(m."id") FILTER (WHERE m."createdAt" > (${hourAgo}::timestamptz AT TIME ZONE 'UTC')) AS "lastHour",
+      count(m."id") FILTER (WHERE m."createdAt" > (${hourAgo.toISOString()}::timestamptz AT TIME ZONE 'UTC')) AS "lastHour",
       count(m."id") AS "total"
     FROM "clock"
     LEFT JOIN "issue_message" m
