@@ -664,9 +664,15 @@ describe("the sweep of the issues module's unattached files", () => {
      * a page of one. Storage works for the other two. The newest comes off as
      * the run's try, which leaves the third for the scan itself: that it is
      * removed shows the scan went on past the two. The order of the storage
-     * calls shows the newest was the try and the third came after it. Twenty
-     * years back puts the four ahead of what any other suite leaves behind.
+     * calls shows the newest was the try and the third came after it.
+     *
+     * The try is on the newest candidate in the whole database, so the run is
+     * judged at a moment when only files uploaded more than thirty years ago
+     * are past their age: the four, and nothing another suite leaves behind,
+     * however recently it stored it. A file older still would be scanned
+     * before the four and changes nothing that is asserted here.
      */
+    const years = 30 * 365 * 24;
     const failing = [
       await storeIssueFile(residentPersonId),
       await storeIssueFile(residentPersonId),
@@ -674,10 +680,14 @@ describe("the sweep of the issues module's unattached files", () => {
     const behindId = await storeIssueFile(residentPersonId);
     const newestId = await storeIssueFile(residentPersonId);
     for (const [index, fileId] of failing.entries()) {
-      await age(fileId, 20 * 365 * 24 + 3 - index);
+      await age(fileId, years + 3 - index);
     }
-    await age(behindId, 20 * 365 * 24);
-    await age(newestId, 20 * 365 * 24 - 1);
+    await age(behindId, years);
+    await age(newestId, years - 1);
+    // Past their age only what was uploaded more than `years - 2` hours ago.
+    const judgedAt = new Date(
+      Date.now() - (years - 2 - UNATTACHED_ISSUE_FILE_HOURS) * HOUR,
+    );
     const failingKeys = await Promise.all(failing.map(storageKeyOf));
     const behindKey = await storageKeyOf(behindId);
     const newestKey = await storageKeyOf(newestId);
@@ -700,7 +710,7 @@ describe("the sweep of the issues module's unattached files", () => {
         await remove(storageKey);
       });
     try {
-      const summary = await sweep.run(new Date(), {
+      const summary = await sweep.run(judgedAt, {
         maxRemovals: 500,
         maxFailuresInARow: 2,
         pageSize: 1,

@@ -264,21 +264,25 @@ export class IssueFileSweepService implements OnModuleInit {
    * fail, the run tries the newest candidate before it goes on. Storage that
    * is down fails that one as well, and the run stops there and leaves the
    * rest to the next night rather than holding the queue's worker for a try at
-   * every candidate. Files that fail on their own do not: the newest is
-   * removed, the count starts again, and the scan reaches the files behind
-   * them, which a stop at the front would have kept stored every night. Each
-   * such try removes a file, so it spends the run's bound on removals, and the
-   * work of a run stays bounded. A file the check under the lock keeps neither
-   * adds to the failures in a row nor clears them: only a removal shows that
-   * storage works.
+   * every candidate. When the failures are of files that fail on their own,
+   * the try on the newest can succeed: then the newest is removed, the count
+   * starts again, and the scan reaches the files behind them, which a stop at
+   * the front would have kept stored every night. A try that succeeds spends
+   * the run's bound on removals like any other removal. A newest candidate
+   * that the check under the lock keeps removes nothing, and like any file it
+   * keeps it neither adds to the failures in a row nor clears them: only a
+   * removal shows that storage works. The scan then goes on, and its next
+   * failure tries the next newest. The scan skips every file tried out of
+   * turn, so a run tries each candidate at most once.
    *
-   * The run keeps no place between nights, so files that fail on their own
-   * stop it only when there are more than
-   * {@link IssueFileSweepLimits.maxFailuresInARow} of them and the newest
-   * candidate is one of them too. That is
-   * indistinguishable from an outage, and the error line below is how an
-   * operator learns of it; the files behind stay stored until the failing ones
-   * are dealt with.
+   * The recovery is not guaranteed. The newest candidate can fail on its own
+   * as well, and the run keeps no place between nights: files that fail on
+   * their own stop it whenever
+   * {@link IssueFileSweepLimits.maxFailuresInARow} of their removals fail with
+   * no removal between and the try on the newest fails too, and they do so
+   * again every night they go on failing. That is indistinguishable from an
+   * outage, and the error line below is how an operator learns of it; the
+   * files behind the failing ones stay stored until those are dealt with.
    *
    * A file whose removal fails is logged as a warning, every night it fails.
    * The run's stop on failures is logged as an error, being what an outage of
