@@ -41,9 +41,11 @@ Connected apps and the AI package can assign and move issues.
   another, so an audience the board had closed stays closed. Every issue moves
   onto the default status of its old status's meaning and keeps its closing
   date and history; an issue closed earlier has no outcome. Every existing type
-  is handled by every handler and files at normal priority with no default
-  assignee, and every existing issue is unassigned, at normal priority, with no
-  target date. Existing issues are numbered in the order they were filed.
+  files at normal priority with no default assignee, and is handled by every
+  handler, except a type for disturbances or insurance (see "Damage cases and
+  ring-fenced issue types" below). Every existing issue is unassigned, at
+  normal priority, with no target date. Existing issues are numbered in the
+  order they were filed.
 - **Starting data.** An instance already set up gets two saved replies and nine
   common areas, in its own language. A new instance also starts with a Swedish
   set of issue types, so the website's form takes a report from the first day.
@@ -310,12 +312,24 @@ number, shown in the queue, on the reporter's own list and in every mail.
   nor the type. No report under it is made from a post, and the website's form
   offers none. The ring-fence cannot be lifted once anything has been reported
   under the type; a type ring-fenced by mistake is switched off and replaced.
-- **Upgrading ring-fences nothing.** The types an instance already has keep
-  being handled by every handler, the property manager included, since nothing
-  tells the upgrade which of them is for disturbances. A board that has such a
-  type, and offers it on the website's form, takes it off the form and
-  ring-fences it in the settings; the issues already reported under it are
-  then ring-fenced with it.
+- **Upgrading hands a type for disturbances or insurance to the board.** An
+  existing type named exactly `Störningar` or `Störning`, or `Försäkringsärende`,
+  `Försäkringsärenden` or `Försäkring`, is handled by the board only after the
+  upgrade, as the matching types a new instance starts with are. Case and the
+  spaces around the name do not matter. No other name is matched: a type
+  called `Driftstörningar`, or one named in another language, stays with every
+  handler. The board can open the type to every handler again in the settings,
+  or keep another type to itself there.
+- **Upgrading ring-fences nothing.** A board that wants its type for
+  disturbances ring-fenced, as a new instance's is, takes it off the website's
+  form and ring-fences it in the settings. The issues already reported under it
+  are then ring-fenced with it, and the ring-fence cannot be lifted once the
+  type has issues. From the next night, the nightly purge removes the free
+  text of each of those issues that closed more than a year earlier, unless a legal hold
+  stands on the issue, or a legal hold or a restriction on its reporter. A
+  board that may need those texts, as evidence in a dispute with a resident for
+  example, places a legal hold first. From then on nothing about those issues
+  is mailed, to a handler or to their reporter.
 - **Its own retention period.** The free text of a ring-fenced issue is purged
   one year after it closes, whatever the board set for other issues, unless a
   legal hold stands on the issue or a legal hold or a restriction on its
