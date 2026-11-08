@@ -1508,9 +1508,41 @@ describe("D. rate limits and abuse", () => {
           }),
         ),
       );
-      const mailed = await Promise.all(
-        filed.map(({ id }) => links.deliver(id)),
+      // Both deliveries are held at the budget until both are queued behind
+      // it, read from `pg_locks`: started together and left to chance, one
+      // could commit before the other counts, and the test would pass without
+      // the shared lock.
+      const key = "issue-reporter-link-mail-budget";
+      let letGo: () => void = () => undefined;
+      const letGoSignal = new Promise<void>((resolve) => {
+        letGo = resolve;
+      });
+      let held: () => void = () => undefined;
+      const holding = new Promise<void>((resolve) => {
+        held = resolve;
+      });
+      const holder = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+          held();
+          await letGoSignal;
+        },
+        { timeout: 30_000 },
       );
+      let delivering: Promise<boolean[]> = Promise.resolve([]);
+      try {
+        await Promise.race([holding, holder]);
+        delivering = Promise.all(filed.map(({ id }) => links.deliver(id)));
+        delivering.catch(() => undefined);
+        await waitFor(
+          async () => (await advisoryLockCount(prisma, key, false)) === 2n,
+          10_000,
+        );
+      } finally {
+        letGo();
+        await holder.catch(() => undefined);
+      }
+      const mailed = await delivering;
 
       expect(mailed.filter(Boolean)).toHaveLength(1);
       expect(
