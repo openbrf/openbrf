@@ -1031,8 +1031,9 @@ Free, open source, and never moved behind a paywall.
       a legal hold or a restriction on its reporter. A report filed through
       the public form is keyed to nobody, so no
       person's clock reaches its contact details and they are detached on one
-      of their own, a year after the board closed it. Both report forms say
-      how long what they ask for is kept, on the clock of the issue type. A
+      of their own, a year after the board closed it. Both report forms state
+      the retention period for the free text on the issue-type clock; the
+      public form also explains the separate contact-details clock. A
       reporter's data subject access report carries each issue's number, the
       conversation as they read it, a handler's messages signed with a role
       and never a name, when it closed and the earliest day its free text
