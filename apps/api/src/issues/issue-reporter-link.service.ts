@@ -35,6 +35,7 @@ import {
   type LiveReporterLink,
   liveReporterLinkByDigest,
 } from "./issue-reporter-link";
+import { reporterLinkRecipient } from "./issue-reporter-link-recipient";
 import {
   hasReporterLinkTokenForm,
   mintReporterLinkToken,
@@ -60,9 +61,11 @@ const LINK_JOB_OPTIONS = {
  * Link mails one address may be sent in 24 hours, whatever the issues.
  *
  * Anybody can type somebody else's address into the website's form, so the
- * form must not become a way to fill a stranger's inbox. Counted in the
- * database, under a lock on the address, so neither a restart nor two
- * instances of the worker reset it. Three, because a person who reports three
+ * form must not become a way to fill a stranger's inbox. Counted by the
+ * recipient the address reaches, so a tag after `+` or Google's dots do not
+ * give one inbox a budget per spelling (`reporterLinkRecipient`), and in the
+ * database, under a lock, so neither a restart nor two instances of the
+ * worker reset it. Three, because a person who reports three
  * faults in a day is rare and one who reports more is told nothing worse than
  * that the board has their reports.
  */
@@ -156,9 +159,10 @@ export type ReporterLinkReplyOutcome =
  *   "last used", no audit entry. Mail scanners and link previews open every
  *   link in a message, and must not be able to do anything by it.
  * - **The form cannot mail a stranger at will.** One link mail per issue,
- *   not sent again (save the one failure `deliver` names), and at most three
- *   a day to one address, counted in the database. There is no way to ask for
- *   the link again.
+ *   not sent again (save the one failure `deliver` names), at most three a
+ *   day to one recipient however its address is spelt, and no more in an
+ *   hour than the instance's ceiling, counted in the database. There is no
+ *   way to ask for the link again.
  */
 @Injectable()
 export class IssueReporterLinkService implements OnModuleInit {
@@ -258,9 +262,9 @@ export class IssueReporterLinkService implements OnModuleInit {
    * the issue's lock.
    *
    * A link whose mail is refused (a restriction, a close, a ring-fenced type,
-   * no mail settings, or, on a retry, an address whose three a day are spent)
-   * or abandoned after its retries is deleted, so it no longer counts toward
-   * its address's three a day; one still being retried counts. A retry that
+   * no mail settings, or, on a retry, an address whose three a day or the
+   * instance's hour are spent) or abandoned after its retries is deleted, so
+   * it no longer counts toward either; one still being retried counts. A retry that
    * refuses before it mints a token deletes the unmailed link the earlier
    * attempt left too.
    *
@@ -269,9 +273,10 @@ export class IssueReporterLinkService implements OnModuleInit {
    * handler withdrew the link of, that closed long enough ago that a link
    * would open nothing, whose type the board has since ring-fenced (decision
    * 32), or whose address is a person's who restricted processing (GDPR art.
-   * 18). Nor to an address that has had its three link
-   * mails today: that report is in the queue like any other, and the board
-   * answers its reporter by other means if it must.
+   * 18). Nor to an address whose recipient has had its three link mails
+   * today, nor while the instance has mailed its ceiling this hour
+   * (`withinMailBudget`): that report is in the queue like any other, and the
+   * board answers its reporter by other means if it must.
    */
   async deliver(
     issueId: string,
@@ -332,33 +337,9 @@ export class IssueReporterLinkService implements OnModuleInit {
         return null;
       }
 
-      /*
-       * The address's budget, counted under a lock on the address, so two
-       * reports from one address delivered at once count each other. The
-       * blind index rather than the address, so the key names nobody.
-       *
-       * Links issued, not mails sent: a link is mailed after this transaction
-       * commits, so a count of `mailedAt` would miss one whose mail is on its
-       * way, and two deliveries to one address could each find a slot free. A
-       * link that will not be mailed is deleted and gives its slot back
-       * (`releaseUnsent`, `releaseEarlier`, `abandon`), so what counts is
-       * mailed or still being tried (ADR 0055).
-       */
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`issue-reporter-link-address:${issue.reporterEmailIndex}`}))`;
-      const sentToday = await tx.$queryRaw<{ count: bigint }[]>`
-        SELECT count(*) AS "count"
-        FROM "issue_reporter_link" l
-        JOIN "issue" i ON i."id" = l."issueId"
-        WHERE i."reporterEmailIndex" = ${issue.reporterEmailIndex}
-          AND l."issueId" <> ${issueId}
-          AND l."issuedAt" > now() - interval '24 hours'`;
       if (
-        Number(sentToday[0]?.count ?? 0) >=
-        REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY
+        !(await this.withinMailBudget(tx, issueId, issue.reporterEmailCipher))
       ) {
-        this.logger.log(
-          `Issue ${issueId} gets no private link: its address has had as many today as it may.`,
-        );
         await this.releaseEarlier(tx, existing);
         return null;
       }
@@ -540,6 +521,89 @@ export class IssueReporterLinkService implements OnModuleInit {
   }
 
   /**
+   * Whether a link may be issued to this report's address now: the instance
+   * has issued fewer than `OPENBRF_REPORTER_LINK_MAILS_PER_HOUR` in the past
+   * hour, and the recipient the address reaches fewer than
+   * `REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY` in the past day. The issue's own
+   * link, one an earlier attempt left, is not counted against it.
+   *
+   * Both counted under one lock, taken by every delivery, so two delivered at
+   * once count each other. One lock for all rather than one per recipient: the
+   * recipient is known only from the decrypted address, and a lock keyed on it
+   * would put the address, or a hash of it anybody could compute, into the
+   * database's view of its locks. A delivery holds it for two counts and the
+   * decryption of the addresses of a day's links, at most the hourly ceiling
+   * twenty-four times over.
+   *
+   * By recipient (`reporterLinkRecipient`), not by the address as typed or its
+   * blind index: `someone+1@` and `someone+2@` reach one inbox, and counted
+   * apart, a script typing a new tag each time would mail it without end. The
+   * addresses are compared decrypted, so the budget needs no index of its own
+   * for the purges to clear. A link whose report has no address left is not
+   * counted by recipient; the purge that clears an address removes its link
+   * in the same transaction.
+   *
+   * Links issued, not mails sent: a link is mailed after this transaction
+   * commits, so a count of `mailedAt` would miss one whose mail is on its way,
+   * and two deliveries to one address could each find a slot free. A link that
+   * will not be mailed is deleted and gives its slot back (`releaseUnsent`,
+   * `releaseEarlier`, `abandon`), so what counts is mailed or still being
+   * tried (ADR 0055).
+   */
+  private async withinMailBudget(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+    emailCipher: string,
+  ): Promise<boolean> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('issue-reporter-link-mail-budget'))`;
+
+    // The instance's hour first: it needs nothing decrypted, and a script
+    // typing many addresses is then turned away before the day's addresses
+    // are read for each of its reports.
+    const [hour] = await tx.$queryRaw<{ count: bigint }[]>`
+      SELECT count(*) AS "count"
+      FROM "issue_reporter_link"
+      WHERE "issueId" <> ${issueId}
+        AND "issuedAt" > now() - interval '1 hour'`;
+    if (
+      Number(hour?.count ?? 0) >= this.env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR
+    ) {
+      this.logger.warn(
+        `Issue ${issueId} gets no private link: the instance has mailed as many this hour as it may.`,
+      );
+      return false;
+    }
+
+    const recipient = reporterLinkRecipient(
+      await this.encryption.decrypt("issue.reporterEmail", emailCipher),
+    );
+    const today = await tx.$queryRaw<{ cipher: string }[]>`
+      SELECT i."reporterEmailCipher" AS "cipher"
+      FROM "issue_reporter_link" l
+      JOIN "issue" i ON i."id" = l."issueId"
+      WHERE l."issueId" <> ${issueId}
+        AND l."issuedAt" > now() - interval '24 hours'
+        AND i."reporterEmailCipher" IS NOT NULL`;
+    let sentToday = 0;
+    for (const { cipher } of today) {
+      const address = await this.encryption.decrypt(
+        "issue.reporterEmail",
+        cipher,
+      );
+      if (reporterLinkRecipient(address) === recipient) {
+        sentToday += 1;
+        if (sentToday >= REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY) {
+          this.logger.log(
+            `Issue ${issueId} gets no private link: its address has had as many today as it may.`,
+          );
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
    * Gives back the slot of a link that was issued and will not be mailed: a
    * restriction, a close or an instance without mail settings stopped the send.
    * A link whose send is still being tried keeps its slot, and a mailed link
@@ -562,7 +626,8 @@ export class IssueReporterLinkService implements OnModuleInit {
   /**
    * Gives back the slot of a link an earlier attempt issued and did not mail,
    * when a retry finds it will not mail it either: the issue closed, its type
-   * ring-fenced, its address restricted or that address's budget spent. The
+   * ring-fenced, its address restricted, or that address's budget or the
+   * instance's hour spent. The
    * caller holds the issue's lock, which the stamp is written under too, and
    * has read the link as neither mailed nor withdrawn.
    */

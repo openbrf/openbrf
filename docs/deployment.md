@@ -1205,6 +1205,14 @@ The same budget per client address that guards the forms guards these paths
 too, so `TRUSTED_PROXIES` matters here as well: thirty page reads and five
 messages a minute per address.
 
+The form mails a link to whatever address a visitor types, so the mails are
+bounded twice, in the database: three a day to one inbox however its address
+is spelt, and `OPENBRF_REPORTER_LINK_MAILS_PER_HOUR` (30 unless set) from the
+instance in an hour, to every address together. Past either, the report is
+filed and its link is not mailed; the form answers the same, and the board
+answers that reporter some other way if it must. Raise the ceiling only for an
+association whose public reports more than that in an hour.
+
 ### The contractor's link
 
 A handler can give the contractor of a work order a link of their own, at

@@ -25,6 +25,10 @@ import {
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { HONEYPOT_FIELD } from "../http/honeypot";
+import {
+  IssueReporterLinkService,
+  REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY,
+} from "../issues/issue-reporter-link.service";
 import { ResponsibilityGuideService } from "../issues/responsibility-guide.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
@@ -701,6 +705,51 @@ describe("sending the issue report form", () => {
     expect(response.statusCode).toBe(303);
     expect(response.headers["location"]).toBe(`/${publicSlug}?fel=felanmalan`);
     expect(await prisma.issue.count({ where: { description } })).toBe(0);
+  });
+
+  it("answers alike whether a private link will be mailed or the address's budget is spent", async () => {
+    const links = app.get(IssueReporterLinkService);
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
+    try {
+      const reports = REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY + 2;
+      const answers: unknown[] = [];
+      const mailed: boolean[] = [];
+      for (let n = 1; n <= reports; n += 1) {
+        const description = `Anmälan ${String(n)} med tagg ${suffix}.`;
+        // One inbox, spelt with a new tag each time: its budget is spent
+        // after the third, and the form must not say so.
+        const response = await submit(`/${publicSlug}/felanmalan`, {
+          type: nonMemberTypeId,
+          location: "",
+          description,
+          name: "",
+          email: `sf-tagged-${suffix}+${String(n)}@exempel.se`,
+        });
+        const { date: _date, ...headers } = response.headers;
+        answers.push({
+          statusCode: response.statusCode,
+          headers,
+          body: response.body,
+        });
+        const issue = await prisma.issue.findFirstOrThrow({
+          where: { description },
+          select: { id: true },
+        });
+        mailed.push(await links.deliver(issue.id));
+      }
+
+      expect(mailed).toEqual(
+        Array.from(
+          { length: reports },
+          (_, n) => n < REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY,
+        ),
+      );
+      for (const answer of answers) {
+        expect(answer).toEqual(answers[0]);
+      }
+    } finally {
+      send.mockRestore();
+    }
   });
 });
 

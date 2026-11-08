@@ -13,6 +13,7 @@ import {
 
 import { AuthService } from "../auth/auth.service";
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
+import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { NORMALIZATION_VERSION } from "../crypto/personal-data";
@@ -1386,6 +1387,104 @@ describe("D. rate limits and abuse", () => {
     expect(
       await prisma.issueReporterLink.count({ where: { issueId: id } }),
     ).toBe(0);
+  });
+
+  /** Files a report from the form to `email` and delivers its link. */
+  async function reportAndDeliver(
+    email: string,
+  ): Promise<{ id: string; mailed: boolean }> {
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: `Porten låser inte ${suffix}`,
+      reporterName: null,
+      reporterEmail: email,
+    });
+    return { id, mailed: await links.deliver(id) };
+  }
+
+  it("D6: an address with a new tag each time is one address, mailed three links a day", async () => {
+    const outcomes = [];
+    for (let n = 1; n <= 10; n += 1) {
+      outcomes.push(
+        await reportAndDeliver(`rl-tagged-${suffix}+${String(n)}@exempel.se`),
+      );
+    }
+
+    expect(outcomes.map((outcome) => outcome.mailed)).toEqual([
+      ...Array.from(
+        { length: REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY },
+        () => true,
+      ),
+      ...Array.from(
+        { length: 10 - REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY },
+        () => false,
+      ),
+    ]);
+    // The refused reports hold no slot: their links are gone.
+    expect(
+      await prisma.issueReporterLink.count({
+        where: { issueId: { in: outcomes.map((outcome) => outcome.id) } },
+      }),
+    ).toBe(REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY);
+  });
+
+  it("D6: a Google address spelt with dots or the other domain counts with the plain one", async () => {
+    const plain = `rlgoogle${suffix}@gmail.com`;
+    expect((await reportAndDeliver(plain)).mailed).toBe(true);
+    expect(
+      (await reportAndDeliver(`r.l.google${suffix}@googlemail.com`)).mailed,
+    ).toBe(true);
+    expect(
+      (await reportAndDeliver(`RL.google${suffix}+felanmalan@gmail.com`))
+        .mailed,
+    ).toBe(true);
+
+    const before = sent.length;
+    expect(
+      (await reportAndDeliver(`rlgoo.gle${suffix}@gmail.com`)).mailed,
+    ).toBe(false);
+    expect(sent.length).toBe(before);
+    // Another inbox at Google is not held back by it.
+    expect((await reportAndDeliver(`rlother${suffix}@gmail.com`)).mailed).toBe(
+      true,
+    );
+  });
+
+  it("D6: the instance mails no more links in an hour than its ceiling, whatever the addresses", async () => {
+    const env = app.get<Env>(ENV);
+    const ceiling = env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR;
+    // The suites before this one on the worker's database issued links this
+    // hour too, so the ceiling is set a known distance above them.
+    const [issued] = await prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT count(*) AS "count" FROM "issue_reporter_link"
+      WHERE "issuedAt" > now() - interval '1 hour'`;
+    env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR = Number(issued?.count ?? 0) + 2;
+    try {
+      const outcomes = [];
+      for (let n = 1; n <= 5; n += 1) {
+        outcomes.push(
+          await reportAndDeliver(
+            `rl-ceiling-${String(n)}-${suffix}@exempel.se`,
+          ),
+        );
+      }
+
+      expect(outcomes.map((outcome) => outcome.mailed)).toEqual([
+        true,
+        true,
+        false,
+        false,
+        false,
+      ]);
+      expect(
+        await prisma.issueReporterLink.count({
+          where: { issueId: { in: outcomes.map((outcome) => outcome.id) } },
+        }),
+      ).toBe(2);
+    } finally {
+      env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR = ceiling;
+    }
   });
 
   it("D6: a person who restricted processing is not mailed", async () => {
