@@ -142,7 +142,14 @@ on the account the later specs sign in as.
   test's attempts on another's and throttle itself. A test where two people act
   asks it for a second address as well, for the same reason: an applicant
   activating an account really is somewhere else from the board member who
-  approved their request.
+  approved their request. The application reads that header only from a proxy
+  named in `TRUSTED_PROXIES`, and the suite's requests arrive from the gateway
+  of the stack's Docker network, so `stack.env` names all three private ranges:
+  where that network lies is the Docker daemon's choice, and one configured with
+  address pools of its own usually picks `10.0.0.0/8`. The tests' own addresses
+  come from `100.64.0.0/10`, outside all three. `startStack` checks the gateway
+  against the list and stops the run when it is outside it, rather than letting
+  every test share one sign-in budget until a sign-in is refused with 429.
 
 Specs run serially, in file-name order. `01-first-boot` needs an unclaimed
 instance, which an instance is exactly once, and the rest share the instance it

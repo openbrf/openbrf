@@ -30,9 +30,11 @@ import { stack } from "./stack";
 /** A stable address per seed, so a retry lands in the same bucket. */
 function addressFor(seed: string): string {
   const digest = createHash("sha256").update(seed).digest();
-  // 10.0.0.0/8 is private, and the first octet is fixed so the addresses are
-  // recognisable in a log.
-  return `10.${String(digest[0]!)}.${String(digest[1]!)}.${String((digest[2]! % 254) + 1)}`;
+  // 100.64.0.0/10, the shared address space carrier-grade NAT hands out: never
+  // routed on the internet, and outside the private ranges stack.env trusts as
+  // the stack's own network, so no test's address is ever taken for a proxy.
+  // The leading 100 makes them recognisable in a log.
+  return `100.${String(64 + (digest[0]! & 0x3f))}.${String(digest[1]!)}.${String((digest[2]! % 254) + 1)}`;
 }
 
 /**

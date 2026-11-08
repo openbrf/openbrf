@@ -130,12 +130,15 @@ const PERSONAS: Readonly<
  * check every page load makes has a budget of its own, sized for a client
  * rather than for a password guess, so the walk does not pace itself against
  * it - see auth-options.ts.
+ *
+ * From 100.64.0.0/10, as the suite's are (src/fixtures.ts): outside every range
+ * screenshots.env trusts, so no person is ever taken for a proxy.
  */
 const CLIENT_ADDRESS: Readonly<Record<Actor, string>> = {
-  nobody: "10.40.0.1",
-  administrator: "10.40.0.2",
-  resident: "10.40.0.3",
-  member: "10.40.0.4",
+  nobody: "100.64.40.1",
+  administrator: "100.64.40.2",
+  resident: "100.64.40.3",
+  member: "100.64.40.4",
 };
 
 // --- the register the walk photographs ---------------------------------------
