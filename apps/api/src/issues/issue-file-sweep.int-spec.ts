@@ -661,19 +661,22 @@ describe("the sweep of the issues module's unattached files", () => {
   it("reaches the files behind a run of files that fail on their own, which a stop at the front would keep stored", async () => {
     /*
      * The two oldest files fail every time and the limit is two in a row, with
-     * a page of one. Storage works for the third, so the newest candidate comes
-     * off and the scan goes on to the files behind the two. Twenty years back
-     * puts the three ahead of what any other suite leaves behind.
+     * a page of one. Storage works for the other two. The newest comes off as
+     * the run's try, which leaves the third for the scan itself: that it is
+     * removed shows the scan went on past the two. Twenty years back puts the
+     * four ahead of what any other suite leaves behind.
      */
     const failing = [
       await storeIssueFile(residentPersonId),
       await storeIssueFile(residentPersonId),
     ];
     const behindId = await storeIssueFile(residentPersonId);
+    const newestId = await storeIssueFile(residentPersonId);
     for (const [index, fileId] of failing.entries()) {
-      await age(fileId, 20 * 365 * 24 + 2 - index);
+      await age(fileId, 20 * 365 * 24 + 3 - index);
     }
     await age(behindId, 20 * 365 * 24);
+    await age(newestId, 20 * 365 * 24 - 1);
     const failingKeys = await Promise.all(failing.map(storageKeyOf));
 
     const warn = vi
@@ -695,7 +698,8 @@ describe("the sweep of the issues module's unattached files", () => {
         pageSize: 1,
       });
       expect(summary.stoppedOnFailures).toBe(false);
-      expect(summary.removed).toBeGreaterThanOrEqual(1);
+      expect(summary.removed).toBeGreaterThanOrEqual(2);
+      expect(await hasRow(newestId)).toBe(false);
       expect(await hasRow(behindId)).toBe(false);
       for (const fileId of failing) {
         expect(await hasRow(fileId)).toBe(true);

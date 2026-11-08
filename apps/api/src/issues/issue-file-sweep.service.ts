@@ -272,6 +272,14 @@ export class IssueFileSweepService implements OnModuleInit {
    * adds to the failures in a row nor clears them: only a removal shows that
    * storage works.
    *
+   * The run keeps no place between nights, so files that fail on their own
+   * stop it only when there are more than
+   * {@link IssueFileSweepLimits.maxFailuresInARow} of them and the newest
+   * candidate is one of them too. That is
+   * indistinguishable from an outage, and the error line below is how an
+   * operator learns of it; the files behind stay stored until the failing ones
+   * are dealt with.
+   *
    * A file whose removal fails is logged as a warning, every night it fails.
    * The run's stop on failures is logged as an error, being what an outage of
    * storage looks like.
