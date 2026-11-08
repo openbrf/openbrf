@@ -246,6 +246,35 @@ describe("an upgraded instance's type for disturbances or insurance", () => {
     }
   });
 
+  it("is handed over by the same names under a Turkish collation of the name", async () => {
+    // `lower` takes the collation of its argument, and a Turkish one turns `I`
+    // into `ı`, which is not the `i` of "FÖRSÄKRINGSÄRENDE". The migration
+    // lowercases under "C" whatever the column's collation is, so the
+    // capitals are still matched; without that, this case fails. The change is
+    // rolled back with the case's transaction.
+    const names = [
+      "FÖRSÄKRINGSÄRENDE",
+      "FÖRSÄKRING",
+      "Försäkringsärende",
+      "Driftstörningar",
+    ];
+    const after = await rolledBack(async (tx) => {
+      await tx.$executeRawUnsafe(
+        'ALTER TABLE "issue_type" ALTER COLUMN "name" TYPE TEXT COLLATE "tr-x-icu"',
+      );
+      const ids = await writeTypes(tx, names);
+      await tx.$executeRawUnsafe(MIGRATION);
+      return readTypes(tx, ids);
+    });
+
+    expect(after.map((type) => type.handledBy)).toEqual([
+      "BOARD",
+      "BOARD",
+      "BOARD",
+      "EVERY_HANDLER",
+    ]);
+  });
+
   it("is handed over when it is switched off as well", async () => {
     const after = await rolledBack(async (tx) => {
       const ids = await writeTypes(tx, ["Störningar"], {
