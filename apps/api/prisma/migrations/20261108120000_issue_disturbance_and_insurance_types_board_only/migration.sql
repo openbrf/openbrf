@@ -27,6 +27,11 @@
 -- locale that knows them, which a database created under the C locale does not,
 -- and under a Turkish locale it turns `I` into the dotless `ı`, which is not the
 -- `i` of "FÖRSÄKRINGSÄRENDE".
+--
+-- In one transaction, so a failure leaves none of it behind: the audit log is
+-- append-only, and an entry for an unassignment that was rolled back would stay.
+BEGIN;
+
 CREATE TEMPORARY TABLE "board_only_type" AS
   SELECT "id" FROM "issue_type"
     WHERE "handledBy" <> 'BOARD'
@@ -102,3 +107,5 @@ UPDATE "issue_type"
 
 DROP TABLE "board_only_board";
 DROP TABLE "board_only_type";
+
+COMMIT;

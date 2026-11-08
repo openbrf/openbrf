@@ -25,7 +25,7 @@ import { createIssueTypeFixture } from "../testing/issue-fixtures";
 const env = loadEnvForIntegrationTests();
 
 /** Read rather than restated, so the SQL tested is the SQL that is deployed. */
-const MIGRATION = readFileSync(
+const MIGRATION_FILE = readFileSync(
   join(
     process.cwd(),
     "prisma",
@@ -36,12 +36,28 @@ const MIGRATION = readFileSync(
   "utf8",
 );
 
+/**
+ * The script runs between its own `BEGIN;` and `COMMIT;`, so that a failure
+ * leaves neither the audit entries nor the changes to the types and issues
+ * behind. A case runs the statements between them inside its own transaction,
+ * which it rolls back: `COMMIT` would end that transaction and keep the rows.
+ */
+const TRANSACTION_START = /^(?:--[^\n]*\n|\s)*BEGIN;\n/;
+const TRANSACTION_END = /\nCOMMIT;\s*$/;
+
+const MIGRATION = MIGRATION_FILE.replace(TRANSACTION_START, "").replace(
+  TRANSACTION_END,
+  "\n",
+);
+
 const suffix = randomUUID().slice(0, 8);
 
 const boardMemberId = `bot-board-${suffix}`;
 const formerBoardMemberId = `bot-former-${suffix}`;
 const adminId = `bot-admin-${suffix}`;
 const managerId = `bot-manager-${suffix}`;
+const seatStartsTodayId = `bot-starts-${suffix}`;
+const seatEndsTodayId = `bot-ends-${suffix}`;
 
 type Tx = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0];
 
@@ -126,6 +142,46 @@ async function writePeople(tx: Tx): Promise<void> {
       { personId: adminId, role: "ADMIN" },
       { personId: managerId, role: "PROPERTY_MANAGER" },
     ],
+  });
+}
+
+/**
+ * A member whose seat starts today and one whose seat ends today, on the
+ * association's calendar (Stockholm's) as the migration reads it: the date of
+ * the transaction's own start, which this case's transaction shares with it. A
+ * seat is held from the day it starts up to, but not including, the day it
+ * ends, so the first is on the board and the second is not.
+ */
+async function writeBoundarySeats(tx: Tx): Promise<void> {
+  const [row] = await tx.$queryRawUnsafe<{ today: string }[]>(
+    `SELECT to_char((CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Stockholm')::date, 'YYYY-MM-DD') AS today`,
+  );
+  if (row === undefined) {
+    throw new Error("No date.");
+  }
+  const today = new Date(`${row.today}T00:00:00.000Z`);
+  for (const [id, firstName] of [
+    [seatStartsTodayId, "Sture"],
+    [seatEndsTodayId, "Ebba"],
+  ] as const) {
+    await tx.person.create({
+      data: { id, firstName, lastName: `Testsson${suffix}` },
+    });
+  }
+  await tx.boardPosition.create({
+    data: {
+      personId: seatStartsTodayId,
+      position: "BOARD_MEMBER",
+      electedOn: today,
+    },
+  });
+  await tx.boardPosition.create({
+    data: {
+      personId: seatEndsTodayId,
+      position: "BOARD_MEMBER",
+      electedOn: new Date("2024-05-15"),
+      endedOn: today,
+    },
   });
 }
 
@@ -220,6 +276,15 @@ const UNMATCHED = [
 ] as const;
 
 describe("an upgraded instance's type for disturbances or insurance", () => {
+  it("is changed in one transaction, so a failure leaves nothing of it behind", () => {
+    // The statements run between `BEGIN;` and `COMMIT;`, and nothing outside
+    // them: the cases below run the part between, and this one fails when
+    // either is taken out or a statement is added after the `COMMIT;`.
+    expect(MIGRATION_FILE).toMatch(TRANSACTION_START);
+    expect(MIGRATION_FILE).toMatch(TRANSACTION_END);
+    expect(MIGRATION).not.toMatch(/^\s*(?:BEGIN|COMMIT|ROLLBACK)\b/m);
+  });
+
   it("is handed to the board by its exact name, and nothing is ring-fenced", async () => {
     const names = [...MATCHED, ...UNMATCHED];
     const after = await rolledBack(async (tx) => {
@@ -299,6 +364,7 @@ describe("an upgraded instance's type for disturbances or insurance", () => {
   it("loses the property manager and a former board member as assignee, and keeps the board", async () => {
     const after = await rolledBack(async (tx) => {
       await writePeople(tx);
+      await writeBoundarySeats(tx);
       const [disturbances] = await writeTypes(tx, ["Störningar"], {
         defaultAssigneePersonId: managerId,
       });
@@ -333,6 +399,8 @@ describe("an upgraded instance's type for disturbances or insurance", () => {
         manager: await assigned(disturbances, managerId),
         former: await assigned(disturbances, formerBoardMemberId),
         board: await assigned(disturbances, boardMemberId),
+        seatStartsToday: await assigned(disturbances, seatStartsTodayId),
+        seatEndsToday: await assigned(disturbances, seatEndsTodayId),
         admin: await assigned(insurance, adminId),
         managerOnInsurance: await assigned(insurance, managerId),
         managerOnLeak: await assigned(leak, managerId),
@@ -378,6 +446,9 @@ describe("an upgraded instance's type for disturbances or insurance", () => {
       manager: null,
       former: null,
       board: boardMemberId,
+      // A seat that starts today is held today; one that ends today is not.
+      seatStartsToday: seatStartsTodayId,
+      seatEndsToday: null,
       admin: adminId,
       managerOnInsurance: null,
       // A type that stays with every handler keeps its assignee.
@@ -399,6 +470,8 @@ describe("an upgraded instance's type for disturbances or insurance", () => {
       manager: unassigned(managerId),
       former: unassigned(formerBoardMemberId),
       board: [],
+      seatStartsToday: [],
+      seatEndsToday: unassigned(seatEndsTodayId),
       admin: [],
       managerOnInsurance: unassigned(managerId),
       managerOnLeak: [],
