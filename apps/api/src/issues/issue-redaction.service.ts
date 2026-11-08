@@ -13,10 +13,7 @@ import {
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
 import { isPersonWithheld } from "../retention/withheld-persons";
 import { ISSUE_FREE_TEXT_STANDING_UNREDACTED } from "./issue-free-text";
-import {
-  requireHandledIssue,
-  requireHandledIssueForWrite,
-} from "./issue-handlers";
+import { requireHandledIssueForWrite } from "./issue-handlers";
 import { lockIssueForHandling } from "./issue-lock";
 import {
   detachErasedReporter,
@@ -394,7 +391,9 @@ export class IssueRedactionService {
     if (fileId === null) {
       throw targetNotFound();
     }
-    refuseHeld(await requireHandled(this.prisma, issueId, handlerPersonId));
+    refuseHeld(
+      await requireHandledForWrite(this.prisma, issueId, handlerPersonId),
+    );
     // Read before any lock, as `redactText` reads it: the file may be the last
     // free text standing, and removing it then detaches the reporter.
     const reporterPersonId = await this.reporterOf(issueId);
@@ -545,31 +544,18 @@ export class IssueRedactionService {
 }
 
 /**
- * An issue this person handles, or the refusal that answers one that does not
- * exist (`requireHandledIssue`).
+ * An issue this person may write to, or the refusal that answers one that does
+ * not exist: the writer's `issues:handle` role is asked with their scope, at
+ * the instant read here (`requireHandledIssueForWrite`). Read under a
+ * redaction's locks, and by `removeFile` before them as well.
  */
-async function requireHandled(
+async function requireHandledForWrite(
   db: PrismaService | Prisma.TransactionClient,
   issueId: string,
   handlerPersonId: string,
 ): Promise<{ legalHoldAt: Date | null }> {
-  return requireHandledIssue(db, issueId, handlerPersonId, {
-    legalHoldAt: true,
-  });
-}
-
-/**
- * The same issue for a write, read under its locks: the writer's
- * `issues:handle` role is asked with their scope, at the instant read here once
- * the locks are held (`requireHandledIssueForWrite`).
- */
-async function requireHandledForWrite(
-  tx: Prisma.TransactionClient,
-  issueId: string,
-  handlerPersonId: string,
-): Promise<{ legalHoldAt: Date | null }> {
   return requireHandledIssueForWrite(
-    tx,
+    db,
     issueId,
     handlerPersonId,
     { legalHoldAt: true },

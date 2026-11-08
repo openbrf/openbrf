@@ -17,7 +17,8 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { MailService, type SendMailInput } from "../mail/mail.service";
-import { advisoryLockCount } from "../testing/advisory-locks";
+import { pngBytes } from "../media/testing/image-fixtures";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   createIssueTypeFixture,
@@ -278,15 +279,10 @@ async function renderedNoticesTo(
  * Waits until a transaction is queued on the advisory lock `key` names. Only
  * this run's key, so another suite's waiters do not count.
  */
-async function waitForLockWaiter(key: string): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    if ((await advisoryLockCount(prisma, key, false)) > 0n) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`Nothing queued on the lock ${key}`);
+function waitForLockWaiter(key: string): Promise<void> {
+  return waitFor(
+    async () => (await advisoryLockCount(prisma, key, false)) > 0n,
+  );
 }
 
 /**
@@ -1619,6 +1615,31 @@ describe("a known fault", () => {
         })
       ).statusId,
     ).toBe(plain.statusIds.NEW);
+  });
+
+  it("does not store a file for a person who no longer holds issues:handle", async () => {
+    const issueId = await filed(plain);
+    const uploads = () =>
+      prisma.auditLogEntry.count({
+        where: {
+          action: { in: ["MEDIA_UPLOADED", "MEDIA_DELETED"] },
+          actorPersonId: resident.personId,
+        },
+      });
+    const before = await uploads();
+    // Past the route's guard, as a role withdrawn in between: the narrower
+    // scope admits the issue. Refused before the upload, so nothing is stored
+    // and logged only to be removed again when the transaction refuses it.
+    await expect(
+      conversation.attach({
+        issueId,
+        handlerPersonId: resident.personId,
+        bytes: pngBytes(16, 16),
+        fileName: `offerten-${suffix}.png`,
+      }),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    expect(await prisma.issueAttachment.count({ where: { issueId } })).toBe(0);
+    expect(await uploads()).toBe(before);
   });
 
   it("does not assign, prioritise, date or mark an issue for a person who no longer holds issues:handle", async () => {
