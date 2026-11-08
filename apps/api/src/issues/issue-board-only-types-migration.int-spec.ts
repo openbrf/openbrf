@@ -37,18 +37,16 @@ const MIGRATION_FILE = readFileSync(
 );
 
 /**
- * The script runs between its own `BEGIN;` and `COMMIT;`, so that a failure
- * leaves neither the audit entries nor the changes to the types and issues
- * behind. A case runs the statements between them inside its own transaction,
- * which it rolls back: `COMMIT` would end that transaction and keep the rows.
+ * The script is one `DO` block and nothing else. Prisma sends a script it can
+ * parse one statement at a time, so several statements would not be atomic, and
+ * a `BEGIN;` would make a failure report "current transaction is aborted" in
+ * place of its cause. A failure in a single statement leaves none of the audit
+ * entries, type or issue changes behind, and reports its own error.
  */
-const TRANSACTION_START = /^(?:--[^\n]*\n|\s)*BEGIN;\n/;
-const TRANSACTION_END = /\nCOMMIT;\s*$/;
-
-const MIGRATION = MIGRATION_FILE.replace(TRANSACTION_START, "").replace(
-  TRANSACTION_END,
-  "\n",
-);
+const MIGRATION = MIGRATION_FILE;
+const MIGRATION_STATEMENTS = MIGRATION_FILE.split("\n")
+  .filter((line) => !line.trimStart().startsWith("--"))
+  .join("\n");
 
 const suffix = randomUUID().slice(0, 8);
 
@@ -276,13 +274,17 @@ const UNMATCHED = [
 ] as const;
 
 describe("an upgraded instance's type for disturbances or insurance", () => {
-  it("is changed in one transaction, so a failure leaves nothing of it behind", () => {
-    // The statements run between `BEGIN;` and `COMMIT;`, and nothing outside
-    // them: the cases below run the part between, and this one fails when
-    // either is taken out or a statement is added after the `COMMIT;`.
-    expect(MIGRATION_FILE).toMatch(TRANSACTION_START);
-    expect(MIGRATION_FILE).toMatch(TRANSACTION_END);
-    expect(MIGRATION).not.toMatch(/^\s*(?:BEGIN|COMMIT|ROLLBACK)\b/m);
+  it("is one statement, so a failure leaves nothing of it behind", () => {
+    // The cases below run the whole script. This one fails when a statement is
+    // added before or after the `DO` block, or a `BEGIN;` or `COMMIT;` is
+    // written outside it.
+    expect(MIGRATION_STATEMENTS.trim()).toMatch(
+      /^DO \$migration\$[\s\S]*\$migration\$;$/,
+    );
+    expect(MIGRATION_STATEMENTS.split("$migration$")).toHaveLength(3);
+    expect(MIGRATION_STATEMENTS).not.toMatch(
+      /^\s*(?:BEGIN|COMMIT|ROLLBACK)\s*;/m,
+    );
   });
 
   it("is handed to the board by its exact name, and nothing is ring-fenced", async () => {
