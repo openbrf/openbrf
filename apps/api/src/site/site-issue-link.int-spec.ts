@@ -866,16 +866,6 @@ describe("B. lifetime and revocation", () => {
         body: "Ett tidigare svar",
       })),
     });
-    // The link's ten messages are two seconds inside the hour when the reply
-    // starts, and out of it once the reply has waited for the issue's locks.
-    // Dated on this process's clock, the one the hour is judged on and a
-    // message's `createdAt` is filled from: the API runs in this process.
-    const datedAt = Date.now() - 3598 * 1000;
-    await prisma.issueMessage.updateMany({
-      where: { issueId },
-      data: { createdAt: new Date(datedAt) },
-    });
-
     let letGo: () => void = () => undefined;
     const letGoSignal = new Promise<void>((resolve) => {
       letGo = resolve;
@@ -905,9 +895,21 @@ describe("B. lifetime and revocation", () => {
           )) > 0n,
         10_000,
       );
-      // A slow setup must fail here, not pass without testing anything: the
-      // messages are still inside the hour when the reply begins to wait.
-      expect(Date.now() - datedAt).toBeLessThan(60 * 60 * 1000);
+      // The link's ten messages are dated two seconds inside the hour while the
+      // reply waits for the issue's locks, and are out of it once it has
+      // waited. They are dated only now, so a slow setup cannot age them before
+      // the reply starts: the reply reads nothing of them before the locks.
+      // Dated on this process's clock, the one the hour is judged on and a
+      // message's `createdAt` is filled from: the API runs in this process.
+      await prisma.issueMessage.updateMany({
+        where: { issueId },
+        data: { createdAt: new Date(Date.now() - 3598 * 1000) },
+      });
+      // Still waiting once they are dated, so the reply did not count them
+      // before the dating took effect.
+      expect(
+        await advisoryLockCount(prisma, `issue-type:${publicType.id}`, false),
+      ).toBeGreaterThan(0n);
       await new Promise((resolve) => setTimeout(resolve, 3500));
       letGo();
       await holder;
