@@ -295,11 +295,18 @@ describe("opening an issue as a handler", () => {
     expect(
       screen.getByLabelText("Vad har hänt").getAttribute("aria-describedby"),
     ).toBeTruthy();
+    const textarea = screen.getByRole("textbox", {
+      name: "Vad har hänt",
+      description: /extern förvaltare/i,
+    });
+    const describedBy = textarea.getAttribute("aria-describedby");
+    if (describedBy === null) throw new Error("Missing warning reference");
+    const warning = document.getElementById(describedBy);
+    if (warning === null) throw new Error("Missing warning element");
+    // The warning stands above the field, so it is read before writing.
     expect(
-      screen.getByRole("textbox", {
-        name: "Vad har hänt",
-        description: /extern förvaltare/i,
-      }),
+      warning.compareDocumentPosition(textarea) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 

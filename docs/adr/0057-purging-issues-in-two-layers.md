@@ -87,8 +87,8 @@ handler who marks it. A legal hold or a restriction on the case's reporter
 stops the purge on either clock as well. A ring-fenced case under any of these
 therefore keeps its text past the year, and the texts that promise the year
 name both: a legal hold on the issue, or a legal hold or a restriction on the
-person who reported it. Whether a ring-fenced case may be held at all, or the mark refused on
-one, is part of question 4 below.
+person who reported it. Whether a ring-fenced case may be held at all, or the
+mark refused on one, is part of question 4 below.
 
 The text of a work order has a clock of its own too: ten years after closing
 (3,653 days, so never before the tenth anniversary and up to a day after it),

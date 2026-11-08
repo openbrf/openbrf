@@ -50,6 +50,7 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { LINK_READS_PER_MINUTE } from "./site-issue-link.controller";
+import { SiteRenderer } from "./site-renderer.service";
 
 /**
  * The page a reporter's private link opens, through the application as it
@@ -232,6 +233,37 @@ async function auditFor(issueId: string) {
     where: { targetKind: "issue", targetId: issueId },
     orderBy: { createdAt: "asc" },
   });
+}
+
+const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+/**
+ * The database's clock, read the way a `TIMESTAMP(3)` column is read. A link's
+ * `expiresAt` is set on that clock, so a check against `Date.now()` would take
+ * the gap between the two clocks for the link's fault. The cast is the one the
+ * column goes through, so the zone cancels, but only in a zone without
+ * daylight saving: a reading taken across a fall-back, or an expiry that
+ * lands in a spring-forward gap, would not bracket. Like the rest of this file
+ * the helper therefore requires a UTC session and says so when it is not one.
+ */
+async function databaseClock(): Promise<Date> {
+  const [row] = await prisma.$queryRaw<{ now: Date; zone: string }[]>`
+    SELECT clock_timestamp()::timestamp(3) AS "now",
+           current_setting('TimeZone') AS "zone"`;
+  if (row === undefined || !["UTC", "Etc/UTC"].includes(row.zone)) {
+    throw new Error(
+      `The year checks read local timestamps as UTC, and the session's time zone is ${row?.zone ?? "unknown"}.`,
+    );
+  }
+  return row.now;
+}
+
+/** `expiresAt` ends a year after a moment between two readings of the clock. */
+function expectYearAfterBetween(expiresAt: Date, before: Date, after: Date) {
+  expect(expiresAt.getTime()).toBeGreaterThanOrEqual(
+    before.getTime() + YEAR_MS,
+  );
+  expect(expiresAt.getTime()).toBeLessThanOrEqual(after.getTime() + YEAR_MS);
 }
 
 /** Everything a GET could write, for one issue (E1). */
@@ -826,17 +858,24 @@ describe("B. lifetime and revocation", () => {
         closedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
       },
     });
-    // The link's ten messages are two seconds inside the hour when the reply
-    // starts, and out of it once the reply has waited for the issue's locks.
     await prisma.issueMessage.createMany({
       data: Array.from({ length: REPORTER_LINK_MESSAGES_PER_HOUR }, () => ({
         issueId,
         side: "REPORTER" as const,
         authorPersonId: null,
         body: "Ett tidigare svar",
-        createdAt: new Date(Date.now() - (3600 - 2) * 1000),
       })),
     });
+    // The link's ten messages are two seconds inside the hour when the reply
+    // starts, and out of it once the reply has waited for the issue's locks.
+    // Dated in SQL, on the clock the hour is judged on: from this process's
+    // clock the margin would be two seconds less or more by however far the
+    // two clocks differ, and the test would pass without the guard or fail
+    // with it.
+    await prisma.$executeRaw`
+      UPDATE "issue_message"
+      SET "createdAt" = clock_timestamp() - interval '3598 seconds'
+      WHERE "issueId" = ${issueId}`;
 
     let letGo: () => void = () => undefined;
     const letGoSignal = new Promise<void>((resolve) => {
@@ -915,31 +954,31 @@ describe("B. lifetime and revocation", () => {
   });
 
   it("B4: an issue that stays open keeps the link a year after its latest message, and no longer", async () => {
+    const beforeIssue = await databaseClock();
     const { issueId, token } = await reported();
+    const afterIssue = await databaseClock();
     const issued = await prisma.issueReporterLink.findUniqueOrThrow({
       where: { issueId },
     });
-    const year = 365 * 24 * 60 * 60 * 1000;
-    expect(issued.expiresAt.getTime() - Date.now()).toBeLessThanOrEqual(year);
+    expectYearAfterBetween(issued.expiresAt, beforeIssue, afterIssue);
 
+    // A minute ahead on the database's clock, which `replyAsHandler` judges
+    // the link on; the process's clock could put it in the past.
     await prisma.issueReporterLink.update({
       where: { issueId },
-      data: { expiresAt: new Date(Date.now() + 60_000) },
+      data: { expiresAt: new Date((await databaseClock()).getTime() + 60_000) },
     });
+    const beforeReply = await databaseClock();
     await conversation.replyAsHandler(
       board.personId,
       issueId,
       "Fortfarande på gång.",
     );
+    const afterReply = await databaseClock();
     const extended = await prisma.issueReporterLink.findUniqueOrThrow({
       where: { issueId },
     });
-    expect(extended.expiresAt.getTime()).toBeGreaterThan(
-      Date.now() + year - 60_000,
-    );
-    expect(extended.expiresAt.getTime()).toBeLessThanOrEqual(
-      Date.now() + year + 60_000,
-    );
+    expectYearAfterBetween(extended.expiresAt, beforeReply, afterReply);
     expect((await page(token)).statusCode).toBe(200);
   });
 
@@ -1193,6 +1232,62 @@ describe("D. rate limits and abuse", () => {
       unknown.headers,
     );
     expect(liveRest).toEqual(unknownRest);
+  });
+
+  it("D2: a link's refusal has no menu, where a website address's has the board's", async () => {
+    // An entry the board pointed at another host: on a page whose address is a
+    // credential it would be the one way off this origin. Last in the menu, so
+    // a suite asserting what the menu starts with is not disturbed by it.
+    const external = `https://grannar-${suffix}.example/`;
+    const highest = await prisma.menuItem.aggregate({
+      where: { parentId: null },
+      _max: { sortOrder: true },
+    });
+    const entry = await prisma.menuItem.create({
+      data: {
+        label: `Grannföreningen ${suffix}`,
+        kind: "EXTERNAL",
+        url: external,
+        sortOrder: (highest._max.sortOrder ?? 0) + 1,
+      },
+    });
+    // Whatever refusal page an earlier test left kept is dropped, so both pages
+    // below are drawn after the entry was written; and the pages drawn here are
+    // dropped after, so no later test is served the entry this one deletes.
+    const renderer = app.get(SiteRenderer);
+    renderer.forgetRefusalPages();
+    try {
+      const websiteAddress = "10.211.250.2";
+      let website: Awaited<ReturnType<typeof inject>> | undefined;
+      for (let n = 0; n < 50 && website === undefined; n += 1) {
+        const answer = await inject({
+          method: "POST",
+          url: `/rl-no-page-${suffix}/kontakt`,
+          payload: new URLSearchParams({ message: "Hej" }).toString(),
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          address: websiteAddress,
+        });
+        if (answer.statusCode === 429) {
+          website = answer;
+        }
+      }
+      expect(website?.statusCode).toBe(429);
+      expect(website?.body).toContain(`href="${external}"`);
+
+      const linkAddress = "10.211.250.3";
+      for (let n = 0; n < LINK_READS_PER_MINUTE; n += 1) {
+        await page(`obrf_rl_${String(n).padStart(43, "M")}`, linkAddress);
+      }
+      const link = await page(`obrf_rl_${"N".repeat(43)}`, linkAddress);
+      expect(link.statusCode).toBe(429);
+      expect(link.body).toContain("För många försök");
+      expect(link.body).not.toContain(external);
+      expect(link.body).not.toContain(`Grannföreningen ${suffix}`);
+      expectLinkHeaders(link.headers);
+    } finally {
+      await prisma.menuItem.deleteMany({ where: { id: entry.id } });
+      renderer.forgetRefusalPages();
+    }
   });
 
   it("D4: a link's messages share one budget whatever address they come from", async () => {
@@ -1743,18 +1838,14 @@ describe("D. rate limits and abuse", () => {
       data: { expiresAt: soon },
     });
 
+    const before = await databaseClock();
     expect(await links.deliver(id)).toBe(true);
+    const after = await databaseClock();
     const link = await prisma.issueReporterLink.findUniqueOrThrow({
       where: { issueId: id },
       select: { expiresAt: true },
     });
-    const year = 365 * 24 * 60 * 60 * 1000;
-    expect(link.expiresAt.getTime()).toBeGreaterThan(
-      Date.now() + year - 60_000,
-    );
-    expect(link.expiresAt.getTime()).toBeLessThanOrEqual(
-      Date.now() + year + 60_000,
-    );
+    expectYearAfterBetween(link.expiresAt, before, after);
   });
 
   it("D6: an instance without mail settings issues no link that holds a slot", async () => {

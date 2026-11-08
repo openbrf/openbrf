@@ -58,6 +58,7 @@ import {
 } from "../media/testing/image-fixtures";
 import { MoveService } from "../moves/move.service";
 import { StorageService } from "../storage/storage.service";
+import { advisoryLockCount } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
   restoreEnvironmentVariable,
@@ -285,6 +286,93 @@ interface Arranged {
 }
 
 let arranged = 0;
+
+/** Waits until a transaction is queued on the household protection's lock. */
+async function waitForProtectionLockWaiter(): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (
+      (await advisoryLockCount(prisma, "work-order-link-protection", false)) >
+      0n
+    ) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("Nothing queued on the household protection's lock");
+}
+
+/**
+ * Runs `act` for a handler who holds `PROPERTY_MANAGER` while a second
+ * transaction holds the work order's row lock, withdraws the role once `act`
+ * waits on that lock, then releases it, and answers what `act` was refused
+ * with. The waiter is found by the holder's own backend, so no other test's
+ * lock waits count.
+ */
+async function withRoleWithdrawnBehindWorkOrderLock(
+  handlerId: string,
+  workOrderId: string,
+  act: () => Promise<unknown>,
+): Promise<unknown> {
+  await prisma.person.create({
+    data: { id: handlerId, firstName: "Lars", lastName: `Roll${suffix}` },
+  });
+  await prisma.systemRole.create({
+    data: { personId: handlerId, role: "PROPERTY_MANAGER" },
+  });
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let entered: (pid: number) => void = () => undefined;
+  const inside = new Promise<number>((resolve) => {
+    entered = resolve;
+  });
+  try {
+    const holding = prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "work_order" WHERE "id" = ${workOrderId} FOR UPDATE`;
+        const [backend] = await tx.$queryRaw<
+          { pid: number }[]
+        >`SELECT pg_backend_pid() AS "pid"`;
+        if (backend === undefined) {
+          throw new Error("The holder's backend could not be read");
+        }
+        entered(backend.pid);
+        await held;
+      },
+      { timeout: 20_000 },
+    );
+    const holder = await inside;
+    const acting = act().then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+        SELECT count(*) AS "waiting" FROM pg_stat_activity
+        WHERE ${holder}::int = ANY(pg_blocking_pids("pid"))`;
+      if (row !== undefined && row.waiting > 0n) {
+        break;
+      }
+      if (Date.now() > deadline) {
+        throw new Error("Nothing queued on the work order's lock");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    // The role is asked again once the lock is got: a check made before the
+    // wait alone would let the act through.
+    await prisma.systemRole.deleteMany({ where: { personId: handlerId } });
+    release();
+    await holding;
+    return await acting;
+  } finally {
+    release();
+    await prisma.systemRole.deleteMany({ where: { personId: handlerId } });
+    await prisma.person.deleteMany({ where: { id: handlerId } });
+  }
+}
 
 /**
  * An issue a resident reported, with every sensitive field filled with a
@@ -1005,6 +1093,131 @@ describe("B. lifetime and revocation", () => {
     ).toBe("ended");
   });
 
+  it("B1: is not issued, chosen photographs for or withdrawn by a person who no longer holds issues:handle", async () => {
+    const ids = await linked();
+    // Past the route's guard, as a role withdrawn in between: the person reads
+    // as the narrower scope, which admits every issue of an every-handler
+    // type, so only the role check refuses.
+    const before = await snapshot(ids.issueId, ids.workOrderId);
+    const chosen = (await listedOrder(ids.issueId, ids.workOrderId))
+      .contractorLink.chosenFileIds;
+    expect(chosen).toEqual([ids.chosenFileId]);
+
+    await expect(
+      links.issue(resident.personId, ids.issueId, ids.workOrderId),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    await expect(
+      links.choosePhotos(resident.personId, ids.issueId, ids.workOrderId, [
+        ids.unchosenFileId,
+      ]),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    await expect(
+      links.revoke(resident.personId, ids.issueId, ids.workOrderId),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+
+    expect(await snapshot(ids.issueId, ids.workOrderId)).toEqual(before);
+    expect(
+      (await listedOrder(ids.issueId, ids.workOrderId)).contractorLink
+        .chosenFileIds,
+    ).toEqual(chosen);
+    // The link still opens.
+    expect((await page(ids.token)).statusCode).toBe(200);
+  });
+
+  it("B1: is not issued to a handler whose role is withdrawn while the issuing waits on the household protection's lock", async () => {
+    const ids = await arrange();
+    const handlerId = `wl-lapsing-${suffix}`;
+    await prisma.person.create({
+      data: { id: handlerId, firstName: "Lars", lastName: `Roll${suffix}` },
+    });
+    await prisma.systemRole.create({
+      data: { personId: handlerId, role: "PROPERTY_MANAGER" },
+    });
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const inside = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    try {
+      const holding = prisma.$transaction(
+        async (tx) => {
+          await lockHouseholdProtection(tx);
+          entered();
+          await held;
+        },
+        { timeout: 20_000 },
+      );
+      await inside;
+      const issuing = links.issue(handlerId, ids.issueId, ids.workOrderId).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      await waitForProtectionLockWaiter();
+      // The role is asked again once the lock is got: a check made before the
+      // wait alone would let the link be issued.
+      await prisma.systemRole.deleteMany({ where: { personId: handlerId } });
+      release();
+      await holding;
+      expect(await issuing).toMatchObject({ reason: "issue-not-found" });
+      expect(
+        await prisma.workOrderLink.count({
+          where: { workOrderId: ids.workOrderId },
+        }),
+      ).toBe(0);
+    } finally {
+      release();
+      await prisma.systemRole.deleteMany({ where: { personId: handlerId } });
+      await prisma.person.deleteMany({ where: { id: handlerId } });
+    }
+  });
+
+  it("B1: chooses no photographs for a handler whose role is withdrawn while the choice waits on the work order's lock", async () => {
+    const ids = await linked();
+    const handlerId = `wl-lapsing-choose-${suffix}`;
+    const before = await snapshot(ids.issueId, ids.workOrderId);
+    const refused = await withRoleWithdrawnBehindWorkOrderLock(
+      handlerId,
+      ids.workOrderId,
+      () =>
+        links.choosePhotos(handlerId, ids.issueId, ids.workOrderId, [
+          ids.unchosenFileId,
+        ]),
+    );
+    expect(refused).toMatchObject({ reason: "issue-not-found" });
+    expect(await snapshot(ids.issueId, ids.workOrderId)).toEqual(before);
+    expect(
+      (
+        await prisma.workOrderPhoto.findMany({
+          where: { workOrderId: ids.workOrderId },
+          select: { fileId: true },
+        })
+      ).map((photo) => photo.fileId),
+    ).toEqual([ids.chosenFileId]);
+    // The link is live: a choice let through would have shown the photograph.
+    expect(
+      await prisma.workOrderPhotoExposure.count({
+        where: { workOrderId: ids.workOrderId, fileId: ids.unchosenFileId },
+      }),
+    ).toBe(0);
+  });
+
+  it("B1: is not withdrawn by a handler whose role is withdrawn while the withdrawal waits on the work order's lock", async () => {
+    const ids = await linked();
+    const handlerId = `wl-lapsing-revoke-${suffix}`;
+    const before = await snapshot(ids.issueId, ids.workOrderId);
+    const refused = await withRoleWithdrawnBehindWorkOrderLock(
+      handlerId,
+      ids.workOrderId,
+      () => links.revoke(handlerId, ids.issueId, ids.workOrderId),
+    );
+    expect(refused).toMatchObject({ reason: "issue-not-found" });
+    expect(await snapshot(ids.issueId, ids.workOrderId)).toEqual(before);
+    expect((await page(ids.token)).statusCode).toBe(200);
+  });
+
   it("B2: ends 30 days after it was issued, on the database's clock", async () => {
     const ids = await linked();
     const [row] = await prisma.workOrderLink.findMany({
@@ -1102,7 +1315,7 @@ describe("B. lifetime and revocation", () => {
     expect((await page(ids.token)).statusCode).toBe(404);
   });
 
-  it("B1, B5, I1: ring-fencing the type revokes its links in that transaction, and lifting it brings none back", async () => {
+  it("B1, B5, I1: ring-fencing the type revokes its links in that transaction, the API refuses to lift it, and a lifting behind the service brings none back", async () => {
     const ids = await linked({ type: fenced });
     const set = (ringFenced: boolean) =>
       inject({

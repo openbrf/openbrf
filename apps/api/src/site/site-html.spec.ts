@@ -11,6 +11,7 @@ import {
   isoDate,
   renderNotFound,
   renderPage,
+  renderTooManyRequests,
   type SiteChrome,
 } from "./site-html";
 
@@ -1010,6 +1011,33 @@ describe("the not-found page", () => {
 
   it("carries no script either", () => {
     expect(renderNotFound(chrome)).not.toContain("<script");
+  });
+});
+
+describe("the page a spent public budget answers with", () => {
+  it("is the same document every time it is asked for", () => {
+    // One refusal for every address that keeps a budget: a reporter's link
+    // holding a live token and one holding none must not be told apart by it.
+    expect(renderTooManyRequests(chrome)).toBe(renderTooManyRequests(chrome));
+  });
+
+  it("says what happened, and what to do, in the visitor's language", () => {
+    const swedish = renderTooManyRequests(chrome);
+    expect(swedish).toContain("<title>För många försök");
+    expect(swedish).toContain("Vänta en stund och försök igen.");
+
+    const english = renderTooManyRequests({
+      ...chrome,
+      t: i18n.translatorFor("en"),
+      locale: "en",
+    });
+    expect(english).toContain("<title>Too many attempts");
+    expect(english).toContain("Wait a moment and try again.");
+    expect(english).toContain('lang="en"');
+  });
+
+  it("carries no script either", () => {
+    expect(renderTooManyRequests(chrome)).not.toContain("<script");
   });
 });
 

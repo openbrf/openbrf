@@ -11,7 +11,15 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { hashToken } from "../invitations/invitation.service";
 import { lockResidencyTransitions } from "../registers/residency-lock";
+import { DataSubjectRequestService } from "../data-protection/data-subject-request.service";
+import { PluginRecordsPurgeService } from "../plugins/plugin-records-purge.service";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
+import { computePersonPurgeDate } from "../retention/purge-date";
+import { purgeRefusalOnRequest } from "../retention/purge-refusal";
+import { PurgeService } from "../retention/purge.service";
+import { STANDING_TIE_SELECT } from "../retention/standing-ties";
+import { erasureRequestedPersonIds } from "../retention/withheld-persons";
+import { grantErasure } from "../testing/erasure-requests";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -75,6 +83,10 @@ const racer = { personId: `pa-racer-${suffix}` };
 /** Holds an access and a board seat, so the access is not their only tie. */
 const seated = { personId: `pa-seated-${suffix}` };
 const withdrawn = { personId: `pa-withdrawn-${suffix}` };
+/** Whose only tie is an access: kept while it stands, erasable once it goes. */
+const kept = { personId: `pa-kept-${suffix}` };
+/** Asks for erasure while an access stands. */
+const asking = { personId: `pa-asking-${suffix}` };
 
 const personIds = [
   board.personId,
@@ -86,6 +98,8 @@ const personIds = [
   racer.personId,
   seated.personId,
   withdrawn.personId,
+  kept.personId,
+  asking.personId,
 ];
 
 const SERVING: PluginAccessClass = {
@@ -281,6 +295,12 @@ afterAll(async () => {
       await prisma.account.deleteMany({ where: { user: where } });
       await prisma.user.deleteMany({ where });
       await prisma.invitation.deleteMany({ where });
+      // A request keeps its person, and a record names its subject by id
+      // alone, so both go first and by this run's ids.
+      await prisma.dataSubjectRequest.deleteMany({ where });
+      await prisma.pluginRecord.deleteMany({
+        where: { pluginId: { in: pluginIds } },
+      });
       await prisma.pluginAccess.deleteMany({ where });
       await prisma.boardPosition.deleteMany({ where });
       await prisma.residency.deleteMany({ where });
@@ -661,5 +681,172 @@ describe("how an access ends", () => {
     expect(
       await prisma.pluginAccess.count({ where: { pluginId: removedPlugin } }),
     ).toBe(0);
+  });
+});
+
+/**
+ * A plugin access keeps its holder as a system role does (ADR 0053, "Mail, the
+ * access report and erasure"), in all five places that decide whether a person
+ * is kept (`standing-ties.ts`).
+ */
+describe("a person whose only tie is a plugin access", () => {
+  /** A record a plugin keeps about the person, as `host.personRecords` would. */
+  async function recordAbout(personId: string): Promise<{ id: string }> {
+    return prisma.pluginRecord.create({
+      data: {
+        pluginId: servingPlugin,
+        collection: "claims",
+        key: `claim-${personId}`,
+        subjectPersonId: personId,
+        // Long after tonight, so only an erasure takes it now.
+        eraseOn: day(300),
+        value: { space: "12" },
+        size: 14,
+      },
+      select: { id: true },
+    });
+  }
+
+  /**
+   * What the four that act on a standing request say about the person at
+   * this moment. The fifth, the grant's own check, is asked by the test.
+   */
+  async function asked(personId: string) {
+    const now = new Date();
+    const facts = await prisma.person.findUniqueOrThrow({
+      where: { id: personId },
+      select: {
+        residencies: { select: { movedOutOn: true } },
+        ...STANDING_TIE_SELECT,
+      },
+    });
+    return {
+      purgeRefusal: await purgeRefusalOnRequest(prisma, personId, now),
+      purgeDate: computePersonPurgeDate(
+        { ...facts, withheld: false },
+        365,
+        now,
+      ),
+      erasureRequested: (await erasureRequestedPersonIds(prisma, now)).includes(
+        personId,
+      ),
+    };
+  }
+
+  it("is kept by all five while the access stands, and erased with their records once it is withdrawn", async () => {
+    expect(
+      (await setAccess(boardCookie, kept.personId, servingPlugin, true))
+        .statusCode,
+    ).toBe(200);
+    const record = await recordAbout(kept.personId);
+
+    const report = await app.get(DataSubjectReportService).generate({
+      personId: kept.personId,
+      actorPersonId: board.personId,
+    });
+    expect(report.pluginAccesses.map((access) => access.pluginId)).toEqual([
+      servingPlugin,
+    ]);
+    expect(report.pluginRecords.map((row) => row.pluginId)).toEqual([
+      servingPlugin,
+    ]);
+
+    // The grant's own check declines it (`assertErasable`).
+    const requests = app.get(DataSubjectRequestService);
+    const view = await requests.record({
+      personId: kept.personId,
+      kind: "ERASURE",
+      requestedOn: new Date(),
+      ground: "Jag vill inte finnas kvar.",
+      erasureGround: "NO_LONGER_NECESSARY",
+      actorPersonId: board.personId,
+    });
+    await expect(
+      requests.decide(view.requestId, {
+        decision: "GRANTED",
+        ground: "Inget lagligt krav hindrar radering.",
+        erasureException: "NONE",
+        actorPersonId: board.personId,
+      }),
+    ).rejects.toMatchObject({ reason: "plugin-access-current" });
+    await prisma.dataSubjectRequest.delete({ where: { id: view.requestId } });
+
+    // A grant recorded before the access, as a board could have: the purges
+    // have to refuse what the grant's check would have.
+    const request = await grantErasure(prisma, kept.personId, board.personId);
+
+    expect(await asked(kept.personId)).toEqual({
+      purgeRefusal: "plugin-access-current",
+      purgeDate: null,
+      erasureRequested: false,
+    });
+    expect(
+      await app.get(PluginRecordsPurgeService).purgePerson(kept.personId),
+    ).toEqual([]);
+    expect(await app.get(PurgeService).purgePerson(kept.personId)).toBeNull();
+    expect(await prisma.pluginRecord.count({ where: { id: record.id } })).toBe(
+      1,
+    );
+
+    expect(
+      (await setAccess(boardCookie, kept.personId, servingPlugin, false))
+        .statusCode,
+    ).toBe(200);
+
+    expect(await asked(kept.personId)).toEqual({
+      purgeRefusal: null,
+      // Still no date: a person who has never had a residency has no move-out
+      // to count a retention period from, so the request is what erases them,
+      // as it is for an external board member whose term has ended.
+      purgeDate: null,
+      erasureRequested: true,
+    });
+    await app.get(PluginRecordsPurgeService).purgePerson(kept.personId);
+    expect(await prisma.pluginRecord.count({ where: { id: record.id } })).toBe(
+      0,
+    );
+    expect(
+      await app.get(PurgeService).purgePerson(kept.personId),
+    ).not.toBeNull();
+    expect(
+      (
+        await prisma.dataSubjectRequest.findUniqueOrThrow({
+          where: { id: request.id },
+          select: { executedAt: true },
+        })
+      ).executedAt,
+    ).not.toBeNull();
+  });
+
+  it("has an erasure grant declined while the access stands, and recorded once it is withdrawn", async () => {
+    expect(
+      (await setAccess(boardCookie, asking.personId, servingPlugin, true))
+        .statusCode,
+    ).toBe(200);
+    const requests = app.get(DataSubjectRequestService);
+    const view = await requests.record({
+      personId: asking.personId,
+      kind: "ERASURE",
+      requestedOn: new Date(),
+      ground: "Jag hyr inte garaget längre.",
+      erasureGround: "NO_LONGER_NECESSARY",
+      actorPersonId: board.personId,
+    });
+    const decision = {
+      decision: "GRANTED",
+      ground: "Inget lagligt krav hindrar radering.",
+      erasureException: "NONE",
+      actorPersonId: board.personId,
+    } as const;
+
+    await expect(
+      requests.decide(view.requestId, decision),
+    ).rejects.toMatchObject({ reason: "plugin-access-current", status: 409 });
+
+    await setAccess(boardCookie, asking.personId, servingPlugin, false);
+
+    await expect(
+      requests.decide(view.requestId, decision),
+    ).resolves.toMatchObject({ state: "granted" });
   });
 });

@@ -67,6 +67,7 @@ describe("computePersonPurgeDate", () => {
     residencies: [],
     boardPositions: [],
     systemRoles: [],
+    pluginAccesses: [],
     withheld: false,
   };
 
@@ -128,6 +129,7 @@ describe("computePersonPurgeDate", () => {
   it.each([
     ["a legal hold or a restriction", { withheld: true }],
     ["a system role", { systemRoles: [{ role: "ADMIN" }] }],
+    ["a plugin access", { pluginAccesses: [{ id: "access" }] }],
     ["a board seat with no end", { boardPositions: [{ endedOn: null }] }],
     [
       "a board seat that ends later",

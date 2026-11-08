@@ -31,6 +31,7 @@ export type DataSubjectRequestReason =
   | "on-legal-hold"
   | "board-position-current"
   | "system-role-current"
+  | "plugin-access-current"
   | "processing-restricted";
 
 /**
@@ -84,5 +85,6 @@ const CONFLICT = new Set<DataSubjectRequestReason>([
   "on-legal-hold",
   "board-position-current",
   "system-role-current",
+  "plugin-access-current",
   "processing-restricted",
 ]);

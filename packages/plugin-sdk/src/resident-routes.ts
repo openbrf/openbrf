@@ -3,8 +3,9 @@
  * ways (ADR 0051), and the members the host holds back outside the plugin's
  * resident routes while one of them works.
  *
- * The register reads name residents, apartments or how many of either the
- * address book lists, and a resident route has no use for them, so they are
+ * The register reads name residents, the persons served who live elsewhere
+ * (ADR 0053), apartments or how many residents and apartments the address book
+ * lists, and a resident route has no use for them, so they are
  * refused whatever they are passed. `caller`, the action dispatch, the app an
  * action request came from, the audit entry's actor and a theme install are
  * held to the request the route is serving: a request kept from elsewhere, a
@@ -32,6 +33,7 @@ export const PLUGIN_RESIDENT_ROUTE_REFUSED_MEMBERS = [
   "addressBook.residents",
   "addressBook.apartments",
   "addressBook.summary",
+  "addressBook.nonResidents",
   "addressBook.caller",
   "actions.list",
   "actions.invoke",
@@ -50,6 +52,7 @@ const REGISTER_READS: readonly PluginResidentRouteRefusedMember[] = [
   "addressBook.residents",
   "addressBook.apartments",
   "addressBook.summary",
+  "addressBook.nonResidents",
 ];
 
 /**

@@ -13,7 +13,10 @@ import {
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
 import { isPersonWithheld } from "../retention/withheld-persons";
 import { ISSUE_FREE_TEXT_STANDING_UNREDACTED } from "./issue-free-text";
-import { requireHandledIssue } from "./issue-handlers";
+import {
+  requireHandledIssue,
+  requireHandledIssueForWrite,
+} from "./issue-handlers";
 import { lockIssueForHandling } from "./issue-lock";
 import {
   detachErasedReporter,
@@ -155,7 +158,7 @@ export class IssueRedactionService {
     const legalHoldAt = await this.prisma.$transaction(async (tx) => {
       changed = false;
       await lockIssueForHandling(tx, issueId);
-      const issue = await requireHandled(tx, issueId, handlerPersonId);
+      const issue = await requireHandledForWrite(tx, issueId, handlerPersonId);
       if ((issue.legalHoldAt !== null) === held) {
         return issue.legalHoldAt;
       }
@@ -348,8 +351,10 @@ export class IssueRedactionService {
    * reporter column). Only the reporter whose key was taken before the issue's
    * lock: one the issue no longer names, or names since, is left to the person
    * purge. A legal hold or a restriction on that reporter needs no check here:
-   * both callers ran {@link requireRedactable} in this transaction, under the
-   * same locks, and it refused the redaction.
+   * both callers ran {@link requireRedactable} earlier in this transaction,
+   * under the reporter's hold key and the registry lock (`lockForRedaction`),
+   * which a legal hold and the granting of a restriction take as well, and it
+   * refused the redaction.
    */
   private async detachIfFinished(
     tx: Prisma.TransactionClient,
@@ -462,7 +467,7 @@ export class IssueRedactionService {
     issueId: string,
     handlerPersonId: string,
   ): Promise<void> {
-    refuseHeld(await requireHandled(tx, issueId, handlerPersonId));
+    refuseHeld(await requireHandledForWrite(tx, issueId, handlerPersonId));
     const reporter = await tx.issue.findUnique({
       where: { id: issueId },
       select: { reporterPersonId: true, reporterEmailIndex: true },
@@ -551,6 +556,25 @@ async function requireHandled(
   return requireHandledIssue(db, issueId, handlerPersonId, {
     legalHoldAt: true,
   });
+}
+
+/**
+ * The same issue for a write, read under its locks: the writer's
+ * `issues:handle` role is asked with their scope, at the instant read here once
+ * the locks are held (`requireHandledIssueForWrite`).
+ */
+async function requireHandledForWrite(
+  tx: Prisma.TransactionClient,
+  issueId: string,
+  handlerPersonId: string,
+): Promise<{ legalHoldAt: Date | null }> {
+  return requireHandledIssueForWrite(
+    tx,
+    issueId,
+    handlerPersonId,
+    { legalHoldAt: true },
+    new Date(),
+  );
 }
 
 function refuseHeld(issue: { legalHoldAt: Date | null }): void {

@@ -171,19 +171,17 @@ export async function requireHandledIssue<S extends Prisma.IssueSelect>(
  * Refuses, as an issue that does not exist, a person who holds no
  * `issues:handle` role at `now`.
  *
- * For a handler's write, asked inside its transaction once its locks are held
- * and with the instant its scope is judged at: those that sign with the role
- * the writer holds (`signatureOf`), and every other write that acts for a
- * handler: a note, an attachment, a link withdrawal, and a change to an
- * issue's status, assignee, priority, target date, cost responsibility,
- * damage-case mark or board-only access. {@link requireHandledIssue}
- * answers the narrower scope for a person who handles nothing, which admits
- * every issue an every-handler type has, and `signatureOf` falls back to the
- * board: a role withdrawn since the route's check must not write or sign as
- * the board.
+ * Asked inside a handler's write once its locks are held, with the instant its
+ * scope is judged at. {@link requireHandledIssue} answers the narrower scope
+ * for a person who handles nothing, which admits every issue an every-handler
+ * type has, and `signatureOf` falls back to the board: a role withdrawn since
+ * the route's check must not write or sign as the board.
  *
- * A write on one issue asks it through {@link requireHandledIssueToWrite},
- * which asks both questions at one instant.
+ * A write that reads one issue asks {@link requireHandledIssueForWrite}, which
+ * asks this first, so it cannot be left out. This stands alone only where a
+ * write reads more than one issue under the one scope: `IssueService.merge`
+ * reads the duplicate and the issue it is merged into, and asks it beside
+ * those reads.
  */
 export async function requireHandlerRole(
   db: FeedDbClient,
@@ -196,25 +194,30 @@ export async function requireHandlerRole(
 }
 
 /**
- * The issue a handler's write acts on, read with the caller's select:
- * {@link requireHandlerRole} and {@link requireHandledIssue}, both asked at
- * `now`.
+ * An issue a handler may write to, read like {@link requireHandledIssue} once
+ * the person's `issues:handle` role at `now` has been asked
+ * ({@link requireHandlerRole}).
  *
- * The read a write on one issue starts from when it signs or acts for a
- * handler, so the rule that the role is held at the instant the scope is
- * judged at is kept here and not by pairing the two questions at each call
- * site. `now` has no default: the caller reads the clock after its lock
- * waits, so a role or board seat that ended during one does not count.
+ * The one read every handler write on a single issue starts from, after the
+ * locks it takes: the writes of `IssueService` (`setStatus` with its own
+ * select), `IssueConversationService`, `IssueFitService`,
+ * `IssueRedactionService`, `IssueReporterLinkService.revoke`,
+ * `WorkOrderLinkService` and `WorkOrderService.send`. `merge`, which reads two
+ * issues, asks {@link requireHandlerRole} beside its reads instead.
+ *
+ * `now` has no default: the caller reads the clock once the locks are held and
+ * judges the role and the scope at that one instant, so a board seat or a role
+ * that ended during a lock wait is not read as it stood before.
  */
-export async function requireHandledIssueToWrite<S extends Prisma.IssueSelect>(
+export async function requireHandledIssueForWrite<S extends Prisma.IssueSelect>(
   db: FeedDbClient,
   issueId: string,
-  handlerPersonId: string,
+  writerPersonId: string,
   select: S,
   now: Date,
 ): Promise<Prisma.IssueGetPayload<{ select: S }>> {
-  await requireHandlerRole(db, handlerPersonId, now);
-  return requireHandledIssue(db, issueId, handlerPersonId, select, now);
+  await requireHandlerRole(db, writerPersonId, now);
+  return requireHandledIssue(db, issueId, writerPersonId, select, now);
 }
 
 /** The types a reader who is let into types of this scope handles. */
