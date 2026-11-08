@@ -21,6 +21,7 @@ import {
 import { IssuePurgeService } from "./issue-purge.service";
 import { WORK_ORDER_BODY_RETENTION_DAYS } from "./issue-retention";
 import { WorkOrderMailerService } from "./work-order-mailer.service";
+import { WorkOrderService } from "./work-order.service";
 
 /**
  * Work orders over HTTP, against a real database (decision 23 of the issue
@@ -1790,6 +1791,103 @@ describe("the sending", () => {
       await prisma.boardPosition.updateMany({
         where: { personId: board.personId },
         data: { endedOn: null },
+      });
+    }
+  });
+
+  /** The issue's work orders and its entries in the audit log. */
+  async function standing(issueId: string) {
+    return {
+      workOrders: await prisma.workOrder.count({ where: { issueId } }),
+      entries: await prisma.auditLogEntry.count({
+        where: { targetId: issueId },
+      }),
+    };
+  }
+
+  it("refuses a sender who holds no issues:handle role, past the route's guard", async () => {
+    const issueId = await filed(plain, "no-role");
+    const payload = {
+      contractorId: plumber.id,
+      body: `Byt silen. ${suffix}`,
+    };
+    const orders = app.get(WorkOrderService);
+    // The preview only reads. It is asked here so the token is valid, and
+    // only the role check is left to refuse the sending.
+    const { previewToken } = await orders.preview(
+      resident.personId,
+      issueId,
+      payload,
+    );
+    const before = await standing(issueId);
+
+    // The resident reads as the narrower scope, which admits every issue of an
+    // every-handler type: only the role check refuses.
+    await expect(
+      orders.send(resident.personId, issueId, { ...payload, previewToken }),
+    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    expect(await standing(issueId)).toEqual(before);
+  });
+
+  it("asks the sender's role after the lock on its sender, so a role withdrawn while the sending waits refuses it", async () => {
+    const issueId = await filed(plain, "sender-lock-role");
+    const payload = {
+      contractorId: plumber.id,
+      body: `Byt ventilen. ${suffix}`,
+    };
+    await prisma.systemRole.create({
+      data: { personId: resident.personId, role: "PROPERTY_MANAGER" },
+    });
+    const key = `work-order-sender:${resident.personId}`;
+    const holding = gate();
+    const released = gate();
+    let held: Promise<void> | undefined;
+    let sending: ReturnType<typeof workOrder> | undefined;
+    try {
+      const preview = await workOrder(
+        as(resident),
+        issueId,
+        payload,
+        "preview",
+      );
+      expect(preview.statusCode).toBe(200);
+      const { previewToken } = preview.json<{ previewToken: string }>();
+      const before = await standing(issueId);
+
+      // The role is withdrawn under the sender's lock, and the withdrawal
+      // commits with the lock's release. The person then reads as the
+      // narrower scope, which still admits this issue: a sending that did not
+      // ask the role once its locks were held would write the work order.
+      held = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+          await tx.systemRole.deleteMany({
+            where: { personId: resident.personId },
+          });
+          holding.reach();
+          await released.opened;
+        },
+        { timeout: 30_000 },
+      );
+      // A rejected holder fails the test here, not after the gate times out.
+      await Promise.race([holding.reached, held]);
+      sending = workOrder(as(resident), issueId, { ...payload, previewToken });
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, false)) > 0n,
+      );
+      released.open();
+      await held;
+      const refused = await sending;
+      expect(refused.statusCode).toBe(404);
+      expect(refused.json<{ reason: string }>().reason).toBe("issue-not-found");
+      expect(await standing(issueId)).toEqual(before);
+    } finally {
+      released.open();
+      await held?.catch(() => undefined);
+      await sending?.catch(() => undefined);
+      // Later tests read the resident as a resident.
+      await prisma.systemRole.deleteMany({
+        where: { personId: resident.personId },
       });
     }
   });

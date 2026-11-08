@@ -61,6 +61,7 @@ import {
   issuesHandledWhere,
   readIssueHandlers,
   requireHandledIssue,
+  requireHandledIssueForWrite,
   requireHandlerRole,
   typesHandledWhere,
 } from "./issue-handlers";
@@ -1058,7 +1059,18 @@ export class IssueService {
        * out, and the handler would be told it failed when it had been filed.
        */
       await lockIssueType(tx, input.typeId);
-      const scope = await this.readerScope(tx, principal.personId, new Date());
+      /*
+       * The role and the scope at the one instant read once the lock is held:
+       * a role withdrawn while this waited on the lock reads as the narrower
+       * scope, which still admits every type an every-handler type has.
+       */
+      const now = new Date();
+      if (
+        !(await handlesIssues(tx, principal.personId, "EVERY_HANDLER", now))
+      ) {
+        throw new IssueError("No such issue type.", "type-not-found");
+      }
+      const scope = await this.readerScope(tx, principal.personId, now);
       const type = await tx.issueType.findFirst({
         where: { id: input.typeId, active: true, ...typesHandledWhere(scope) },
         select: {
@@ -1507,9 +1519,8 @@ export class IssueService {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
 
-      const now = new Date();
-      await requireHandlerRole(tx, actorPersonId, now);
-      const existing = await requireHandledIssue(
+      // After the lock wait: one instant for the writer's role and scope.
+      const existing = await requireHandledIssueForWrite(
         tx,
         issueId,
         actorPersonId,
@@ -1523,7 +1534,7 @@ export class IssueService {
           entryAnswer: true,
           status: { select: { id: true, meaning: true } },
         },
-        now,
+        new Date(),
       );
       await this.requireOffered(tx, issueId, protectedReporters);
 
@@ -1541,8 +1552,12 @@ export class IssueService {
 
       // The database's clock, as the window a reply may reopen in is judged
       // (`replyModeOf`): a `closedAt` from this process's clock would shift
-      // that window's edge by the two clocks' difference.
-      const next = nextState(existing, target, move, await databaseNow(tx));
+      // that window's edge by the two clocks' difference. Read only by a move
+      // that sets the closing date, so no other move pays a query while the
+      // locks are held.
+      const next = await nextState(existing, target, move, () =>
+        databaseNow(tx),
+      );
 
       /*
        * Who moved it, between which meanings and which statuses, and the reason
@@ -1630,9 +1645,10 @@ export class IssueService {
     await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      // After the lock wait: a role withdrawn during it must not assign.
+      // After the lock wait: one instant for the writer's role and scope and
+      // for the assignee's.
       const now = new Date();
-      const existing = await this.requireHandledWrite(
+      const existing = await this.requireHandledForWrite(
         tx,
         issueId,
         actorPersonId,
@@ -1702,10 +1718,12 @@ export class IssueService {
     await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandledWrite(
+      const now = new Date();
+      const existing = await this.requireHandledForWrite(
         tx,
         issueId,
         actorPersonId,
+        now,
       );
       await this.requireOffered(tx, issueId, protectedReporters);
       if (existing.priority !== priority) {
@@ -1760,10 +1778,12 @@ export class IssueService {
     await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandledWrite(
+      const now = new Date();
+      const existing = await this.requireHandledForWrite(
         tx,
         issueId,
         actorPersonId,
+        now,
       );
       await this.requireOffered(tx, issueId, protectedReporters);
       // The target date of a finding is held to the inspection's rule, and a
@@ -1824,10 +1844,12 @@ export class IssueService {
   ): Promise<QueuedIssueView> {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandledWrite(
+      const now = new Date();
+      const existing = await this.requireHandledForWrite(
         tx,
         issueId,
         actorPersonId,
+        now,
       );
       if (existing.costResponsibility !== costResponsibility) {
         await this.audit.record(
@@ -1918,7 +1940,7 @@ export class IssueService {
 
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      await this.requireHandledWrite(tx, issueId, actorPersonId);
+      await this.requireHandledForWrite(tx, issueId, actorPersonId, new Date());
       const held = await tx.issue.findUniqueOrThrow({
         where: { id: issueId },
         select: {
@@ -2017,7 +2039,7 @@ export class IssueService {
   ): Promise<QueuedIssueView> {
     const issue = await this.prisma.$transaction(async (tx) => {
       await this.lockForAssignment(tx, issueId);
-      await this.requireHandledWrite(tx, issueId, actorPersonId);
+      await this.requireHandledForWrite(tx, issueId, actorPersonId, new Date());
       const stored = await tx.issueDamageCase.findUnique({
         where: { issueId },
         select: {
@@ -2075,12 +2097,13 @@ export class IssueService {
     actorPersonId: string,
   ): Promise<QueuedIssueView> {
     const issue = await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
       await this.lockForAssignment(tx, issueId);
-      const existing = await this.requireHandledWrite(
+      const now = new Date();
+      const existing = await this.requireHandledForWrite(
         tx,
         issueId,
         actorPersonId,
+        now,
       );
       if (existing.boardOnly === boardOnly) {
         return tx.issue.findUniqueOrThrow({
@@ -2178,7 +2201,9 @@ export class IssueService {
       await lockIssuesForHandling(tx, [issueId, intoIssueId]);
       // After the lock waits. A person who handles nothing is read as the
       // narrower scope, which admits every issue an every-handler type has: a
-      // role withdrawn since the route's check must not merge.
+      // role withdrawn since the route's check must not merge. Two issues are
+      // read under the one scope, so the role is asked here beside them rather
+      // than through `requireHandledIssueForWrite`, which reads one.
       const now = new Date();
       await requireHandlerRole(tx, actorPersonId, now);
       const scope = await this.readerScope(tx, actorPersonId, now);
@@ -2349,16 +2374,15 @@ export class IssueService {
       // After the lock wait: a board seat that ended during it must not sign
       // the notice as BOARD.
       const now = new Date();
-      const existing = await this.requireHandled(
+      // The role is asked with the scope: `signatureOf` would sign for a person
+      // who handles nothing as the board, and a role withdrawn since the
+      // route's check must not publish a notice.
+      const existing = await this.requireHandledForWrite(
         tx,
         issueId,
         actorPersonId,
         now,
       );
-      // `requireHandled` answers the narrower scope for a person who handles
-      // nothing, and `signatureOf` would sign for them as the board: a role
-      // withdrawn since the route's check must not publish a notice.
-      await requireHandlerRole(tx, actorPersonId, now);
       if (existing.status.meaning === "DONE") {
         throw new IssueError(
           "This issue is closed; a fault that is fixed is not a known fault.",
@@ -2411,15 +2435,14 @@ export class IssueService {
       // After the lock wait, one instant for both questions, as publishing
       // takes it.
       const now = new Date();
-      const existing = await this.requireHandled(
+      // As publishing does: a role withdrawn since the route's check must not
+      // clear a notice the board put up.
+      const existing = await this.requireHandledForWrite(
         tx,
         issueId,
         actorPersonId,
         now,
       );
-      // As publishing does: a role withdrawn since the route's check must not
-      // clear a notice the board put up.
-      await requireHandlerRole(tx, actorPersonId, now);
       if (existing.knownFaultPublishedAt === null) {
         return tx.issue.findUniqueOrThrow({
           where: { id: issueId },
@@ -3058,40 +3081,30 @@ export class IssueService {
       db,
       issueId,
       readerPersonId,
-      {
-        id: true,
-        typeId: true,
-        boardOnly: true,
-        assigneePersonId: true,
-        priority: true,
-        targetDate: true,
-        costResponsibility: true,
-        createdAt: true,
-        knownFaultPublishedAt: true,
-        status: { select: { meaning: true } },
-        type: { select: { handledBy: true } },
-        finding: { select: { kind: true, inspectedOn: true } },
-      },
+      HANDLED_ISSUE_SELECT,
       now,
     );
   }
 
   /**
-   * `requireHandled` for a handler's write, asked inside its transaction once
-   * its locks are held: a person who holds no `issues:handle` role at `now` is
-   * refused first, as an issue that does not exist. `requireHandled` alone
-   * answers the narrower scope for a person who handles nothing, which admits
-   * every issue of an every-handler type, so a role withdrawn while the write
-   * waited on its locks would otherwise still write.
+   * The same issue for a write, once its locks are held: the writer's
+   * `issues:handle` role is asked at the same instant as their scope
+   * (`requireHandledIssueForWrite`), so a write cannot leave it out. `now` is
+   * read after the lock waits, by the caller.
    */
-  private async requireHandledWrite(
+  private async requireHandledForWrite(
     tx: Prisma.TransactionClient,
     issueId: string,
-    actorPersonId: string,
-    now: Date = new Date(),
+    writerPersonId: string,
+    now: Date,
   ) {
-    await requireHandlerRole(tx, actorPersonId, now);
-    return this.requireHandled(tx, issueId, actorPersonId, now);
+    return requireHandledIssueForWrite(
+      tx,
+      issueId,
+      writerPersonId,
+      HANDLED_ISSUE_SELECT,
+      now,
+    );
   }
 
   /**
@@ -3457,6 +3470,22 @@ export class IssueService {
   }
 }
 
+/** What a write on a single issue reads of it (`requireHandled`). */
+const HANDLED_ISSUE_SELECT = {
+  id: true,
+  typeId: true,
+  boardOnly: true,
+  assigneePersonId: true,
+  priority: true,
+  targetDate: true,
+  costResponsibility: true,
+  createdAt: true,
+  knownFaultPublishedAt: true,
+  status: { select: { meaning: true } },
+  type: { select: { handledBy: true } },
+  finding: { select: { kind: true, inspectedOn: true } },
+} as const satisfies Prisma.IssueSelect;
+
 const APARTMENT_SELECT = {
   id: true,
   number: true,
@@ -3749,11 +3778,11 @@ function afterWithinMeaning(cursor: IssueQueueCursor): Prisma.IssueWhereInput {
  * its reporter follows it again rather than the other issue. Closing clears a
  * known fault, which a fault nobody still has stops being.
  *
- * @param now The database's clock (`databaseNow`), read after the issue's
- *   locks: the closing date is written from it because a reply's window is
- *   judged on that clock.
+ * @param databaseClock The database's clock (`databaseNow`), asked for only
+ *   by a move that sets the closing date and read after the issue's locks: the
+ *   date is written from it because a reply's window is judged on that clock.
  */
-function nextState(
+async function nextState(
   existing: {
     closedAt: Date | null;
     outcome: IssueOutcome | null;
@@ -3762,15 +3791,17 @@ function nextState(
   },
   target: { id: string; meaning: IssueStatusMeaning },
   move: IssueStatusMove,
-  now: Date,
-): {
-  statusId: string;
-  waitingReason: IssueWaitingReason | null;
-  outcome: IssueOutcome | null;
-  closedAt: Date | null;
-  mergedIntoIssueId: string | null;
-} & Partial<typeof KNOWN_FAULT_CLEARED> &
-  Partial<typeof NO_ENTRY_PERMISSION> {
+  databaseClock: () => Promise<Date>,
+): Promise<
+  {
+    statusId: string;
+    waitingReason: IssueWaitingReason | null;
+    outcome: IssueOutcome | null;
+    closedAt: Date | null;
+    mergedIntoIssueId: string | null;
+  } & Partial<typeof KNOWN_FAULT_CLEARED> &
+    Partial<typeof NO_ENTRY_PERMISSION>
+> {
   if (target.meaning !== "WAITING" && move.waitingReason !== undefined) {
     throw new IssueError(
       "A waiting reason belongs to a status that means waiting.",
@@ -3801,7 +3832,7 @@ function nextState(
     statusId: target.id,
     waitingReason: move.waitingReason ?? null,
     outcome,
-    closedAt: closing ? (existing.closedAt ?? now) : null,
+    closedAt: closing ? (existing.closedAt ?? (await databaseClock())) : null,
     mergedIntoIssueId:
       closing && outcome === "DUPLICATE" ? existing.mergedIntoIssueId : null,
     ...(closing ? KNOWN_FAULT_CLEARED : {}),

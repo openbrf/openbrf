@@ -16,7 +16,10 @@ import { Prisma } from "../generated/prisma/client";
 import { failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
 import { ContractorService } from "./contractor.service";
-import { issueReaderScope, issuesHandledWhere } from "./issue-handlers";
+import {
+  requireHandledIssue,
+  requireHandledIssueForWrite,
+} from "./issue-handlers";
 import { lockIssue, lockIssueType, lockWorkOrderSender } from "./issue-lock";
 import type { IssueHandlerView } from "./issue.service";
 import { IssueError } from "./issue.error";
@@ -338,8 +341,12 @@ export class WorkOrderService {
       await lockWorkOrderSender(tx, readerPersonId);
       await this.contractors.lockForSending(tx, input.contractorId);
 
-      const prepared = await this.prepare(tx, issueId, readerPersonId, input);
+      // Read once the locks are held: the sender's role and scope, the
+      // preview's age and the repeat window are all judged at this instant.
       const now = new Date();
+      const prepared = await this.prepare(tx, issueId, readerPersonId, input, {
+        writtenAt: now,
+      });
       if (
         !previewMatches(
           this.previewKey,
@@ -484,18 +491,22 @@ export class WorkOrderService {
    *
    * The text is folded as the identity-number scan folds it, and that is what
    * is both checked and stored, so what was checked is what is sent.
+   *
+   * A sending passes `write`, with the instant it read once its locks were
+   * held, and its issue is read as a write's (`requireHandled`).
    */
   private async prepare(
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
     input: WorkOrderInput,
+    write?: { writtenAt: Date },
   ): Promise<{
     contractorId: string;
     recipient: { name: string; email: string };
     body: string;
   }> {
-    const issue = await this.requireHandled(db, issueId, readerPersonId);
+    const issue = await this.requireHandled(db, issueId, readerPersonId, write);
     if (issue.type.ringFenced) {
       throw new IssueError(
         "Nothing about an issue of this type may reach a contractor.",
@@ -541,24 +552,34 @@ export class WorkOrderService {
   /**
    * An issue this person handles, or the refusal that answers an issue that
    * does not exist: one the reader may not open is not one they may learn of.
+   *
+   * A read (`list`, `preview`) asks `requireHandledIssue`. A sending passes
+   * `write` and asks `requireHandledIssueForWrite` at the instant it read once
+   * its locks were held, so a person whose `issues:handle` role was withdrawn
+   * while the sending waited is refused rather than read as the narrower
+   * scope, and no contractor is mailed for them.
    */
   private async requireHandled(
     db: Prisma.TransactionClient | PrismaService,
     issueId: string,
     readerPersonId: string,
+    write?: { writtenAt: Date },
   ) {
-    const scope = await issueReaderScope(db, readerPersonId, new Date());
-    const issue = await db.issue.findFirst({
-      where: { id: issueId, ...issuesHandledWhere(scope) },
-      select: {
-        id: true,
-        type: { select: { ringFenced: true } },
-        status: { select: { meaning: true } },
-      },
-    });
-    if (issue === null) {
-      throw new IssueError("No such issue.", "issue-not-found");
-    }
+    const select = {
+      id: true,
+      type: { select: { ringFenced: true } },
+      status: { select: { meaning: true } },
+    } satisfies Prisma.IssueSelect;
+    const issue =
+      write === undefined
+        ? await requireHandledIssue(db, issueId, readerPersonId, select)
+        : await requireHandledIssueForWrite(
+            db,
+            issueId,
+            readerPersonId,
+            select,
+            write.writtenAt,
+          );
     return {
       id: issue.id,
       type: issue.type,
