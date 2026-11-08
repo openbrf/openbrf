@@ -663,8 +663,9 @@ describe("the sweep of the issues module's unattached files", () => {
      * The two oldest files fail every time and the limit is two in a row, with
      * a page of one. Storage works for the other two. The newest comes off as
      * the run's try, which leaves the third for the scan itself: that it is
-     * removed shows the scan went on past the two. Twenty years back puts the
-     * four ahead of what any other suite leaves behind.
+     * removed shows the scan went on past the two. The order of the storage
+     * calls shows the newest was the try and the third came after it. Twenty
+     * years back puts the four ahead of what any other suite leaves behind.
      */
     const failing = [
       await storeIssueFile(residentPersonId),
@@ -678,6 +679,10 @@ describe("the sweep of the issues module's unattached files", () => {
     await age(behindId, 20 * 365 * 24);
     await age(newestId, 20 * 365 * 24 - 1);
     const failingKeys = await Promise.all(failing.map(storageKeyOf));
+    const behindKey = await storageKeyOf(behindId);
+    const newestKey = await storageKeyOf(newestId);
+    const ownKeys = [...failingKeys, behindKey, newestKey];
+    const calls: string[] = [];
 
     const warn = vi
       .spyOn(Logger.prototype, "warn")
@@ -686,6 +691,9 @@ describe("the sweep of the issues module's unattached files", () => {
     const refuse = vi
       .spyOn(storage, "remove")
       .mockImplementation(async (storageKey) => {
+        if (ownKeys.includes(storageKey)) {
+          calls.push(storageKey);
+        }
         if (failingKeys.includes(storageKey)) {
           throw new Error("storage refused the file");
         }
@@ -698,6 +706,8 @@ describe("the sweep of the issues module's unattached files", () => {
         pageSize: 1,
       });
       expect(summary.stoppedOnFailures).toBe(false);
+      // The two failures, then the try on the newest, then the third.
+      expect(calls).toEqual([...failingKeys, newestKey, behindKey]);
       expect(summary.removed).toBeGreaterThanOrEqual(2);
       expect(await hasRow(newestId)).toBe(false);
       expect(await hasRow(behindId)).toBe(false);
