@@ -77,6 +77,8 @@ export const REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY = 3;
  */
 export const REPORTER_LINK_MESSAGES_PER_HOUR = 10;
 
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
 /**
  * Messages a link may write in all. A conversation about one fault, not a
  * channel: past this the reporter is told the board has enough to go on.
@@ -872,30 +874,33 @@ export class IssueReporterLinkService implements OnModuleInit {
 
 /**
  * The database's clock (`databaseNow`) and the messages a link's reporter has
- * written on an issue: all of them, and those of the last hour on that clock.
- * Read by the reply, which refuses past either limit, and by the page, which
- * promises nothing the reply would refuse; one query, so neither read pays a
- * second round trip for the clock. The reply so counts even on an issue the
- * clock then shows it may not write on, a cheap count it does not need.
+ * written on an issue: all of them, and those of the last hour. Read by the
+ * reply, which refuses past either limit, and by the page, which promises
+ * nothing the reply would refuse; one query, so neither read pays a second
+ * round trip for the clock. The reply so counts even on an issue the clock
+ * then shows it may not write on, a cheap count it does not need.
  *
- * The total is exact. The hour is a rough guard, not a judged window: a
- * message's `createdAt` is filled by the clock of the API process that wrote
- * it (`@default(now())`), so the hour is shifted by that clock's difference
- * from the database's. Stamping the link's messages from the database's clock
- * instead would make the hour exact and put them out of order with the
- * handlers' messages, which the API's clock stamps, in the conversation.
+ * The hour is judged on the API's clock, not the database's: a message's
+ * `createdAt` is filled by the clock of the API process that wrote it
+ * (`@default(now())`), and a window judged on one clock against a column
+ * written on another is shifted by their difference. The database's clock is
+ * for the link's liveness and the issue's state, which it judges on rows it
+ * stamps itself. Stamping the link's messages from the database's clock
+ * instead would put them out of order with the handlers' messages, which the
+ * API's clock stamps, in the conversation.
  */
 async function reporterLinkReading(
   tx: Prisma.TransactionClient,
   issueId: string,
 ): Promise<{ now: Date; lastHour: number; total: number }> {
+  const hourAgo = new Date(Date.now() - ONE_HOUR_MS);
   const [reading] = await tx.$queryRaw<
     { now: Date; lastHour: bigint; total: bigint }[]
   >`
     WITH "clock" AS (SELECT clock_timestamp() AS "now")
     SELECT
       "clock"."now",
-      count(m."id") FILTER (WHERE m."createdAt" > "clock"."now" - interval '1 hour') AS "lastHour",
+      count(m."id") FILTER (WHERE m."createdAt" > (${hourAgo}::timestamptz AT TIME ZONE 'UTC')) AS "lastHour",
       count(m."id") AS "total"
     FROM "clock"
     LEFT JOIN "issue_message" m
