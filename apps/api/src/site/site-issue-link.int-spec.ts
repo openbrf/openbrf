@@ -867,17 +867,6 @@ describe("B. lifetime and revocation", () => {
         body: "Ett tidigare svar",
       })),
     });
-    // The link's ten messages are two seconds inside the hour when the reply
-    // starts, and out of it once the reply has waited for the issue's locks.
-    // Dated in SQL, on the clock the hour is judged on: from this process's
-    // clock the margin would be two seconds less or more by however far the
-    // two clocks differ, and the test would pass without the guard or fail
-    // with it.
-    await prisma.$executeRaw`
-      UPDATE "issue_message"
-      SET "createdAt" = clock_timestamp() - interval '3598 seconds'
-      WHERE "issueId" = ${issueId}`;
-
     let letGo: () => void = () => undefined;
     const letGoSignal = new Promise<void>((resolve) => {
       letGo = resolve;
@@ -907,6 +896,21 @@ describe("B. lifetime and revocation", () => {
           )) > 0n,
         10_000,
       );
+      // The link's ten messages are dated two seconds inside the hour while the
+      // reply waits for the issue's locks, and are out of it once it has
+      // waited. They are dated only now, so a slow setup cannot age them before
+      // the reply starts: the reply reads nothing of them before the locks.
+      // Dated on this process's clock, the one the hour is judged on and a
+      // message's `createdAt` is filled from: the API runs in this process.
+      await prisma.issueMessage.updateMany({
+        where: { issueId },
+        data: { createdAt: new Date(Date.now() - 3598 * 1000) },
+      });
+      // Still waiting once they are dated, so the reply did not count them
+      // before the dating took effect.
+      expect(
+        await advisoryLockCount(prisma, `issue-type:${publicType.id}`, false),
+      ).toBeGreaterThan(0n);
       await new Promise((resolve) => setTimeout(resolve, 3500));
       letGo();
       await holder;
@@ -1302,6 +1306,33 @@ describe("D. rate limits and abuse", () => {
     }
     const over = await post(token, "Ett till", { address: addresses[2] ?? "" });
     expect(over.headers.location).toBe(`/arende/${token}?svar=limited`);
+    expect(await prisma.issueMessage.count({ where: { issueId } })).toBe(
+      REPORTER_LINK_MESSAGES_PER_HOUR,
+    );
+  });
+
+  it("D4: the hour's budget is judged on the clock that stamps the messages, whatever the database's reads", async () => {
+    const { issueId, token } = await reported();
+    const addresses = ["10.211.252.1", "10.211.252.2", "10.211.252.3"];
+    // The API process's clock two hours behind the database's: it stamps each
+    // reply's `createdAt`, so an hour judged on the database's clock would see
+    // none of them and let an eleventh through.
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(Date.now() - 2 * 60 * 60 * 1000));
+    try {
+      for (let n = 0; n < REPORTER_LINK_MESSAGES_PER_HOUR; n += 1) {
+        const answer = await post(token, `Meddelande ${String(n)}`, {
+          address: addresses[n % 2] ?? "",
+        });
+        expect(answer.headers.location).toBe(`/arende/${token}?svar=sent`);
+      }
+      const over = await post(token, "Ett till", {
+        address: addresses[2] ?? "",
+      });
+      expect(over.headers.location).toBe(`/arende/${token}?svar=limited`);
+    } finally {
+      vi.useRealTimers();
+    }
     expect(await prisma.issueMessage.count({ where: { issueId } })).toBe(
       REPORTER_LINK_MESSAGES_PER_HOUR,
     );

@@ -6,7 +6,6 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { NORMALIZATION_VERSION } from "../crypto/personal-data";
-import { databaseNow } from "../database/database-clock";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import {
@@ -80,6 +79,8 @@ export const REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY = 3;
  * answering the board writes in an hour.
  */
 export const REPORTER_LINK_MESSAGES_PER_HOUR = 10;
+
+const ONE_HOUR_MS = 60 * 60 * 1000;
 
 /**
  * Messages a link may write in all. A conversation about one fault, not a
@@ -722,12 +723,12 @@ export class IssueReporterLinkService implements OnModuleInit {
       });
       // The database's clock, as the link's own liveness is judged on: an API
       // clock ahead of it must not refuse a reply to a link that still opens.
-      const mode = replyModeOf(issue, await databaseNow(tx));
+      const counts = await reporterLinkReading(tx, link.issueId);
+      const mode = replyModeOf(issue, counts.now);
       if (mode === "NEW_REPORT") {
         return { kind: "closed" as const };
       }
 
-      const counts = await reporterMessageCounts(tx, link.issueId);
       // The total first: it never drops, so it is the answer that stays true.
       if (counts.total >= REPORTER_LINK_MESSAGES_PER_ISSUE) {
         return { kind: "full" as const };
@@ -864,9 +865,9 @@ export class IssueReporterLinkService implements OnModuleInit {
         },
       },
     });
-    const counts = await reporterMessageCounts(tx, link.issueId);
+    const counts = await reporterLinkReading(tx, link.issueId);
     // Judged on the database's clock, as the link is (see `databaseNow`).
-    const mode = replyModeOf(issue, await databaseNow(tx));
+    const mode = replyModeOf(issue, counts.now);
     // A closed issue takes a message only while one still reopens it.
     const takesMessages = mode !== "NEW_REPORT";
     const messageLimitReached =
@@ -946,24 +947,48 @@ export class IssueReporterLinkService implements OnModuleInit {
 }
 
 /**
- * The messages a link's reporter has written on an issue: all of them, and
- * those of the last hour on the database's clock. Read by the reply, which
- * refuses past either limit, and by the page, which promises nothing the reply
- * would refuse.
+ * The database's clock (`databaseNow`) and the messages a link's reporter has
+ * written on an issue: all of them, and those of the last hour. Read by the
+ * reply, which refuses past either limit, and by the page, which promises
+ * nothing the reply would refuse; one query, so neither read pays a second
+ * round trip for the clock. The reply so counts even on an issue the clock
+ * then shows it may not write on, a cheap count it does not need.
+ *
+ * The hour is judged on the API's clock, not the database's: a message's
+ * `createdAt` is filled by the clock of the API process that wrote it
+ * (`@default(now())`), and a window judged on one clock against a column
+ * written on another is shifted by their difference. The database's clock is
+ * for the link's liveness and the issue's state, which it judges on rows it
+ * stamps itself. Stamping the link's messages from the database's clock
+ * instead would put them out of order with the handlers' messages, which the
+ * API's clock stamps, in the conversation.
  */
-async function reporterMessageCounts(
+async function reporterLinkReading(
   tx: Prisma.TransactionClient,
   issueId: string,
-): Promise<{ lastHour: number; total: number }> {
-  const [counts] = await tx.$queryRaw<{ lastHour: bigint; total: bigint }[]>`
+): Promise<{ now: Date; lastHour: number; total: number }> {
+  // Bound as an ISO string with its offset, so the cutoff is the same instant
+  // whatever time zone the database session runs in.
+  const hourAgo = new Date(Date.now() - ONE_HOUR_MS);
+  const [reading] = await tx.$queryRaw<
+    { now: Date; lastHour: bigint; total: bigint }[]
+  >`
+    WITH "clock" AS (SELECT clock_timestamp() AS "now")
     SELECT
-      count(*) FILTER (WHERE "createdAt" > clock_timestamp() - interval '1 hour') AS "lastHour",
-      count(*) AS "total"
-    FROM "issue_message"
-    WHERE "issueId" = ${issueId} AND "side" = 'REPORTER'`;
+      "clock"."now",
+      count(m."id") FILTER (WHERE m."createdAt" > (${hourAgo.toISOString()}::timestamptz AT TIME ZONE 'UTC')) AS "lastHour",
+      count(m."id") AS "total"
+    FROM "clock"
+    LEFT JOIN "issue_message" m
+      ON m."issueId" = ${issueId} AND m."side" = 'REPORTER'
+    GROUP BY "clock"."now"`;
+  if (reading === undefined) {
+    throw new Error("The database returned no clock reading.");
+  }
   return {
-    lastHour: Number(counts?.lastHour ?? 0),
-    total: Number(counts?.total ?? 0),
+    now: reading.now,
+    lastHour: Number(reading.lastHour),
+    total: Number(reading.total),
   };
 }
 

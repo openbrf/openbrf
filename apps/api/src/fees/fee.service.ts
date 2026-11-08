@@ -11,9 +11,10 @@ import {
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import { databaseNow } from "../database/database-clock";
 import { PrismaService } from "../database/prisma.service";
 import { financialYearStartMonthInForce } from "../retention/financial-year";
-import { lockedNow, lockFeeNotifications, lockFeeRates } from "./fee-lock";
+import { lockFeeNotifications, lockFeeRates } from "./fee-lock";
 import { firstMonthBilled, sumAmounts } from "./fee-period";
 import { FeeError } from "./fee.error";
 
@@ -407,8 +408,8 @@ export class FeeService {
           financialYearStartMonth,
           // Stamped under the notifications lock, not by the column default,
           // so a run that billed this rate is never stamped before it. See
-          // `lockedNow`.
-          createdAt: await lockedNow(tx),
+          // `lockFeeNotifications`.
+          createdAt: await databaseNow(tx),
         },
         select: FEE_FIELDS,
       });
