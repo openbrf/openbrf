@@ -1295,8 +1295,9 @@ describe("the responsibility guide", () => {
       expect((await save(false, [LINES[0] as object])).statusCode).toBe(200);
 
       // Edits that keep the adoption and, but for the fourth, the number of
-      // lines: each field of a line, and the order of two distinct lines, is a
-      // change of its own, which a comparison of lengths alone would miss.
+      // lines: each field of a line, a field of the second line alone, and the
+      // order of two distinct lines, is a change of its own, which a
+      // comparison of lengths or of the first line alone would miss.
       const [first, second] = LINES as [object, object];
       const sameLength: object[][] = [
         [{ ...first, part: "Golvbrunn, spolning" }],
@@ -1316,6 +1317,7 @@ describe("the responsibility guide", () => {
           },
         ],
         [first, second],
+        [first, { ...second, responsibility: "TENANT_OWNER" }],
         [second, first],
       ];
       for (const items of sameLength) {
