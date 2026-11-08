@@ -784,14 +784,17 @@ describe("what the queue carries beyond the instance", () => {
       // The highest place the board can give a status, and then one more
       // status of that meaning, which would otherwise take the place after it
       // - one a cursor cannot carry.
-      await types.updateStatus(type.id, type.statusIds.NEW, {
-        label: "Ny",
-        sortOrder: ISSUE_STATUS_LIMITS.sortOrder,
-      });
-      const view = await types.addStatus(type.id, {
-        meaning: "NEW",
-        label: "Ny, igen",
-      });
+      await types.updateStatus(
+        type.id,
+        type.statusIds.NEW,
+        { label: "Ny", sortOrder: ISSUE_STATUS_LIMITS.sortOrder },
+        board.personId,
+      );
+      const view = await types.addStatus(
+        type.id,
+        { meaning: "NEW", label: "Ny, igen" },
+        board.personId,
+      );
       const added = view.statuses.find((status) => status.label === "Ny, igen");
       expect(
         view.statuses

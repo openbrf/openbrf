@@ -5,6 +5,7 @@ import {
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
 
+import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import { lockResponsibilityGuide } from "./issue-lock";
@@ -96,7 +97,10 @@ export interface SaveResponsibilityGuideInput {
 export class ResponsibilityGuideService {
   private readonly logger = new Logger(ResponsibilityGuideService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditLogService,
+  ) {}
 
   /** The guide as the board and the handlers read it, adopted or not. */
   async read(): Promise<ResponsibilityGuideView> {
@@ -121,9 +125,16 @@ export class ResponsibilityGuideService {
    * Adopting keeps the first date it was adopted on while it stays adopted, so
    * correcting a line in an adopted guide does not move the day the board
    * first said it follows the bylaws.
+   *
+   * Audited with the board member who saved it, in the same transaction:
+   * whether the guide was adopted either side, and whether its lines changed.
+   * Adopting is the board's statement that the guide follows its bylaws, and
+   * an adopted guide is what every reporter is shown. Never a line's text,
+   * which is the board's own. A save that changes neither writes no entry.
    */
   async save(
     input: SaveResponsibilityGuideInput,
+    actorPersonId: string,
     now: Date = new Date(),
   ): Promise<ResponsibilityGuideView> {
     const items = readItems(input.items);
@@ -153,6 +164,8 @@ export class ResponsibilityGuideService {
         Math.max(now.getTime(), (existing?.updatedAt.getTime() ?? 0) + 1),
       );
 
+      const before = await readGuide(tx);
+
       await tx.responsibilityGuide.upsert({
         where: { id: 1 },
         create: { id: 1, adoptedAt, updatedAt },
@@ -163,7 +176,26 @@ export class ResponsibilityGuideService {
         data: items.map((item, sortOrder) => ({ ...item, sortOrder })),
       });
 
-      return readGuide(tx);
+      const after = await readGuide(tx);
+      const adopted = {
+        before: before.adoptedAt !== null,
+        after: after.adoptedAt !== null,
+      };
+      const linesChanged = !sameLines(before.items, after.items);
+      if (adopted.before !== adopted.after || linesChanged) {
+        await this.audit.record(
+          {
+            action: "ISSUE_RESPONSIBILITY_GUIDE_SAVED",
+            channel: "WEB",
+            actorPersonId,
+            targetKind: "responsibilityGuide",
+            targetId: "1",
+            context: { adopted, linesChanged },
+          },
+          tx,
+        );
+      }
+      return after;
     });
 
     this.logger.log(
@@ -195,6 +227,22 @@ async function readGuide(
     items,
     version: guide?.updatedAt.toISOString() ?? null,
   };
+}
+
+/** Whether two readings of the guide hold the same lines in the same order. */
+function sameLines(
+  a: readonly ResponsibilityGuideItemView[],
+  b: readonly ResponsibilityGuideItemView[],
+): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (item, index) =>
+        item.part === b[index]?.part &&
+        item.responsibility === b[index]?.responsibility &&
+        item.note === b[index]?.note,
+    )
+  );
 }
 
 /**

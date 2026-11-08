@@ -88,6 +88,16 @@ within a meaning, then oldest first. The purge of a public report's contact
 details, the reporter's own list, the badge on a post, the overview and the
 data subject access report read the meaning and never the board's label.
 
+The audit log records each change the board makes here, with the board member
+who made it: adding, changing or removing a type, and adding or changing one of
+its statuses. A change to a type names the fields that changed, with the
+setting before and after for who may report the type, who handles it, its
+default priority and whether it is switched on. Of the type's name, a status's
+label and the default assignee it records only that they changed. A save that
+changes nothing writes no entry. Ring-fencing a type that someone other than
+the board handled also records the handling it moved from, and whether it
+cleared the default assignee.
+
 ## Handling an issue
 
 - **Assignee.** A handler gives an issue to one person, gives it to somebody
@@ -276,7 +286,9 @@ number, shown in the queue, on the reporter's own list and in every mail.
   example that stays labelled as one until the board says it follows the
   bylaws. Handlers see it; residents and the public website's report form see
   it only once the board has adopted it. A line holding a personal identity
-  number is refused.
+  number is refused. The audit log records each save that adopts the guide,
+  withdraws its adoption or changes its lines, with the board member who saved
+  it, and never a line's text.
 - **Notice to remedy.** Where a handler records that the cost is the
   tenant-owner's, or closes an issue as their responsibility, the screen says
   that a message on the issue is not a notice to remedy under BRL 7 kap. 12 a

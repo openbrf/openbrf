@@ -464,7 +464,9 @@ change it.
   Störningar type, and the board adds one and ring-fences it.
 - **Set by the board**, under `issues:configure` - a board member with a seat
   or an administrator, never the property manager - through a request of its
-  own, audited as `ISSUE_TYPE_RING_FENCE_CHANGED`.
+  own, audited as `ISSUE_TYPE_RING_FENCE_CHANGED`. The entry also carries the
+  handling the type moved from, and that the default assignee was cleared, when
+  ring-fencing did either; never who the assignee was.
 - **Ring-fencing hands the type to the board.** `handledBy` becomes `BOARD`, and
   whoever that shuts out is unassigned as when the board keeps any type to
   itself. A CHECK holds a ring-fenced type to `BOARD`, so the property manager

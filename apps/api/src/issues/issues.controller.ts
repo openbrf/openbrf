@@ -1102,8 +1102,11 @@ export class IssueTypeAdminController {
 
   @Post()
   @HttpCode(201)
-  async create(@Body() body: unknown): Promise<ConfiguredIssueTypeView> {
-    return this.types.create(typeSchema.parse(body));
+  async create(
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<ConfiguredIssueTypeView> {
+    return this.types.create(typeSchema.parse(body), actingPersonId(request));
   }
 
   @Put(":id")
@@ -1121,8 +1124,11 @@ export class IssueTypeAdminController {
 
   @Delete(":id")
   @HttpCode(204)
-  async remove(@Param("id") id: string): Promise<void> {
-    await this.types.remove(id);
+  async remove(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<void> {
+    await this.types.remove(id, actingPersonId(request));
   }
 
   /** Ring-fences a type from contractors, or lifts its ring-fence. */
@@ -1145,8 +1151,13 @@ export class IssueTypeAdminController {
   async addStatus(
     @Param("id") id: string,
     @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
   ): Promise<ConfiguredIssueTypeView> {
-    return this.types.addStatus(id, addStatusSchema.parse(body));
+    return this.types.addStatus(
+      id,
+      addStatusSchema.parse(body),
+      actingPersonId(request),
+    );
   }
 
   /**
@@ -1159,11 +1170,13 @@ export class IssueTypeAdminController {
     @Param("id") id: string,
     @Param("statusId") statusId: string,
     @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
   ): Promise<ConfiguredIssueTypeView> {
     return this.types.updateStatus(
       id,
       statusId,
       changeStatusSchema.parse(body),
+      actingPersonId(request),
     );
   }
 }
@@ -1190,8 +1203,14 @@ export class ResponsibilityGuideAdminController {
 
   /** Replaces the whole guide, and adopts it or withdraws the adoption. */
   @Put()
-  async save(@Body() body: unknown): Promise<ResponsibilityGuideView> {
-    return this.guide.save(responsibilityGuideSchema.parse(body));
+  async save(
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<ResponsibilityGuideView> {
+    return this.guide.save(
+      responsibilityGuideSchema.parse(body),
+      actingPersonId(request),
+    );
   }
 }
 
