@@ -1310,6 +1310,33 @@ describe("D. rate limits and abuse", () => {
     );
   });
 
+  it("D4: the hour's budget is judged on the clock that stamps the messages, whatever the database's reads", async () => {
+    const { issueId, token } = await reported();
+    const addresses = ["10.211.252.1", "10.211.252.2", "10.211.252.3"];
+    // The API process's clock two hours behind the database's: it stamps each
+    // reply's `createdAt`, so an hour judged on the database's clock would see
+    // none of them and let an eleventh through.
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(Date.now() - 2 * 60 * 60 * 1000));
+    try {
+      for (let n = 0; n < REPORTER_LINK_MESSAGES_PER_HOUR; n += 1) {
+        const answer = await post(token, `Meddelande ${String(n)}`, {
+          address: addresses[n % 2] ?? "",
+        });
+        expect(answer.headers.location).toBe(`/arende/${token}?svar=sent`);
+      }
+      const over = await post(token, "Ett till", {
+        address: addresses[2] ?? "",
+      });
+      expect(over.headers.location).toBe(`/arende/${token}?svar=limited`);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(await prisma.issueMessage.count({ where: { issueId } })).toBe(
+      REPORTER_LINK_MESSAGES_PER_HOUR,
+    );
+  });
+
   it("D4: a link that has written all it may is told so, and not to try later", async () => {
     const { issueId, token } = await reported();
     // An hour's worth of them in the last hour too, so the link is past both
