@@ -14,7 +14,7 @@ import {
 import { AuthService } from "../auth/auth.service";
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import { ENV } from "../config/config.module";
-import type { Env } from "../config/env";
+import { applicationDatabaseUrl, type Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { NORMALIZATION_VERSION } from "../crypto/personal-data";
 import { registerMultipart } from "../http/multipart";
@@ -106,8 +106,10 @@ function inject(options: {
   payload?: string | Buffer;
   headers?: Record<string, string>;
   address?: string;
+  /** The application to ask: the suite's own, unless a test boots another. */
+  on?: NestFastifyApplication;
 }) {
-  return app
+  return (options.on ?? app)
     .getHttpAdapter()
     .getInstance()
     .inject({
@@ -126,7 +128,11 @@ function inject(options: {
 function post(
   token: string,
   body: string,
-  options: { headers?: Record<string, string>; address?: string } = {},
+  options: {
+    headers?: Record<string, string>;
+    address?: string;
+    on?: NestFastifyApplication;
+  } = {},
 ) {
   return inject({
     method: "POST",
@@ -137,14 +143,16 @@ function post(
       ...options.headers,
     },
     ...(options.address === undefined ? {} : { address: options.address }),
+    ...(options.on === undefined ? {} : { on: options.on }),
   });
 }
 
-function page(token: string, address?: string) {
+function page(token: string, address?: string, on?: NestFastifyApplication) {
   return inject({
     method: "GET",
     url: `/arende/${token}`,
     ...(address === undefined ? {} : { address }),
+    ...(on === undefined ? {} : { on }),
   });
 }
 
@@ -257,6 +265,71 @@ async function databaseClock(): Promise<Date> {
     );
   }
   return row.now;
+}
+
+/**
+ * An issue closed two days ago on the database's clock, which is the clock
+ * its reopening is judged on, with the hourly limit's worth of messages from
+ * the link's reporter, each dated `ageMs` before this process's clock: the
+ * clock the hour is judged on and a message's `createdAt` is filled from.
+ */
+async function closedWithReporterMessages(
+  issueId: string,
+  ageMs: number,
+): Promise<void> {
+  await prisma.$executeRaw`
+    UPDATE "issue"
+    SET "statusId" = ${publicType.statusIds.DONE},
+        "outcome" = 'FIXED',
+        "closedAt" = clock_timestamp() - interval '2 days'
+    WHERE "id" = ${issueId}`;
+  await prisma.issueMessage.createMany({
+    data: Array.from({ length: REPORTER_LINK_MESSAGES_PER_HOUR }, () => ({
+      issueId,
+      side: "REPORTER" as const,
+      authorPersonId: null,
+      body: "Ett tidigare svar",
+      createdAt: new Date(Date.now() - ageMs),
+    })),
+  });
+}
+
+/**
+ * What the hour's limit allows, seen the way a reporter sees it: the page
+ * offers the reopening only when the reply would accept it, and the reply
+ * leaves the issue closed when it refuses.
+ */
+async function expectHourlyBudget(
+  token: string,
+  issueId: string,
+  outcome: "sent" | "limited",
+  on?: NestFastifyApplication,
+): Promise<void> {
+  const reading = await page(token, undefined, on);
+  expect(reading.statusCode).toBe(200);
+  if (outcome === "sent") {
+    expect(reading.body).toContain("öppnas det igen");
+  } else {
+    expect(reading.body).not.toContain("öppnas det igen");
+  }
+  const answer = await post(
+    token,
+    "En sak till",
+    on === undefined ? {} : { on },
+  );
+  expect(answer.headers.location).toBe(`/arende/${token}?svar=${outcome}`);
+  expect(
+    (
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: { statusId: true },
+      })
+    ).statusId,
+  ).toBe(
+    outcome === "sent"
+      ? publicType.statusIds.IN_PROGRESS
+      : publicType.statusIds.DONE,
+  );
 }
 
 /** `expiresAt` ends a year after a moment between two readings of the clock. */
@@ -847,6 +920,108 @@ describe("B. lifetime and revocation", () => {
         })
       ).statusId,
     ).toBe(publicType.statusIds.DONE);
+  });
+
+  it.each([
+    {
+      name: "ahead of the database's",
+      skewMs: 2 * 60 * 60 * 1000,
+      // Ninety minutes old on the API's clock, so outside its hour, yet ahead
+      // of the database's cutoff: a window judged on the database's clock
+      // counts them and refuses.
+      ageMs: 90 * 60 * 1000,
+      outcome: "sent" as const,
+    },
+    {
+      name: "behind the database's",
+      skewMs: -2 * 60 * 60 * 1000,
+      // Thirty minutes old on the API's clock, so inside its hour, yet before
+      // the database's cutoff: a window judged on the database's clock counts
+      // none of them and accepts.
+      ageMs: 30 * 60 * 1000,
+      outcome: "limited" as const,
+    },
+  ])(
+    "B4: the hour's limit is judged on the API's clock when it is $name",
+    async ({ skewMs, ageMs, outcome }) => {
+      const { issueId, token } = await reported();
+      vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+      vi.setSystemTime(new Date(Date.now() + skewMs));
+      try {
+        // Dated on the API's skewed clock, the one a message's `createdAt`
+        // is filled from.
+        await closedWithReporterMessages(issueId, ageMs);
+        await expectHourlyBudget(token, issueId, outcome);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  describe("in a database session outside UTC", () => {
+    // Auckland is 12 or 13 hours ahead of UTC, far more than the hour the
+    // limit counts, so a cutoff read in the session's zone lands on the
+    // wrong side of every message below.
+    const ZONE = "Pacific/Auckland";
+    let zoned: NestFastifyApplication;
+
+    beforeAll(async () => {
+      const url = new URL(applicationDatabaseUrl(baseEnv));
+      url.searchParams.set("options", `-c TimeZone=${ZONE}`);
+      const env: Env = {
+        ...baseEnv,
+        DATABASE_URL_RUNTIME: url.toString(),
+        OPENBRF_PLUGINS_ENABLED: false,
+      };
+      // The application reads its connection string from the process
+      // environment, as it boots, so the zone is passed there and the
+      // variable put back as soon as the application is up: its pool keeps
+      // the string it connected with.
+      const runtimeBefore = process.env.DATABASE_URL_RUNTIME;
+      process.env.DATABASE_URL_RUNTIME = url.toString();
+      try {
+        zoned = await createApplication(await loadPluginsAtBoot(env));
+        await registerMultipart(zoned, env);
+        await zoned.init();
+        await zoned.getHttpAdapter().getInstance().ready();
+      } finally {
+        if (runtimeBefore === undefined) {
+          delete process.env.DATABASE_URL_RUNTIME;
+        } else {
+          process.env.DATABASE_URL_RUNTIME = runtimeBefore;
+        }
+      }
+      // The application's own connections run in the zone, not this suite's.
+      const [session] = await zoned.get(PrismaService).$queryRaw<
+        { zone: string }[]
+      >`
+          SELECT current_setting('TimeZone') AS "zone"`;
+      expect(session?.zone).toBe(ZONE);
+    }, 180_000);
+
+    afterAll(async () => {
+      await zoned.close();
+    });
+
+    it.each([
+      {
+        name: "inside the hour",
+        ageMs: 30 * 60 * 1000,
+        outcome: "limited" as const,
+      },
+      {
+        name: "outside the hour",
+        ageMs: 90 * 60 * 1000,
+        outcome: "sent" as const,
+      },
+    ])(
+      "B4: the hour's limit counts the messages $name the same instant as in UTC",
+      async ({ ageMs, outcome }) => {
+        const { issueId, token } = await reported();
+        await closedWithReporterMessages(issueId, ageMs);
+        await expectHourlyBudget(token, issueId, outcome, zoned);
+      },
+    );
   });
 
   it("B4: the hour's limit is counted when the reply decides, not when its transaction began", async () => {
@@ -2612,7 +2787,9 @@ describe("the board's side of the link", () => {
     // Past the route's guard, as a role withdrawn in between.
     await expect(
       links.revoke(`rl-nobody-${suffix}`, issueId),
-    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    ).rejects.toMatchObject({
+      reason: "issue-not-found",
+    });
     expect(
       (
         await prisma.issueReporterLink.findUniqueOrThrow({
