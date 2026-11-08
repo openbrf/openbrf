@@ -21,17 +21,20 @@ module holds about a person.
 - **The report forms say how long the report is kept.** The residents' form
   states the number of years after closing that the issue's free text is
   kept, that the issue's apartment or common area stays after that, and that a
-  contractor is sent only what a handler writes for them, kept ten years
-  after closing, or longer while a legal hold or a restriction on the
-  reporter applies; a ring-fenced issue type's warning names the conversation
+  contractor gets only what a handler writes for them and any photographs
+  the handler chooses to show them, never the rest of the report, and that
+  text is kept ten years after closing, or longer while a legal hold on the
+  issue, or a legal hold or a restriction on the reporter, applies; a ring-fenced issue type's warning names the conversation
   and the photographs beside the text and keeps its one year.
   The website's form states that the reporter's name and email address are
   removed a year after the issue closes, and what they wrote and the
   replies they receive after the board's number of years; that what a
-  handler writes to a contractor is kept ten years after closing; and that
+  handler writes to a contractor is kept ten years after closing; that
   a coded form of the reporter's email address is kept as long as that
-  text, so a legal hold or a restriction on them still reaches it, and that
-  such a hold or restriction keeps both longer than ten years.
+  text, so a legal hold or a restriction on them still reaches it, and is
+  removed with the address after a year where no such text is kept; and that
+  a legal hold on the issue, or a hold or a restriction on the reporter,
+  keeps both longer than ten years.
   Both forms say that the board can change its number of years for
   reports already made.
 - **The record of processing activities** lists a contractor's phone

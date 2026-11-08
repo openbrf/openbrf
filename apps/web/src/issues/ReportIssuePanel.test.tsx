@@ -170,7 +170,13 @@ describe("the sensitive-data warning", () => {
     expect(
       screen.getByText(/tas bort 2 år efter att ärendet har stängts/i),
     ).toBeTruthy();
-    expect(screen.getByText(/aldrig själva anmälan/i)).toBeTruthy();
+    expect(screen.getByText(/aldrig resten av anmälan/i)).toBeTruthy();
+    // The photographs a handler chooses to show a contractor are named.
+    expect(
+      screen.getByText(
+        /de bilder som den som hanterar ärendet väljer att visa/i,
+      ),
+    ).toBeTruthy();
     // What outlasts the board's clock is named: the apartment or common area,
     // the board's power to change the clock, and the work order's ten years.
     expect(
@@ -179,7 +185,7 @@ describe("the sensitive-data warning", () => {
     expect(screen.getByText(/styrelsen kan ändra antalet år/i)).toBeTruthy();
     expect(
       screen.getByText(
-        /det sparas i tio år efter att ärendet har stängts, eller längre så länge ett rättsligt bevarandekrav eller en begränsning/i,
+        /den texten sparas i tio år efter att ärendet har stängts, eller längre så länge ett rättsligt bevarandekrav på ärendet, eller ett rättsligt bevarandekrav eller en begränsning som gäller för den som anmälde ärendet, består/i,
       ),
     ).toBeTruthy();
 
@@ -187,7 +193,7 @@ describe("the sensitive-data warning", () => {
       screen.getByLabelText(/vad gäller det/i),
       "type-noise",
     );
-    expect(screen.queryByText(/aldrig själva anmälan/i)).toBeNull();
+    expect(screen.queryByText(/aldrig resten av anmälan/i)).toBeNull();
     // The ring-fence's own warning names the conversation and the photographs
     // beside the text, since it is the only retention notice on this form.
     expect(

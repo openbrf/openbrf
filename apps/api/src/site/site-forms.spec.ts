@@ -183,11 +183,16 @@ describe("the issue report form", () => {
     // and the address index kept beside it run on a ten-year clock of their own.
     expect(html).toContain("Styrelsen kan ändra antalet år");
     expect(html).toContain(
-      "skriver till en entreprenör sparas i tio år efter att ärendet har stängts, och så länge sparas också en kodad form av din e-postadress",
+      "skriver till en entreprenör sparas i tio år efter att ärendet har stängts, och så länge den texten sparas sparas också en kodad form av din e-postadress",
     );
-    // A hold or a restriction on the reporter outlasts that ten years.
+    // Without text the address index goes with the address after a year.
     expect(html).toContain(
-      "gör att den texten och den kodade adressen sparas längre än tio år, tills det upphör",
+      "finns ingen sådan text tas den bort tillsammans med din e-postadress ett år efter att ärendet har stängts",
+    );
+    // A hold on the issue, or a hold or a restriction on the reporter,
+    // outlasts that ten years.
+    expect(html).toContain(
+      "Ett rättsligt bevarandekrav på ärendet, eller ett rättsligt bevarandekrav eller en begränsning som gäller för dig, gör att den texten och den kodade adressen sparas längre än tio år, tills det upphör",
     );
   });
 
