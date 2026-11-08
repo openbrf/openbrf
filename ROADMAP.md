@@ -382,7 +382,8 @@ locally the application runs from source beside the PostgreSQL that
       merge as a duplicate across the fence, no
       connected app or AI package, and not the website's form. Its free text is
       purged one year after closing, a clock the board does not set, pending
-      the legal review, and the ring-fence is never lifted from a type issues
+      the legal review, unless a legal hold stands on the issue or a legal hold
+      or a restriction on its reporter, and the ring-fence is never lifted from a type issues
       were reported under (ADR 0054, decisions 28 and 32)
 - [x] Mail about issues: a new issue to its assignee, or to the type's handlers
       when it lands unassigned; an urgent one to every handler of its type; an

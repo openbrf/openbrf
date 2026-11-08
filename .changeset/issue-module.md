@@ -410,7 +410,8 @@ file, removed from storage and not only from the issue.
   can reach issues beyond the oldest 500. A file whose stored copy cannot be
   removed stays, with the text, until a later night succeeds. An issue of a
   ring-fenced type is eligible after one year whatever period is set, unless a
-  legal hold stands, so a longer period does not protect its text.
+  legal hold stands on the issue or a legal hold or a restriction on its
+  reporter, so a longer period does not protect its text.
 - **Legal hold on an issue.** A handler places and releases one. While it
   stands, the issue keeps its free text past its period and nobody can redact
   it. A legal hold or restriction on the reporter does the same for their
