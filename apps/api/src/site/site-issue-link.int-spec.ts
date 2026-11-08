@@ -13,6 +13,7 @@ import {
 
 import { AuthService } from "../auth/auth.service";
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
+import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { NORMALIZATION_VERSION } from "../crypto/personal-data";
@@ -1386,6 +1387,196 @@ describe("D. rate limits and abuse", () => {
     expect(
       await prisma.issueReporterLink.count({ where: { issueId: id } }),
     ).toBe(0);
+  });
+
+  /** Files a report from the form to `email` and delivers its link. */
+  async function reportAndDeliver(
+    email: string,
+  ): Promise<{ id: string; mailed: boolean }> {
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: `Porten låser inte ${suffix}`,
+      reporterName: null,
+      reporterEmail: email,
+    });
+    return { id, mailed: await links.deliver(id) };
+  }
+
+  it("D6: an address with a new tag each time is one address, mailed three links a day", async () => {
+    const outcomes = [];
+    for (let n = 1; n <= 10; n += 1) {
+      outcomes.push(
+        await reportAndDeliver(`rl-tagged-${suffix}+${String(n)}@exempel.se`),
+      );
+    }
+
+    expect(outcomes.map((outcome) => outcome.mailed)).toEqual([
+      ...Array.from(
+        { length: REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY },
+        () => true,
+      ),
+      ...Array.from(
+        { length: 10 - REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY },
+        () => false,
+      ),
+    ]);
+    // The refused reports hold no slot: their links are gone.
+    expect(
+      await prisma.issueReporterLink.count({
+        where: { issueId: { in: outcomes.map((outcome) => outcome.id) } },
+      }),
+    ).toBe(REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY);
+  });
+
+  it("D6: a Google address spelt with dots or the other domain counts with the plain one", async () => {
+    const plain = `rlgoogle${suffix}@gmail.com`;
+    expect((await reportAndDeliver(plain)).mailed).toBe(true);
+    expect(
+      (await reportAndDeliver(`r.l.google${suffix}@googlemail.com`)).mailed,
+    ).toBe(true);
+    expect(
+      (await reportAndDeliver(`RL.google${suffix}+felanmalan@gmail.com`))
+        .mailed,
+    ).toBe(true);
+
+    const before = sent.length;
+    expect(
+      (await reportAndDeliver(`rlgoo.gle${suffix}@gmail.com`)).mailed,
+    ).toBe(false);
+    expect(sent.length).toBe(before);
+    // Another inbox at Google is not held back by it.
+    expect((await reportAndDeliver(`rlother${suffix}@gmail.com`)).mailed).toBe(
+      true,
+    );
+  });
+
+  it("D6: the instance mails no more links in an hour than its ceiling, whatever the addresses", async () => {
+    const env = app.get<Env>(ENV);
+    const ceiling = env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR;
+    // The suites before this one on the worker's database issued links this
+    // hour too, so the ceiling is set a known distance above them.
+    const [issued] = await prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT count(*) AS "count" FROM "issue_reporter_link"
+      WHERE "issuedAt" > now() - interval '1 hour'`;
+    env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR = Number(issued?.count ?? 0) + 2;
+    try {
+      const outcomes = [];
+      for (let n = 1; n <= 5; n += 1) {
+        outcomes.push(
+          await reportAndDeliver(
+            `rl-ceiling-${String(n)}-${suffix}@exempel.se`,
+          ),
+        );
+      }
+
+      expect(outcomes.map((outcome) => outcome.mailed)).toEqual([
+        true,
+        true,
+        false,
+        false,
+        false,
+      ]);
+      expect(
+        await prisma.issueReporterLink.count({
+          where: { issueId: { in: outcomes.map((outcome) => outcome.id) } },
+        }),
+      ).toBe(2);
+    } finally {
+      env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR = ceiling;
+    }
+  });
+
+  it("D6: two deliveries at once for the instance's last slot issue one link between them", async () => {
+    const env = app.get<Env>(ENV);
+    const ceiling = env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR;
+    const [issued] = await prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT count(*) AS "count" FROM "issue_reporter_link"
+      WHERE "issuedAt" > now() - interval '1 hour'`;
+    env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR = Number(issued?.count ?? 0) + 1;
+    try {
+      // Filed first, delivered together: each finds the one slot free when it
+      // counts, unless the count and the issue of the link are one step.
+      const filed = await Promise.all(
+        [1, 2].map((n) =>
+          issues.reportPublicly({
+            typeId: publicType.id,
+            location: null,
+            description: `Porten låser inte ${String(n)} ${suffix}`,
+            reporterName: null,
+            reporterEmail: `rl-last-${String(n)}-${suffix}@exempel.se`,
+          }),
+        ),
+      );
+      // Both deliveries are held at the budget until both are queued behind
+      // it, read from `pg_locks`: started together and left to chance, one
+      // could commit before the other counts, and the test would pass without
+      // the shared lock.
+      const key = "issue-reporter-link-mail-budget";
+      let letGo: () => void = () => undefined;
+      const letGoSignal = new Promise<void>((resolve) => {
+        letGo = resolve;
+      });
+      let held: () => void = () => undefined;
+      const holding = new Promise<void>((resolve) => {
+        held = resolve;
+      });
+      const holder = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+          held();
+          await letGoSignal;
+        },
+        { timeout: 30_000 },
+      );
+      let delivering: Promise<boolean[]> = Promise.resolve([]);
+      try {
+        await Promise.race([holding, holder]);
+        delivering = Promise.all(filed.map(({ id }) => links.deliver(id)));
+        delivering.catch(() => undefined);
+        await waitFor(
+          async () => (await advisoryLockCount(prisma, key, false)) === 2n,
+          10_000,
+        );
+      } finally {
+        letGo();
+        await holder.catch(() => undefined);
+      }
+      const mailed = await delivering;
+
+      expect(mailed.filter(Boolean)).toHaveLength(1);
+      expect(
+        await prisma.issueReporterLink.count({
+          where: { issueId: { in: filed.map(({ id }) => id) } },
+        }),
+      ).toBe(1);
+    } finally {
+      env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR = ceiling;
+    }
+  });
+
+  it("D6: an address of today's links that cannot be read does not stop another report's link", async () => {
+    const damaged = await reportAndDeliver(`rl-damaged-${suffix}@exempel.se`);
+    expect(damaged.mailed).toBe(true);
+    const before = await prisma.issue.findUniqueOrThrow({
+      where: { id: damaged.id },
+      select: { reporterEmailCipher: true },
+    });
+    await prisma.issue.update({
+      where: { id: damaged.id },
+      data: { reporterEmailCipher: "not-a-sealed-address" },
+    });
+    try {
+      // The damaged address names no recipient, so another one is still mailed.
+      expect(
+        (await reportAndDeliver(`rl-undamaged-${suffix}@exempel.se`)).mailed,
+      ).toBe(true);
+    } finally {
+      await prisma.issue.update({
+        where: { id: damaged.id },
+        data: { reporterEmailCipher: before.reporterEmailCipher },
+      });
+    }
   });
 
   it("D6: a person who restricted processing is not mailed", async () => {

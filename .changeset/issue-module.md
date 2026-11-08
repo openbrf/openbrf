@@ -182,8 +182,11 @@ reporter wrote on the form.
 - **The mail** carries the type and the link and nothing anybody wrote. It is
   sent once per issue; when the mail server accepts it but recording that
   fails, the retry mails a new link and the earlier one opens nothing. At most
-  three go to one address a day, and none to a person who restricted
-  processing.
+  three go to one inbox a day, however its address is spelt (a tag after `+`,
+  or the dots of a Gmail address), at most 30 an hour from the instance
+  unless `OPENBRF_REPORTER_LINK_MAILS_PER_HOUR` sets another number, and none to a person who
+  restricted processing. Past a limit the report is filed and no link is
+  mailed, and the form answers the same.
 - **It ends** at the first of: 30 days after the issue is closed, a year after
   the issue's latest message (or after the link was issued, if no message
   came), and a handler withdrawing it. A handler sees whether it still works.

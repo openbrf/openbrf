@@ -163,23 +163,42 @@ to lock, and locking a live link after strangers' failures would let a stranger
 end it. The defence against guessing is the address budget and 256 bits.
 
 The website's form cannot be made to mail a stranger at will: one link mail
-per issue, never sent again, at most three a day to one address, counted in the
-database, and none to an address whose owner restricted processing (GDPR art.
-18). The form answers the same whether a mail goes or not, because the mail is
+per issue, never sent again, at most three a day to one address, no more in an
+hour than the instance's ceiling (`OPENBRF_REPORTER_LINK_MAILS_PER_HOUR`, 30
+unless the operator sets another), counted in the database, and none to an
+address whose owner restricted processing (GDPR art. 18). The form answers the same whether a mail goes or not, because the mail is
 sent by a job after the answer. There is no way to ask for a link to be sent
 again. "Never sent again" has one exception: if the mail server takes the
 message and the stamp that records it then fails, the job's retry mints a new
 token and mails that, and the first mail's link opens nothing. Only the digest
 is kept, so the first token cannot be sent again.
 
-A link that was issued and will not be mailed (a restriction granted, the issue
-closed, no mail settings, the address's three a day spent when a retry comes,
-or the retries spent) is deleted, so it no longer counts toward its address's
-three a day. A link whose mail is still being retried keeps its place in the
-count.
+"One address" is the inbox the address reaches, not the address as typed: a tag
+after `+` in the local part is dropped, and at Google (`gmail.com`, and
+`googlemail.com` counted as it) so are the dots, which Google ignores.
+Otherwise `someone+1@`, `someone+2@` and so on would each have three a day, and
+a script typing a new tag each time could fill one inbox from the
+association's mail account. The addresses are compared decrypted, under the
+lock the count takes, rather than by an index of their own: the blind index of
+the reporter's address stays the one matched against the register, and the
+budget adds nothing for the purges to clear. An address among the day's
+that cannot be read is skipped, not counted, so one damaged report does not
+stop other reports' links. Two people whose addresses fold
+to one form share three a day.
 
-The three a day count links issued, not mails sent. A link is issued in the
-transaction that counts, under a lock on the address, and mailed after that
+The hourly ceiling is for the instance as a whole, so a script typing many
+different addresses cannot make the form a way to send mail either. Past it a
+report is filed and its link is not mailed, as past an address's three a day,
+and the form answers the same.
+
+A link that was issued and will not be mailed (a restriction granted, the issue
+closed, no mail settings, the address's three a day or the instance's hour
+spent when a retry comes, or the retries spent) is deleted, so it no longer
+counts toward either. A link whose mail is still being retried keeps its place
+in the count.
+
+Both count links issued, not mails sent. A link is issued in the transaction
+that counts, under one lock that every delivery takes, and mailed after that
 transaction commits. A count of mails would miss a link whose mail is on its
 way, so two reports from one address delivered at once could each find a slot
 free and a fourth mail go. Counted as issued, a link holds its slot from the

@@ -468,6 +468,22 @@ export const envSchema = z.object({
    */
   OPENBRF_CONTRACTOR_LINKS_ENABLED: envBoolean(false),
   /**
+   * How many private links (ADR 0055) the instance may mail in an hour, to
+   * every address together.
+   *
+   * The website's form mails a link to whatever address a visitor types, and
+   * the daily budget of each address does not stop a script that types many:
+   * past this many links in an hour a report is filed and its link is not
+   * mailed, as for an address whose budget is spent. Counted in the database,
+   * so a restart does not reset it. Thirty is far more reports from the public
+   * than an association gets in an hour.
+   */
+  OPENBRF_REPORTER_LINK_MAILS_PER_HOUR: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30),
+  /**
    * Print a message this instance has no mail to send through to the log, in
    * full - sign-in and invitation links included.
    *

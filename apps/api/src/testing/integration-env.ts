@@ -34,6 +34,14 @@ export function loadEnvForIntegrationTests(): Env & { DATABASE_URL: string } {
     .filter((entry) => entry !== "");
   if (!proxies.includes("127.0.0.1")) proxies.push("127.0.0.1");
   process.env.TRUSTED_PROXIES = proxies.join(",");
+  // The instance's hourly ceiling on private link mails is counted in the
+  // database, and the suites a worker runs one after another on its database
+  // deliver far more links in an hour than an association's public sends. The
+  // test of the ceiling sets one of its own.
+  // A blank value is an unset one to loadEnv, so it is replaced too.
+  if ((process.env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR ?? "").trim() === "") {
+    process.env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR = "1000000";
+  }
 
   let env: Env;
   try {
