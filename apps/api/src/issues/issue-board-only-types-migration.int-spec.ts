@@ -170,36 +170,50 @@ async function stockholmDay(tx: Tx, daysFromToday: number): Promise<Date> {
 }
 
 /**
- * A member whose seat starts today and one whose seat ends today, on the
- * association's calendar (Stockholm's). A seat is held from the day it starts up
- * to, but not including, the day it ends, so the first is on the board and the
- * second is not.
+ * Two members, one whose seat starts on `day` and one whose seat ends on it. A
+ * seat is held from the day it starts up to, but not including, the day it
+ * ends, so the first is on the board on `day` and the second is not.
  */
-async function writeBoundarySeats(tx: Tx): Promise<void> {
-  const today = await stockholmDay(tx, 0);
-  for (const [id, firstName] of [
-    [seatStartsTodayId, "Sture"],
-    [seatEndsTodayId, "Ebba"],
-  ] as const) {
+async function writeSeatsAround(
+  tx: Tx,
+  day: Date,
+  starts: { id: string; firstName: string },
+  ends: { id: string; firstName: string },
+): Promise<void> {
+  for (const { id, firstName } of [starts, ends]) {
     await tx.person.create({
       data: { id, firstName, lastName: `Testsson${suffix}` },
     });
   }
   await tx.boardPosition.create({
     data: {
-      personId: seatStartsTodayId,
+      personId: starts.id,
       position: "BOARD_MEMBER",
-      electedOn: today,
+      electedOn: day,
     },
   });
   await tx.boardPosition.create({
     data: {
-      personId: seatEndsTodayId,
+      personId: ends.id,
       position: "BOARD_MEMBER",
       electedOn: new Date("2024-05-15"),
-      endedOn: today,
+      endedOn: day,
     },
   });
+}
+
+/**
+ * A member whose seat starts today and one whose seat ends today, on the
+ * association's calendar (Stockholm's): the first is on the board and the
+ * second is not.
+ */
+async function writeBoundarySeats(tx: Tx): Promise<void> {
+  await writeSeatsAround(
+    tx,
+    await stockholmDay(tx, 0),
+    { id: seatStartsTodayId, firstName: "Sture" },
+    { id: seatEndsTodayId, firstName: "Ebba" },
+  );
 }
 
 /**
@@ -209,30 +223,12 @@ async function writeBoundarySeats(tx: Tx): Promise<void> {
  * ahead of Stockholm's reaches.
  */
 async function writeTomorrowSeats(tx: Tx): Promise<void> {
-  const tomorrow = await stockholmDay(tx, 1);
-  for (const [id, firstName] of [
-    [seatStartsTomorrowId, "Stig"],
-    [seatEndsTomorrowId, "Elsa"],
-  ] as const) {
-    await tx.person.create({
-      data: { id, firstName, lastName: `Testsson${suffix}` },
-    });
-  }
-  await tx.boardPosition.create({
-    data: {
-      personId: seatStartsTomorrowId,
-      position: "BOARD_MEMBER",
-      electedOn: tomorrow,
-    },
-  });
-  await tx.boardPosition.create({
-    data: {
-      personId: seatEndsTomorrowId,
-      position: "BOARD_MEMBER",
-      electedOn: new Date("2024-05-15"),
-      endedOn: tomorrow,
-    },
-  });
+  await writeSeatsAround(
+    tx,
+    await stockholmDay(tx, 1),
+    { id: seatStartsTomorrowId, firstName: "Stig" },
+    { id: seatEndsTomorrowId, firstName: "Elsa" },
+  );
 }
 
 /** Writes one type per name, as an upgrade leaves it, and answers their ids. */
@@ -419,10 +415,10 @@ describe("an upgraded instance's type for disturbances or insurance", () => {
     // The migration reads today as `CURRENT_TIMESTAMP AT TIME ZONE
     // 'Europe/Stockholm'`. `CURRENT_DATE` is the date in the session's own time
     // zone, which on a database not set to Stockholm's is another day for part
-    // of every day. A session date a day behind Stockholm's still holds a seat
-    // that starts today and still keeps one that ends today; one a day ahead
-    // already holds a seat that starts tomorrow and no longer one that ends
-    // tomorrow. So the case writes the seats of both days and runs the
+    // of every day. A session date a day behind Stockholm's does not yet hold a
+    // seat that starts today and still holds one that ends today; one a day
+    // ahead already holds a seat that starts tomorrow and no longer one that
+    // ends tomorrow. So the case writes the seats of both days and runs the
     // migration in a zone on another date than Stockholm: the zone furthest
     // behind Stockholm (UTC-12) or the one furthest ahead (UTC+14), whichever
     // of them differs, and at any hour of the year at least one does. The zone
