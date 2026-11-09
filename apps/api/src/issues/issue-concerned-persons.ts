@@ -48,10 +48,13 @@ export function issuesConcerningPerson(
  * processing: what the clock and the issue erasure job ask beside the
  * reporter's hold, because the free-text layer is what the case holds about
  * each of them (`withheld-persons.ts` says why a hold and a restriction keep
- * alike). Spread beside the other conditions, never under an `OR`.
+ * alike), and what the work-order text purge asks, for the same reason
+ * (`issue-purge.service.ts`). Spread beside the other conditions, never under
+ * an `OR`.
  *
- * Read again under the person's key by the job that removes
- * ({@link lockPersonHolds}).
+ * Read again by the job that removes: under each person's key
+ * ({@link lockPersonHolds}), or under the legal hold registry key, which every
+ * placement and restriction grant takes as well.
  */
 export const CONCERNS_NO_WITHHELD_PERSON = {
   concernedPersons: { none: { person: WITHHELD } },

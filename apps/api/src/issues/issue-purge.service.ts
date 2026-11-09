@@ -12,9 +12,14 @@ import { lockIssue } from "./issue-lock";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
 import {
+  isAnyPersonWithheld,
   isPersonWithheld,
   withheldPersonIds,
 } from "../retention/withheld-persons";
+import {
+  CONCERNS_NO_WITHHELD_PERSON,
+  concernedPersonIdsOf,
+} from "./issue-concerned-persons";
 import {
   detachErasedReporter,
   ISSUE_RETENTION_DAYS,
@@ -151,9 +156,11 @@ export interface IssuePurgeRunSummary {
  * is not the association's record of its building but a copy of a mail it sent
  * a firm, in a handler's words that may name the reporter or a neighbour; the
  * row stays with whom it went to and when, which is the record of the
- * disclosure. A legal hold or a restriction against the issue's reporter keeps
- * the text, as it keeps the reporter's details, read again under the registry
- * key inside the transaction that erases it.
+ * disclosure. A legal hold or a restriction against the issue's reporter, or
+ * against a person the issue concerns (`IssueConcernedPerson`, ADR 0057),
+ * keeps the text, as it keeps the reporter's details and the issue's own free
+ * text, read again under the registry key inside the transaction that erases
+ * it.
  *
  * On a public-form report the reporter is reached only through the address
  * index, so that index has to outlive the contact details for as long as a
@@ -306,10 +313,11 @@ export class IssuePurgeService implements OnModuleInit {
    * The closed issues with a work order whose text is still kept past its
    * window, by the oldest closing first.
    *
-   * An issue under a legal hold of its own (`legalHoldAt`, ADR 0057), or whose
+   * An issue under a legal hold of its own (`legalHoldAt`, ADR 0057), whose
    * reporter is withheld - a person under a legal hold or a restriction, or a
-   * public-form address that is theirs - is excluded by the query rather than
-   * dropped from its answer, for the reason `eligible` gives about its bound.
+   * public-form address that is theirs - or that concerns a person under
+   * either, is excluded by the query rather than dropped from its answer, for
+   * the reason `eligible` gives about its bound.
    */
   async eligibleWorkOrderTexts(
     now: Date,
@@ -348,6 +356,7 @@ export class IssuePurgeService implements OnModuleInit {
                 },
               ]
             : []),
+          CONCERNS_NO_WITHHELD_PERSON,
         ],
       },
       orderBy: [{ closedAt: "asc" }, { id: "asc" }],
@@ -365,11 +374,13 @@ export class IssuePurgeService implements OnModuleInit {
    * The closing and the issue's own legal hold are read again under the issue
    * lock, which a reopen and a hold placed on the issue take too
    * (`lockIssueForHandling`), so an issue reopened or held since the scan
-   * keeps its texts; and the reporter's hold or restriction is read again
-   * under the legal hold registry key, which a hold placement and a
-   * restriction grant take too, so one committed while the run is in flight
-   * wins. The entry records how many texts went and the window, never a word
-   * of them.
+   * keeps its texts; and the hold or restriction of the reporter and of every
+   * person the issue concerns is read again under the legal hold registry key,
+   * which a hold placement and a restriction grant take too, so one committed
+   * while the run is in flight wins. The people it concerns are read under the
+   * issue lock, which recording one takes, so nobody is added between the read
+   * and the erasure. The entry records how many texts went and the window,
+   * never a word of them.
    */
   async purgeWorkOrderTexts(
     issueId: string,
@@ -406,6 +417,11 @@ export class IssuePurgeService implements OnModuleInit {
       if (
         issue.reporterEmailIndex !== null &&
         (await this.withheldAddresses(tx)).has(issue.reporterEmailIndex)
+      ) {
+        return false;
+      }
+      if (
+        await isAnyPersonWithheld(tx, await concernedPersonIdsOf(tx, issueId))
       ) {
         return false;
       }

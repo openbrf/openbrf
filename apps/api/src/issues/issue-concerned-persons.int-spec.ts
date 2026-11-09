@@ -19,6 +19,8 @@ import {
 } from "../testing/issue-fixtures";
 import { issuesConcerningPerson } from "./issue-concerned-persons";
 import { IssueErasureService } from "./issue-erasure.service";
+import { IssuePurgeService } from "./issue-purge.service";
+import { WORK_ORDER_BODY_RETENTION_DAYS } from "./issue-retention";
 import { IssueTextPurgeService } from "./issue-text-purge.service";
 import { IssueService } from "./issue.service";
 import { showsProtectedHousehold } from "./work-order-link";
@@ -29,7 +31,8 @@ import { showsProtectedHousehold } from "./work-order-link";
  * residency, the list names them or says they are protected, and the record is
  * part of the issue's free-text layer. It goes with the text, by the clock and
  * by the reporter's granted erasure request, and a legal hold or a restriction
- * on the person it names keeps that layer as one on the reporter does. A
+ * on the person it names keeps that layer, and the text of the issue's work
+ * orders, as one on the reporter does. A
  * handler takes one off as a redaction, under the same refusals. An issue
  * concerning a protected person is left out of every read leaving the
  * instance, and ends a contractor's link to it.
@@ -85,6 +88,9 @@ const crowd = Array.from(
 );
 const formerReporterId = `cp-former-${suffix}`;
 const movedOutId = `cp-moved-out-${suffix}`;
+/** People a hold or a restriction reaches only after a scan has run. */
+const lateHeldId = `cp-late-held-${suffix}`;
+const lateRestrictedId = `cp-late-restricted-${suffix}`;
 
 const residencyOf: Record<string, string> = {};
 const personIds = [
@@ -93,6 +99,8 @@ const personIds = [
   ...crowd.map((entry) => entry.personId),
   formerReporterId,
   movedOutId,
+  lateHeldId,
+  lateRestrictedId,
 ];
 
 const typeIds = {
@@ -631,6 +639,104 @@ describe("the record on the clock", () => {
   });
 });
 
+describe("the text of a work order", () => {
+  const days = WORK_ORDER_BODY_RETENTION_DAYS;
+  let purge: IssuePurgeService;
+
+  beforeAll(async () => {
+    purge = app.get(IssuePurgeService);
+    for (const id of [lateHeldId, lateRestrictedId]) {
+      await prisma.person.create({
+        data: { id, firstName: "Sen", lastName: `Skyddad${suffix}` },
+      });
+    }
+  });
+
+  /** A closed issue past the text's window, concerning `personId`. */
+  async function closedWithOrder(personId: string) {
+    const issueId = await seed({ closedDaysAgo: days + 1 });
+    await concern(issueId, personId);
+    const order = await prisma.workOrder.create({
+      data: {
+        issueId,
+        recipientName: `Rormokare ${suffix}`,
+        recipientEmailCipher: "kept-as-it-was",
+        body: "Tala med grannen i 1201 om musiken.",
+        sentByPersonId: board.personId,
+        deliveryStatus: "SENT",
+      },
+      select: { id: true },
+    });
+    return { issueId, orderId: order.id };
+  }
+
+  async function body(orderId: string) {
+    const order = await prisma.workOrder.findUniqueOrThrow({
+      where: { id: orderId },
+      select: { body: true },
+    });
+    return order.body;
+  }
+
+  it("is erased on an issue concerning nobody withheld, and kept while a person it concerns is held or restricted", async () => {
+    const now = new Date();
+    const plain = await closedWithOrder(residents.neighbour.personId);
+    const held = await closedWithOrder(residents.held.personId);
+    const restricted = await closedWithOrder(residents.restricted.personId);
+
+    const eligible = await purge.eligibleWorkOrderTexts(now, days);
+    expect(eligible).toContain(plain.issueId);
+    expect(eligible).not.toContain(held.issueId);
+    expect(eligible).not.toContain(restricted.issueId);
+
+    // Asked directly, past the scan, the erasure still refuses both.
+    await expect(
+      purge.purgeWorkOrderTexts(held.issueId, now, days),
+    ).resolves.toBe(false);
+    await expect(
+      purge.purgeWorkOrderTexts(restricted.issueId, now, days),
+    ).resolves.toBe(false);
+    expect(await body(held.orderId)).not.toBeNull();
+    expect(await body(restricted.orderId)).not.toBeNull();
+
+    await expect(
+      purge.purgeWorkOrderTexts(plain.issueId, now, days),
+    ).resolves.toBe(true);
+    expect(await body(plain.orderId)).toBeNull();
+  });
+
+  it("is kept by a hold or a restriction on a person it concerns placed after the scan", async () => {
+    const now = new Date();
+    const held = await closedWithOrder(lateHeldId);
+    const restricted = await closedWithOrder(lateRestrictedId);
+    const eligible = await purge.eligibleWorkOrderTexts(now, days);
+    expect(eligible).toContain(held.issueId);
+    expect(eligible).toContain(restricted.issueId);
+
+    await prisma.legalHold.create({
+      data: {
+        personId: lateHeldId,
+        reason: "Tvist om musiken",
+        placedByPersonId: board.personId,
+      },
+    });
+    await prisma.person.update({
+      where: { id: lateRestrictedId },
+      data: { processingRestrictedAt: new Date() },
+    });
+
+    // The transaction that erases reads them again.
+    await expect(
+      purge.purgeWorkOrderTexts(held.issueId, now, days),
+    ).resolves.toBe(false);
+    await expect(
+      purge.purgeWorkOrderTexts(restricted.issueId, now, days),
+    ).resolves.toBe(false);
+    expect(await body(held.orderId)).not.toBeNull();
+    expect(await body(restricted.orderId)).not.toBeNull();
+  });
+});
+
 describe("the reporter's granted erasure", () => {
   it("removes the record with the layer, and keeps an issue concerning a held person, counted as kept", async () => {
     const plain = await seed({
@@ -671,7 +777,9 @@ describe("the ring-fence of a protected person", () => {
 
     await expect(
       issues.queuedIssue(board.personId, issueId, "omit"),
-    ).rejects.toMatchObject({ reason: "issue-not-found" });
+    ).rejects.toMatchObject({
+      reason: "issue-not-found",
+    });
     // The board's own screen shows it.
     expect((await issues.queuedIssue(board.personId, issueId, "show")).id).toBe(
       issueId,

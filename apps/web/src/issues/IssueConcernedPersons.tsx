@@ -27,9 +27,12 @@ const FAILURES: Readonly<Record<string, TranslationKey>> = {
 };
 
 /**
- * The refusals after which the list on screen is out of date: what was to be
+ * The refusals after which what is on screen is out of date: what was to be
  * removed is gone, a hold stands that the screen did not show, the issue is
- * gone, or the issue already names as many as it may. The list is read again.
+ * gone, or the issue already names as many as it may. The list is read again,
+ * and so is the issue, as the refusal's words say: a hold placed on the issue
+ * since it was read is on the issue's own row, which the list does not carry,
+ * and only the issue read again stops offering a removal.
  */
 const STALE_REASONS: ReadonlySet<string> = new Set([
   "legal-hold",
@@ -79,7 +82,10 @@ export function IssueConcernedPersonsSection({
   onChanged,
 }: {
   issue: QueuedIssue;
-  /** After an answer that wrote: the timeline and the queue read again. */
+  /**
+   * After an answer that wrote, and after a refusal that shows the screen out
+   * of date: the timeline and the queue read again.
+   */
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -124,6 +130,7 @@ export function IssueConcernedPersonsSection({
       setConfirming(null);
       if (STALE_REASONS.has(failure.reason)) {
         setReads((count) => count + 1);
+        onChanged();
       }
     },
   );

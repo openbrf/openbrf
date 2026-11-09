@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState, type ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
@@ -182,5 +183,89 @@ describe("whom an issue concerns", () => {
     await waitFor(() => {
       expect(fetchIssueConcernedPersons).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it("reads the issue again when a hold placed since it was read refuses the removal", async () => {
+    /*
+     * Another handler placed a hold on the issue after this screen read it.
+     * The hold is on the issue's own row, which the list does not carry, so
+     * only the issue read again (the parent's `onChanged`) stops offering the
+     * removal and shows why. Here the parent's re-read brings the hold.
+     */
+    const session = userEvent.setup();
+    fetchIssueConcernedPersons.mockResolvedValue({ ok: true, value: [NILS] });
+    redactIssue.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "legal-hold" },
+    });
+    const onChanged = vi.fn();
+    function Parent(): ReactElement {
+      const [shown, setShown] = useState(issue());
+      return (
+        <IssueConcernedPersonsSection
+          issue={shown}
+          onChanged={() => {
+            onChanged();
+            setShown(issue("2026-11-09T09:00:00.000Z"));
+          }}
+        />
+      );
+    }
+    render(<Parent />);
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: "Ta bort Nils Granne från dem som ärendet gäller",
+      }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Ta bort för gott" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Ärendet har ett rättsligt bevarandekrav, så ingen kan tas bort från listan förrän kravet hävs.",
+      ),
+    ).toBeTruthy();
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("button", {
+        name: "Ta bort Nils Granne från dem som ärendet gäller",
+      }),
+    ).toBeNull();
+    // The refusal still says what was refused.
+    expect(
+      screen.getByText(
+        /eller för en person som ärendet gäller, så ingenting kan tas bort/,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("leaves a refusal that is not about the screen being out of date to the list alone", async () => {
+    const session = userEvent.setup();
+    fetchIssueConcernedPersons.mockResolvedValue({ ok: true, value: [NILS] });
+    redactIssue.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "invalid-body" },
+    });
+    const onChanged = vi.fn();
+    render(
+      <IssueConcernedPersonsSection issue={issue()} onChanged={onChanged} />,
+    );
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: "Ta bort Nils Granne från dem som ärendet gäller",
+      }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Ta bort för gott" }),
+    );
+
+    expect(
+      await screen.findByText("Ingenting kunde sparas just nu. Försök igen."),
+    ).toBeTruthy();
+    expect(onChanged).not.toHaveBeenCalled();
+    expect(fetchIssueConcernedPersons).toHaveBeenCalledTimes(1);
   });
 });

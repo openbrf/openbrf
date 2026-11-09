@@ -1,5 +1,10 @@
 -- The people an issue concerns, as a handler records them (ADR 0057): personal
 -- data of its own, removed with the issue's free-text layer.
+--
+-- In one transaction, so a failure leaves none of the table, its indexes and
+-- its keys behind: Prisma runs each statement on its own, and a retry would
+-- otherwise find the table already there.
+BEGIN;
 
 CREATE TABLE "issue_concerned_person" (
   "id" TEXT NOT NULL,
@@ -28,3 +33,5 @@ ALTER TABLE "issue_concerned_person"
   ADD CONSTRAINT "issue_concerned_person_personId_fkey"
   FOREIGN KEY ("personId") REFERENCES "person"("id")
   ON DELETE CASCADE ON UPDATE CASCADE;
+
+COMMIT;
