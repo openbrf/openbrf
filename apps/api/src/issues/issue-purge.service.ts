@@ -196,9 +196,10 @@ export interface IssuePurgeRunSummary {
  * On that clock alone. The list is the association's means of hiring, and a
  * work order is a record with a clock of its own, which runs from its issue's
  * closing and which a legal hold holds back; the list's details do not wait
- * for it. A work order sent them that still holds its text, or is on an issue
- * under a legal hold, keeps its own copy of whom it went to, the name and the
- * address it was written to, for as long as it keeps what it said. The copy
+ * for it. A work order written to them, sent or not, that still holds its
+ * text, or is on an issue under a legal hold, keeps its own copy of whom it
+ * went to, the name and the address it was written to, for as long as it keeps
+ * what it said. The copy
  * goes with the text, whether this purge erases it or a handler redacts it, and
  * on a work order whose text is already gone, with the release of the hold
  * (`eraseRecipientsLeft`). The other work orders lose the copy when the

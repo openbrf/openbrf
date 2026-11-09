@@ -362,10 +362,11 @@ locally the application runs from source beside the PostgreSQL that
       can be interrupted or renewed and the erasure does not follow that, so a
       legal hold on the issue or a legal hold or a restriction on the reporter
       is what keeps the text longer. The record of whom it went to and when stays, except that
-      removing a contractor from the list clears their name and address from
-      the work orders sent them. The nightly purge takes a contractor off the
-      list ten years after the last work order sent them, or after they were
-      added if none was; a work order sent them that still holds its text, or
+      the board removing a contractor from the list clears their name and address from
+      the work orders written to them. The nightly purge takes a contractor off
+      the list ten years after the last work order sent them, or after they
+      were added if none was; a work order written to them, whether or not its
+      mail left, that still holds its text, or
       is on an issue under a legal hold, keeps their name and address for as
       long as it keeps its text or the hold stands (ADR 0057). This is how a work order travels
       while the contractor's own link waits for its legal review (ADR 0055)

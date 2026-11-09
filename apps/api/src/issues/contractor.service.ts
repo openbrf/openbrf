@@ -432,10 +432,10 @@ export async function eraseContractor(
  * orders lost their copy of the name and address, and how many keep it.
  *
  * The row goes, with the name, the trade, the telephone number and the
- * address the list held. A work order sent them is the association's record of
- * a disclosure on a clock of its own, ten years after its issue closed and
- * whatever a legal hold keeps past that, and whom it went to is part of that
- * record for as long as it keeps what it said: one that still holds its text,
+ * address the list held. A work order written to them, whether or not its mail
+ * left, is the association's record on a clock of its own, ten years after its
+ * issue closed and whatever a legal hold keeps past that, and whom it went to
+ * is part of that record for as long as it keeps what it said: one that still holds its text,
  * or is on an issue under a legal hold, keeps its copy of the name and the
  * address, now named by no contractor on the list, until the text goes or,
  * for one whose text is already gone, the hold is released

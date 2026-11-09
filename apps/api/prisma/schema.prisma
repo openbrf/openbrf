@@ -4920,9 +4920,11 @@ model IssuePhoto {
 /// The nightly issue purge removes a contractor ten years after the last work
 /// order sent them, or after they were added if none was (ADR 0057, question
 /// 6): the general limitation period for a claim about the work
-/// (preskriptionslagen (1981:130) 2 §). On that clock alone: a work order sent
-/// them that still holds its text, or is on an issue under a legal hold, keeps
-/// its own copy of whom it went to, and loses it with its text.
+/// (preskriptionslagen (1981:130) 2 §). On that clock alone: a work order
+/// written to them, sent or not, that still holds its text, or is on an issue
+/// under a legal hold, keeps its own copy of whom it went to, and loses it when
+/// the last of the two goes: with its text, or, for one whose text is already
+/// gone, when the hold is released.
 model Contractor {
   id String @id @default(cuid())
 
@@ -5013,11 +5015,14 @@ model WorkOrder {
   /// the list is corrected. The address encrypted as the contractor's is, with
   /// the work order's id as its context.
   ///
-  /// Both null once the contractor is removed from the list: removing a
-  /// contractor is how a sole trader's erasure is honoured, and it reaches
-  /// the copies on their work orders too (`ContractorService.remove`). The
-  /// row stays, so the issue still records that a work order went out, when,
-  /// and what it said.
+  /// Both null once the board removes the contractor from the list: that
+  /// removal is how a sole trader's erasure is honoured, and it reaches the
+  /// copies on their work orders too (`ContractorService.remove`). The list's
+  /// own clock leaves them on a work order that still holds its text or is on
+  /// an issue under a legal hold, until the last of the two goes
+  /// (`retireContractor`, `eraseRecipientsLeft`), and clears them on the
+  /// others. The row stays, so the issue still records that a work order went
+  /// out, when, and what it said.
   recipientName        String?
   recipientEmailCipher String?
 

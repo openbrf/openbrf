@@ -99,9 +99,9 @@ export const WORK_ORDER_BODY_RETENTION_DAYS = 3653;
  * association who that was. Nothing longer: the list is the association's
  * means of hiring, and a firm it has not written to in ten years is one it
  * would add again. Not a period the law sets for the list. The list's clock does
- * not wait on the work orders' own: a work order sent them that still holds its
- * text, or is on an issue under a legal hold, keeps its copy of whom it went
- * to, so the record of whom a work order went to never goes before the record
+ * not wait on the work orders' own: a work order written to them, sent or not,
+ * that still holds its text, or is on an issue under a legal hold, keeps its
+ * copy of whom it went to, so the record of whom a work order went to never goes before the record
  * of what it said (`retireContractor`, `IssuePurgeService`).
  */
 export const CONTRACTOR_RETENTION_DAYS = WORK_ORDER_BODY_RETENTION_DAYS;

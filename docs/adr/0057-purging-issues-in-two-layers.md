@@ -142,10 +142,11 @@ legal hold applies:
 ### The contractor register
 
 The answer to question 6, which the legal review gave and the owner accepted on
-2026-11-09. A sole trader's name and telephone number are personal data, and so
-are the name and number of a firm's contact person. They are on the
-association's list of contractors and on the work orders sent them, and nowhere
-else.
+2026-11-09. A sole trader's name, telephone number and email address are
+personal data, and so are a firm's contact person's. The association's list of
+contractors holds all three. A work order written to them keeps its own copy of
+the name and the email address it was mailed to, but not the telephone number,
+which is for the handler and is sent nowhere.
 
 - **The basis.** The contract (art. 6(1)(b)) for a contractor who is a sole
   trader, and the association's legitimate interest in hiring and reaching the
@@ -192,7 +193,7 @@ else.
   (preskriptionslagen (1981:130) 2 §), the same one a work order's text keeps
   to. The nightly issue purge takes them off the list on that clock alone: the
   row goes, with the name, the trade, the telephone number and the address the
-  list held, whether or not a work order sent them still holds its text, and
+  list held, whether or not a work order written to them still holds its text, and
   whether or not one is on an issue under a legal hold. The list is the
   association's means of hiring, and it does not wait on a record whose clock
   runs from an issue's closing, which may come years after the last work order
@@ -213,7 +214,7 @@ else.
 
 A contractor is not a person in the register, so no data subject access report
 is generated for one: the board answers a contractor's request from the list
-and the work orders sent them. Invoices follow bookkeeping law
+and the work orders written to them. Invoices follow bookkeeping law
 (bokföringslagen (1999:1078) 7 kap. 2 §) outside Open BRF. Whether a work order
 is räkenskapsinformation is left open by the review.
 
