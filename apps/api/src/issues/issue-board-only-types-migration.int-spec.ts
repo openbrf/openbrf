@@ -56,6 +56,8 @@ const adminId = `bot-admin-${suffix}`;
 const managerId = `bot-manager-${suffix}`;
 const seatStartsTodayId = `bot-starts-${suffix}`;
 const seatEndsTodayId = `bot-ends-${suffix}`;
+const seatStartsTomorrowId = `bot-starts-tomorrow-${suffix}`;
+const seatEndsTomorrowId = `bot-ends-tomorrow-${suffix}`;
 
 type Tx = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0];
 
@@ -65,6 +67,15 @@ interface TypeAfter {
   reporters: IssueReporterGroup[];
   active: boolean;
   defaultAssigneePersonId: string | null;
+}
+
+/** What the migration left of the four seats of the time zone case, in the order they were written. */
+interface SeatsHeld {
+  zone: string;
+  /** The session's date less Stockholm's, in days. */
+  sessionDateFromStockholm: number;
+  assignees: (string | null | undefined)[];
+  defaultAssignees: (string | null)[];
 }
 
 /** Thrown to roll a case's transaction back once it has read its answer. */
@@ -144,20 +155,28 @@ async function writePeople(tx: Tx): Promise<void> {
 }
 
 /**
- * A member whose seat starts today and one whose seat ends today, on the
- * association's calendar (Stockholm's) as the migration reads it: the date of
- * the transaction's own start, which this case's transaction shares with it. A
- * seat is held from the day it starts up to, but not including, the day it
- * ends, so the first is on the board and the second is not.
+ * The date on the association's calendar (Stockholm's) `daysFromToday` days
+ * from today, as the migration reads today: the date of the transaction's own
+ * start, which this case's transaction shares with it.
  */
-async function writeBoundarySeats(tx: Tx): Promise<void> {
-  const [row] = await tx.$queryRawUnsafe<{ today: string }[]>(
-    `SELECT to_char((CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Stockholm')::date, 'YYYY-MM-DD') AS today`,
+async function stockholmDay(tx: Tx, daysFromToday: number): Promise<Date> {
+  const [row] = await tx.$queryRawUnsafe<{ day: string }[]>(
+    `SELECT to_char((CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Stockholm')::date + ${daysFromToday}, 'YYYY-MM-DD') AS day`,
   );
   if (row === undefined) {
     throw new Error("No date.");
   }
-  const today = new Date(`${row.today}T00:00:00.000Z`);
+  return new Date(`${row.day}T00:00:00.000Z`);
+}
+
+/**
+ * A member whose seat starts today and one whose seat ends today, on the
+ * association's calendar (Stockholm's). A seat is held from the day it starts up
+ * to, but not including, the day it ends, so the first is on the board and the
+ * second is not.
+ */
+async function writeBoundarySeats(tx: Tx): Promise<void> {
+  const today = await stockholmDay(tx, 0);
   for (const [id, firstName] of [
     [seatStartsTodayId, "Sture"],
     [seatEndsTodayId, "Ebba"],
@@ -179,6 +198,39 @@ async function writeBoundarySeats(tx: Tx): Promise<void> {
       position: "BOARD_MEMBER",
       electedOn: new Date("2024-05-15"),
       endedOn: today,
+    },
+  });
+}
+
+/**
+ * A member whose seat starts tomorrow and one whose seat ends tomorrow, on
+ * Stockholm's calendar: the first is not yet on the board and the second still
+ * is. They are the boundary of the other side of today, which a session date
+ * ahead of Stockholm's reaches.
+ */
+async function writeTomorrowSeats(tx: Tx): Promise<void> {
+  const tomorrow = await stockholmDay(tx, 1);
+  for (const [id, firstName] of [
+    [seatStartsTomorrowId, "Stig"],
+    [seatEndsTomorrowId, "Elsa"],
+  ] as const) {
+    await tx.person.create({
+      data: { id, firstName, lastName: `Testsson${suffix}` },
+    });
+  }
+  await tx.boardPosition.create({
+    data: {
+      personId: seatStartsTomorrowId,
+      position: "BOARD_MEMBER",
+      electedOn: tomorrow,
+    },
+  });
+  await tx.boardPosition.create({
+    data: {
+      personId: seatEndsTomorrowId,
+      position: "BOARD_MEMBER",
+      electedOn: new Date("2024-05-15"),
+      endedOn: tomorrow,
     },
   });
 }
@@ -361,6 +413,113 @@ describe("an upgraded instance's type for disturbances or insurance", () => {
         defaultAssigneePersonId: null,
       },
     ]);
+  });
+
+  it("reads the day a seat is held on Stockholm's calendar, whatever the session's time zone is", async () => {
+    // The migration reads today as `CURRENT_TIMESTAMP AT TIME ZONE
+    // 'Europe/Stockholm'`. `CURRENT_DATE` is the date in the session's own time
+    // zone, which on a database not set to Stockholm's is another day for part
+    // of every day. A session date a day behind Stockholm's still holds a seat
+    // that starts today and still keeps one that ends today; one a day ahead
+    // already holds a seat that starts tomorrow and no longer one that ends
+    // tomorrow. So the case writes the seats of both days and runs the
+    // migration in a zone on another date than Stockholm: the zone furthest
+    // behind Stockholm (UTC-12) or the one furthest ahead (UTC+14), whichever
+    // of them differs, and at any hour of the year at least one does. The zone
+    // is chosen in the transaction that runs the case, from the transaction's
+    // own time, which `CURRENT_TIMESTAMP` holds fixed: two transactions could
+    // start on either side of Stockholm's midnight and agree on no zone. The
+    // case fails with `CURRENT_DATE` in the migration whichever zone it is. A
+    // zone on Stockholm's own date cannot tell the two apart and is not used.
+    // `SET LOCAL` ends with the case's transaction.
+    const ran = await rolledBack(async (tx): Promise<SeatsHeld> => {
+      const [offsets] = await tx.$queryRawUnsafe<
+        { behind: number; ahead: number }[]
+      >(
+        `SELECT ((CURRENT_TIMESTAMP AT TIME ZONE 'Etc/GMT+12')::date
+               - (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Stockholm')::date) AS "behind",
+              ((CURRENT_TIMESTAMP AT TIME ZONE 'Pacific/Kiritimati')::date
+               - (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Stockholm')::date) AS "ahead"`,
+      );
+      if (offsets === undefined) {
+        throw new Error("No date.");
+      }
+      const [zone, sessionDateFromStockholm] =
+        offsets.behind !== 0
+          ? (["Etc/GMT+12", offsets.behind] as const)
+          : (["Pacific/Kiritimati", offsets.ahead] as const);
+      expect(sessionDateFromStockholm).not.toBe(0);
+      await tx.$executeRawUnsafe(`SET LOCAL TIME ZONE '${zone}'`);
+
+      await writeBoundarySeats(tx);
+      await writeTomorrowSeats(tx);
+      const seats = [
+        seatStartsTodayId,
+        seatEndsTodayId,
+        seatStartsTomorrowId,
+        seatEndsTomorrowId,
+      ];
+      const typeIds = await writeTypes(tx, [
+        "Störningar",
+        "Störning",
+        "Försäkringsärende",
+        "Försäkring",
+      ]);
+      const issueIds: string[] = [];
+      for (const [index, typeId] of typeIds.entries()) {
+        const seat = seats[index];
+        if (seat === undefined) {
+          throw new Error("A seat was not written.");
+        }
+        await tx.issueType.update({
+          where: { id: typeId },
+          data: { defaultAssigneePersonId: seat },
+        });
+        issueIds.push(
+          (
+            await tx.issue.create({
+              data: {
+                typeId,
+                statusId: `${typeId}-new`,
+                priority: "NORMAL",
+                location: null,
+                description: `Anmälan ${suffix}`,
+                assigneePersonId: seat,
+              },
+              select: { id: true },
+            })
+          ).id,
+        );
+      }
+
+      await tx.$executeRawUnsafe(MIGRATION);
+
+      const rows = await tx.issue.findMany({
+        where: { id: { in: issueIds } },
+        select: { id: true, assigneePersonId: true },
+      });
+      const types = await readTypes(tx, typeIds);
+      return {
+        zone,
+        sessionDateFromStockholm,
+        assignees: issueIds.map(
+          (id) => rows.find((row) => row.id === id)?.assigneePersonId,
+        ),
+        defaultAssignees: types.map((type) => type.defaultAssigneePersonId),
+      };
+    });
+
+    // Whatever date the session is on, a seat that starts today is held and one
+    // that ends today is not, one that starts tomorrow is not yet held and one
+    // that ends tomorrow still is, as an assignee and as a type's default
+    // assignee.
+    const expected = [seatStartsTodayId, null, null, seatEndsTomorrowId];
+    expect(ran).toEqual({
+      zone: ran.zone,
+      sessionDateFromStockholm: ran.sessionDateFromStockholm,
+      assignees: expected,
+      defaultAssignees: expected,
+    });
   });
 
   it("loses the property manager and a former board member as assignee, and keeps the board", async () => {
