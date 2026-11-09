@@ -4,9 +4,9 @@ import {
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import {
+  formatDayOfInstant,
   formatLocalDay,
   localDayOf,
-  RING_FENCED_ISSUE_TEXT_RETENTION_YEARS,
 } from "@openbrf/shared";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
@@ -30,7 +30,8 @@ import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
-import { issueTextRetentionDays } from "./issue-free-text";
+import { DataSubjectReportService } from "../retention/data-subject-report.service";
+import { issueTextClocks, issueTextRetentionDays } from "./issue-free-text";
 import {
   ISSUE_NOTICE_QUEUE,
   IssueMailer,
@@ -60,8 +61,8 @@ import { IssueService } from "./issue.service";
  *   and a notice queued before the ring-fence sends nothing.
  * - **Posts and the website's form.** No report under it is made from a post,
  *   and the form offers none.
- * - **The clock.** Its free text is removed one year after closing, whatever
- *   the board set.
+ * - **The clock.** Its free text is removed on the board's ring-fenced clock,
+ *   apart from the other types' clock and never held to it.
  *
  * A contractor is the remaining way out: `work-orders.int-spec.ts` holds that
  * no work order is written, previewed or sent on a ring-fenced issue. A known
@@ -1251,11 +1252,11 @@ describe("merging duplicates", () => {
 });
 
 describe("the clock", () => {
-  it("removes the free text a year after closing, whatever the board set", async () => {
+  it("removes the free text on the board's ring-fenced clock, apart from the other types' clock", async () => {
     const now = new Date();
     const closedAgo = (days: number) =>
       new Date(now.getTime() - days * 86_400_000);
-    const due = issueTextRetentionDays(RING_FENCED_ISSUE_TEXT_RETENTION_YEARS);
+    const due = issueTextRetentionDays(1);
     const close = async (issueId: string, type: IssueTypeFixture, at: Date) =>
       prisma.issue.update({
         where: { id: issueId },
@@ -1279,12 +1280,14 @@ describe("the clock", () => {
     const ordinary = await reported(open, `Dörren går trögt ${suffix}`);
     await close(ordinary, open, closedAgo(due + 2));
 
-    // The board's longest clock, ten years: a ring-fenced issue keeps to its
-    // own year all the same, and an ordinary one to the board's.
-    expect(await textPurge.purgeIssue(pastYear, now, 10)).toBe("removed");
-    expect(await textPurge.purgeIssue(withinYear, now, 10)).toBe("kept");
-    expect(await textPurge.purgeIssue(held, now, 10)).toBe("kept");
-    expect(await textPurge.purgeIssue(ordinary, now, 10)).toBe("kept");
+    // The longest clock for the other types, ten years, and one year for a
+    // ring-fenced type: a ring-fenced issue keeps to its own clock, and an
+    // ordinary one to the other.
+    const oneYear = { years: 10, ringFencedYears: 1 };
+    expect(await textPurge.purgeIssue(pastYear, now, oneYear)).toBe("removed");
+    expect(await textPurge.purgeIssue(withinYear, now, oneYear)).toBe("kept");
+    expect(await textPurge.purgeIssue(held, now, oneYear)).toBe("kept");
+    expect(await textPurge.purgeIssue(ordinary, now, oneYear)).toBe("kept");
 
     expect(
       await prisma.issue.findUniqueOrThrow({
@@ -1315,28 +1318,118 @@ describe("the clock", () => {
     ).toMatchObject({
       context: {
         layer: "freeText",
-        retentionYearsAfterClosing: RING_FENCED_ISSUE_TEXT_RETENTION_YEARS,
+        retentionYearsAfterClosing: 1,
         ringFenced: true,
       },
     });
 
     // The nightly scan finds it by the same rule.
     const eligible = new Set(
-      (await textPurge.eligiblePage(now, 10, undefined, 10_000)).map(
+      (await textPurge.eligiblePage(now, oneYear, undefined, 10_000)).map(
         (issue) => issue.id,
       ),
     );
     expect(eligible.has(withinYear)).toBe(false);
     expect(eligible.has(held)).toBe(false);
     expect(eligible.has(ordinary)).toBe(false);
+  });
 
-    // The board's own setting has no word for it.
-    const setting = await inject({
-      method: "PUT",
-      url: "/api/issue-retention",
-      payload: { years: 2, ringFencedYears: 5 },
-      cookie: as(board),
+  it("dates the free text in its reporter's access report on the board's ring-fenced clock", async () => {
+    const closedAt = new Date("2026-03-10T10:00:00.000Z");
+    const issueId = await reported(fenced);
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: { statusId: fenced.statusIds.DONE, outcome: "FIXED", closedAt },
     });
-    expect(setting.statusCode).toBe(400);
+    // A ring-fenced clock that is neither the default nor the other types'
+    // clock (two and one by default), so a report dated on a fixed year fails.
+    const distinctYears = 7;
+    const previous = await issueTextClocks(prisma);
+    await prisma.association.update({
+      where: { id: 1 },
+      data: { ringFencedIssueTextRetentionYears: distinctYears },
+    });
+    let report: Awaited<ReturnType<DataSubjectReportService["portable"]>>;
+    try {
+      report = await app
+        .get(DataSubjectReportService)
+        .portable(resident.personId);
+    } finally {
+      await prisma.association.update({
+        where: { id: 1 },
+        data: { ringFencedIssueTextRetentionYears: previous.ringFencedYears },
+      });
+    }
+
+    const dated = report.issues.find((entry) => entry.issueId === issueId);
+    expect(dated?.onLegalHold).toBe(false);
+    expect(dated?.freeTextErasableFrom).toBe(
+      formatDayOfInstant(
+        new Date(
+          closedAt.getTime() +
+            issueTextRetentionDays(distinctYears) * 86_400_000,
+        ),
+      ),
+    );
+  });
+
+  it("keeps a ring-fenced issue's text past the other types' clock when the board's ring-fenced clock is longer", async () => {
+    const now = new Date();
+    const closedAgo = (days: number) =>
+      new Date(now.getTime() - days * 86_400_000);
+    const pastTwoYears = issueTextRetentionDays(2) + 2;
+    const pastFiveYears = issueTextRetentionDays(5) + 2;
+    const close = async (
+      issueId: string,
+      type: IssueTypeFixture,
+      daysAgo: number,
+    ) =>
+      prisma.issue.update({
+        where: { id: issueId },
+        data: {
+          statusId: type.statusIds.DONE,
+          outcome: "FIXED",
+          closedAt: closedAgo(daysAgo),
+        },
+      });
+    const fencedIssue = await opened(fenced);
+    await close(fencedIssue, fenced, pastTwoYears);
+    const ordinary = await opened(open);
+    await close(ordinary, open, pastTwoYears);
+    // Past the ring-fenced clock's five years and well short of ten, so a
+    // cutoff fixed at some other year would keep it.
+    const fencedDue = await opened(fenced);
+    await close(fencedDue, fenced, pastFiveYears);
+
+    // Two years for the other types, five for a ring-fenced one: the two
+    // clocks are set apart, and neither is held to the shorter of them.
+    const longer = { years: 2, ringFencedYears: 5 };
+    const eligible = new Set(
+      (await textPurge.eligiblePage(now, longer, undefined, 10_000)).map(
+        (issue) => issue.id,
+      ),
+    );
+    expect(eligible.has(fencedIssue)).toBe(false);
+    expect(eligible.has(ordinary)).toBe(true);
+    expect(eligible.has(fencedDue)).toBe(true);
+    expect(await textPurge.purgeIssue(fencedIssue, now, longer)).toBe("kept");
+    expect(await textPurge.purgeIssue(ordinary, now, longer)).toBe("removed");
+    expect(await textPurge.purgeIssue(fencedDue, now, longer)).toBe("removed");
+    expect(
+      (
+        await prisma.issue.findUniqueOrThrow({
+          where: { id: fencedDue },
+          select: { description: true },
+        })
+      ).description,
+    ).toBe("");
+    expect(
+      (
+        await prisma.issue.findUniqueOrThrow({
+          where: { id: fencedIssue },
+          select: { description: true },
+        })
+      ).description,
+    ).not.toBe("");
   });
 });

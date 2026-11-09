@@ -24,8 +24,8 @@ module holds about a person.
   contractor gets only what a handler writes for them and any photographs
   the handler chooses to show them, never the rest of the report, and that
   text is kept ten years after closing, or longer while a legal hold on the
-  issue, or a legal hold or a restriction on the reporter, applies; a ring-fenced issue type's warning names the conversation
-  and the photographs beside the text and keeps its one year.
+  issue, or a legal hold or a restriction on the reporter, applies; for a ring-fenced issue type the form names the conversation
+  and the photographs beside the text, and the number of years the board set for ring-fenced types.
   The website's form states that the reporter's name and email address are
   removed a year after the issue closes, and what they wrote and the
   replies they receive after the board's number of years; that what a

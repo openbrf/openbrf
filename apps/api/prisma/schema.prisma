@@ -228,15 +228,22 @@ model Association {
   /// page.
   issueReportingPublic Boolean @default(true)
 
-  /// How many whole years after an issue closes its free-text layer is kept:
-  /// the description, the free-text location, the conversation, the internal
-  /// notes and every photograph and file (ADR 0057, decision 33). The building
-  /// record - what, where, when and the outcome - stays. The board sets it from
-  /// 1 to 10, held by a CHECK; two by default, which has no legal source and
-  /// matches motions, subletting and the board mailbox. Read when the nightly
-  /// purge runs, never stamped on an issue, so a change moves every pending
-  /// date at once.
+  /// How many whole years after an issue of an ordinary type closes its
+  /// free-text layer is kept: the description, the free-text location, the
+  /// conversation, the internal notes and every photograph and file (ADR 0057,
+  /// decision 33). The building record - what, where, when and the outcome -
+  /// stays. The board sets it from 1 to 10, held by a CHECK; two by default,
+  /// which has no legal source and matches motions, subletting and the board
+  /// mailbox. Read when the nightly purge runs, never stamped on an issue, so a
+  /// change moves every pending date at once.
   issueTextRetentionYears Int @default(2)
+
+  /// The same clock for an issue of a ring-fenced type (decision 32), which the
+  /// board sets apart from the one above: from 1 to 10 years after closing,
+  /// held by a CHECK, and one by default on every instance. A legal hold on the
+  /// issue, or a legal hold or a restriction on its reporter, keeps the text
+  /// longer, as on the other clock. Read when the purge runs, like the other.
+  ringFencedIssueTextRetentionYears Int @default(1)
 
   /// The deadline the bylaws (stadgar) set for motions to the general meeting,
   /// as a recurring month and day.
@@ -4476,15 +4483,15 @@ model IssueType {
   /// one (`WorkOrderService`, ADR 0055); no mail about one is sent to anybody;
   /// it is left out of every read on `mcp` and `ai` (ADR 0056); it is offered on
   /// no form but a signed-in one, with a warning; and its free text is removed
-  /// one year after closing (`RING_FENCED_ISSUE_TEXT_RETENTION_YEARS`), a clock
-  /// the board does not set.
+  /// on a clock of its own, which the board sets apart from the other types'
+  /// (`Association.ringFencedIssueTextRetentionYears`, one year by default).
   ///
   /// Any type may carry it: the Swedish set a new instance starts with has
   /// Störningar ring-fenced, and the board ring-fences another type under
   /// issues:configure (`IssueTypeService.setRingFence`), each change audited.
   /// It is lifted only from a type nobody has reported under, so a board cannot
-  /// hand earlier reports to the property manager or the AI package, or give
-  /// them a longer clock, by lifting it (ADR 0054, question 5).
+  /// hand earlier reports to the property manager or the AI package, or move
+  /// them onto the other clock, by lifting it (ADR 0054, question 5).
   ringFenced Boolean @default(false)
 
   /// Its statuses: at least one of each meaning, one of which is the default

@@ -27,7 +27,7 @@ import {
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
 import { backendPid, waitersBehind } from "../testing/lock-waiters";
-import { issueTextRetentionYears } from "./issue-free-text";
+import { issueTextClocks } from "./issue-free-text";
 import { lockIssueType } from "./issue-lock";
 
 /**
@@ -1062,11 +1062,11 @@ describe("the data subject access report", () => {
     // The board's setting is the association's singleton, which the retention
     // suite changes while it runs: read on either side of the report, so the
     // date the report states is the one for the setting it read.
-    const before = await issueTextRetentionYears(prisma);
+    const before = (await issueTextClocks(prisma)).years;
     const report = await app
       .get(DataSubjectReportService)
       .portable(resident.personId);
-    const after = await issueTextRetentionYears(prisma);
+    const after = (await issueTextClocks(prisma)).years;
     const on = (years: number) =>
       formatDayOfInstant(
         new Date(closedAt.getTime() + years * 365 * 24 * 60 * 60 * 1000),

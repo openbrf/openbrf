@@ -14,8 +14,9 @@
  */
 
 /**
- * How many whole years after closing the free-text layer is removed: the board
- * sets it between these bounds, and a new instance starts at two.
+ * How many whole years after closing the free-text layer of an issue of an
+ * ordinary type is removed: the board sets it between these bounds, and a new
+ * instance starts at two. A ring-fenced type has a clock of its own, below.
  *
  * Two has no legal source. It matches motions, subletting applications and the
  * board mailbox, which keep their records two years after closing (decision
@@ -32,21 +33,26 @@ export const ISSUE_TEXT_RETENTION_YEARS = {
 /**
  * How many whole years after closing the free-text layer of a ring-fenced
  * issue type is removed (avskärmad ärendetyp, decision 32 of the issue module's
- * plan), whatever the board set above.
+ * plan): a clock of its own, which the board sets between these bounds apart
+ * from the one above, and which every instance starts at one.
  *
- * Shorter than the board's own clock may be, and not the board's to set: a
- * report about a neighbour, such as Störningar holds, is the kind of record
- * Bostadsrätterna says "bör föras separat", and the plan holds it to one year
- * after closing until the legal review of decision 32 says how long it may be
- * kept, or whether at all. That review changes this number and nothing else;
- * it is never a setting. The purge reads the shorter of this and the board's
- * setting, so a ring-fenced issue's text never outlasts an ordinary one's
- * clock, whatever the review sets. A legal hold on the issue (a damage case
- * places one), or a legal hold or a restriction on its reporter, stands over
- * this clock as over the board's, and keeps the text until it is released
- * (ADR 0057).
+ * The legal review of decision 32 (2026-11-09) cleared keeping such a case and
+ * gave the board the clock. No statute sets one: the bostadsrättslag sets no
+ * deadline for acting on a disturbance, Bostadsrätterna has the disturbance log
+ * deleted when it is no longer relevant and at most after ten years, and a
+ * pattern that recurs after more than a year, or a neighbour's later claim
+ * against the board for not acting, are what a short clock risks. One year is
+ * the default, the clock the plan held such a report to before the review, and
+ * the board lengthens it where its cases need it. A legal
+ * hold on the issue (a damage case places one), or a legal hold or a
+ * restriction on its reporter, stands over this clock as over the other, and
+ * keeps the text until it is released (ADR 0057).
  */
-export const RING_FENCED_ISSUE_TEXT_RETENTION_YEARS = 1;
+export const RING_FENCED_ISSUE_TEXT_RETENTION_YEARS = {
+  min: 1,
+  max: 10,
+  default: 1,
+} as const;
 
 /**
  * What a handler may redact on an issue: a text, which is emptied and marked

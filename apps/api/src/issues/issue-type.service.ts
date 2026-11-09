@@ -31,10 +31,7 @@ import {
   MAIL_TRANSACTION_MS,
 } from "./issue-lock";
 import { IssueError } from "./issue.error";
-import {
-  issueTextClockYears,
-  issueTextRetentionYears,
-} from "./issue-free-text";
+import { issueTextClockYears, issueTextClocks } from "./issue-free-text";
 import { revokeWorkOrderLinks } from "./work-order-link";
 
 /** A status as the board configures it. */
@@ -116,8 +113,8 @@ export interface ReportableIssueTypeView {
   reporters: IssueReporterGroup[];
   /**
    * Whether the type is ring-fenced (decision 32), so the form can warn the
-   * reporter before they write: only the board reads it, it is removed a year
-   * after closing, and a report here is no formal step under the
+   * reporter before they write: only the board reads it, what to write and
+   * what not to, and that a report here is no formal step under the
    * bostadsrättslag. Never true on the website's form, which offers no
    * ring-fenced type.
    */
@@ -125,8 +122,8 @@ export interface ReportableIssueTypeView {
   /**
    * How many years after closing the free text of an issue of this type is
    * removed (`issueTextClockYears`), so the form tells the reporter the clock
-   * the purge keeps (GDPR art. 13(2)(a)): the board's setting, or the shorter
-   * ring-fenced clock.
+   * the purge keeps (GDPR art. 13(2)(a)): the board's setting, or the board's
+   * ring-fenced one.
    */
   textRetentionYears: number;
 }
@@ -299,17 +296,17 @@ export class IssueTypeService {
       );
     }
 
-    const [types, boardYears] = await Promise.all([
+    const [types, clocks] = await Promise.all([
       this.prisma.issueType.findMany({
         where: { active: true, ...(await this.reportableWhere(principal)) },
         orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
         select: { id: true, name: true, reporters: true, ringFenced: true },
       }),
-      issueTextRetentionYears(this.prisma),
+      issueTextClocks(this.prisma),
     ]);
     return types.map((type) => ({
       ...type,
-      textRetentionYears: issueTextClockYears(boardYears, type.ringFenced),
+      textRetentionYears: issueTextClockYears(clocks, type.ringFenced),
     }));
   }
 
@@ -740,8 +737,7 @@ export class IssueTypeService {
    *
    * Lifting it is refused once an issue has been reported under the type.
    * Lifting would hand those reports to whoever the ring-fence keeps out, and
-   * put them back on the board's own clock, which is longer than the one the
-   * board may not set (`RING_FENCED_ISSUE_TEXT_RETENTION_YEARS`). A type the
+   * move them off the ring-fenced clock onto the other types' one. A type the
    * board ring-fenced by mistake is switched off and replaced instead.
    *
    * A route of its own rather than a field of the type's settings, so the one

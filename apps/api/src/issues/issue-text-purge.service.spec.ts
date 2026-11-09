@@ -82,7 +82,7 @@ describe("one run of the issue text purge", () => {
   it("stops at 500 removals", async () => {
     const { service, purgeIssue } = build(() => "removed");
 
-    const summary = await service.run(NOW, 2);
+    const summary = await service.run(NOW, { years: 2, ringFencedYears: 1 });
 
     expect(summary).toEqual({ considered: 500, purged: 500, failed: 0 });
     expect(purgeIssue).toHaveBeenCalledTimes(500);
@@ -97,7 +97,7 @@ describe("one run of the issue text purge", () => {
   it("stops at 1000 attempts when every removal fails", async () => {
     const { service, eligiblePage, purgeIssue } = build(() => "fail");
 
-    const summary = await service.run(NOW, 2);
+    const summary = await service.run(NOW, { years: 2, ringFencedYears: 1 });
 
     expect(summary).toEqual({ considered: 1000, purged: 0, failed: 1000 });
     expect(purgeIssue).toHaveBeenCalledTimes(1000);
@@ -118,7 +118,7 @@ describe("one run of the issue text purge", () => {
   it("counts only the attempts that did not finish when some removals succeed", async () => {
     const { service } = build((id) => (id === "p1-0" ? "removed" : "fail"));
 
-    const summary = await service.run(NOW, 2);
+    const summary = await service.run(NOW, { years: 2, ringFencedYears: 1 });
 
     // One removal succeeded, so the figure is the attempts less that one,
     // not the attempts as a whole.
@@ -135,7 +135,7 @@ describe("one run of the issue text purge", () => {
       id.startsWith("p1-") ? "fail" : "removed",
     );
 
-    const summary = await service.run(NOW, 2);
+    const summary = await service.run(NOW, { years: 2, ringFencedYears: 1 });
 
     expect(summary).toEqual({ considered: 1000, purged: 500, failed: 500 });
     expect(eligiblePage.mock.calls[1]?.[2]).toEqual({
@@ -149,7 +149,7 @@ describe("one run of the issue text purge", () => {
       id === "p1-0" ? "fail" : "removed",
     );
 
-    const summary = await service.run(NOW, 2);
+    const summary = await service.run(NOW, { years: 2, ringFencedYears: 1 });
 
     // Page 1 gives 499 removals and one failure; the 500th removal is the
     // first issue of page 2, and the other 499 on that page are not taken.
@@ -160,7 +160,7 @@ describe("one run of the issue text purge", () => {
   it("counts issues that stay unfinished in the error at the bound", async () => {
     const { service } = build(() => "unfinished");
 
-    const summary = await service.run(NOW, 2);
+    const summary = await service.run(NOW, { years: 2, ringFencedYears: 1 });
 
     // An unfinished issue is neither a removal nor a throw, and it stays due,
     // so a run of them ends on the attempt bound and says how many it met.
@@ -175,7 +175,7 @@ describe("one run of the issue text purge", () => {
   it("leaves kept issues out of the unfinished count", async () => {
     const { service } = build(() => "kept");
 
-    const summary = await service.run(NOW, 2);
+    const summary = await service.run(NOW, { years: 2, ringFencedYears: 1 });
 
     // A kept issue (a hold or a restriction stands) is neither removed nor
     // unfinished, so a run of them ends on the attempt bound and counts none.

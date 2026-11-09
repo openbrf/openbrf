@@ -5,7 +5,9 @@ Date: 2026-11-02
 ## Status
 
 Accepted, with the questions under [Open questions](#open-questions) left to the
-owner and to the legal review the issue module plan names. Amends
+owner and to the legal review the issue module plan names, except question 4,
+which the legal review answered on 2026-11-09
+([below](#the-legal-reviews-answer-to-question-4)). Amends
 [ADR 0019](0019-every-column-that-names-a-person-is-answered-for.md): a column
 naming a person somebody else chose is answered by a section, and this record
 says which. The fourth of four records for the issue module (ADRs 0054 to 0057),
@@ -75,23 +77,28 @@ rather than showing an empty description.
 The free-text layer is removed when the case has been in the `DONE` meaning for
 the board's setting, counted from `closedAt`. The setting is a whole number of
 years from 1 to 10, 2 by default, and the board sets it. Two has no legal source: it matches motions, subletting and the
-board mailbox here (decision 33). A ring-fenced type has a clock of its own, one
-year after closing, which the board cannot change while the legal review of
-decision 32 is pending. It is a named constant, `RING_FENCED_ISSUE_TEXT_RETENTION_YEARS`
-in `@openbrf/shared`, which the review changes and no setting does; the purge
-takes the shorter of it and the board's setting, and reads whether a type is
+board mailbox here (decision 33). A ring-fenced type has a clock of its own,
+which the board sets apart from the other: a whole number of years from 1 to
+10 after closing, 1 by default, and every instance starts at 1
+(`Association.ringFencedIssueTextRetentionYears`, bounded by
+`RING_FENCED_ISSUE_TEXT_RETENTION_YEARS` in `@openbrf/shared`). Neither clock
+is held to the other: a ring-fenced clock may be longer than the other types'
+or shorter. The purge reads both settings when it runs, and whether a type is
 ring-fenced on every run, so a type ring-fenced later brings its closed cases
-onto the shorter clock from the next night.
+onto the ring-fenced clock from the next night. Before the legal review this
+was a fixed year the board could not change, and the purge took the shorter of
+it and the board's setting; the migration that made it a setting starts every
+instance at that year, so no pending date moved.
 
 A legal hold stands over the ring-fenced clock as it does over the board's: the
 purge skips a case under a hold, ring-fenced or not, until a handler releases
 it. That includes a damage case, which places a hold without a word to the
 handler who marks it. A legal hold or a restriction on the case's reporter
 stops the purge on either clock as well. A ring-fenced case under any of these
-therefore keeps its text past the year, and the texts that promise the year
+therefore keeps its text past its clock, and the texts that state the clock
 name both: a legal hold on the issue, or a legal hold or a restriction on the
-person who reported it. Whether a ring-fenced case may be held at all, or the
-mark refused on one, is part of question 4 below.
+person who reported it. The legal review confirmed that a legal hold may stand
+on a ring-fenced case (question 4, below).
 
 The text of a work order has a clock of its own too: ten years after closing
 (3,653 days, so never before the tenth anniversary and up to a day after it),
@@ -407,14 +414,45 @@ review:
    for their data.
 4. **The ring-fenced clock** _(legal review)_: whether Störningar may be held this
    way at all, for how long, whether a legal hold may stand on a ring-fenced
-   case (today it does, and keeps the text past the year), and art. 10 on an
-   allegation (decision 32).
+   case, and art. 10 on an allegation (decision 32). Answered; see below.
 5. **The timeline** (decision 16): if it is a table of its own rather than read
    from the audit log, each person column on it needs its own answer here.
 6. **A contractor's own data** _(answered by the legal review, 2026-11-09)_, a
    sole trader's name and telephone number in the contractor register, which is
    not a person in the register: on which report, and on which clock. See
    [The contractor register](#the-contractor-register).
+
+### The legal review's answer to question 4
+
+The owner answered the legal review on 2026-11-09. It is research, not legal
+advice, and what no source settled is listed as open for counsel.
+
+- **Störningar may be kept this way.** The sector's guidance treats a
+  disturbance case as the board's legitimate interest in the duty that
+  bostadsrättslagen 7 kap. 9 § gives it, kept apart from the member and
+  apartment registers and read by few, which is what the ring-fence does.
+- **The board sets the clock**, from 1 to 10 years after closing, 1 by
+  default, apart from the other types' clock ([The clock](#the-clock)). No
+  statute sets one. The bostadsrättslag sets no deadline for acting on a
+  disturbance; Bostadsrätterna has the disturbance log deleted when it is no
+  longer relevant and at the latest after ten years; and what a short clock
+  risks is a pattern that recurs after more than a year, or a neighbour's later
+  claim against the board for not acting, inside the ten-year limitation
+  period. The board weighs those for its own cases.
+- **A legal hold may stand on a ring-fenced case**, as today: data needed for a
+  legal claim may be kept (GDPR art. 17(3)(e)). A legal hold on the issue, a
+  damage case's included, or a legal hold or a restriction on its reporter,
+  keeps the text past the clock until it is released.
+- **Art. 10.** An allegation of a concrete crime is offence data whether or not
+  it was reported to the police, so the ring-fenced form's warning asks the
+  reporter to describe what happened, what they saw and heard, and when, and
+  not to accuse anyone of a crime or give the details of a police report.
+  Evaluative free text in disturbance cases is what Datainspektionen criticised
+  in A2014/1272/DISK. Where a case does hold offence data, what an association
+  can rely on is förordning (2018:219) 5 § (legal claims), not dataskyddslagen 3
+  kap. 8 §, which covers authorities and archives. Whether taking in a complaint
+  before the board decides to act is necessary for a legal claim under that
+  section is open for counsel.
 
 ## Consequences
 
