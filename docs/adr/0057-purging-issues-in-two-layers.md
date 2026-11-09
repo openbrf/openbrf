@@ -214,7 +214,12 @@ which is for the handler and is sent nowhere.
 
 A contractor is not a person in the register, so no data subject access report
 is generated for one: the board answers a contractor's request from the list
-and the work orders written to them. Invoices follow bookkeeping law
+and the work orders written to them. Once the clock has removed a contractor,
+no contractor on the list names the work orders that kept their name, so the
+issue queue's search matches the name a work order was written to. The board
+handles every issue, and its search for the name with closed issues included
+finds every work order that still holds it. The address is stored encrypted
+and is not searched, as a reporter's from the website's form is not. Invoices follow bookkeeping law
 (bokföringslagen (1999:1078) 7 kap. 2 §) outside Open BRF. Whether a work order
 is räkenskapsinformation is left open by the review.
 

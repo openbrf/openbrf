@@ -39,6 +39,11 @@ whose text is already gone keeps them while a legal hold stands on its issue,
 and loses them when the hold is released. Other work orders lose the name and
 address when the contractor goes.
 
+The issue queue's search now also matches the name a work order was written to.
+After the clock has removed a contractor, the board finds the work orders that
+still hold their name by searching for it with closed issues included. The
+email address is stored encrypted and is not searched.
+
 The record of processing activities' text for issues gives the legal basis for
 the contractor list: the contract for a sole trader, and legitimate interest
 for a firm's contact person. It also states the list's ten-year clock. The

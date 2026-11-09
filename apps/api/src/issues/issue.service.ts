@@ -2984,7 +2984,8 @@ export class IssueService {
    * not read) somewhere in the issue's description, its location (the free
    * text), the name of its place, its type's name, its apartment's
    * designation, its reporter's name, a message in its conversation with the
-   * reporter or an internal note on it, case aside and whichever Unicode form
+   * reporter, an internal note on it or the name one of its work orders was
+   * written to, case aside and whichever Unicode form
    * the text was stored in. The words need not all be in one place: one in a
    * note and another in the description is a match.
    *
@@ -3050,6 +3051,15 @@ export class IssueService {
             // own rows when few are (ADR 0054).
             { messages: { some: { body: matches } } },
             { notes: { some: { body: matches } } },
+            // The name a work order was written to, which every handler the
+            // issue lets in reads on its work orders (`WorkOrderService`). It
+            // is how the board, which handles every issue, finds the work
+            // orders that keep a contractor's name after the list's clock
+            // removed them (ADR 0057). The address is stored encrypted and is
+            // not matched. No trigram index: work orders do not grow with
+            // every issue as messages and notes do, and each issue's are
+            // found through the index on the issue.
+            { workOrders: { some: { recipientName: matches } } },
             { AND: [{ apartment: { number: matches } }, notProtected] },
           ]),
           ...(reporters.length === 0
