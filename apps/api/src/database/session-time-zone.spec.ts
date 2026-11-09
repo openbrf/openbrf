@@ -35,6 +35,14 @@ describe("pinnedSessionConfig", () => {
     );
   });
 
+  it("asks for UTC when PGOPTIONS is not set at all", () => {
+    vi.stubEnv("PGOPTIONS", undefined);
+    expect(process.env.PGOPTIONS).toBeUndefined();
+    expect(sentOptions("postgres://u:p@db:5432/openbrf")).toBe(
+      "-c TimeZone=UTC",
+    );
+  });
+
   it("asks for UTC after a time zone the connection string names", () => {
     const sent = sentOptions(
       "postgres://u:p@db/openbrf?options=-c%20TimeZone%3DAsia/Tokyo",
