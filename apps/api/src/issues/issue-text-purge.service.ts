@@ -1,5 +1,4 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import { RING_FENCED_ISSUE_TEXT_RETENTION_YEARS } from "@openbrf/shared";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -19,6 +18,7 @@ import {
 } from "../retention/withheld-persons";
 import {
   ISSUE_FREE_TEXT_STANDING,
+  issueTextClockYears,
   issueTextRetentionDays,
   issueTextRetentionYears,
 } from "./issue-free-text";
@@ -364,10 +364,7 @@ export class IssueTextPurgeService implements OnModuleInit {
           return false;
         }
         if (due.type.ringFenced) {
-          context.retentionYearsAfterClosing = Math.min(
-            years,
-            RING_FENCED_ISSUE_TEXT_RETENTION_YEARS,
-          );
+          context.retentionYearsAfterClosing = issueTextClockYears(years, true);
           context.ringFenced = true;
         }
         if (
@@ -403,7 +400,7 @@ export class IssueTextPurgeService implements OnModuleInit {
  *
  * Two clocks, by the issue's type as it stands now: the board's for an
  * ordinary type, and for a ring-fenced one the shorter of that and
- * {@link RING_FENCED_ISSUE_TEXT_RETENTION_YEARS}, which the board does not set
+ * `RING_FENCED_ISSUE_TEXT_RETENTION_YEARS`, which the board does not set
  * (decision 32). Read off the type on every run rather than fixed at closing,
  * so a type the board ring-fences brings its closed issues onto the shorter
  * clock from the next night.
@@ -417,12 +414,13 @@ function pastClock(now: Date, years: number): Prisma.IssueWhereInput {
     status: { meaning: "DONE" },
     legalHoldAt: null,
     OR: [
-      { type: { ringFenced: false }, closedAt: closedBy(years) },
+      {
+        type: { ringFenced: false },
+        closedAt: closedBy(issueTextClockYears(years, false)),
+      },
       {
         type: { ringFenced: true },
-        closedAt: closedBy(
-          Math.min(years, RING_FENCED_ISSUE_TEXT_RETENTION_YEARS),
-        ),
+        closedAt: closedBy(issueTextClockYears(years, true)),
       },
     ],
   };

@@ -28,6 +28,7 @@ import type {
   IssueWaitingReason,
 } from "@openbrf/shared";
 
+import type { ReporterIssueMessageView } from "../issues/issue-message-view";
 import type { MeetingNoticeDeliveryFailure } from "../meetings/meeting-notice-delivery";
 import type { NewsDeliveryFailure } from "../news/news-delivery";
 import type { ReportAuditAction } from "./report-audit-actions";
@@ -550,6 +551,8 @@ export interface ReportPublicationConsent {
  */
 export interface ReportIssue {
   issueId: string;
+  /** The issue's number, as the reporter's own screen and every mail name it. */
+  number: number;
   typeName: string;
   /** Where it stands, as the meaning of its status (ADR 0054). */
   meaning: IssueStatusMeaning;
@@ -590,8 +593,41 @@ export interface ReportIssue {
   descriptionRedactedAt: string | null;
   locationRedactedAt: string | null;
   freeTextRemovedAt: string | null;
+  /**
+   * "YYYY-MM-DD": the earliest day the nightly purge removes the free-text
+   * layer, on the clock of the issue's type (`issueTextClockYears`). Null while
+   * the issue is open, while a legal hold stands on it (`onLegalHold`), and once
+   * nothing of the layer is left. The earliest, as for a booking: a legal hold
+   * or a restriction of the person stops the purge as well, and `retention` on
+   * this report says whether one stands; a granted erasure request takes the
+   * text sooner.
+   */
+  freeTextErasableFrom: string | null;
+  /**
+   * A legal hold stands on the issue itself, such as the one a damage case
+   * places (ADR 0057): its free text outlasts the clock until a handler
+   * releases it.
+   */
+  onLegalHold: boolean;
   reportedAt: string;
+  /** When it was closed, while it is in the `DONE` meaning. */
+  closedAt: string | null;
   photographs: number;
+  /**
+   * The conversation on the issue, oldest first, as its reporter reads it on
+   * their own screen (`IssueConversationService.reporterThread`): their own
+   * messages, and the handlers' signed with the role they wrote in, never a
+   * person (decision 19). A redacted message keeps its date and says when it
+   * was removed. Each duplicate merged into another issue has its own
+   * conversation, which its own reporter alone reads, so no other reporter's
+   * words are here.
+   *
+   * Never an internal note, on this issue or any other. Whether art. 15 gives
+   * a reporter the notes the handlers keep about their issue, and under which
+   * exemption it would not, is with the legal review (ADR 0057, question 1);
+   * until it answers, the copy carries what the reporter's own screen does.
+   */
+  messages: ReporterIssueMessageView[];
   /**
    * The work orders a handler sent a contractor about it, oldest first: the
    * recipients this issue was disclosed to, which GDPR art. 15(1)(c) has the

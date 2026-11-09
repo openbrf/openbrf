@@ -368,6 +368,7 @@ const FULL_REPORT: Report = {
   issues: [
     {
       issueId: "issue-1",
+      number: 41,
       typeName: "Porten",
       meaning: "IN_PROGRESS",
       outcome: null,
@@ -380,8 +381,12 @@ const FULL_REPORT: Report = {
       descriptionRedactedAt: null,
       locationRedactedAt: null,
       freeTextRemovedAt: null,
+      freeTextErasableFrom: null,
+      onLegalHold: false,
       reportedAt: "2026-01-05T08:00:00.000Z",
+      closedAt: null,
       photographs: 2,
+      messages: [],
       workOrders: [],
     },
   ],
@@ -2046,6 +2051,78 @@ describe("what the document prints", () => {
     expect(cell.getAllByText(/Länk given/)).toHaveLength(1);
   });
 
+  it("prints the conversation as the reporter reads it, signed by a role", async () => {
+    // Art. 15: the reporter's own messages and the handlers' to them, each
+    // handler's signed with the role it was written in and never a name
+    // (decision 19). A redacted message says so instead of printing blank.
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          meaning: "DONE",
+          outcome: "FIXED",
+          closedAt: "2026-02-01T10:00:00.000Z",
+          freeTextErasableFrom: "2028-02-01",
+          messages: [
+            {
+              id: "m-1",
+              side: "REPORTER",
+              body: "Porten går inte i lås.",
+              redactedAt: null,
+              createdAt: "2026-01-05T09:00:00.000Z",
+            },
+            {
+              id: "m-2",
+              side: "HANDLER",
+              signature: "PROPERTY_MANAGER",
+              body: "En låssmed kommer på torsdag.",
+              redactedAt: null,
+              createdAt: "2026-01-06T09:00:00.000Z",
+            },
+            {
+              id: "m-3",
+              side: "REPORTER",
+              body: "",
+              redactedAt: "2026-01-20T09:00:00.000Z",
+              createdAt: "2026-01-07T09:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const row = screen.getByText("Porten går inte i lås.").closest("tr");
+    expect(row).not.toBeNull();
+    const cell = within(row as HTMLElement);
+    expect(cell.getByText("Ärende 41")).toBeTruthy();
+    expect(cell.getByText("En låssmed kommer på torsdag.")).toBeTruthy();
+    expect(row?.textContent).toContain("2026-01-05 Du");
+    expect(row?.textContent).toContain("2026-01-06 Förvaltaren");
+    expect(row?.textContent).toContain("2026-01-07 DuBorttaget av");
+    expect(row?.textContent).toContain("Avslutat 2026-02-01");
+    expect(row?.textContent).toContain("Fritexten kan gallras från 2028-02-01");
+  });
+
+  it("says a hold on the issue keeps its text, in place of a date", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [{ ...issue, onLegalHold: true }],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const row = screen.getByText("Porten").closest("tr");
+    expect(row?.textContent).toContain(
+      "Fritexten sparas under ett rättsligt bevarandekrav på ärendet",
+    );
+    expect(row?.textContent).not.toContain("kan gallras från");
+  });
+
   it("says an issue's text was removed instead of printing it blank", async () => {
     // Removed text is empty on the issue. Printed as stored, the copy would
     // read as an issue filed with no words and no place.
@@ -2076,8 +2153,8 @@ describe("what the document prints", () => {
     expect(screen.getByText("2026-10-01")).toBeTruthy();
     expect(screen.getByText("2026-10-02")).toBeTruthy();
     expect(screen.getAllByText(/Borttaget av en handläggare/)).toHaveLength(2);
-    expect(screen.getAllByText("2026-11-03")).toHaveLength(2);
-    expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(2);
+    expect(screen.getAllByText("2026-11-03")).toHaveLength(3);
+    expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(3);
   });
 
   it("names the capacity somebody was present at a general meeting in", async () => {
@@ -2232,7 +2309,7 @@ describe("what the document prints", () => {
       expect(screen.getAllByText(/Borttaget av en handläggare/)).toHaveLength(
         2,
       );
-      expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(2);
+      expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(3);
       expect(screen.queryByText(/Removed by a handler/)).toBeNull();
       expect(screen.queryByText(/Free text removed on/)).toBeNull();
     } finally {

@@ -1032,7 +1032,15 @@ Free, open source, and never moved behind a paywall.
       a legal hold or a restriction on its reporter. A report filed through
       the public form is keyed to nobody, so no
       person's clock reaches its contact details and they are detached on one
-      of their own, a year after the board closed it
+      of their own, a year after the board closed it. Both report forms state
+      the retention period for the free text on the issue-type clock; the
+      public form also explains the separate contact-details clock. A
+      reporter's data subject access report carries each issue's number, the
+      conversation as they read it, a handler's messages signed with a role
+      and never a name, when it closed and the earliest day its free text
+      goes, or that a legal hold on the issue keeps it. It never carries an
+      internal note, while the legal review decides whether art. 15 reaches
+      the notes about a reporter (ADR 0057, question 1)
 - [x] News on the association's website and by email: an item is for the
       members unless the board publishes it to the street, and publishing mails
       every member once - a toggle, on by default - through the job queue and

@@ -351,7 +351,11 @@ export class SiteRenderer {
   /** The types a public report may be filed under. */
   private async reportableIssueTypes(): Promise<readonly SiteIssueType[]> {
     const types = await this.issueTypes.listReportable(null);
-    return types.map((type) => ({ id: type.id, name: type.name }));
+    return types.map((type) => ({
+      id: type.id,
+      name: type.name,
+      textRetentionYears: type.textRetentionYears,
+    }));
   }
 
   /**

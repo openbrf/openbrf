@@ -290,7 +290,8 @@ const SHAPES: Record<SeedKey, SeedShape> = {
     legalBasis: "LEGITIMATE_INTEREST",
     // The reporters, among them somebody who has since moved out, and the
     // handlers the issues are given to and mailed: a board member, and the
-    // property manager among the external.
+    // property manager among the external. A contractor on the association's
+    // list who trades under their own name is external too.
     dataSubjectCategories: [
       "member",
       "resident",
@@ -298,10 +299,13 @@ const SHAPES: Record<SeedKey, SeedShape> = {
       "boardMember",
       "external",
     ],
+    // The telephone number is the contractor list's (decision 23), which keeps
+    // a sole trader's number as the firm's.
     personalDataCategories: [
       "name",
       "apartment",
       "email",
+      "phone",
       "freeText",
       "photograph",
       "health",

@@ -67,7 +67,7 @@ function state(overrides: Partial<SiteFormState> = {}): SiteFormState {
     publiclyReadable: true,
     sent: null,
     refused: null,
-    issueTypes: [{ id: "type-1", name: "Trasig port" }],
+    issueTypes: [{ id: "type-1", name: "Trasig port", textRetentionYears: 2 }],
     responsibilityGuide: null,
     ...overrides,
   };
@@ -161,8 +161,8 @@ describe("the issue report form", () => {
       page([{ type: "issueReportForm" }]),
       state({
         issueTypes: [
-          { id: "type-1", name: "Trasig port" },
-          { id: "type-2", name: "Klotter" },
+          { id: "type-1", name: "Trasig port", textRetentionYears: 2 },
+          { id: "type-2", name: "Klotter", textRetentionYears: 2 },
         ],
       }),
     );
@@ -175,6 +175,44 @@ describe("the issue report form", () => {
     // The warning the law research asks for, beside the field rather than in a
     // policy elsewhere.
     expect(html).toContain("Utelämna uppgifter om hälsa");
+    // How long what it asks for is kept (art. 13(2)(a)), from the type's clock.
+    expect(html).toContain(
+      "Ditt namn och din e-postadress tas bort ett år efter att ärendet har stängts, och det du skrev och svaren du får 2 år efter",
+    );
+    // The board's clock reaches reports already made, and a work order's text
+    // and the address index kept beside it run on a ten-year clock of their own.
+    expect(html).toContain("Styrelsen kan ändra antalet år");
+    expect(html).toContain(
+      "skriver till en entreprenör sparas i tio år efter att ärendet har stängts, och så länge den texten sparas sparas också en kodad form av din e-postadress",
+    );
+    // Without text the address index goes with the address after a year.
+    expect(html).toContain(
+      "finns ingen sådan text tas den bort tillsammans med din e-postadress ett år efter att ärendet har stängts",
+    );
+    // A hold on the issue, or a hold or a restriction on the reporter,
+    // outlasts that ten years.
+    expect(html).toContain(
+      "Ett rättsligt bevarandekrav på ärendet, eller ett rättsligt bevarandekrav eller en begränsning som gäller för dig, gör att den texten och den kodade adressen sparas längre än tio år, tills det upphör",
+    );
+  });
+
+  it("names the longest of the types' clocks, never a fixed period", () => {
+    const html = renderPage(
+      chrome,
+      page([{ type: "issueReportForm" }]),
+      state({
+        issueTypes: [
+          { id: "type-1", name: "Trasig port", textRetentionYears: 5 },
+          { id: "type-2", name: "Klotter", textRetentionYears: 10 },
+        ],
+      }),
+    );
+
+    // The line must not understate how long the text is kept (art. 13(2)(a)):
+    // it follows the board's clock, not the two-year default.
+    expect(html).toContain("det du skrev och svaren du får 10 år efter");
+    expect(html.includes("2 år efter")).toBe(false);
+    expect(html.includes("5 år efter")).toBe(false);
   });
 
   it("takes text and never a file", () => {
