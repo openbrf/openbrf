@@ -8,6 +8,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { eraseContractor } from "./contractor.service";
 import { lockIssue } from "./issue-lock";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
@@ -16,6 +17,7 @@ import {
   withheldPersonIds,
 } from "../retention/withheld-persons";
 import {
+  CONTRACTOR_RETENTION_DAYS,
   detachErasedReporter,
   ISSUE_RETENTION_DAYS,
   issuePurgeCutoff,
@@ -61,6 +63,8 @@ export interface IssuePurgeRunSummary {
   failed: number;
   /** The same three counts for the issues whose work-order text was erased. */
   workOrderTexts: { considered: number; purged: number; failed: number };
+  /** And for the contractors removed from the list on their clock. */
+  contractors: { considered: number; purged: number; failed: number };
 }
 
 /**
@@ -173,6 +177,23 @@ export interface IssuePurgeRunSummary {
  * (`retention/purge.service.ts`), and detaches it on a later run once the text
  * is gone. A person whose erasure request was carried out is not selected
  * again, so for them the transaction that erases the last text clears it.
+ *
+ * ## The contractor list
+ *
+ * The same run removes a contractor from the association's list ten years
+ * after the last work order sent them, or after the board added them if none
+ * was (`CONTRACTOR_RETENTION_DAYS`, ADR 0057 question 6), exactly as the
+ * board's removal does: the row goes, with the name, the trade, the telephone
+ * number and the address, and so do the copies of the name and the address
+ * on their work orders (`eraseContractor`). A sole trader's name and number
+ * are personal data, and no list keeps them for ever.
+ *
+ * Not while a work order sent them still holds its text, or is on an issue
+ * under a legal hold: a work order's own record, what it said and whom it went
+ * to, keeps its ten years after its issue closed and whatever a hold keeps
+ * past them, and the name is what makes what it said evidence of anything.
+ * Run after the work-order texts, so a contractor whose last text goes
+ * tonight goes tonight too.
  */
 @Injectable()
 export class IssuePurgeService implements OnModuleInit {
@@ -214,6 +235,7 @@ export class IssuePurgeService implements OnModuleInit {
     now: Date = new Date(),
     retentionDays: number = ISSUE_RETENTION_DAYS,
     workOrderRetentionDays: number = WORK_ORDER_BODY_RETENTION_DAYS,
+    contractorRetentionDays: number = CONTRACTOR_RETENTION_DAYS,
   ): Promise<IssuePurgeRunSummary> {
     const issueIds = await this.eligible(now, retentionDays);
 
@@ -252,12 +274,142 @@ export class IssuePurgeService implements OnModuleInit {
       );
     }
 
+    const workOrderTexts = await this.runWorkOrderTexts(
+      now,
+      workOrderRetentionDays,
+    );
     return {
       considered: issueIds.length,
       purged,
       failed,
-      workOrderTexts: await this.runWorkOrderTexts(now, workOrderRetentionDays),
+      workOrderTexts,
+      // After the texts, which a contractor's removal waits on.
+      contractors: await this.runContractors(now, contractorRetentionDays),
     };
+  }
+
+  /** Removes every contractor past their window from the list. */
+  private async runContractors(
+    now: Date,
+    retentionDays: number,
+  ): Promise<IssuePurgeRunSummary["contractors"]> {
+    const contractorIds = await this.eligibleContractors(now, retentionDays);
+
+    let purged = 0;
+    let failed = 0;
+    for (const contractorId of contractorIds) {
+      try {
+        if (await this.purgeContractor(contractorId, now, retentionDays)) {
+          purged += 1;
+        }
+      } catch (error) {
+        // The contractor's id and the class of the failure, never what it
+        // was holding: see `run`.
+        failed += 1;
+        this.logger.error(
+          `Contractor purge failed for contractor ${contractorId}: ${failureName(error)}`,
+        );
+      }
+    }
+
+    if (purged > 0 || failed > 0) {
+      this.logger.log(
+        `Removed ${String(purged)} of ${String(
+          contractorIds.length,
+        )} eligible contractors from the list`,
+      );
+    }
+    if (contractorIds.length === MAX_ISSUES_PER_RUN) {
+      this.logger.log(
+        `Contractor purge stopped at its per-run bound of ${String(
+          MAX_ISSUES_PER_RUN,
+        )}; the rest are removed by the next run.`,
+      );
+    }
+
+    return { considered: contractorIds.length, purged, failed };
+  }
+
+  /**
+   * The contractors on the list past their window, the longest-standing
+   * first: added before the cutoff, sent no work order since it, and with no
+   * work order whose text stands or whose issue is under a legal hold.
+   */
+  async eligibleContractors(
+    now: Date,
+    retentionDays: number,
+  ): Promise<string[]> {
+    const rows = await this.prisma.contractor.findMany({
+      where: contractorPastWindow(issuePurgeCutoff(now, retentionDays)),
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: MAX_ISSUES_PER_RUN,
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * Removes one contractor past their window from the list, and answers
+   * whether it did.
+   *
+   * The window is read again under the locks a sending takes, in its order:
+   * the lock of every issue a work order went to them on, which a handler
+   * placing a legal hold takes too, and then the contractor's row, which a
+   * sending holds while it writes a work order to them. A work order written,
+   * or a hold placed, while the run is in flight therefore keeps the
+   * contractor. The entry names the contractor by id, with how many work
+   * orders lost their copy of the name and the window, never a name.
+   */
+  async purgeContractor(
+    contractorId: string,
+    now: Date = new Date(),
+    retentionDays: number = CONTRACTOR_RETENTION_DAYS,
+  ): Promise<boolean> {
+    const cutoff = issuePurgeCutoff(now, retentionDays);
+
+    return this.prisma.$transaction(async (tx) => {
+      const issues = await tx.workOrder.findMany({
+        where: { contractorId },
+        distinct: ["issueId"],
+        orderBy: { issueId: "asc" },
+        select: { issueId: true },
+      });
+      for (const { issueId } of issues) {
+        await lockIssue(tx, issueId);
+      }
+      await tx.$queryRaw`SELECT "id" FROM "contractor" WHERE "id" = ${contractorId} FOR UPDATE`;
+      const still = await tx.contractor.findFirst({
+        where: { id: contractorId, ...contractorPastWindow(cutoff) },
+        select: { id: true },
+      });
+      if (still === null) {
+        return false;
+      }
+
+      const { removed, workOrdersErased } = await eraseContractor(
+        tx,
+        contractorId,
+      );
+      if (!removed) {
+        return false;
+      }
+      await this.audit.record(
+        {
+          action: "SERVICE_DATA_PURGED",
+          channel: "SYSTEM",
+          actorPersonId: null,
+          targetPersonId: null,
+          targetKind: "contractor",
+          targetId: contractorId,
+          context: {
+            workOrdersErased,
+            retentionDaysAfterLastWorkOrder: retentionDays,
+          },
+        },
+        tx,
+      );
+      return true;
+    });
   }
 
   /** Erases the text of the work orders on every closed issue past its window. */
@@ -679,4 +831,24 @@ export class IssuePurgeService implements OnModuleInit {
       "issue.reporterEmail",
     );
   }
+}
+
+/**
+ * A contractor whose window has run out: added before the cutoff, sent no
+ * work order after it, and with no work order whose text still stands or
+ * whose issue is under a legal hold (see the class comment).
+ */
+function contractorPastWindow(cutoff: Date): Prisma.ContractorWhereInput {
+  return {
+    createdAt: { lte: cutoff },
+    workOrders: {
+      none: {
+        OR: [
+          { createdAt: { gt: cutoff } },
+          { body: { not: null } },
+          { issue: { legalHoldAt: { not: null } } },
+        ],
+      },
+    },
+  };
 }

@@ -277,10 +277,10 @@ export class WorkOrderService {
       "read",
     );
     const [rendered, mailConfigured] = await Promise.all([
-      this.mailer.render({
-        recipientName: prepared.recipient.name,
-        body: prepared.body,
-      }),
+      this.mailer.render(
+        { recipientName: prepared.recipient.name, body: prepared.body },
+        prepared.contractorId,
+      ),
       this.mail.isConfigured(),
     ]);
     return {

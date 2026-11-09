@@ -89,6 +89,23 @@ export const ISSUE_RETENTION_DAYS = 365;
 export const WORK_ORDER_BODY_RETENTION_DAYS = 3653;
 
 /**
+ * How long a contractor stays on the association's list after the last work
+ * order sent them, or after the board added them if none was: ten years,
+ * counted as the work order's text is, in 3,653 days (ADR 0057, question 6).
+ *
+ * The anchor is the same limitation period (preskriptionslagen (1981:130) 2 §):
+ * a claim about the work, either way, is made against or by the firm the work
+ * order went to, and the name, trade and telephone number are what tell the
+ * association who that was. Nothing longer: the list is the association's
+ * means of hiring, and a firm it has not written to in ten years is one it
+ * would add again. Not a period the law sets for the list, and the purge does
+ * not remove a contractor while a work order sent them still holds its text or
+ * is on an issue under a legal hold, so the record of whom a work order went
+ * to never goes before the record of what it said (`IssuePurgeService`).
+ */
+export const CONTRACTOR_RETENTION_DAYS = WORK_ORDER_BODY_RETENTION_DAYS;
+
+/**
  * An issue on which a work order's text still stands.
  *
  * While it does, the issue keeps what ties it to its reporter (ADR 0057: no

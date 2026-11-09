@@ -16,6 +16,7 @@ import { createIssueTypeFixture } from "../testing/issue-fixtures";
 import { lockIssueForHandling } from "./issue-lock";
 import { IssuePurgeService } from "./issue-purge.service";
 import {
+  CONTRACTOR_RETENTION_DAYS,
   ISSUE_RETENTION_DAYS,
   WORK_ORDER_BODY_RETENTION_DAYS,
 } from "./issue-retention";
@@ -84,6 +85,9 @@ const REPORTER = {
   name: "Nora Grannen",
   email: `ip-reporter-${suffix}@exempel.se`,
 };
+
+/** The contractors this suite put on the list, removed afterwards. */
+const contractorIds: string[] = [];
 
 let boardCookie = "";
 let residentCookie = "";
@@ -339,6 +343,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma.issue.deleteMany({ where: { typeId: { in: typeIds } } });
+  await prisma.contractor.deleteMany({ where: { id: { in: contractorIds } } });
   await prisma.legalHold.deleteMany({ where: { personId: withheld.personId } });
   await prisma.issueType.deleteMany({ where: { id: { in: typeIds } } });
   await prisma.session.deleteMany({
@@ -1179,5 +1184,232 @@ describe("the text of a work order", () => {
         { retentionDaysAfterClosing: ISSUE_RETENTION_DAYS },
       ]);
     });
+  });
+});
+
+describe("a contractor on the list", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const daysAgo = (days: number): Date => new Date(Date.now() - days * DAY);
+  let counter = 0;
+
+  /** A contractor the board added the given number of days ago. */
+  async function contractorAdded(days: number): Promise<string> {
+    counter += 1;
+    const id = `ip-contractor-${String(counter)}-${suffix}`;
+    contractorIds.push(id);
+    await prisma.contractor.create({
+      data: {
+        id,
+        name: `Rorfirman ${String(counter)} ${suffix}`,
+        trade: "Rormokare",
+        createdAt: daysAgo(days),
+      },
+    });
+    return id;
+  }
+
+  /**
+   * A work order sent the contractor the given number of days ago, on an
+   * issue of its own, with its text or, as the clock leaves it, without.
+   */
+  async function workOrderTo(
+    contractorId: string,
+    days: number,
+    body: string | null,
+  ): Promise<{ issueId: string; orderId: string }> {
+    const issueId = await reportPublicly("Droppande kran i tvattstugan.");
+    const order = await prisma.workOrder.create({
+      data: {
+        issueId,
+        contractorId,
+        recipientName: `Rormokare ${suffix}`,
+        recipientEmailCipher: "kept-as-it-was",
+        body,
+        sentByPersonId: board.personId,
+        deliveryStatus: "SENT",
+        createdAt: daysAgo(days),
+      },
+      select: { id: true },
+    });
+    return { issueId, orderId: order.id };
+  }
+
+  async function onTheList(id: string): Promise<boolean> {
+    return (
+      (await prisma.contractor.findUnique({
+        where: { id },
+        select: { id: true },
+      })) !== null
+    );
+  }
+
+  async function eligible(): Promise<string[]> {
+    return purge.eligibleContractors(new Date(), CONTRACTOR_RETENTION_DAYS);
+  }
+
+  it("is removed ten years after the last work order sent them, and erased from it", async () => {
+    const id = await contractorAdded(CONTRACTOR_RETENTION_DAYS + 400);
+    const { orderId } = await workOrderTo(
+      id,
+      CONTRACTOR_RETENTION_DAYS + 1,
+      null,
+    );
+    expect(await eligible()).toContain(id);
+
+    // Another suite's run may take it first, so the outcome is what is read.
+    await purge.purgeContractor(id);
+
+    expect(await onTheList(id)).toBe(false);
+    // The work order stays, without the copy of whom it went to.
+    expect(
+      await prisma.workOrder.findUniqueOrThrow({
+        where: { id: orderId },
+        select: {
+          contractorId: true,
+          recipientName: true,
+          recipientEmailCipher: true,
+          deliveryStatus: true,
+        },
+      }),
+    ).toEqual({
+      contractorId: null,
+      recipientName: null,
+      recipientEmailCipher: null,
+      deliveryStatus: "SENT",
+    });
+
+    // Recorded against the contractor by id, never by name.
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "SERVICE_DATA_PURGED",
+        targetKind: "contractor",
+        targetId: id,
+      },
+      select: { actorPersonId: true, channel: true, context: true },
+    });
+    expect(entries).toEqual([
+      {
+        actorPersonId: null,
+        channel: "SYSTEM",
+        context: {
+          workOrdersErased: 1,
+          retentionDaysAfterLastWorkOrder: CONTRACTOR_RETENTION_DAYS,
+        },
+      },
+    ]);
+    expect(JSON.stringify(entries[0]?.context)).not.toContain(suffix);
+  });
+
+  it("is kept while the last work order sent them is inside the window, however long ago they were added", async () => {
+    const id = await contractorAdded(CONTRACTOR_RETENTION_DAYS + 400);
+    await workOrderTo(id, CONTRACTOR_RETENTION_DAYS + 1, null);
+    await workOrderTo(id, CONTRACTOR_RETENTION_DAYS - 7, null);
+
+    expect(await eligible()).not.toContain(id);
+    await expect(purge.purgeContractor(id)).resolves.toBe(false);
+    await purge.run();
+    expect(await onTheList(id)).toBe(true);
+  });
+
+  it("is kept while a work order sent them still holds its text, and removed once it is gone", async () => {
+    // The issue closed after the work order went, so its text has years left.
+    const id = await contractorAdded(CONTRACTOR_RETENTION_DAYS + 400);
+    const { orderId } = await workOrderTo(
+      id,
+      CONTRACTOR_RETENTION_DAYS + 1,
+      "Byt packningen i kranen.",
+    );
+
+    expect(await eligible()).not.toContain(id);
+    await expect(purge.purgeContractor(id)).resolves.toBe(false);
+    expect(await onTheList(id)).toBe(true);
+
+    await prisma.workOrder.update({
+      where: { id: orderId },
+      data: { body: null },
+    });
+    await purge.purgeContractor(id);
+    expect(await onTheList(id)).toBe(false);
+  });
+
+  it("is kept while a work order sent them is on an issue under a legal hold, and removed once it is released", async () => {
+    const id = await contractorAdded(CONTRACTOR_RETENTION_DAYS + 400);
+    const { issueId } = await workOrderTo(
+      id,
+      CONTRACTOR_RETENTION_DAYS + 1,
+      null,
+    );
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: { legalHoldAt: new Date() },
+    });
+
+    expect(await eligible()).not.toContain(id);
+    await expect(purge.purgeContractor(id)).resolves.toBe(false);
+    expect(await onTheList(id)).toBe(true);
+
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: { legalHoldAt: null },
+    });
+    await purge.purgeContractor(id);
+    expect(await onTheList(id)).toBe(false);
+  });
+
+  it("is kept by a work order written while the purge waits for the contractor's row", async () => {
+    const id = await contractorAdded(CONTRACTOR_RETENTION_DAYS + 400);
+    await workOrderTo(id, CONTRACTOR_RETENTION_DAYS + 1, null);
+    expect(await eligible()).toContain(id);
+
+    // A sending holds the row while it writes the work order, as
+    // `ContractorService.lockForSending` does; the purge waits for it and
+    // then reads the new work order.
+    let release: () => void = () => undefined;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let locked: () => void = () => undefined;
+    const holding = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const issueId = await reportPublicly("Ny lacka under diskbanken.");
+    const sending = prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "contractor" WHERE "id" = ${id} FOR SHARE`;
+      locked();
+      await released;
+      await tx.workOrder.create({
+        data: {
+          issueId,
+          contractorId: id,
+          recipientName: `Rormokare ${suffix}`,
+          recipientEmailCipher: "kept-as-it-was",
+          body: null,
+          sentByPersonId: board.personId,
+        },
+      });
+    });
+    await holding;
+    const purged = purge.purgeContractor(id);
+    // Give the purge time to reach the row lock before the sending commits.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    release();
+    await sending;
+
+    await expect(purged).resolves.toBe(false);
+    expect(await onTheList(id)).toBe(true);
+  });
+
+  it("with no work order sent them, is removed ten years after being added, and kept before", async () => {
+    const kept = await contractorAdded(CONTRACTOR_RETENTION_DAYS - 7);
+    const removed = await contractorAdded(CONTRACTOR_RETENTION_DAYS + 1);
+
+    const found = await eligible();
+    expect(found).toContain(removed);
+    expect(found).not.toContain(kept);
+
+    await purge.purgeContractor(removed);
+    await expect(purge.purgeContractor(kept)).resolves.toBe(false);
+    expect(await onTheList(removed)).toBe(false);
+    expect(await onTheList(kept)).toBe(true);
   });
 });

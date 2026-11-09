@@ -58,7 +58,8 @@ free-text location, every issue message and internal note, the text of every
 work order and the contractor's notes, and every photograph and every file a
 contractor uploaded, removed from storage and not only unlinked. What stays of a
 work order is the record of who received it (until that contractor is removed
-from the list, which clears the name and address) and when, and which kinds of data it
+from the list, by the board or by the list's own clock, which clears the name and
+address; see [The contractor register](#the-contractor-register)) and when, and which kinds of data it
 carried, because that is what art. 15(1)(c) and art. 19 ask the association to
 answer (decision 23); its words go too, on a clock of their own (below). The free-text
 location goes with them because decision 33 removes free text, and "the bathroom
@@ -128,6 +129,50 @@ legal hold applies:
   that is a new finding and places it again;
 - **on its reporter**, a legal hold or a restriction under art. 18, as the
   website form's purge already reads one through the reporter's address index.
+
+### The contractor register
+
+The answer to question 6, which the legal review gave and the owner accepted on
+2026-11-09. A sole trader's name and telephone number are personal data, and so
+are the name and number of a firm's contact person. They are on the
+association's list of contractors and on the work orders sent them, and nowhere
+else.
+
+- **The basis.** The contract (art. 6(1)(b)) for a contractor who is a sole
+  trader, and the association's legitimate interest in hiring and reaching the
+  firm (art. 6(1)(f)) for a firm's contact person. The record of processing
+  activities' `issues` row states both.
+- **The information.** The contractor gave the board neither the list nor the
+  work order, so art. 14 applies, and art. 14(3)(b) lets it be given at the
+  latest at the first communication with them. The first work order mailed to
+  a contractor therefore links the association's privacy notice, the page on
+  its public website every visitor reads, which is not a link into the
+  application and carries nothing from the issue. A later work order does not
+  repeat it. The list records when a mail that carried the link was accepted by
+  the mail server (`privacyNoticeGivenAt`); a mail that was refused or that
+  nobody can vouch for leaves it unset, so the next work order carries the link,
+  and the board changing the contractor's name or address clears it, because
+  whoever reads that address now has not been told. While the notice is not
+  published a work order goes without the link and leaves it unset.
+- **The clock.** A contractor is removed from the list ten years after the last
+  work order sent them, or after the board added them if none was, counted as
+  a work order's text is (3,653 days, `CONTRACTOR_RETENTION_DAYS`). The anchor
+  is the general limitation period for a claim about the work
+  (preskriptionslagen (1981:130) 2 §), the same one a work order's text keeps
+  to. The nightly issue purge removes them as the board's removal does: the row
+  goes, and so does the copy of the name and the address on each work order
+  sent them. It does not while a work order sent them still holds its text or
+  is on an issue under a legal hold, so a work order keeps whom it went to for
+  as long as it keeps what it said. A work order's own record keeps its ten
+  years after its issue closed, as above; this clock changes nothing of it.
+  The board can remove a contractor sooner, which is how a sole trader's
+  erasure request is honoured ([ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md#the-mailed-work-order)).
+
+A contractor is not a person in the register, so no data subject access report
+is generated for one: the board answers a contractor's request from the list
+and the work orders sent them. Invoices follow bookkeeping law
+(bokföringslagen (1999:1078) 7 kap. 2 §) outside Open BRF. Whether a work order
+is räkenskapsinformation is left open by the review.
 
 ### The purge reads the meaning
 
@@ -330,9 +375,10 @@ review:
    allegation (decision 32).
 5. **The timeline** (decision 16): if it is a table of its own rather than read
    from the audit log, each person column on it needs its own answer here.
-6. **A contractor's own data**, a sole trader's name and telephone number in the
-   contractor register, which is not a person in the register: on which report,
-   and on which clock.
+6. **A contractor's own data** _(answered by the legal review, 2026-11-09)_, a
+   sole trader's name and telephone number in the contractor register, which is
+   not a person in the register: on which report, and on which clock. See
+   [The contractor register](#the-contractor-register).
 
 ## Consequences
 
@@ -340,6 +386,10 @@ review:
   board's clock; the website form's contact details keep their own 365 days. The
   record of processing activities' `issues` row states both, and its subjects gain
   board members, former residents and the property manager.
+- The nightly issue purge removes a contractor from the list ten years after
+  the last work order sent them, after the work-order texts, and the first work
+  order mailed to a contractor links the association's privacy notice
+  ([The contractor register](#the-contractor-register)).
 - An issue erasure job reads granted requests and runs before `53 3`.
   `ERASURE_DOMAINS` and `ErasureDomainKey` gain its domain, with the board's
   screen's words for it in both languages, and the list of domains in the

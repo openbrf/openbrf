@@ -8,6 +8,7 @@ import type { JobQueueService } from "../jobs/job-queue.service";
 import { MailApiError } from "../mail/http-api-mail.driver";
 import { MailNotConfiguredError, type MailService } from "../mail/mail.service";
 import { MailServerNotPublicError } from "../mail/smtp-mail.driver";
+import type { PagesService } from "../site/pages.service";
 import {
   WORK_ORDER_ABANDONED_QUEUE,
   WORK_ORDER_QUEUE,
@@ -40,6 +41,7 @@ function mailerWithWorkers(env: Partial<Env> = {}) {
     {} as FieldEncryptionService,
     {} as MailService,
     jobs as unknown as JobQueueService,
+    {} as PagesService,
   );
   return { mailer, jobs, handlers };
 }
@@ -88,6 +90,7 @@ describe("a work order the mail did not confirm", () => {
 
   function mailerFailingWith(
     outcome: { rejects: unknown } | { resolves: unknown },
+    claimed: { privacyNoticeOwed?: boolean | null } = {},
   ) {
     vi.spyOn(Logger.prototype, "error").mockImplementation(() => {
       // The failure is asserted on the row, not in the log.
@@ -106,6 +109,9 @@ describe("a work order the mail did not confirm", () => {
           recipientName: "Rormokaren AB",
           recipientEmailCipher: "brf:email",
           body: "Byt packningen.",
+          contractorId: "contractor-1",
+          privacyNoticeOwed: null,
+          ...claimed,
         },
       ]),
     };
@@ -128,8 +134,11 @@ describe("a work order the mail did not confirm", () => {
       } as unknown as FieldEncryptionService,
       { send } as unknown as MailService,
       {} as JobQueueService,
+      {
+        privacyNoticePath: vi.fn().mockResolvedValue("/integritetspolicy"),
+      } as unknown as PagesService,
     );
-    return { mailer, update };
+    return { mailer, update, send };
   }
 
   function recorded(failure: string) {
@@ -185,6 +194,27 @@ describe("a work order the mail did not confirm", () => {
 
       expect(await mailer.send("wo-1")).toBe("failed");
       expect(update).toHaveBeenCalledWith(recorded("delivery-unconfirmed"));
+    },
+  );
+
+  it.each([
+    [true, "/integritetspolicy"],
+    [false, null],
+    [null, null],
+  ] as const)(
+    "links the privacy notice only for a contractor the claim says is owed it (owed: %s)",
+    async (owed, path) => {
+      const { mailer, send } = mailerFailingWith(
+        { rejects: new MailNotConfiguredError() },
+        { privacyNoticeOwed: owed },
+      );
+
+      await mailer.send("wo-1");
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          props: expect.objectContaining({ privacyNoticePath: path }),
+        }),
+      );
     },
   );
 

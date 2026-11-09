@@ -4,14 +4,26 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
+import { ENV } from "../config/config.module";
+import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { siteUrl } from "../http/app-base-path";
 import { MailService } from "../mail/mail.service";
+import { PagesService, PRIVACY_NOTICE_SLUG } from "../site/pages.service";
 import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
@@ -45,6 +57,14 @@ let mail: MailService;
 let mailer: WorkOrderMailerService;
 let purge: IssuePurgeService;
 let encryption: FieldEncryptionService;
+/**
+ * Whether the association's privacy notice is published, as the mailer asks
+ * it. Answered by a stub rather than by the shared database's page, which
+ * other suites write: unpublished unless a test says otherwise, so a work
+ * order carries no link but where a test asks for one.
+ */
+let noticePath: MockInstance<PagesService["privacyNoticePath"]>;
+let noticeUrl = "";
 
 const suffix = process.hrtime.bigint().toString(36);
 const PASSWORD = "a-long-enough-password";
@@ -289,6 +309,10 @@ beforeAll(async () => {
   mailer = app.get(WorkOrderMailerService);
   purge = app.get(IssuePurgeService);
   encryption = app.get(FieldEncryptionService);
+  noticePath = vi
+    .spyOn(app.get(PagesService), "privacyNoticePath")
+    .mockResolvedValue(null);
+  noticeUrl = siteUrl(app.get<Env>(ENV).APP_URL, `/${PRIVACY_NOTICE_SLUG}`);
 
   createdAssociation =
     (await prisma.association.findUnique({
@@ -368,6 +392,7 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(async () => {
+  noticePath.mockRestore();
   await prisma.issue.deleteMany({
     where: { typeId: { in: Object.values(typeIds) } },
   });
@@ -620,10 +645,10 @@ describe("a work order", () => {
       data: { defaultLocale: "en" },
     });
     try {
-      const rendered = await mailer.render({
-        recipientName: "Rör AB",
-        body: "Fix the tap.",
-      });
+      const rendered = await mailer.render(
+        { recipientName: "Rör AB", body: "Fix the tap." },
+        plumber.id,
+      );
       expect(rendered.subject).toMatch(/^Work order from /);
 
       // And the sending, which reads the language again when the worker runs.
@@ -927,6 +952,182 @@ describe("a work order", () => {
     expect(JSON.stringify(entries.map((entry) => entry.context))).not.toContain(
       suffix,
     );
+  });
+});
+
+describe("the privacy notice", () => {
+  // Sent by the property manager, whose hourly budget no earlier test spends,
+  // so the board's stays for the tests that follow.
+  /** Sends a work order through the worker, and returns the mail's text. */
+  async function mailed(id: string): Promise<string> {
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
+    try {
+      expect(await mailer.send(id)).toBe("sent");
+      const handed = send.mock.calls[0]?.[0];
+      if (handed === undefined) {
+        throw new Error("The mailer handed nothing over.");
+      }
+      return (await mail.renderMail(handed)).text;
+    } finally {
+      send.mockRestore();
+    }
+  }
+
+  async function givenAt(id: string): Promise<Date | null> {
+    return (
+      await prisma.contractor.findUniqueOrThrow({
+        where: { id },
+        select: { privacyNoticeGivenAt: true },
+      })
+    ).privacyNoticeGivenAt;
+  }
+
+  async function previewText(
+    issueId: string,
+    contractorId: string,
+    body: string,
+  ): Promise<string> {
+    const response = await workOrder(
+      as(manager),
+      issueId,
+      { contractorId, body },
+      "preview",
+    );
+    expect(response.statusCode).toBe(200);
+    return response.json<{ text: string }>().text;
+  }
+
+  it("is linked in the first work order mailed to a contractor and not in a later one, until the board changes their address", async () => {
+    noticePath.mockResolvedValue(`/${PRIVACY_NOTICE_SLUG}`);
+    try {
+      const firm = await addContractor({
+        name: `Elfirman ${suffix}`,
+        trade: "Elektriker",
+        email: `el-${suffix}@firma.test`,
+      });
+      const issueId = await filed(plain, "notice-first");
+
+      // The preview shows the link the mail will carry.
+      expect(
+        await previewText(issueId, firm.id, "Byt säkringen i elcentralen."),
+      ).toContain(noticeUrl);
+      const first = (
+        await previewAndSend(as(manager), issueId, {
+          contractorId: firm.id,
+          body: "Byt säkringen i elcentralen.",
+        })
+      ).json<WorkOrderRow>();
+      // Not marked until the mail server has the mail.
+      expect(await givenAt(firm.id)).toBeNull();
+      const firstText = await mailed(first.id);
+      expect(firstText).toContain(noticeUrl);
+      // Nothing of the issue rides along with it.
+      expect(firstText).not.toContain(REPORT);
+      expect(await givenAt(firm.id)).not.toBeNull();
+
+      // A later work order, on another issue, does not repeat it.
+      const later = await filed(plain, "notice-later");
+      expect(
+        await previewText(later, firm.id, "Kontrollera jordfelsbrytaren."),
+      ).not.toContain(noticeUrl);
+      const second = (
+        await previewAndSend(as(manager), later, {
+          contractorId: firm.id,
+          body: "Kontrollera jordfelsbrytaren.",
+        })
+      ).json<WorkOrderRow>();
+      expect(await mailed(second.id)).not.toMatch(/https?:\/\//);
+
+      // The trade changed: the same person reads the same address.
+      const traded = await inject({
+        method: "PUT",
+        url: `/api/contractors/${firm.id}`,
+        payload: {
+          name: firm.name,
+          trade: "Elinstallatör",
+          email: firm.email,
+        },
+        cookie: as(board),
+      });
+      expect(traded.statusCode).toBe(200);
+      expect(await givenAt(firm.id)).not.toBeNull();
+
+      // A new address may be somebody else, who has not been told.
+      const moved = await inject({
+        method: "PUT",
+        url: `/api/contractors/${firm.id}`,
+        payload: {
+          name: firm.name,
+          trade: "Elinstallatör",
+          email: `el-ny-${suffix}@firma.test`,
+        },
+        cookie: as(board),
+      });
+      expect(moved.statusCode).toBe(200);
+      expect(await givenAt(firm.id)).toBeNull();
+      const third = (
+        await previewAndSend(as(manager), later, {
+          contractorId: firm.id,
+          body: "Byt uttaget i tvättstugan.",
+        })
+      ).json<WorkOrderRow>();
+      expect(await mailed(third.id)).toContain(noticeUrl);
+      expect(await givenAt(firm.id)).not.toBeNull();
+    } finally {
+      noticePath.mockResolvedValue(null);
+    }
+  });
+
+  it("is not marked as given while the notice is unpublished, or when the mail did not go out", async () => {
+    const firm = await addContractor({
+      name: `Måleriet ${suffix}`,
+      trade: "Målare",
+      email: `mal-${suffix}@firma.test`,
+    });
+
+    // Unpublished: the work order goes without the link, and the next one,
+    // once the notice is published, carries it.
+    const issueId = await filed(plain, "notice-unpublished");
+    const unpublished = (
+      await previewAndSend(as(manager), issueId, {
+        contractorId: firm.id,
+        body: "Måla om trapphuset.",
+      })
+    ).json<WorkOrderRow>();
+    expect(await mailed(unpublished.id)).not.toContain(noticeUrl);
+    expect(await givenAt(firm.id)).toBeNull();
+
+    noticePath.mockResolvedValue(`/${PRIVACY_NOTICE_SLUG}`);
+    try {
+      // The mail server refused it: the link reached nobody.
+      const refusedIssue = await filed(plain, "notice-refused");
+      const refused = (
+        await previewAndSend(as(manager), refusedIssue, {
+          contractorId: firm.id,
+          body: "Måla om tvättstugan.",
+        })
+      ).json<WorkOrderRow>();
+      const send = vi
+        .spyOn(mail, "send")
+        .mockRejectedValue(
+          Object.assign(new Error("550"), { handover: "not-handed-over" }),
+        );
+      try {
+        expect(await mailer.send(refused.id)).toBe("failed");
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            props: expect.objectContaining({
+              privacyNoticePath: `/${PRIVACY_NOTICE_SLUG}`,
+            }),
+          }),
+        );
+      } finally {
+        send.mockRestore();
+      }
+      expect(await givenAt(firm.id)).toBeNull();
+    } finally {
+      noticePath.mockResolvedValue(null);
+    }
   });
 });
 
