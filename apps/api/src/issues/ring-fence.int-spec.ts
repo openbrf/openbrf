@@ -1378,19 +1378,28 @@ describe("the clock", () => {
     const closedAgo = (days: number) =>
       new Date(now.getTime() - days * 86_400_000);
     const pastTwoYears = issueTextRetentionDays(2) + 2;
-    const close = async (issueId: string, type: IssueTypeFixture) =>
+    const pastFiveYears = issueTextRetentionDays(5) + 2;
+    const close = async (
+      issueId: string,
+      type: IssueTypeFixture,
+      daysAgo: number,
+    ) =>
       prisma.issue.update({
         where: { id: issueId },
         data: {
           statusId: type.statusIds.DONE,
           outcome: "FIXED",
-          closedAt: closedAgo(pastTwoYears),
+          closedAt: closedAgo(daysAgo),
         },
       });
     const fencedIssue = await opened(fenced);
-    await close(fencedIssue, fenced);
+    await close(fencedIssue, fenced, pastTwoYears);
     const ordinary = await opened(open);
-    await close(ordinary, open);
+    await close(ordinary, open, pastTwoYears);
+    // Past the ring-fenced clock's five years and well short of ten, so a
+    // cutoff fixed at some other year would keep it.
+    const fencedDue = await opened(fenced);
+    await close(fencedDue, fenced, pastFiveYears);
 
     // Two years for the other types, five for a ring-fenced one: the two
     // clocks are set apart, and neither is held to the shorter of them.
@@ -1402,8 +1411,18 @@ describe("the clock", () => {
     );
     expect(eligible.has(fencedIssue)).toBe(false);
     expect(eligible.has(ordinary)).toBe(true);
+    expect(eligible.has(fencedDue)).toBe(true);
     expect(await textPurge.purgeIssue(fencedIssue, now, longer)).toBe("kept");
     expect(await textPurge.purgeIssue(ordinary, now, longer)).toBe("removed");
+    expect(await textPurge.purgeIssue(fencedDue, now, longer)).toBe("removed");
+    expect(
+      (
+        await prisma.issue.findUniqueOrThrow({
+          where: { id: fencedDue },
+          select: { description: true },
+        })
+      ).description,
+    ).toBe("");
     expect(
       (
         await prisma.issue.findUniqueOrThrow({

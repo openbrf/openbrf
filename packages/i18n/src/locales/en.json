@@ -3971,7 +3971,8 @@
         "followUpOfOpenIssue": "The report you are following up is open again. Reply on it instead.",
         "placeNotFound": "That common area is no longer offered. Choose another or none.",
         "placeWithApartment": "A common area is chosen only when the report is not about an apartment. Choose one or the other.",
-        "ringFencedPost": "A report of this type is not made from a post. Report it from the form instead."
+        "ringFencedPost": "A report of this type is not made from a post. Report it from the form instead.",
+        "retentionChanged": "How long the text is kept, or who reads it, has changed since you opened the form. Read the notice above the field again, then send the report."
       },
       "followUp": "This report follows up your earlier report about {{type}}.",
       "followUpCancel": "Write a separate report instead",

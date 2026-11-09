@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 
 import {
   attachIssuePhoto,
+  fetchReportableTypes,
   type IssueApartment,
   type KnownFault,
   type OwnIssue,
@@ -59,6 +60,7 @@ const REPORT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "follow-up-of-open-issue": "issues.report.errors.followUpOfOpenIssue",
   "place-not-found": "issues.report.errors.placeNotFound",
   "place-with-apartment": "issues.report.errors.placeWithApartment",
+  "retention-changed": "issues.report.errors.retentionChanged",
   "invalid-body": "issues.report.errors.unknown",
 };
 
@@ -199,6 +201,17 @@ export function ReportIssuePanel({
    * out: the report is filed, so submitting the form again would file another.
    */
   const [failedPhotos, setFailedPhotos] = useState<readonly string[]>([]);
+  /*
+   * The types as they stood when the reporter pressed send, for the ones whose
+   * notice had changed since the form was drawn (see `submit`). Read in place
+   * of the prop's copy of the same type, so the form shows the notice the
+   * reporter is asked to read again. Kept with the list it was read against:
+   * once the caller hands over a newer list, that one is the later read.
+   */
+  const [reread, setReread] = useState<{
+    against: readonly ReportableIssueType[];
+    byId: ReadonlyMap<string, ReportableIssueType>;
+  }>({ against: types, byId: new Map() });
 
   /**
    * Files the report, then hangs the staged photographs on it.
@@ -211,6 +224,8 @@ export function ReportIssuePanel({
    */
   const submit = useSaveAction(
     async (input: {
+      /** The type as the form showed it: its notice is what was read. */
+      shown: ReportableIssueType;
       typeId: string;
       apartmentId: string | null;
       placeId: string | null;
@@ -220,6 +235,39 @@ export function ReportIssuePanel({
       postId: string | null;
       followsIssueId: string | null;
     }) => {
+      /*
+       * The notice the reporter read is the one that applies when the report is
+       * filed (GDPR art. 13(2)(a)), and the board may change the clock, or ring-
+       * fence the type, while the form is open. The types are read again first;
+       * a type whose notice has changed is shown as it now stands and the
+       * report is not filed, so the reporter reads the new notice before the
+       * text is kept under it. A read that fails files nothing either: the
+       * form stays as it is and the reporter can send again. A type that is
+       * gone is left for the server's own refusal.
+       */
+      const current = await fetchReportableTypes();
+      if (!current.ok) {
+        return current;
+      }
+      const now = current.value.find((type) => type.id === input.typeId);
+      if (
+        now !== undefined &&
+        (now.ringFenced !== input.shown.ringFenced ||
+          now.textRetentionYears !== input.shown.textRetentionYears)
+      ) {
+        setReread((known) => ({
+          against: types,
+          byId: new Map(known.against === types ? known.byId : []).set(
+            now.id,
+            now,
+          ),
+        }));
+        return {
+          ok: false as const,
+          failure: { status: 409, reason: "retention-changed" },
+        };
+      }
+
       const filed = await reportIssue({
         typeId: input.typeId,
         apartmentId: input.apartmentId,
@@ -271,8 +319,14 @@ export function ReportIssuePanel({
    * the link would tell it a report was made. A follow-up started from a post
    * is not linked to it, so it keeps its ring-fenced type.
    */
+  const offeredTypes =
+    reread.against === types
+      ? types.map((type) => reread.byId.get(type.id) ?? type)
+      : types;
   const typeChoices =
-    linkedPostId === null ? types : types.filter((type) => !type.ringFenced);
+    linkedPostId === null
+      ? offeredTypes
+      : offeredTypes.filter((type) => !type.ringFenced);
   const typeId = offered(draft.typeId, typeChoices);
   const chosen = typeChoices.find((type) => type.id === typeId);
   const apartmentId = offered(draft.apartmentId, apartments);
@@ -281,8 +335,12 @@ export function ReportIssuePanel({
   const placeId = apartmentId === "" ? offered(draft.placeId, places) : "";
 
   const onSend = (): void => {
+    if (chosen === undefined) {
+      return;
+    }
     setFailedPhotos([]);
     void submit.submit({
+      shown: chosen,
       typeId,
       apartmentId: apartmentId === "" ? null : apartmentId,
       placeId: placeId === "" ? null : placeId,

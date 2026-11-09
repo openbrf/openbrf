@@ -24,7 +24,7 @@ import {
   issueTextRetentionDays,
 } from "./issue-free-text";
 import { IssueFreeTextService } from "./issue-free-text.service";
-import { lockIssue } from "./issue-lock";
+import { lockIssueForHandling } from "./issue-lock";
 import { issuePurgeCutoff } from "./issue-retention";
 
 /** Queue the nightly purge of issues' free text runs on. */
@@ -350,7 +350,13 @@ export class IssueTextPurgeService implements OnModuleInit {
         if (reporter.reporterEmailIndex !== null) {
           await lockLegalHoldRegistry(tx);
         }
-        await lockIssue(tx, issueId);
+        // The type's lock first, then the issue's: `setRingFence` takes the
+        // type's, so a type ring-fenced while this removal decides is either
+        // read as ring-fenced here, and judged by the ring-fenced clock, or
+        // commits after the removal. Otherwise the text of a case the board
+        // had just ring-fenced could go under the shorter ordinary clock, and
+        // it cannot be put back for a later legal claim.
+        await lockIssueForHandling(tx, issueId);
 
         const due = await tx.issue.findFirst({
           where: { id: issueId, ...pastClock(now, clocks) },

@@ -343,6 +343,9 @@ number, shown in the queue, on the reporter's own list and in every mail.
   the reporter to describe what happened, what they saw and heard, and when,
   and not to accuse anyone of a crime, give the details of a police report,
   write who they think did it, or write about anybody's health.
+  The form reads the types again when the report is sent: if the board changed
+  how long the text is kept, or ring-fenced the type, while the form was open,
+  nothing is filed, the new notice is shown and the reporter sends again.
 
 ## Reopening, merging and known faults
 

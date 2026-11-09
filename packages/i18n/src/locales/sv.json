@@ -3971,7 +3971,8 @@
         "followUpOfOpenIssue": "Anmälan du följer upp är öppen igen. Svara i den i stället.",
         "placeNotFound": "Det gemensamma utrymmet erbjuds inte längre. Välj ett annat eller inget.",
         "placeWithApartment": "Ett gemensamt utrymme väljs bara när anmälan inte gäller en lägenhet. Välj det ena eller det andra.",
-        "ringFencedPost": "En anmälan av den här typen görs inte från ett inlägg. Anmäl den från formuläret i stället."
+        "ringFencedPost": "En anmälan av den här typen görs inte från ett inlägg. Anmäl den från formuläret i stället.",
+        "retentionChanged": "Hur länge texten sparas, eller vem som läser den, har ändrats sedan du öppnade formuläret. Läs uppgiften ovanför fältet igen och skicka sedan anmälan."
       },
       "followUp": "Den här anmälan följer upp din tidigare anmälan om {{type}}.",
       "followUpCancel": "Skriv en fristående anmälan i stället",

@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import "../i18n";
+import i18n from "../i18n";
 import type {
   IssueApartment,
   IssuePlaceChoice,
@@ -25,9 +25,11 @@ import { ReportIssuePanel } from "./ReportIssuePanel";
 
 const reportIssue = vi.fn();
 const attachIssuePhoto = vi.fn();
+const fetchReportableTypes = vi.fn();
 
 vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
+  fetchReportableTypes: () => fetchReportableTypes(),
   reportIssue: (input: unknown) => reportIssue(input),
   attachIssuePhoto: (issueId: string, file: File) =>
     attachIssuePhoto(issueId, file),
@@ -62,10 +64,16 @@ const PLACES: readonly IssuePlaceChoice[] = [
 function renderPanel(
   overrides: {
     types?: readonly ReportableIssueType[];
+    /** What the types read again at filing hold; the form's own by default. */
+    rereadTypes?: readonly ReportableIssueType[];
     places?: readonly IssuePlaceChoice[];
     onReported?: () => void;
   } = {},
 ) {
+  fetchReportableTypes.mockResolvedValue({
+    ok: true,
+    value: [...(overrides.rereadTypes ?? overrides.types ?? TYPES)],
+  });
   return render(
     <ReportIssuePanel
       types={overrides.types ?? TYPES}
@@ -141,6 +149,10 @@ describe("the sensitive-data warning", () => {
         /anklaga inte någon för brott och lämna inte uppgifter ur en polisanmälan/i,
       ),
     ).toBeTruthy();
+    // The two things the warning has always kept from the reporter: a guess
+    // about who did it, and anybody's health.
+    expect(screen.getByText(/vem du tror har gjort det/i)).toBeTruthy();
+    expect(screen.getByText(/någons hälsa/i)).toBeTruthy();
     expect(screen.queryByText(/extern förvaltare/i)).toBeNull();
     // Read before the description is written, not after it.
     const warning = screen.getByText(/anklaga inte någon för brott/i);
@@ -151,6 +163,30 @@ describe("the sensitive-data warning", () => {
       warning.compareDocumentPosition(description) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("asks for what happened, and keeps every prohibition, in both languages", () => {
+    const sv = i18n.getFixedT("sv")("issues.ringFence.formWarning");
+    const en = i18n.getFixedT("en")("issues.ringFence.formWarning");
+
+    for (const pattern of [
+      /beskriv vad som hände, vad du såg och hörde, och när/i,
+      /anklaga inte någon för brott/i,
+      /polisanmälan/i,
+      /vem du tror har gjort det/i,
+      /någons hälsa/i,
+    ]) {
+      expect(sv).toMatch(pattern);
+    }
+    for (const pattern of [
+      /describe what happened, what you saw and heard, and when/i,
+      /do not accuse anyone of a crime/i,
+      /police report/i,
+      /who you think did it/i,
+      /anybody's health/i,
+    ]) {
+      expect(en).toMatch(pattern);
+    }
   });
 
   it("says how long the text is kept, on the clock of the type chosen", async () => {
@@ -213,6 +249,95 @@ describe("the sensitive-data warning", () => {
     expect(
       screen.queryByText(/tas bort 2 år efter att ärendet har stängts/i),
     ).toBeNull();
+  });
+
+  describe("the retention notice at filing", () => {
+    const noise = (years: number): ReportableIssueType => ({
+      id: "type-noise",
+      name: "Störningar",
+      reporters: ["RESIDENTS"],
+      ringFenced: true,
+      textRetentionYears: years,
+    });
+
+    async function fillIn(
+      session: ReturnType<typeof userEvent.setup>,
+    ): Promise<void> {
+      await session.selectOptions(
+        screen.getByLabelText(/vad gäller det/i),
+        "type-noise",
+      );
+      await session.type(
+        screen.getByRole("textbox", { name: /vad har hänt/i }),
+        "Det lät högt i trapphuset.",
+      );
+    }
+
+    it("files nothing when the board changed the clock since the form opened, and shows the new one", async () => {
+      const session = userEvent.setup();
+      renderPanel({ types: [...TYPES, noise(1)], rereadTypes: [noise(4)] });
+      await fillIn(session);
+      expect(screen.getByText(/tas bort 1 år efter/i)).toBeTruthy();
+
+      await session.click(
+        screen.getByRole("button", { name: /skicka anmälan/i }),
+      );
+
+      expect(
+        await screen.findByText(/har ändrats sedan du öppnade/i),
+      ).toBeTruthy();
+      expect(reportIssue).not.toHaveBeenCalled();
+      expect(screen.getByText(/tas bort 4 år efter/i)).toBeTruthy();
+      // What was typed stays.
+      expect(
+        (
+          screen.getByRole("textbox", {
+            name: /vad har hänt/i,
+          }) as HTMLTextAreaElement
+        ).value,
+      ).toBe("Det lät högt i trapphuset.");
+
+      // Sent again, now that the notice read is the one that applies.
+      await session.click(
+        screen.getByRole("button", { name: /skicka anmälan/i }),
+      );
+      await waitFor(() => {
+        expect(reportIssue).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("files when the notice is as it was read", async () => {
+      const session = userEvent.setup();
+      renderPanel({ types: [...TYPES, noise(1)] });
+      await fillIn(session);
+
+      await session.click(
+        screen.getByRole("button", { name: /skicka anmälan/i }),
+      );
+
+      await waitFor(() => {
+        expect(reportIssue).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it("files nothing when the types cannot be read again", async () => {
+      const session = userEvent.setup();
+      renderPanel({ types: [...TYPES, noise(1)] });
+      fetchReportableTypes.mockResolvedValue({
+        ok: false,
+        failure: { status: 0, reason: "offline" },
+      });
+      await fillIn(session);
+
+      await session.click(
+        screen.getByRole("button", { name: /skicka anmälan/i }),
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toBeTruthy();
+      });
+      expect(reportIssue).not.toHaveBeenCalled();
+    });
   });
 
   it("keeps the intro line for an ordinary type, and drops it for a ring-fenced one", async () => {
