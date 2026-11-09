@@ -363,6 +363,83 @@ describe("an upgraded instance's type for disturbances or insurance", () => {
     ]);
   });
 
+  it("reads the day a seat is held on Stockholm's calendar, whatever the session's time zone is", async () => {
+    // The migration reads today as `CURRENT_TIMESTAMP AT TIME ZONE
+    // 'Europe/Stockholm'`. `CURRENT_DATE` is the date in the session's own time
+    // zone, which on a database not set to Stockholm's is another day for part
+    // of every day. The zone that sets this apart is picked in the database,
+    // from one far ahead of Stockholm and one far behind it, so that one of
+    // them is on another date at any hour of the year, and the case fails with
+    // `CURRENT_DATE` in the migration at any hour it is run. `SET LOCAL` ends
+    // with the case's transaction.
+    const after = await rolledBack(async (tx) => {
+      const [zone] = await tx.$queryRawUnsafe<{ name: string }[]>(
+        `SELECT "name" FROM (VALUES ('Pacific/Kiritimati'), ('Pacific/Pago_Pago')) AS "zone"("name")
+           WHERE (CURRENT_TIMESTAMP AT TIME ZONE "name")::date
+             <> (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Stockholm')::date
+           LIMIT 1`,
+      );
+      if (zone === undefined) {
+        throw new Error("No time zone is on another date than Stockholm.");
+      }
+      await tx.$executeRawUnsafe(`SET LOCAL TIME ZONE '${zone.name}'`);
+
+      await writeBoundarySeats(tx);
+      const [startsToday, endsToday] = await writeTypes(tx, [
+        "Störningar",
+        "Försäkringsärende",
+      ]);
+      if (startsToday === undefined || endsToday === undefined) {
+        throw new Error("A type was not written.");
+      }
+      await tx.issueType.update({
+        where: { id: startsToday },
+        data: { defaultAssigneePersonId: seatStartsTodayId },
+      });
+      await tx.issueType.update({
+        where: { id: endsToday },
+        data: { defaultAssigneePersonId: seatEndsTodayId },
+      });
+      const assigned = async (typeId: string, assigneePersonId: string) =>
+        (
+          await tx.issue.create({
+            data: {
+              typeId,
+              statusId: `${typeId}-new`,
+              priority: "NORMAL",
+              location: null,
+              description: `Anmälan ${suffix}`,
+              assigneePersonId,
+            },
+            select: { id: true },
+          })
+        ).id;
+      const startsIssue = await assigned(startsToday, seatStartsTodayId);
+      const endsIssue = await assigned(endsToday, seatEndsTodayId);
+
+      await tx.$executeRawUnsafe(MIGRATION);
+
+      const rows = await tx.issue.findMany({
+        where: { id: { in: [startsIssue, endsIssue] } },
+        select: { id: true, assigneePersonId: true },
+      });
+      const types = await readTypes(tx, [startsToday, endsToday]);
+      return {
+        zone: zone.name,
+        startsIssue: rows.find((row) => row.id === startsIssue)
+          ?.assigneePersonId,
+        endsIssue: rows.find((row) => row.id === endsIssue)?.assigneePersonId,
+        defaultAssignees: types.map((type) => type.defaultAssigneePersonId),
+      };
+    });
+
+    // A seat that starts today is held today and one that ends today is not,
+    // as an assignee and as a type's default assignee.
+    expect(after.startsIssue).toBe(seatStartsTodayId);
+    expect(after.endsIssue).toBeNull();
+    expect(after.defaultAssignees).toEqual([seatStartsTodayId, null]);
+  });
+
   it("loses the property manager and a former board member as assignee, and keeps the board", async () => {
     const after = await rolledBack(async (tx) => {
       await writePeople(tx);
