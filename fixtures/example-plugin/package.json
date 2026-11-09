@@ -150,7 +150,7 @@
     "oauthProtectedResource": "mcp"
   },
   "devDependencies": {
-    "@module-federation/vite": "1.23.4",
+    "@module-federation/vite": "1.23.11",
     "@nestjs/common": "12.1.0",
     "@openbrf/plugin-sdk": "file:../../packages/plugin-sdk",
     "@types/react": "19.3.0",
