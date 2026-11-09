@@ -102,7 +102,8 @@ export interface WorkOrder {
   /**
    * Null once the board removed the contractor from the list, which erases
    * them from it; or, once the list's own clock removed them, when the work
-   * order's text went.
+   * order's text went and no legal hold on its issue kept it. `contractorId`
+   * is null in both cases.
    */
   recipientName: string | null;
   recipientEmail: string | null;

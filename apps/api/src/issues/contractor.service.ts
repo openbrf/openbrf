@@ -437,9 +437,10 @@ export async function eraseContractor(
  * whatever a legal hold keeps past that, and whom it went to is part of that
  * record for as long as it keeps what it said: one that still holds its text,
  * or is on an issue under a legal hold, keeps its copy of the name and the
- * address, now named by no contractor on the list, and the work-order text
- * purge erases that copy with the text (`IssuePurgeService`). The others lose
- * it here, as the board's removal erases it.
+ * address, now named by no contractor on the list, until the text goes or,
+ * for one whose text is already gone, the hold is released
+ * (`eraseRecipientsLeft`). The others lose it here, as the board's removal
+ * erases it.
  *
  * Called by the nightly issue purge under the locks of every issue a work order
  * went to them on and then the contractor's row lock, which it takes.
@@ -474,4 +475,41 @@ export async function retireContractor(
   // what it was written to.
   const { count } = await tx.contractor.deleteMany({ where: { id } });
   return { removed: count > 0, workOrdersErased, workOrdersKept };
+}
+
+/**
+ * A work order that still names whom it went to, though its contractor is no
+ * longer on the list: the list's clock took them off it while the work order
+ * kept its text or stood under a legal hold (`retireContractor`). The board's
+ * removal erases the copy at once, so only that clock leaves one.
+ */
+export const WORK_ORDER_RECIPIENT_LEFT = {
+  contractorId: null,
+  OR: [
+    { recipientName: { not: null } },
+    { recipientEmailCipher: { not: null } },
+  ],
+} as const satisfies Prisma.WorkOrderWhereInput;
+
+/**
+ * Erases the copy of whom a work order went to that the list's clock left on
+ * it (`WORK_ORDER_RECIPIENT_LEFT`), among the work orders `where` selects, and
+ * answers how many lost it.
+ *
+ * The copy was kept for the text's sake or the issue's legal hold, so it goes
+ * when the last of those does: a handler's redaction of the text, which no
+ * hold allows (`IssueRedactionService`), the release of the hold on a work
+ * order whose text is already gone, and the work-order text purge
+ * (`IssuePurgeService`). Called under the issue's lock, which the list's clock
+ * takes too before it leaves one.
+ */
+export async function eraseRecipientsLeft(
+  tx: Prisma.TransactionClient,
+  where: Prisma.WorkOrderWhereInput,
+): Promise<number> {
+  const { count } = await tx.workOrder.updateMany({
+    where: { AND: [where, WORK_ORDER_RECIPIENT_LEFT] },
+    data: { recipientName: null, recipientEmailCipher: null },
+  });
+  return count;
 }

@@ -129,6 +129,11 @@ describe("a work order the mail did not confirm", () => {
       $transaction: vi.fn((work: (client: typeof tx) => unknown) => work(tx)),
       workOrder: { update },
     };
+    const privacyNoticePath = vi
+      .fn()
+      .mockResolvedValue(
+        site.noticePath === undefined ? "/integritetspolicy" : site.noticePath,
+      );
     const send =
       "rejects" in outcome
         ? vi.fn().mockRejectedValue(outcome.rejects)
@@ -147,17 +152,9 @@ describe("a work order the mail did not confirm", () => {
       } as unknown as FieldEncryptionService,
       { send } as unknown as MailService,
       {} as JobQueueService,
-      {
-        privacyNoticePath: vi
-          .fn()
-          .mockResolvedValue(
-            site.noticePath === undefined
-              ? "/integritetspolicy"
-              : site.noticePath,
-          ),
-      } as unknown as PagesService,
+      { privacyNoticePath } as unknown as PagesService,
     );
-    return { mailer, update, send };
+    return { mailer, update, send, tx, privacyNoticePath };
   }
 
   function recorded(failure: string) {
@@ -287,6 +284,19 @@ describe("a work order the mail did not confirm", () => {
     expect(await mailer.send("wo-1")).toBe("failed");
     expect(send).not.toHaveBeenCalled();
     expect(update).toHaveBeenCalledWith(recorded("privacy-notice-unpublished"));
+  });
+
+  it("reads the notice in the claim's transaction, under a share lock", async () => {
+    const { mailer, tx, privacyNoticePath } = mailerFailingWith({
+      rejects: new MailNotConfiguredError(),
+    });
+
+    await mailer.send("wo-1");
+    // The claim's own client: a second connection, asked for while the claim
+    // holds one, waits for ever on a pool of one.
+    expect(privacyNoticePath).toHaveBeenCalledExactlyOnceWith(tx, {
+      share: true,
+    });
   });
 
   it("records no mail server as its own code", async () => {

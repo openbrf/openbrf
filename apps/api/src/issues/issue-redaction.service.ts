@@ -19,6 +19,7 @@ import {
   detachErasedReporter,
   WORK_ORDER_TEXT_STANDING,
 } from "./issue-retention";
+import { eraseRecipientsLeft } from "./contractor.service";
 import { IssueError } from "./issue.error";
 import { revokeWorkOrderLinks } from "./work-order-link";
 
@@ -165,6 +166,13 @@ export class IssueRedactionService {
         where: { id: issueId },
         data: { legalHoldAt: held ? now : null },
       });
+      // A work order whose text is already gone kept a copy of whom it went
+      // to past its contractor's time on the list only for the hold's sake
+      // (`retireContractor`), and loses it with the hold. One whose text
+      // stands keeps it with the text.
+      const recipientsErased = held
+        ? 0
+        : await eraseRecipientsLeft(tx, { issueId, body: null });
       await this.audit.record(
         {
           action: held
@@ -176,10 +184,16 @@ export class IssueRedactionService {
           targetId: issueId,
           // On a release, since when it stood: the span the log can answer
           // for, as a person's hold answers it on its own row.
-          context:
-            issue.legalHoldAt === null
+          // And on a release, how many work orders lost a copy of whom they
+          // went to with it, never whom.
+          context: {
+            ...(issue.legalHoldAt === null
               ? {}
-              : { placedAt: issue.legalHoldAt.toISOString() },
+              : { placedAt: issue.legalHoldAt.toISOString() }),
+            ...(recipientsErased > 0
+              ? { workOrderRecipients: recipientsErased }
+              : {}),
+          },
         },
         tx,
       );
@@ -288,6 +302,10 @@ export class IssueRedactionService {
             where: { id: redaction.id },
             data: { body: null, redactedAt: now },
           });
+          // A copy of whom it went to, kept past its contractor's time on the
+          // list for this text's sake, goes with the text: no hold stands on
+          // the issue, or the redaction would have been refused.
+          await eraseRecipientsLeft(tx, { id: redaction.id });
           // Nothing is left for its link to show (control B5).
           await revokeWorkOrderLinks(tx, { id: redaction.id });
           break;

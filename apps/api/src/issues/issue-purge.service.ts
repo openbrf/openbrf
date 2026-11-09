@@ -8,7 +8,11 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
-import { retireContractor } from "./contractor.service";
+import {
+  eraseRecipientsLeft,
+  retireContractor,
+  WORK_ORDER_RECIPIENT_LEFT,
+} from "./contractor.service";
 import { lockIssue } from "./issue-lock";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
@@ -24,6 +28,7 @@ import {
   WORK_ORDER_BODY_RETENTION_DAYS,
   WORK_ORDER_TEXT_STANDING,
 } from "./issue-retention";
+import { WORK_ORDER_DELIVERY_FAILURES } from "./work-order-delivery";
 import { revokeWorkOrderLinks } from "./work-order-link";
 
 /** Queue the nightly public-form issue purge runs on. */
@@ -193,9 +198,12 @@ export interface IssuePurgeRunSummary {
  * closing and which a legal hold holds back; the list's details do not wait
  * for it. A work order sent them that still holds its text, or is on an issue
  * under a legal hold, keeps its own copy of whom it went to, the name and the
- * address it was written to, for as long as it keeps what it said, and the
- * work-order text purge erases that copy with the text. The other work orders
- * lose the copy when the contractor goes (`retireContractor`).
+ * address it was written to, for as long as it keeps what it said. The copy
+ * goes with the text, whether this purge erases it or a handler redacts it, and
+ * on a work order whose text is already gone, with the release of the hold
+ * (`eraseRecipientsLeft`). The other work orders lose the copy when the
+ * contractor goes (`retireContractor`). A work order whose mail is known never
+ * to have left does not count as sent them (`contractorPastWindow`).
  */
 @Injectable()
 export class IssuePurgeService implements OnModuleInit {
@@ -580,10 +588,7 @@ export class IssuePurgeService implements OnModuleInit {
         where: { issueId, body: { not: null } },
         data: { body: null },
       });
-      const { count: recipientsErased } = await tx.workOrder.updateMany({
-        where: { issueId, ...WORK_ORDER_RECIPIENT_LEFT },
-        data: { recipientName: null, recipientEmailCipher: null },
-      });
+      const recipientsErased = await eraseRecipientsLeft(tx, { issueId });
       if (count === 0 && recipientsErased === 0) {
         return false;
       }
@@ -858,24 +863,24 @@ export class IssuePurgeService implements OnModuleInit {
  * A contractor whose window has run out: added before the cutoff, and sent no
  * work order after it. What their work orders still hold is theirs to keep,
  * and does not keep the contractor on the list (see the class comment).
+ *
+ * A work order counts as sent them unless its mail is known never to have
+ * left this instance: one still waiting, one the mail server accepted, and one
+ * nobody can tell about (`unconfirmed`) count; one that failed before any mail
+ * server held it does not, since no claim about the work can rest on a mail
+ * the firm never got, and a handler who still hires them writes another.
  */
 function contractorPastWindow(cutoff: Date): Prisma.ContractorWhereInput {
   return {
     createdAt: { lte: cutoff },
-    workOrders: { none: { createdAt: { gt: cutoff } } },
+    workOrders: {
+      none: {
+        createdAt: { gt: cutoff },
+        OR: [
+          { deliveryStatus: { in: ["PENDING", "SENT"] } },
+          { deliveryFailure: WORK_ORDER_DELIVERY_FAILURES.unconfirmed },
+        ],
+      },
+    },
   };
 }
-
-/**
- * A work order that still names whom it went to, though its contractor is no
- * longer on the list: the list's clock took them off it while the work order
- * kept its text or stood under a legal hold (`retireContractor`). The board's
- * removal erases the copy at once, so only that clock leaves one.
- */
-const WORK_ORDER_RECIPIENT_LEFT = {
-  contractorId: null,
-  OR: [
-    { recipientName: { not: null } },
-    { recipientEmailCipher: { not: null } },
-  ],
-} as const satisfies Prisma.WorkOrderWhereInput;

@@ -1064,6 +1064,26 @@ describe("a contractor's link", () => {
     expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
+  it("offers no link to a work order whose contractor the list's clock took off it", async () => {
+    // The work order keeps whom it went to, and nobody on the list is there
+    // to give a link to: the server refuses one (`work-order-recipient-removed`).
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        linksEnabled: true,
+        workOrders: [{ ...DELIVERED, contractorId: null }],
+      }),
+    });
+    render(<WithRedaction of={UNHELD} onChanged={vi.fn()} />);
+
+    expect(
+      await screen.findByText(
+        "Entreprenören har inte fått någon länk till den här arbetsordern.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", give)).toBeNull();
+  });
+
   it("shows the address once, and drops it when the record is read again", async () => {
     const withNote: WorkOrder = {
       ...DELIVERED,

@@ -519,7 +519,8 @@ it went out, when and what it said. That is how a sole trader's erasure is
 honoured; the owner confirmed both on 2026-11-03. The nightly purge takes a
 contractor off the list ten years after the last work order sent them; a work
 order sent them that still holds its text, or is on an issue under a legal hold,
-keeps the copy of their name and address until its text goes
+keeps the copy of their name and address for as long as it keeps its text or
+the hold stands
 ([ADR 0057](0057-purging-issues-in-two-layers.md#the-contractor-register)). The text of a work order is
 erased 3,653 days after its issue was closed, so never before the tenth
 anniversary and up to a day after it, by the nightly purge, unless a

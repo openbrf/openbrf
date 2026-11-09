@@ -15,6 +15,7 @@ import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { createIssueTypeFixture } from "../testing/issue-fixtures";
 import { lockIssueForHandling } from "./issue-lock";
 import { IssuePurgeService } from "./issue-purge.service";
+import { IssueRedactionService } from "./issue-redaction.service";
 import {
   CONTRACTOR_RETENTION_DAYS,
   ISSUE_RETENTION_DAYS,
@@ -1226,6 +1227,10 @@ describe("a contractor on the list", () => {
     contractorId: string,
     days: number,
     body: string | null,
+    delivery: {
+      deliveryStatus: "PENDING" | "SENT" | "FAILED";
+      deliveryFailure?: string;
+    } = { deliveryStatus: "SENT" },
   ): Promise<{ issueId: string; orderId: string }> {
     const issueId = await reportPublicly("Droppande kran i tvattstugan.");
     const order = await prisma.workOrder.create({
@@ -1236,7 +1241,7 @@ describe("a contractor on the list", () => {
         recipientEmailCipher: "kept-as-it-was",
         body,
         sentByPersonId: board.personId,
-        deliveryStatus: "SENT",
+        ...delivery,
         createdAt: daysAgo(days),
       },
       select: { id: true },
@@ -1320,6 +1325,36 @@ describe("a contractor on the list", () => {
     await expect(purge.purgeContractor(id)).resolves.toBe(false);
     await purge.run();
     expect(await onTheList(id)).toBe(true);
+  });
+
+  it("is kept by a work order whose mail may have gone out, and not by one whose mail never left", async () => {
+    const unsent = await contractorAdded(CONTRACTOR_RETENTION_DAYS + 400);
+    await workOrderTo(unsent, CONTRACTOR_RETENTION_DAYS + 1, null);
+    await workOrderTo(unsent, 7, null, {
+      deliveryStatus: "FAILED",
+      deliveryFailure: "send-failed",
+    });
+    const unconfirmed = await contractorAdded(CONTRACTOR_RETENTION_DAYS + 400);
+    await workOrderTo(unconfirmed, CONTRACTOR_RETENTION_DAYS + 1, null);
+    await workOrderTo(unconfirmed, 7, null, {
+      deliveryStatus: "FAILED",
+      deliveryFailure: "delivery-unconfirmed",
+    });
+    const pending = await contractorAdded(CONTRACTOR_RETENTION_DAYS + 400);
+    await workOrderTo(pending, CONTRACTOR_RETENTION_DAYS + 1, null);
+    await workOrderTo(pending, 7, null, { deliveryStatus: "PENDING" });
+
+    const found = await eligible();
+    expect(found).toContain(unsent);
+    expect(found).not.toContain(unconfirmed);
+    expect(found).not.toContain(pending);
+
+    await purge.purgeContractor(unsent);
+    await expect(purge.purgeContractor(unconfirmed)).resolves.toBe(false);
+    await expect(purge.purgeContractor(pending)).resolves.toBe(false);
+    expect(await onTheList(unsent)).toBe(false);
+    expect(await onTheList(unconfirmed)).toBe(true);
+    expect(await onTheList(pending)).toBe(true);
   });
 
   async function recipientOf(orderId: string) {
@@ -1435,6 +1470,66 @@ describe("a contractor on the list", () => {
       recipientName: null,
       recipientEmailCipher: null,
     });
+  });
+
+  it("loses the copy of whom a work order went to, kept for its text, when a handler redacts the text", async () => {
+    const id = await contractorAdded(CONTRACTOR_RETENTION_DAYS + 400);
+    const { issueId, orderId } = await workOrderTo(
+      id,
+      CONTRACTOR_RETENTION_DAYS + 1,
+      "Byt packningen i kranen.",
+    );
+    await purge.purgeContractor(id);
+    expect((await recipientOf(orderId)).recipientName).not.toBeNull();
+
+    await app
+      .get(IssueRedactionService)
+      .redact(board.personId, issueId, { target: "workOrder", id: orderId });
+
+    expect(await recipientOf(orderId)).toEqual({
+      contractorId: null,
+      recipientName: null,
+      recipientEmailCipher: null,
+      body: null,
+    });
+  });
+
+  it("loses the copy of whom a work order went to, kept for a legal hold, when a handler releases the hold", async () => {
+    // A redacted text on an open issue: only the hold keeps the copy, and the
+    // work order's own clock has not started.
+    const id = await contractorAdded(CONTRACTOR_RETENTION_DAYS + 400);
+    const { issueId, orderId } = await workOrderTo(
+      id,
+      CONTRACTOR_RETENTION_DAYS + 1,
+      null,
+    );
+    const holds = app.get(IssueRedactionService);
+    await holds.setLegalHold(board.personId, issueId, true);
+    await purge.purgeContractor(id);
+    expect((await recipientOf(orderId)).recipientName).not.toBeNull();
+
+    await holds.setLegalHold(board.personId, issueId, false);
+
+    expect(await recipientOf(orderId)).toMatchObject({
+      recipientName: null,
+      recipientEmailCipher: null,
+    });
+    const released = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "ISSUE_LEGAL_HOLD_RELEASED",
+        targetKind: "issue",
+        targetId: issueId,
+      },
+      select: { context: true },
+    });
+    expect(released).toEqual([
+      {
+        context: {
+          placedAt: expect.any(String),
+          workOrderRecipients: 1,
+        },
+      },
+    ]);
   });
 
   it("leaves whom a work order went to while its contractor stays on the list, when the text goes", async () => {

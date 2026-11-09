@@ -59,7 +59,8 @@ work order and the contractor's notes, and every photograph and every file a
 contractor uploaded, removed from storage and not only unlinked. What stays of a
 work order is the record of who received it (until the board removes that
 contractor from the list, which clears the name and address, or, once the list's
-own clock has taken the contractor off it, until the work order's text goes; see
+own clock has taken the contractor off it, for as long as the work order keeps
+its text or a legal hold stands on its issue; see
 [The contractor register](#the-contractor-register)) and when, and which kinds of data it
 carried, because that is what art. 15(1)(c) and art. 19 ask the association to
 answer (decision 23); its words go too, on a clock of their own (below). The free-text
@@ -143,10 +144,17 @@ else.
   trader, and the association's legitimate interest in hiring and reaching the
   firm (art. 6(1)(f)) for a firm's contact person. The record of processing
   activities' `issues` row states both.
-- **The information.** The contractor gave the board neither the list nor the
-  work order, so art. 14 applies, and art. 14(3)(b) lets it be given at the
-  latest at the first communication with them. The first work order mailed to
-  a contractor therefore links the association's privacy notice, the page on
+- **The information.** A contractor who gives the board their details
+  themselves is owed the information when they give them (art. 13(1)); one whose
+  details the board takes from somewhere else, such as the firm's own website or
+  the firm a contact person works for, is owed it at the latest at the first
+  communication with them (art. 14(3)(b)). Open BRF cannot tell which of the two
+  happened. For the first, the board points a contractor who gives their
+  details themselves to the privacy notice when they do, as the contractor
+  list's description asks; a work order does not meet that deadline, because
+  it may come later or never. For the second, and as a backstop for the first,
+  the first work order mailed to a contractor links the association's privacy
+  notice, the page on
   its public website every visitor reads, which is not a link into the
   application and carries nothing from the issue. A later work order does not
   repeat it. The list records when a mail that carried the link was accepted by
@@ -178,9 +186,13 @@ else.
   or not at all. A work order is that record, and keeps its own copy of whom it
   went to, the name and the address it was written to, for as long as it keeps
   what it said: one that still holds its text, or is on an issue under a legal
-  hold, keeps the copy, named by no contractor on the list, and the work-order
-  text purge erases the copy with the text, or once the hold is released if the
-  text was redacted. The others lose it when the contractor goes. A work order's
+  hold, keeps the copy, named by no contractor on the list. The copy goes with
+  the text, whether the work-order text purge erases it or a handler redacts it,
+  and on a work order whose text is already gone, with the release of the hold.
+  The others lose it when the contractor goes. A work order whose mail is known
+  never to have left Open BRF (`deliveryStatus` FAILED with any code but
+  `delivery-unconfirmed`) does not count as sent them: no claim about the work
+  rests on a mail the firm never got. A work order's
   own record keeps its ten years after its issue closed, as above; this clock
   changes nothing of it.
   The board can remove a contractor sooner, which is how a sole trader's
@@ -405,9 +417,10 @@ review:
   record of processing activities' `issues` row states both, and its subjects gain
   board members, former residents and the property manager.
 - The nightly issue purge takes a contractor off the list ten years after the
-  last work order sent them, after the work-order texts, and the work-order text
-  purge erases the copy of whom a work order went to that such a contractor left
-  behind. The first work order mailed to a contractor links the association's
+  last work order sent them, after the work-order texts, and the copy of whom a
+  work order went to that such a contractor left behind goes with the text, by
+  the work-order text purge or a handler's redaction, or with the release of the
+  hold that kept it. The first work order mailed to a contractor links the association's
   privacy notice, and is not sent while the notice is unpublished
   ([The contractor register](#the-contractor-register)).
 - An issue erasure job reads granted requests and runs before `53 3`.

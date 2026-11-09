@@ -1142,10 +1142,14 @@ function ContractorLinkPanel({
   const named = workOrderNamed(order, locale);
   const answeredForGood =
     record.answer === "DECLINED" || record.answer === "DONE";
+  // Nobody on the list to give it to: the board removed the contractor, or
+  // the list's clock took them off it and the work order only keeps whom it
+  // went to. The server refuses either (`work-order-recipient-removed`).
   const unavailable =
     order.body === null ||
     order.redactedAt !== null ||
-    order.recipientName === null;
+    order.recipientName === null ||
+    order.contractorId === null;
   const issuable =
     link.offered &&
     !answeredForGood &&

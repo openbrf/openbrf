@@ -196,7 +196,7 @@ export class WorkOrderMailerService implements OnModuleInit {
         where: { id: contractorId },
         select: { privacyNoticeGivenAt: true },
       }),
-      this.pages.privacyNoticePath(),
+      this.pages.privacyNoticePath(db),
     ]);
     return { owed: row?.privacyNoticeGivenAt == null, path };
   }
@@ -217,15 +217,25 @@ export class WorkOrderMailerService implements OnModuleInit {
   async send(workOrderId: string): Promise<"sent" | "failed" | "skipped"> {
     // Read before the claim: a read that fails here fails the job, which is
     // retried with the work order untouched. After the claim it would land in
-    // the catch below and record a send error nobody made. The notice's path
-    // too, whether or not this contractor is owed it, for the same reason.
-    const [locale, publishedNoticePath] = await Promise.all([
-      associationDefaultLocale(this.prisma),
-      this.pages.privacyNoticePath(),
-    ]);
-    const order = await this.prisma.$transaction((tx) =>
-      this.claim(tx, workOrderId),
-    );
+    // the catch below and record a send error nobody made.
+    const locale = await associationDefaultLocale(this.prisma);
+    // The notice's path is read in the claim's own transaction, whether or not
+    // this contractor is owed it: a read that fails there undoes the claim, as
+    // one before it would leave the work order untouched. Under a share lock,
+    // after the claim, so the board taking the notice down while the claim
+    // waited is read here rather than missed; it can still commit once the
+    // claim has, which is the board taking it down after the mail went out.
+    const claimed = await this.prisma.$transaction(async (tx) => {
+      const order = await this.claim(tx, workOrderId);
+      return {
+        order,
+        publishedNoticePath:
+          order === null || order === "ring-fenced"
+            ? null
+            : await this.pages.privacyNoticePath(tx, { share: true }),
+      };
+    });
+    const { order, publishedNoticePath } = claimed;
     if (order === "ring-fenced") {
       this.logger.warn(
         `Work order ${workOrderId} was not sent: its issue type is ring-fenced.`,
