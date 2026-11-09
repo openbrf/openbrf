@@ -32,6 +32,17 @@ const EDITED_ROW = {
   revision: 3,
 };
 
+/** A row the board recorded itself: there is no product text to compare. */
+const RECORDED_ROW = {
+  ...EDITED_ROW,
+  id: "activity-board-recorded",
+  name: "Styrelsens egen behandling",
+  source: "BOARD",
+  sourceKey: null,
+  recordedByPersonId: "person-board",
+  revision: 1,
+};
+
 /** A configuration that cannot be read, with personal data in its message. */
 function failingFacts() {
   return {
@@ -44,11 +55,11 @@ function failingFacts() {
 }
 
 describe("ProcessingActivityService.read", () => {
-  it("shows the record without a comparison when the product's wording cannot be read, and logs no message", async () => {
+  it("shows the record without a comparison when the product's wording cannot be read, says so on the edited rows, and logs no message", async () => {
     const prisma = {
       association: { findUnique: vi.fn().mockResolvedValue(null) },
       processingActivity: {
-        findMany: vi.fn().mockResolvedValue([EDITED_ROW]),
+        findMany: vi.fn().mockResolvedValue([EDITED_ROW, RECORDED_ROW]),
       },
     };
     const facts = failingFacts();
@@ -65,7 +76,9 @@ describe("ProcessingActivityService.read", () => {
     try {
       const record = await service.read();
 
-      // The stored row stands as it is, only without a comparison.
+      // The stored rows stand as they are, only without a comparison. The
+      // edited row says it could not be compared rather than that it agrees;
+      // the board's own row had nothing to compare against either way.
       expect(record.activities).toEqual([
         expect.objectContaining({
           activityId: EDITED_ROW.id,
@@ -75,6 +88,13 @@ describe("ProcessingActivityService.read", () => {
           seeded: false,
           productDiffers: false,
           productText: {},
+          productTextUnavailable: true,
+        }),
+        expect.objectContaining({
+          activityId: RECORDED_ROW.id,
+          productDiffers: false,
+          productText: {},
+          productTextUnavailable: false,
         }),
       ]);
       expect(warned).toHaveBeenCalledTimes(1);
@@ -139,6 +159,7 @@ describe("ProcessingActivityService.end", () => {
           revision: 4,
           productDiffers: false,
           productText: {},
+          productTextUnavailable: true,
         }),
       );
       expect(JSON.stringify(warned.mock.calls)).not.toContain(SENTINEL_TEXT);

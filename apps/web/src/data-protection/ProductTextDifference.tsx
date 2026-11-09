@@ -26,7 +26,8 @@ export interface ProductTextDifferenceProps {
  * to the product's wording never reaches the row, and the board would not know
  * there was one. So the screen says so, and adopting the product's text is the
  * board's own act, one field at a time. The row stays the board's afterwards:
- * the next time the product's wording moves on, this shows again.
+ * the next time the product's wording moves on, this shows again. Where the
+ * server could not compare the row this read, it says that instead of nothing.
  *
  * One adoption at a time per row: the buttons are disabled while one is in
  * flight, because each is sent with the revision this read saw and the second
@@ -69,6 +70,19 @@ export function ProductTextDifference({
   );
   const awaitingRead =
     adoptedRevision !== null && activity.revision < adoptedRevision;
+
+  /*
+   * The server could not compare the row with the product's statement just
+   * now. Saying nothing would read as "the texts agree", which is exactly what
+   * is not known, so the row says that instead.
+   */
+  if (activity.productTextUnavailable) {
+    return (
+      <p className={HINT}>
+        {t("dataProtection.processing.productText.unavailable")}
+      </p>
+    );
+  }
 
   const fields = ACTIVITY_FIELDS.filter(
     (field) => field in activity.productText,

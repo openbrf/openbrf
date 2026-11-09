@@ -144,6 +144,13 @@ export interface ProcessingActivityView {
    * holds. Empty wherever `productDiffers` is false.
    */
   productText: ProductText;
+  /**
+   * True on a seeded row the board has edited when the product's statement
+   * could not be computed for this answer, so `productDiffers` is false
+   * because nothing was compared, not because the texts agree. The screen
+   * says so rather than showing the row as though it matched.
+   */
+  productTextUnavailable: boolean;
 }
 
 /**
@@ -817,22 +824,26 @@ export class ProcessingActivityService {
   }
 
   /**
-   * The product's statement, or none where it cannot be computed just now.
+   * The product's statement, or null where it cannot be computed just now.
    *
    * What is read or written is shown without the comparison rather than not
    * at all. The record is the document the board is answerable for, and a
    * configuration that cannot be read just now must not make it unreadable,
-   * nor undo a save or an ending that has committed; the rows then simply show
-   * no difference until the next read.
+   * nor undo a save or an ending that has committed. The edited rows then say
+   * that they could not be compared (`productTextUnavailable`) until the next
+   * read, rather than showing as though they agreed with the product.
    */
-  private productStatementOrNone(): Promise<ReadonlyMap<string, SeedRow>> {
+  private productStatementOrNone(): Promise<ReadonlyMap<
+    string,
+    SeedRow
+  > | null> {
     return this.productStatement().catch((cause: unknown) => {
       this.logger.warn(
         "The product's own wording could not be computed, so edited rows " +
           `are shown without comparing them against it: ${failureName(cause)}.`,
         failureFrames(cause),
       );
-      return new Map<string, SeedRow>();
+      return null;
     });
   }
 
@@ -845,12 +856,11 @@ export class ProcessingActivityService {
    * and its audit entry back.
    */
   private async viewOf(row: ActivityRow): Promise<ProcessingActivityView> {
-    const mayDiffer =
-      row.updatedByPersonId !== null &&
-      (SEED_KEYS as readonly (string | null)[]).includes(row.sourceKey);
     return toView(
       row,
-      mayDiffer ? await this.productStatementOrNone() : new Map(),
+      mayDifferFromProduct(row)
+        ? await this.productStatementOrNone()
+        : new Map(),
     );
   }
 
@@ -1017,6 +1027,19 @@ function sameStatement(
 }
 
 /**
+ * Whether the row is a seeded row the board has edited, the only kind whose
+ * text can differ from the product's statement: the seed refreshes every other
+ * seeded row itself, and a row the board recorded or a plugin wrote has no
+ * product statement here.
+ */
+function mayDifferFromProduct(row: ActivityRow): boolean {
+  return (
+    row.updatedByPersonId !== null &&
+    (SEED_KEYS as readonly (string | null)[]).includes(row.sourceKey)
+  );
+}
+
+/**
  * The product's statement of a seeded row the board has edited, and the fields
  * where it says something the row does not. Null for every other row: one the
  * seed still refreshes says what the product says, one the board recorded has
@@ -1042,11 +1065,16 @@ function productTextOf(
   return { row: statement, differs };
 }
 
+/**
+ * A row as the API answers it. `product` is null where the product's statement
+ * could not be computed for this answer.
+ */
 function toView(
   row: ActivityRow,
-  product: ReadonlyMap<string, SeedRow>,
+  product: ReadonlyMap<string, SeedRow> | null,
 ): ProcessingActivityView {
-  const productText = productTextOf(row, product)?.differs ?? {};
+  const productText =
+    product === null ? {} : (productTextOf(row, product)?.differs ?? {});
 
   return {
     activityId: row.id,
@@ -1068,5 +1096,6 @@ function toView(
     revision: row.revision,
     productDiffers: Object.keys(productText).length > 0,
     productText,
+    productTextUnavailable: product === null && mayDifferFromProduct(row),
   };
 }

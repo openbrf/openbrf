@@ -39,6 +39,7 @@ const PLUGIN_ROW: ProcessingActivityView = {
   revision: 1,
   productDiffers: false,
   productText: {},
+  productTextUnavailable: false,
 };
 
 const noop = (): void => undefined;

@@ -46,6 +46,7 @@ const EDITED_ROW: ProcessingActivityView = {
     retention: "Två år efter att beställningen avslutats.",
     legalBasis: "LEGITIMATE_INTEREST",
   },
+  productTextUnavailable: false,
 };
 
 beforeEach(() => {
@@ -186,5 +187,23 @@ describe("a board-edited row whose product text has moved on", () => {
       />,
     );
     expect(container.textContent).toBe("");
+  });
+
+  it("says the comparison could not be made rather than showing the row as agreeing", () => {
+    render(
+      <ProductTextDifference
+        activity={{
+          ...EDITED_ROW,
+          productDiffers: false,
+          productText: {},
+          productTextUnavailable: true,
+        }}
+        onAdopted={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText(/Produktens text kunde inte jämföras/),
+    ).not.toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });

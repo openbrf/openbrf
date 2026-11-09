@@ -6096,6 +6096,7 @@
       "thirdCountry": "Data may be transferred outside the EU and the EEA.",
       "productText": {
         "marker": "Differs from the product's text",
+        "unavailable": "The product's text could not be compared with this row just now, so any difference is not shown. Reload the page to try again.",
         "explanation": "The board has edited this row, so the product does not overwrite it. For the fields below the product says something other than the row, either because the board wrote its own text or because the product's text has changed since. The board's text stands until the board chooses to adopt the product's.",
         "board": "The board's text",
         "product": "The product's text",

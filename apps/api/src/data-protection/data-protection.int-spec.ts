@@ -1735,6 +1735,7 @@ describe("record of processing", () => {
       expect(row.seeded).toBe(false);
       expect(row.retention).toBe(boardRetention);
       expect(row.productDiffers).toBe(true);
+      expect(row.productTextUnavailable).toBe(false);
       // Only the field the board changed: every other field still says what
       // the product says, and is not offered as a difference.
       expect(row.productText).toEqual({ retention: product.retention });
@@ -1745,6 +1746,7 @@ describe("record of processing", () => {
       expect(row.seeded).toBe(true);
       expect(row.productDiffers).toBe(false);
       expect(row.productText).toEqual({});
+      expect(row.productTextUnavailable).toBe(false);
 
       // Nor about any row that is not a board-edited seeded one.
       for (const activity of (await readRecord()).activities) {

@@ -173,6 +173,12 @@ export interface ProcessingActivityView {
   productDiffers: boolean;
   /** What the product says now, for each field where the row says otherwise. */
   productText: ProductText;
+  /**
+   * True on a seeded row the board has edited when the server could not work
+   * out the product's statement for this read. `productDiffers` is then false
+   * because nothing was compared, not because the texts agree.
+   */
+  productTextUnavailable: boolean;
 }
 
 /** The product's statement of a row, for the fields where it differs. */

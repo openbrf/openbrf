@@ -6096,6 +6096,7 @@
       "thirdCountry": "Uppgifter kan föras till land utanför EU och EES.",
       "productText": {
         "marker": "Skiljer sig från produktens text",
+        "unavailable": "Produktens text kunde inte jämföras med den här raden just nu, så en eventuell skillnad visas inte. Ladda om sidan för att försöka igen.",
         "explanation": "Styrelsen har ändrat den här raden, så produkten skriver inte över den. För fälten nedan säger produkten något annat än raden, antingen för att styrelsen skrev egen text eller för att produktens text har ändrats sedan dess. Styrelsens text gäller tills styrelsen väljer att använda produktens.",
         "board": "Styrelsens text",
         "product": "Produktens text",

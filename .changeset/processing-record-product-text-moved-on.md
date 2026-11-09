@@ -13,5 +13,7 @@ board's text beside the product's, with an action that adopts the product's
 text for one field. Adopting writes the product's current text, is recorded in
 the audit log with who adopted it and which fields, and leaves the row the
 board's: the seed goes on leaving it alone, and a later change to the product's
-wording is shown again. Rows a plugin seeded are not compared, because their
-wording comes from the plugin's processing declaration.
+wording is shown again. When the product's text cannot be worked out for a
+read, an edited row says that it could not be compared instead of showing no
+difference. Rows a plugin seeded are not compared, because their wording comes
+from the plugin's processing declaration.
