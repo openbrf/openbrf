@@ -1209,6 +1209,46 @@ describe("what the document prints", () => {
     ]);
   });
 
+  it("says which clock on an issue's free text the board changed", async () => {
+    // One entry for each clock. The ring-fenced one is marked, and an entry
+    // without the mark - written before that clock was the board's too - is
+    // the other types' clock.
+    const [entry] = FULL_REPORT.auditEntries;
+    if (entry === undefined) {
+      throw new Error("The fixture has no audit entry.");
+    }
+    renderReport({
+      ...FULL_REPORT,
+      auditEntries: [
+        {
+          ...entry,
+          entryId: "o",
+          action: "ISSUE_RETENTION_RECORDED",
+          context: { yearsAfterClosingFrom: 2, yearsAfterClosingTo: 5 },
+        },
+        {
+          ...entry,
+          entryId: "f",
+          action: "ISSUE_RETENTION_RECORDED",
+          context: {
+            ringFenced: true,
+            yearsAfterClosingFrom: 1,
+            yearsAfterClosingTo: 3,
+          },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const details = [
+      ...sectionOf("Granskningsloggen").querySelectorAll("tbody tr"),
+    ].map((row) => row.querySelectorAll("td")[4]?.textContent);
+    expect(details).toEqual([
+      "Från 2 till 5 år efter stängning",
+      "Avskärmade ärendetyper: från 1 till 3 år efter stängning",
+    ]);
+  });
+
   it("labels the redaction of a work order's text and prints no text", async () => {
     // A work order's text is a target of its own, and an entry for it has to
     // read as words like the others rather than as "Inget registrerat".

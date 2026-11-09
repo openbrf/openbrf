@@ -20,10 +20,11 @@ import type { Prisma } from "../generated/prisma/client";
  * description, the free-text location, every issue message and internal note,
  * every photograph and file a handler attached, and every note and photograph
  * a contractor sent through a work order's link (ADR 0055). It is removed on the
- * board's clock after the issue closes, unless a legal hold stands on the issue
- * or a legal hold or a restriction on its reporter or on a person it concerns;
- * on the reporter's granted erasure request; and, a piece at a time, whenever a
- * handler redacts it.
+ * board's clock after the issue closes, a clock of its own for a ring-fenced
+ * type, unless a legal hold stands on the issue or a legal hold or a
+ * restriction on its reporter or on a person it concerns; on the reporter's
+ * granted erasure request; and, a piece at a time, whenever a handler redacts
+ * it.
  *
  * The record of whom the issue concerns (`IssueConcernedPerson`) is in the
  * layer too, though nobody wrote it as text: that a case of a disturbance is
@@ -106,35 +107,53 @@ export function issueTextRetentionDays(years: number): number {
 }
 
 /**
- * The clock an issue's free text is on, in whole years, by its type.
- *
- * The board's setting for an ordinary type. A ring-fenced one (decision 32)
- * takes the shorter of that and {@link RING_FENCED_ISSUE_TEXT_RETENTION_YEARS},
- * which the board does not set. The one rule the purge selects by, the access
- * report dates by and the report forms tell a reporter, so none of them can
- * state a clock the purge does not keep.
+ * The board's two clocks on an issue's free text, in whole years after
+ * closing: one for the ordinary types, and one of its own for a ring-fenced
+ * type (decision 32), each from one to ten.
  */
-export function issueTextClockYears(
-  boardYears: number,
-  ringFenced: boolean,
-): number {
-  return ringFenced
-    ? Math.min(boardYears, RING_FENCED_ISSUE_TEXT_RETENTION_YEARS)
-    : boardYears;
+export interface IssueTextClocks {
+  /** The ordinary types' clock; two by default. */
+  years: number;
+  /** A ring-fenced type's clock; one by default. */
+  ringFencedYears: number;
 }
 
 /**
- * The board's clock, in whole years, as the association's row holds it, or
- * the default where there is no row yet.
+ * The clock an issue's free text is on, in whole years, by its type.
+ *
+ * The board's setting for an ordinary type, and the board's ring-fenced
+ * setting for a ring-fenced one (decision 32), which may be shorter or longer.
+ * The one rule the purge selects by, the access report dates by and the report
+ * forms tell a reporter, so none of them can state a clock the purge does not
+ * keep.
  */
-export async function issueTextRetentionYears(
+export function issueTextClockYears(
+  clocks: IssueTextClocks,
+  ringFenced: boolean,
+): number {
+  return ringFenced ? clocks.ringFencedYears : clocks.years;
+}
+
+/**
+ * The board's clocks, in whole years, as the association's row holds them, or
+ * the defaults where there is no row yet.
+ */
+export async function issueTextClocks(
   client: Pick<PrismaService, "association"> | Prisma.TransactionClient,
-): Promise<number> {
+): Promise<IssueTextClocks> {
   const association = await client.association.findUnique({
     where: { id: 1 },
-    select: { issueTextRetentionYears: true },
+    select: {
+      issueTextRetentionYears: true,
+      ringFencedIssueTextRetentionYears: true,
+    },
   });
-  return (
-    association?.issueTextRetentionYears ?? ISSUE_TEXT_RETENTION_YEARS.default
-  );
+  return {
+    years:
+      association?.issueTextRetentionYears ??
+      ISSUE_TEXT_RETENTION_YEARS.default,
+    ringFencedYears:
+      association?.ringFencedIssueTextRetentionYears ??
+      RING_FENCED_ISSUE_TEXT_RETENTION_YEARS.default,
+  };
 }

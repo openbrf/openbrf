@@ -1,12 +1,20 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import { IssueRetentionPanel } from "./IssueRetentionPanel";
 
 /**
- * The board's clock on an issue's free text (ADR 0057): a whole number of
- * years from one to ten, refused outside them before anything is sent.
+ * The board's clocks on an issue's free text (ADR 0057): the ordinary types'
+ * and a ring-fenced type's (decision 32), each a whole number of years from
+ * one to ten, refused outside them before anything is sent, and saved
+ * together.
  */
 
 const fetchIssueRetention = vi.fn();
@@ -18,42 +26,86 @@ vi.mock("../api/issues", async (importOriginal) => ({
   saveIssueRetention: (input: unknown) => saveIssueRetention(input),
 }));
 
+const ORDINARY = /År efter att ett ärende stängts/;
+const RING_FENCED = /År efter att ett avskärmat ärende stängts/;
+
 beforeEach(() => {
   fetchIssueRetention.mockReset().mockResolvedValue({
     ok: true,
-    value: { years: 2 },
+    value: { years: 2, ringFencedYears: 1 },
   });
   saveIssueRetention.mockReset().mockResolvedValue({
     ok: true,
-    value: { years: 5 },
+    value: { years: 5, ringFencedYears: 1 },
   });
 });
 
-async function submit(typed: string): Promise<void> {
+async function submit(
+  typed: string,
+  label: RegExp = ORDINARY,
+): Promise<HTMLInputElement> {
   render(<IssueRetentionPanel />);
-  const field = await screen.findByLabelText(/År efter att ett ärende stängts/);
-  expect((field as HTMLInputElement).value).toBe("2");
+  const field = (await screen.findByLabelText(label)) as HTMLInputElement;
   fireEvent.change(field, { target: { value: typed } });
-  fireEvent.submit((field as HTMLInputElement).form as HTMLFormElement);
+  fireEvent.submit(field.form as HTMLFormElement);
+  return field;
 }
 
 describe("the number of years", () => {
-  it.each(["0", "11", "2.5", ""])("refuses %j", async (typed) => {
-    await submit(typed);
+  it("shows both clocks as they were read", async () => {
+    render(<IssueRetentionPanel />);
 
-    expect(saveIssueRetention).not.toHaveBeenCalled();
     expect(
-      screen.getByText("Välj ett helt antal år mellan 1 och 10."),
-    ).toBeTruthy();
+      ((await screen.findByLabelText(ORDINARY)) as HTMLInputElement).value,
+    ).toBe("2");
+    expect((screen.getByLabelText(RING_FENCED) as HTMLInputElement).value).toBe(
+      "1",
+    );
   });
 
-  it("saves five, and says it was saved", async () => {
+  it.each([
+    ["the other types'", ORDINARY],
+    ["a ring-fenced type's", RING_FENCED],
+  ])("refuses a clock out of range for %s clock", async (_name, label) => {
+    for (const typed of ["0", "11", "2.5", ""]) {
+      const field = await submit(typed, label);
+
+      expect(saveIssueRetention).not.toHaveBeenCalled();
+      expect(
+        screen.getByText("Välj ett helt antal år mellan 1 och 10."),
+      ).toBeTruthy();
+      expect(field.getAttribute("aria-invalid")).toBe("true");
+      cleanup();
+    }
+  });
+
+  it("saves five for the other types with the ring-fenced clock as it was, and says it was saved", async () => {
     await submit("5");
 
     await waitFor(() => {
-      expect(saveIssueRetention).toHaveBeenCalledWith({ years: 5 });
+      expect(saveIssueRetention).toHaveBeenCalledWith({
+        years: 5,
+        ringFencedYears: 1,
+      });
     });
     expect(await screen.findByText(/Sparat/)).toBeTruthy();
+  });
+
+  it("saves a ring-fenced clock longer than the other types'", async () => {
+    saveIssueRetention.mockReset().mockResolvedValue({
+      ok: true,
+      value: { years: 2, ringFencedYears: 4 },
+    });
+    const field = await submit("4", RING_FENCED);
+
+    await waitFor(() => {
+      expect(saveIssueRetention).toHaveBeenCalledWith({
+        years: 2,
+        ringFencedYears: 4,
+      });
+    });
+    expect(await screen.findByText(/Sparat/)).toBeTruthy();
+    expect(field.value).toBe("4");
   });
 
   it("says that the building record stays and a shorter clock acts in the nights that follow", async () => {
@@ -78,23 +130,28 @@ describe("an entry typed while a save is on its way", () => {
         answer = resolve;
       }),
     );
-    await submit("5");
+    const field = await submit("5");
     await waitFor(() => {
-      expect(saveIssueRetention).toHaveBeenCalledWith({ years: 5 });
+      expect(saveIssueRetention).toHaveBeenCalledWith({
+        years: 5,
+        ringFencedYears: 1,
+      });
     });
 
-    const field = screen.getByLabelText(
-      /År efter att ett ärende stängts/,
-    ) as HTMLInputElement;
-    fireEvent.change(field, { target: { value: "10" } });
-    answer({ ok: true, value: { years: 5 } });
+    fireEvent.change(screen.getByLabelText(RING_FENCED), {
+      target: { value: "3" },
+    });
+    answer({ ok: true, value: { years: 5, ringFencedYears: 1 } });
 
     await waitFor(() => {
       expect((screen.getByRole("button") as HTMLButtonElement).disabled).toBe(
         false,
       );
     });
-    expect(field.value).toBe("10");
+    expect(field.value).toBe("5");
+    expect((screen.getByLabelText(RING_FENCED) as HTMLInputElement).value).toBe(
+      "3",
+    );
     expect(screen.queryByText(/Sparat/)).toBeNull();
   });
 });

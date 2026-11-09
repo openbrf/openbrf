@@ -21,6 +21,7 @@ import { issuesConcerningPerson } from "./issue-concerned-persons";
 import { IssueErasureService } from "./issue-erasure.service";
 import { IssuePurgeService } from "./issue-purge.service";
 import { WORK_ORDER_BODY_RETENTION_DAYS } from "./issue-retention";
+import type { IssueTextClocks } from "./issue-free-text";
 import { IssueTextPurgeService } from "./issue-text-purge.service";
 import { IssueService } from "./issue.service";
 import { showsProtectedHousehold } from "./work-order-link";
@@ -426,6 +427,9 @@ afterAll(async () => {
   await app.close();
 });
 
+/** Both of the board's clocks at one year, as the nightly purge reads them. */
+const ONE_YEAR: IssueTextClocks = { years: 1, ringFencedYears: 1 };
+
 describe("recording whom an issue concerns", () => {
   it("names the resident, withholds a protected one, and records the act without the person", async () => {
     const issueId = await seed({
@@ -606,12 +610,12 @@ describe("the record on the clock", () => {
     const restricted = await seed({ closedDaysAgo: 400 });
     await concern(restricted, residents.restricted.personId);
 
-    const eligible = await clock.eligible(now, 1);
+    const eligible = await clock.eligible(now, ONE_YEAR);
     expect(eligible).toContain(plain);
     expect(eligible).not.toContain(held);
     expect(eligible).not.toContain(restricted);
 
-    expect(await clock.purgeIssue(plain, now, 1)).toBe("removed");
+    expect(await clock.purgeIssue(plain, now, ONE_YEAR)).toBe("removed");
     expect(await recorded(plain)).toBe(0);
     const entry = await prisma.auditLogEntry.findFirst({
       where: { targetId: plain, action: "SERVICE_DATA_PURGED" },
@@ -623,8 +627,8 @@ describe("the record on the clock", () => {
     });
 
     // Asked directly, past the scan, the removal still refuses both.
-    expect(await clock.purgeIssue(held, now, 1)).toBe("kept");
-    expect(await clock.purgeIssue(restricted, now, 1)).toBe("kept");
+    expect(await clock.purgeIssue(held, now, ONE_YEAR)).toBe("kept");
+    expect(await clock.purgeIssue(restricted, now, ONE_YEAR)).toBe("kept");
     expect(await recorded(held)).toBe(1);
     expect(await recorded(restricted)).toBe(1);
     const kept = await prisma.issue.findUniqueOrThrow({
@@ -646,8 +650,10 @@ describe("the record on the clock", () => {
       select: { id: true },
     });
     await concern(issueId.id, residents.neighbour.personId);
-    expect(await clock.eligible(new Date(), 1)).toContain(issueId.id);
-    expect(await clock.purgeIssue(issueId.id, new Date(), 1)).toBe("removed");
+    expect(await clock.eligible(new Date(), ONE_YEAR)).toContain(issueId.id);
+    expect(await clock.purgeIssue(issueId.id, new Date(), ONE_YEAR)).toBe(
+      "removed",
+    );
     expect(await recorded(issueId.id)).toBe(0);
   });
 });
@@ -729,7 +735,9 @@ describe("the text of a work order", () => {
   async function afterTheLayerWent(personId: string) {
     const now = new Date();
     const issue = await closedWithOrder(personId);
-    expect(await clock.purgeIssue(issue.issueId, now, 1)).toBe("removed");
+    expect(await clock.purgeIssue(issue.issueId, now, ONE_YEAR)).toBe(
+      "removed",
+    );
     const gone = await prisma.issue.findUniqueOrThrow({
       where: { id: issue.issueId },
       select: { description: true, freeTextRemovedAt: true },

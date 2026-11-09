@@ -24,6 +24,7 @@ import {
 } from "../testing/issue-fixtures";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
 import { IssueErasureService } from "./issue-erasure.service";
+import type { IssueTextClocks } from "./issue-free-text";
 import {
   IssueFreeTextService,
   type FreeTextRemoval,
@@ -102,6 +103,15 @@ let boardCookie = "";
 let residentCookie = "";
 let associationCreatedHere = false;
 let previousYears = 2;
+let previousRingFencedYears = 1;
+
+/**
+ * The clocks for a case about an ordinary type: the years given for it, and
+ * the ring-fenced type's default, which no issue here is under.
+ */
+function ordinaryClock(years: number): IssueTextClocks {
+  return { years, ringFencedYears: 1 };
+}
 
 let ipCounter = 0;
 function inject(options: {
@@ -400,10 +410,14 @@ beforeAll(async () => {
 
   const existing = await prisma.association.findUnique({
     where: { id: 1 },
-    select: { issueTextRetentionYears: true },
+    select: {
+      issueTextRetentionYears: true,
+      ringFencedIssueTextRetentionYears: true,
+    },
   });
   associationCreatedHere = existing === null;
   previousYears = existing?.issueTextRetentionYears ?? 2;
+  previousRingFencedYears = existing?.ringFencedIssueTextRetentionYears ?? 1;
   await prisma.association.upsert({
     where: { id: 1 },
     create: { id: 1, name: "Brf Eksemplet" },
@@ -536,7 +550,10 @@ afterAll(async () => {
   } else {
     await prisma.association.update({
       where: { id: 1 },
-      data: { issueTextRetentionYears: previousYears },
+      data: {
+        issueTextRetentionYears: previousYears,
+        ringFencedIssueTextRetentionYears: previousRingFencedYears,
+      },
     });
   }
 
@@ -551,8 +568,12 @@ describe("the clock", () => {
     });
     const before = await read(issue.id);
 
-    expect(await clock.eligible(new Date(), 2)).toContain(issue.id);
-    expect(await clock.purgeIssue(issue.id, new Date(), 2)).toBe("removed");
+    expect(await clock.eligible(new Date(), ordinaryClock(2))).toContain(
+      issue.id,
+    );
+    expect(await clock.purgeIssue(issue.id, new Date(), ordinaryClock(2))).toBe(
+      "removed",
+    );
 
     const after = await read(issue.id);
     // The free-text layer is gone, from storage too.
@@ -614,7 +635,9 @@ describe("the clock", () => {
     }
 
     // Nothing is left to select, so nothing is written again tomorrow.
-    expect(await clock.eligible(new Date(), 2)).not.toContain(issue.id);
+    expect(await clock.eligible(new Date(), ordinaryClock(2))).not.toContain(
+      issue.id,
+    );
   });
 
   it("writes nothing a second time when another run already took the layer", async () => {
@@ -622,12 +645,18 @@ describe("the clock", () => {
       reporterPersonId: resident.personId,
       closedDaysAgo: 2 * 365 + 1,
     });
-    expect(await clock.purgeIssue(issue.id, new Date(), 2)).toBe("removed");
+    expect(await clock.purgeIssue(issue.id, new Date(), ordinaryClock(2))).toBe(
+      "removed",
+    );
     const first = (await read(issue.id)).freeTextRemovedAt;
 
     // A run whose scan was taken before the first committed asks again.
     expect(
-      await clock.purgeIssue(issue.id, new Date(Date.now() + DAY), 2),
+      await clock.purgeIssue(
+        issue.id,
+        new Date(Date.now() + DAY),
+        ordinaryClock(2),
+      ),
     ).toBe("kept");
 
     expect((await read(issue.id)).freeTextRemovedAt).toEqual(first);
@@ -645,12 +674,12 @@ describe("the clock", () => {
     });
 
     // The page after the oldest starts at the next issue, not at the oldest.
-    const firstPage = await clock.eligiblePage(new Date(), 2);
+    const firstPage = await clock.eligiblePage(new Date(), ordinaryClock(2));
     const index = firstPage.findIndex((entry) => entry.id === oldest.id);
     expect(index).toBeGreaterThanOrEqual(0);
     const at = firstPage[index];
     if (at === undefined) throw new Error("the oldest issue is on the page");
-    const after = await clock.eligiblePage(new Date(), 2, {
+    const after = await clock.eligiblePage(new Date(), ordinaryClock(2), {
       closedAt: at.closedAt,
       id: at.id,
     });
@@ -668,7 +697,7 @@ describe("the clock", () => {
           : Promise.resolve(),
       );
     try {
-      const summary = await clock.run(new Date(), 2, 1);
+      const summary = await clock.run(new Date(), ordinaryClock(2), 1);
       expect(summary.failed).toBeGreaterThanOrEqual(1);
     } finally {
       refuse.mockRestore();
@@ -691,13 +720,17 @@ describe("the clock", () => {
       closedDaysAgo: 3 * 365 + 1,
     });
 
-    const eligible = await clock.eligible(new Date(), 2);
+    const eligible = await clock.eligible(new Date(), ordinaryClock(2));
     expect(eligible).not.toContain(recent.id);
     expect(eligible).not.toContain(open.id);
     expect(eligible).toContain(threeYears.id);
     // The board's ten years keeps the three-year-old issue.
-    expect(await clock.eligible(new Date(), 10)).not.toContain(threeYears.id);
-    expect(await clock.purgeIssue(threeYears.id, new Date(), 10)).toBe("kept");
+    expect(await clock.eligible(new Date(), ordinaryClock(10))).not.toContain(
+      threeYears.id,
+    );
+    expect(
+      await clock.purgeIssue(threeYears.id, new Date(), ordinaryClock(10)),
+    ).toBe("kept");
     expect((await read(threeYears.id)).description).toBe(DESCRIPTION);
   });
 
@@ -715,8 +748,12 @@ describe("the clock", () => {
       closedDaysAgo: 2 * 365 + 1,
       statusId: archived.id,
     });
-    expect(await clock.eligible(new Date(), 2)).toContain(issue.id);
-    expect(await clock.purgeIssue(issue.id, new Date(), 2)).toBe("removed");
+    expect(await clock.eligible(new Date(), ordinaryClock(2))).toContain(
+      issue.id,
+    );
+    expect(await clock.purgeIssue(issue.id, new Date(), ordinaryClock(2))).toBe(
+      "removed",
+    );
   });
 
   it("keeps an issue under a legal hold, and reaches it once the hold is released", async () => {
@@ -735,10 +772,14 @@ describe("the clock", () => {
       null,
     );
 
-    expect(await clock.eligible(new Date(), 2)).not.toContain(issue.id);
+    expect(await clock.eligible(new Date(), ordinaryClock(2))).not.toContain(
+      issue.id,
+    );
     // And the transaction that removes reads it again rather than trusting
     // the scan.
-    expect(await clock.purgeIssue(issue.id, new Date(), 2)).toBe("kept");
+    expect(await clock.purgeIssue(issue.id, new Date(), ordinaryClock(2))).toBe(
+      "kept",
+    );
     const held = await read(issue.id);
     expect(held.description).toBe(DESCRIPTION);
     expect(held._count.photos).toBe(1);
@@ -751,7 +792,9 @@ describe("the clock", () => {
       payload: { held: false },
     });
     expect(released.statusCode).toBe(201);
-    expect(await clock.purgeIssue(issue.id, new Date(), 2)).toBe("removed");
+    expect(await clock.purgeIssue(issue.id, new Date(), ordinaryClock(2))).toBe(
+      "removed",
+    );
 
     const placings = await entriesFor(issue.id, "ISSUE_LEGAL_HOLD_PLACED");
     const releases = await entriesFor(issue.id, "ISSUE_LEGAL_HOLD_RELEASED");
@@ -810,7 +853,9 @@ describe("the clock", () => {
     expect(midway._count.photos).toBe(1);
 
     // The next run takes the file and moves the mark to that run.
-    expect(await clock.purgeIssue(issue.id, tomorrow, 1)).toBe("removed");
+    expect(await clock.purgeIssue(issue.id, tomorrow, ordinaryClock(1))).toBe(
+      "removed",
+    );
     const after = await read(issue.id);
     expect(after._count.photos).toBe(0);
     expect(after.freeTextRemovedAt).toEqual(tomorrow);
@@ -822,8 +867,12 @@ describe("the clock", () => {
       reporterPersonId: heldReporterId,
       closedDaysAgo: 5 * 365,
     });
-    expect(await clock.eligible(new Date(), 1)).not.toContain(issue.id);
-    expect(await clock.purgeIssue(issue.id, new Date(), 1)).toBe("kept");
+    expect(await clock.eligible(new Date(), ordinaryClock(1))).not.toContain(
+      issue.id,
+    );
+    expect(await clock.purgeIssue(issue.id, new Date(), ordinaryClock(1))).toBe(
+      "kept",
+    );
     expect((await read(issue.id)).description).toBe(DESCRIPTION);
   });
 });
@@ -982,15 +1031,51 @@ describe("a free-text removal that is refused after files went", () => {
 });
 
 describe("the board's setting", () => {
-  it("takes a whole number of years from one to ten, and records the change", async () => {
-    for (const years of [0, 11, 2.5]) {
+  /** This run's board member's retention entries, by identifier. */
+  async function recordedIds(): Promise<Set<string>> {
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "ISSUE_RETENTION_RECORDED",
+        actorPersonId: board.personId,
+      },
+      select: { id: true },
+    });
+    return new Set(entries.map((entry) => entry.id));
+  }
+
+  /** The contexts of this run's retention entries not among `seen`. */
+  async function recordedSince(seen: Set<string>): Promise<unknown[]> {
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "ISSUE_RETENTION_RECORDED",
+        actorPersonId: board.personId,
+        id: { notIn: [...seen] },
+      },
+      select: { context: true },
+    });
+    return entries.map((entry) => entry.context);
+  }
+
+  it("takes both clocks, each a whole number of years from one to ten, and records each change", async () => {
+    for (const payload of [
+      { years: 0, ringFencedYears: 1 },
+      { years: 11, ringFencedYears: 1 },
+      { years: 2.5, ringFencedYears: 1 },
+      { years: 2, ringFencedYears: 0 },
+      { years: 2, ringFencedYears: 11 },
+      { years: 2, ringFencedYears: 1.5 },
+      // Both, every time: a save that left one out would not say whether it
+      // meant to keep it.
+      { years: 2 },
+      { ringFencedYears: 1 },
+    ]) {
       const refused = await inject({
         method: "PUT",
         url: "/api/issue-retention",
         headers: { cookie: boardCookie },
-        payload: { years },
+        payload,
       });
-      expect(refused.statusCode).toBe(400);
+      expect(refused.statusCode, JSON.stringify(payload)).toBe(400);
     }
 
     const before = await inject({
@@ -998,35 +1083,65 @@ describe("the board's setting", () => {
       url: "/api/issue-retention",
       headers: { cookie: boardCookie },
     });
-    const from = before.json<{ years: number }>().years;
-    const to = from === 5 ? 6 : 5;
+    const from = before.json<IssueTextClocks>();
+    const to = {
+      years: from.years === 5 ? 6 : 5,
+      ringFencedYears: from.ringFencedYears === 3 ? 4 : 3,
+    };
 
+    const seen = await recordedIds();
     const saved = await inject({
       method: "PUT",
       url: "/api/issue-retention",
       headers: { cookie: boardCookie },
-      payload: { years: to },
+      payload: to,
     });
     expect(saved.statusCode).toBe(200);
-    expect(saved.json()).toEqual({ years: to });
-    const entry = await prisma.auditLogEntry.findFirst({
-      where: {
-        action: "ISSUE_RETENTION_RECORDED",
-        actorPersonId: board.personId,
+    expect(saved.json()).toEqual(to);
+    const read = await inject({
+      method: "GET",
+      url: "/api/issue-retention",
+      headers: { cookie: boardCookie },
+    });
+    expect(read.json()).toEqual(to);
+
+    const entries = await recordedSince(seen);
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        { yearsAfterClosingFrom: from.years, yearsAfterClosingTo: to.years },
+        {
+          ringFenced: true,
+          yearsAfterClosingFrom: from.ringFencedYears,
+          yearsAfterClosingTo: to.ringFencedYears,
+        },
+      ]),
+    );
+    expect(entries).toHaveLength(2);
+
+    // A save that changes one clock records that one alone.
+    const ringFencedOnly = { ...to, ringFencedYears: to.ringFencedYears + 1 };
+    const seenFirst = await recordedIds();
+    const second = await inject({
+      method: "PUT",
+      url: "/api/issue-retention",
+      headers: { cookie: boardCookie },
+      payload: ringFencedOnly,
+    });
+    expect(second.statusCode).toBe(200);
+    expect(await recordedSince(seenFirst)).toEqual([
+      {
+        ringFenced: true,
+        yearsAfterClosingFrom: to.ringFencedYears,
+        yearsAfterClosingTo: ringFencedOnly.ringFencedYears,
       },
-      orderBy: [{ createdAt: "desc" }],
-    });
-    expect(entry?.context).toEqual({
-      yearsAfterClosingFrom: from,
-      yearsAfterClosingTo: to,
-    });
+    ]);
 
     // A resident cannot set it.
     const resident = await inject({
       method: "PUT",
       url: "/api/issue-retention",
       headers: { cookie: residentCookie },
-      payload: { years: 3 },
+      payload: { years: 3, ringFencedYears: 1 },
     });
     expect(resident.statusCode).toBe(403);
   });
@@ -1346,7 +1461,9 @@ describe("redaction after the purge and under a reporter's hold", () => {
       reporterPersonId: resident.personId,
       closedDaysAgo: 5 * 365,
     });
-    expect(await clock.purgeIssue(issue.id, new Date(), 1)).toBe("removed");
+    expect(await clock.purgeIssue(issue.id, new Date(), ordinaryClock(1))).toBe(
+      "removed",
+    );
     const purged = await read(issue.id);
     expect(purged.description).toBe("");
     expect(purged.freeTextRemovedAt).not.toBeNull();
@@ -1970,7 +2087,7 @@ describe("the access report", () => {
       reporterPersonId: resident.personId,
       closedDaysAgo: 2 * 365 + 1,
     });
-    await clock.purgeIssue(purged.id, new Date(), 2);
+    await clock.purgeIssue(purged.id, new Date(), ordinaryClock(2));
 
     const report = await app.get(DataSubjectReportService).generate({
       personId: resident.personId,

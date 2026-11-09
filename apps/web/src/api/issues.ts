@@ -70,7 +70,7 @@ export interface IssueTypeView {
   defaultPriority: IssuePriority;
   /**
    * Read by the board alone, with nothing about its issues leaving it, and
-   * their free text removed a year after closing (decision 32).
+   * their free text removed on the board's ring-fenced clock (decision 32).
    */
   ringFenced: boolean;
   reportCount: number;
@@ -1129,14 +1129,23 @@ export function removeIssueDamageCase(input: {
   );
 }
 
-/** How many years after closing an issue's free text is kept. */
-export function fetchIssueRetention(): Promise<ApiResult<{ years: number }>> {
+/**
+ * How many years after closing an issue's free text is kept: the ordinary
+ * types' clock, and a ring-fenced type's, which the board sets apart.
+ */
+export interface IssueRetention {
+  years: number;
+  ringFencedYears: number;
+}
+
+export function fetchIssueRetention(): Promise<ApiResult<IssueRetention>> {
   return apiRequest("GET", "/api/issue-retention");
 }
 
-export function saveIssueRetention(input: {
-  years: number;
-}): Promise<ApiResult<{ years: number }>> {
+/** Both clocks on every save, as the API takes them. */
+export function saveIssueRetention(
+  input: IssueRetention,
+): Promise<ApiResult<IssueRetention>> {
   return apiRequest("PUT", "/api/issue-retention", input);
 }
 

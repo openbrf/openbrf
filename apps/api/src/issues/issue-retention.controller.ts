@@ -8,7 +8,10 @@ import {
   Put,
   Req,
 } from "@nestjs/common";
-import { ISSUE_TEXT_RETENTION_YEARS } from "@openbrf/shared";
+import {
+  ISSUE_TEXT_RETENTION_YEARS,
+  RING_FENCED_ISSUE_TEXT_RETENTION_YEARS,
+} from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -50,12 +53,21 @@ const redactionSchema = z.discriminatedUnion("target", [
 
 const legalHoldSchema = z.strictObject({ held: z.boolean() });
 
+/**
+ * Both clocks on every save, as the board's screen shows both: a request that
+ * left one out would not say whether it meant to keep it or had lost it.
+ */
 const retentionSchema = z.strictObject({
   years: z
     .number()
     .int()
     .min(ISSUE_TEXT_RETENTION_YEARS.min)
     .max(ISSUE_TEXT_RETENTION_YEARS.max),
+  ringFencedYears: z
+    .number()
+    .int()
+    .min(RING_FENCED_ISSUE_TEXT_RETENTION_YEARS.min)
+    .max(RING_FENCED_ISSUE_TEXT_RETENTION_YEARS.max),
 });
 
 /**
@@ -98,8 +110,9 @@ export class IssueRedactionController {
 }
 
 /**
- * How many years after closing an issue's free text is kept (decision 33).
- * issues:configure, as the type catalogue is: the board decides it.
+ * How many years after closing an issue's free text is kept (decision 33), and
+ * a ring-fenced type's (decision 32). issues:configure, as the type catalogue
+ * is: the board decides both.
  */
 @Controller("api/issue-retention")
 @RequireCapability("issues:configure")
@@ -118,7 +131,7 @@ export class IssueRetentionController {
   ): Promise<IssueRetentionView> {
     return this.setting.set(
       actingPersonId(request),
-      retentionSchema.parse(body).years,
+      retentionSchema.parse(body),
     );
   }
 }

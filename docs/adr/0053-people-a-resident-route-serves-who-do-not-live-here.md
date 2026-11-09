@@ -637,7 +637,9 @@ and only those. In English, with every class declared and
 > **The property manager is an external party.** The association's processor
 > agreement with them has to bind their staff to confidentiality and to the
 > association's purpose for what they see here, whether they use the plugin in
-> their work for the association or for their own. Their system role is per
+> their work for the association or for their own. The agreement must also
+> cover their work in Open BRF: SBC's template, for example, ties processing to
+> the platform SBC itself uses. Their system role is per
 > account: end it when a member of their staff leaves.
 
 Without `addressBook:readContact` the second paragraph says names only. Each

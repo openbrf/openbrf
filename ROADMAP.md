@@ -381,10 +381,13 @@ locally the application runs from source beside the PostgreSQL that
       report (a link from a post that was reported before the fence stays), no
       merge as a duplicate across the fence, no
       connected app or AI package, and not the website's form. Its free text is
-      purged one year after closing, a clock the board does not set, pending
-      the legal review, unless a legal hold stands on the issue or a legal hold
-      or a restriction on its reporter, and the ring-fence is never lifted from a type issues
-      were reported under (ADR 0054, decisions 28 and 32)
+      purged on a clock of its own, which the board sets from one to ten years
+      after closing apart from the other types' clock, one by default, unless a
+      legal hold stands on the issue or a legal hold or a restriction on its
+      reporter, and the ring-fence is never lifted from a type issues were
+      reported under. The form asks the reporter for what happened, what they
+      saw and heard and when, not for an accusation of a crime (ADR 0054,
+      decisions 28 and 32; ADR 0057, question 4)
 - [x] The people an issue concerns: a handler records the residents an issue is
       about who did not report it, such as the neighbour a report of a
       disturbance names, on an issue of any type, from the picker an issue is

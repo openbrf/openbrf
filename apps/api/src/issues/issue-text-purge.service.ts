@@ -16,9 +16,10 @@ import {
 } from "../retention/withheld-persons";
 import {
   ISSUE_FREE_TEXT_STANDING,
+  type IssueTextClocks,
   issueTextClockYears,
+  issueTextClocks,
   issueTextRetentionDays,
-  issueTextRetentionYears,
 } from "./issue-free-text";
 import {
   CONCERNS_NO_WITHHELD_PERSON,
@@ -27,7 +28,7 @@ import {
   lockPersonHolds,
 } from "./issue-concerned-persons";
 import { IssueFreeTextService } from "./issue-free-text.service";
-import { lockIssue } from "./issue-lock";
+import { lockIssueForHandling } from "./issue-lock";
 import { issuePurgeCutoff } from "./issue-retention";
 
 /** Queue the nightly purge of issues' free text runs on. */
@@ -86,10 +87,9 @@ export interface IssueTextPurgeRunSummary {
  *
  * Once an issue has been closed - in the `DONE` meaning, whatever the board
  * named its status - for as many years as the board set, from one to ten and
- * two by default, or for one year when its type is ring-fenced, whatever the
- * board set (`RING_FENCED_ISSUE_TEXT_RETENTION_YEARS`), its free-text layer is
- * removed: the description, the
- * free-text location, every issue message and internal note, and every
+ * two by default, or as many as the board set for a ring-fenced type when its
+ * type is ring-fenced, from one to ten and one by default, its free-text layer
+ * is removed: the description, the free-text location, every issue message and internal note, and every
  * photograph and handler's file, from storage and not only from the issue. The
  * building record stays. `issue-free-text.ts` says which is which, and
  * `IssueFreeTextService` removes it.
@@ -151,16 +151,16 @@ export class IssueTextPurgeService implements OnModuleInit {
    *
    * @param now The moment to judge the clock at, passed in so a test can drive
    *   it forward instead of waiting years.
-   * @param years The clock, in whole years; the board's setting by default.
+   * @param clocks The clocks, in whole years; the board's settings by default.
    * @param pageSize How many issues the scan reads at a time, passed in so a
    *   test can make it read past a page without seeding five hundred issues.
    */
   async run(
     now: Date = new Date(),
-    years?: number,
+    clocks?: IssueTextClocks,
     pageSize: number = MAX_ISSUES_PER_RUN,
   ): Promise<IssueTextPurgeRunSummary> {
-    const clock = years ?? (await issueTextRetentionYears(this.prisma));
+    const clock = clocks ?? (await issueTextClocks(this.prisma));
 
     let considered = 0;
     let purged = 0;
@@ -258,7 +258,7 @@ export class IssueTextPurgeService implements OnModuleInit {
    */
   async eligiblePage(
     now: Date,
-    years: number,
+    clocks: IssueTextClocks,
     after?: IssueCursor,
     take: number = MAX_ISSUES_PER_RUN,
   ): Promise<{ id: string; closedAt: Date }[]> {
@@ -269,7 +269,7 @@ export class IssueTextPurgeService implements OnModuleInit {
 
     const issues = await this.prisma.issue.findMany({
       where: {
-        ...pastClock(now, years),
+        ...pastClock(now, clocks),
         AND: [
           ISSUE_FREE_TEXT_STANDING,
           // Keyset paging on the order below, so a page after one whose
@@ -321,15 +321,15 @@ export class IssueTextPurgeService implements OnModuleInit {
   }
 
   /** The first page of {@link eligiblePage}, as identifiers. */
-  async eligible(now: Date, years: number): Promise<string[]> {
-    return (await this.eligiblePage(now, years)).map((issue) => issue.id);
+  async eligible(now: Date, clocks: IssueTextClocks): Promise<string[]> {
+    return (await this.eligiblePage(now, clocks)).map((issue) => issue.id);
   }
 
   /** Removes one issue's free-text layer, if it is still due. */
   async purgeIssue(
     issueId: string,
     now: Date,
-    years: number,
+    clocks: IssueTextClocks,
   ): Promise<"removed" | "kept" | "unfinished"> {
     /*
      * The clock the entry names. Filled in by `stillDue` from the issue's type
@@ -338,7 +338,7 @@ export class IssueTextPurgeService implements OnModuleInit {
      * was judged by rather than the one the scan saw.
      */
     const context: Record<string, number | boolean> = {
-      retentionYearsAfterClosing: years,
+      retentionYearsAfterClosing: issueTextClockYears(clocks, false),
     };
     return this.freeText.remove(issueId, now, {
       targetPersonId: null,
@@ -359,7 +359,13 @@ export class IssueTextPurgeService implements OnModuleInit {
         if (reporter.reporterEmailIndex !== null) {
           await lockLegalHoldRegistry(tx);
         }
-        await lockIssue(tx, issueId);
+        // The type's lock first, then the issue's: `setRingFence` takes the
+        // type's, so a type ring-fenced while this removal decides is either
+        // read as ring-fenced here, and judged by the ring-fenced clock, or
+        // commits after the removal. Otherwise the text of a case the board
+        // had just ring-fenced could go under the shorter ordinary clock, and
+        // it cannot be put back for a later legal claim.
+        await lockIssueForHandling(tx, issueId);
         // Somebody recorded since the read above is kept for the next run,
         // rather than having their hold read without their key.
         if (await concernsUnlockedPerson(tx, issueId, concerned)) {
@@ -370,7 +376,7 @@ export class IssueTextPurgeService implements OnModuleInit {
         }
 
         const due = await tx.issue.findFirst({
-          where: { id: issueId, ...pastClock(now, years) },
+          where: { id: issueId, ...pastClock(now, clocks) },
           select: {
             reporterPersonId: true,
             reporterEmailIndex: true,
@@ -381,7 +387,10 @@ export class IssueTextPurgeService implements OnModuleInit {
           return false;
         }
         if (due.type.ringFenced) {
-          context.retentionYearsAfterClosing = issueTextClockYears(years, true);
+          context.retentionYearsAfterClosing = issueTextClockYears(
+            clocks,
+            true,
+          );
           context.ringFenced = true;
         }
         if (
@@ -416,13 +425,12 @@ export class IssueTextPurgeService implements OnModuleInit {
  * closes an issue for the clock as Klar does.
  *
  * Two clocks, by the issue's type as it stands now: the board's for an
- * ordinary type, and for a ring-fenced one the shorter of that and
- * `RING_FENCED_ISSUE_TEXT_RETENTION_YEARS`, which the board does not set
+ * ordinary type, and the board's ring-fenced one for a ring-fenced type
  * (decision 32). Read off the type on every run rather than fixed at closing,
- * so a type the board ring-fences brings its closed issues onto the shorter
+ * so a type the board ring-fences brings its closed issues onto the ring-fenced
  * clock from the next night.
  */
-function pastClock(now: Date, years: number): Prisma.IssueWhereInput {
+function pastClock(now: Date, clocks: IssueTextClocks): Prisma.IssueWhereInput {
   const closedBy = (clockYears: number) => ({
     not: null,
     lte: issuePurgeCutoff(now, issueTextRetentionDays(clockYears)),
@@ -433,11 +441,11 @@ function pastClock(now: Date, years: number): Prisma.IssueWhereInput {
     OR: [
       {
         type: { ringFenced: false },
-        closedAt: closedBy(issueTextClockYears(years, false)),
+        closedAt: closedBy(issueTextClockYears(clocks, false)),
       },
       {
         type: { ringFenced: true },
-        closedAt: closedBy(issueTextClockYears(years, true)),
+        closedAt: closedBy(issueTextClockYears(clocks, true)),
       },
     ],
   };
