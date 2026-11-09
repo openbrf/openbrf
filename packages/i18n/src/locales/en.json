@@ -2376,7 +2376,7 @@
         "readContact": "The plugin can read who these people are. Outside the addresses residents use, it can read their names, and their email addresses and phone numbers.",
         "readNames": "The plugin can read who these people are. Outside the addresses residents use, it can read their names.",
         "see": "They see what residents show. What the plugin shows them of residents' records is its choice; its description says what that is, and the plugin tells a resident before they offer or post that these people will see it. A name and an apartment shown at a person's own choice come from the register on each read, so they stop when the person is no longer served. Open BRF cannot see what else a record holds, free text included, so it cannot check that.",
-        "propertyManager": "The property manager is an external party. The association's processor agreement with them has to bind their staff to confidentiality and to the association's purpose for what they see here, whether they use the plugin in their work for the association or for their own. Their system role is per account: end it when a member of their staff leaves."
+        "propertyManager": "The property manager is an external party. The association's processor agreement with them has to bind their staff to confidentiality and to the association's purpose for what they see here, whether they use the plugin in their work for the association or for their own. The agreement must also cover their work in Open BRF: SBC's template, for example, ties processing to the platform SBC itself uses. Their system role is per account: end it when a member of their staff leaves."
       },
       "ai": {
         "title": "An AI package",
@@ -4095,7 +4095,7 @@
       "costResponsibility": "Who pays",
       "costResponsibilityNamed": "{{type}}: who pays",
       "costResponsibilityUnset": "Not stated",
-      "notANoticeToRemedy": "A reply on the issue is not a notice to remedy (rättelseanmaning) under chapter 7, section 12 a of the Tenant-Ownership Act. If the association requires the tenant-owner to put something right, that is done outside Open BRF, in a way that shows the notice arrived, such as a registered letter."
+      "notANoticeToRemedy": "A reply on the issue is not a notice to remedy (rättelseanmaning) under chapter 7, section 12 a of the Tenant-Ownership Act. If the association requires the tenant-owner to put something right, that is done outside Open BRF, for example by registered letter to the tenant-owner's usual address. The notice then counts as given even if the letter is not collected (chapter 7, section 32). If it is sent in another way, the association needs to be able to show that it arrived."
     },
     "timeline": {
       "__after__": "handling",

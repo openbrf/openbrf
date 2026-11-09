@@ -294,7 +294,10 @@ number, shown in the queue, on the reporter's own list and in every mail.
 - **Notice to remedy.** Where a handler records that the cost is the
   tenant-owner's, or closes an issue as their responsibility, the screen says
   that a message on the issue is not a notice to remedy under BRL 7 kap. 12 a
-  §, which is sent outside Open BRF in a way that shows it arrived.
+  §. A notice to remedy is sent outside Open BRF, for example by registered
+  letter to the tenant-owner's usual address, which counts as given even if the
+  letter is not collected (7 kap. 32 §); sent in another way, the association
+  needs to be able to show that it arrived.
 
 ## Damage cases and ring-fenced issue types
 
