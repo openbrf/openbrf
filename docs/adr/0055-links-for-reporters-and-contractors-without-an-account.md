@@ -471,9 +471,12 @@ the owner, and is answered:
   order to a contractor is an exception to decision 21, and the only one. It is
   narrow by construction, and stays an exception only while it stays narrow: the
   server sends only what the handler previewed, the mail carries nothing else
-  from the issue (no report, no reporter, no photographs, no link), and a text
-  with a personal identity number is refused. Every other mail about an issue
-  keeps to decision 21.
+  from the issue (no report, no reporter, no photographs, no link into the
+  application), and a text with a personal identity number is refused. Every
+  other mail about an issue keeps to decision 21. The first work order mailed
+  to a contractor also links the association's privacy notice on its public
+  website (GDPR art. 14(3)(b)), which is nothing from the issue and no link into
+  the application ([ADR 0057](0057-purging-issues-in-two-layers.md#the-contractor-register)).
 - **Question 4.** A work order on an issue whose reporter has protected personal
   data is not refused. Nothing of the issue goes into it but what the handler
   writes, and the form tells the handler to keep the reporter's name and home
@@ -516,7 +519,12 @@ A contractor switched off stays named on the work orders sent them. A
 contractor removed from the register is erased from them as well: the copy of
 the name and address on each is cleared, and the work order stays, saying that
 it went out, when and what it said. That is how a sole trader's erasure is
-honoured; the owner confirmed both on 2026-11-03. The text of a work order is
+honoured; the owner confirmed both on 2026-11-03. The nightly purge takes a
+contractor off the list ten years after the last work order sent them; a work
+order sent them that still holds its text, or is on an issue under a legal hold,
+keeps the copy of their name and address for as long as it keeps its text or
+the hold stands
+([ADR 0057](0057-purging-issues-in-two-layers.md#the-contractor-register)). The text of a work order is
 erased 3,653 days after its issue was closed, so never before the tenth
 anniversary and up to a day after it, by the nightly purge, unless a
 handler redacts it before then ([ADR 0057](0057-purging-issues-in-two-layers.md#redaction)),

@@ -8,6 +8,7 @@ import type { JobQueueService } from "../jobs/job-queue.service";
 import { MailApiError } from "../mail/http-api-mail.driver";
 import { MailNotConfiguredError, type MailService } from "../mail/mail.service";
 import { MailServerNotPublicError } from "../mail/smtp-mail.driver";
+import type { PagesService } from "../site/pages.service";
 import {
   WORK_ORDER_ABANDONED_QUEUE,
   WORK_ORDER_QUEUE,
@@ -40,6 +41,7 @@ function mailerWithWorkers(env: Partial<Env> = {}) {
     {} as FieldEncryptionService,
     {} as MailService,
     jobs as unknown as JobQueueService,
+    {} as PagesService,
   );
   return { mailer, jobs, handlers };
 }
@@ -88,6 +90,12 @@ describe("a work order the mail did not confirm", () => {
 
   function mailerFailingWith(
     outcome: { rejects: unknown } | { resolves: unknown },
+    claimed: {
+      contractorId?: string | null;
+      toldName?: string | null;
+      toldEmailCipher?: string | null;
+    } = {},
+    site: { noticePath?: string | null; contractorEmail?: string } = {},
   ) {
     vi.spyOn(Logger.prototype, "error").mockImplementation(() => {
       // The failure is asserted on the row, not in the log.
@@ -106,6 +114,11 @@ describe("a work order the mail did not confirm", () => {
           recipientName: "Rormokaren AB",
           recipientEmailCipher: "brf:email",
           body: "Byt packningen.",
+          contractorId: "contractor-1",
+          // Told already, at the address the work order was written to.
+          toldName: "Rormokaren AB",
+          toldEmailCipher: "brf:contractor-email",
+          ...claimed,
         },
       ]),
     };
@@ -116,6 +129,11 @@ describe("a work order the mail did not confirm", () => {
       $transaction: vi.fn((work: (client: typeof tx) => unknown) => work(tx)),
       workOrder: { update },
     };
+    const privacyNoticePath = vi
+      .fn()
+      .mockResolvedValue(
+        site.noticePath === undefined ? "/integritetspolicy" : site.noticePath,
+      );
     const send =
       "rejects" in outcome
         ? vi.fn().mockRejectedValue(outcome.rejects)
@@ -124,12 +142,19 @@ describe("a work order the mail did not confirm", () => {
       { NODE_ENV: "test" } as Env,
       prisma as unknown as PrismaService,
       {
-        decrypt: vi.fn().mockResolvedValue("ror@exempel.se"),
+        decrypt: vi.fn((field: string) =>
+          Promise.resolve(
+            field === "contractor.email"
+              ? (site.contractorEmail ?? "ror@exempel.se")
+              : "ror@exempel.se",
+          ),
+        ),
       } as unknown as FieldEncryptionService,
       { send } as unknown as MailService,
       {} as JobQueueService,
+      { privacyNoticePath } as unknown as PagesService,
     );
-    return { mailer, update };
+    return { mailer, update, send, tx, privacyNoticePath };
   }
 
   function recorded(failure: string) {
@@ -187,6 +212,92 @@ describe("a work order the mail did not confirm", () => {
       expect(update).toHaveBeenCalledWith(recorded("delivery-unconfirmed"));
     },
   );
+
+  it.each([
+    ["a contractor never told", { toldName: null, toldEmailCipher: null }, {}],
+    ["a contractor no longer on the list", { contractorId: null }, {}],
+    [
+      "a work order written to the name before the board changed it",
+      { toldName: "Elfirman AB" },
+      {},
+    ],
+    [
+      "a work order written to the address before the board changed it",
+      {},
+      { contractorEmail: "el@exempel.se" },
+    ],
+  ] as const)(
+    "links the privacy notice for %s",
+    async (_what, claimed, site) => {
+      const { mailer, send } = mailerFailingWith(
+        { rejects: new MailNotConfiguredError() },
+        claimed,
+        site,
+      );
+
+      await mailer.send("wo-1");
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          props: expect.objectContaining({
+            privacyNoticePath: "/integritetspolicy",
+          }),
+        }),
+      );
+    },
+  );
+
+  it("leaves the link out for a recipient the row says was told", async () => {
+    const { mailer, send } = mailerFailingWith({
+      rejects: new MailNotConfiguredError(),
+    });
+
+    await mailer.send("wo-1");
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        props: expect.objectContaining({ privacyNoticePath: null }),
+      }),
+    );
+  });
+
+  it("sends a later work order while the notice is unpublished", async () => {
+    const { mailer, send } = mailerFailingWith(
+      { rejects: new MailNotConfiguredError() },
+      {},
+      { noticePath: null },
+    );
+
+    await mailer.send("wo-1");
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        props: expect.objectContaining({ privacyNoticePath: null }),
+      }),
+    );
+  });
+
+  it("records a work order that owes the link as not sent while the notice is unpublished", async () => {
+    const { mailer, update, send } = mailerFailingWith(
+      { resolves: {} },
+      { toldName: null, toldEmailCipher: null },
+      { noticePath: null },
+    );
+
+    expect(await mailer.send("wo-1")).toBe("failed");
+    expect(send).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith(recorded("privacy-notice-unpublished"));
+  });
+
+  it("reads the notice in the claim's transaction, under a share lock", async () => {
+    const { mailer, tx, privacyNoticePath } = mailerFailingWith({
+      rejects: new MailNotConfiguredError(),
+    });
+
+    await mailer.send("wo-1");
+    // The claim's own client: a second connection, asked for while the claim
+    // holds one, waits for ever on a pool of one.
+    expect(privacyNoticePath).toHaveBeenCalledExactlyOnceWith(tx, {
+      share: true,
+    });
+  });
 
   it("records no mail server as its own code", async () => {
     const { mailer, update } = mailerFailingWith({

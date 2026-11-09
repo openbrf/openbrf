@@ -117,6 +117,7 @@ const typeIds = {
   snapshot: `bv-type-snapshot-${suffix}`,
   backslash: `bv-type-backslash-${suffix}`,
   bodies: `bv-type-bodies-${suffix}`,
+  recipients: `bv-type-recipients-${suffix}`,
 };
 let water: IssueTypeFixture;
 let lift: IssueTypeFixture;
@@ -1442,6 +1443,50 @@ describe("the search", () => {
     ]);
     expect(await list(manager, { view: "ALL", q: noted })).toEqual([]);
     expect((await counts(manager, { q: noted })).all).toBe(0);
+  });
+
+  it("matches the name a work order was written to, after the contractor left the list too", async () => {
+    // A type of its own, so no other test's set of issues changes. Neither
+    // issue's description, type or reporter holds the name, so only the work
+    // orders can match it.
+    const type = await createIssueTypeFixture(prisma, {
+      id: typeIds.recipients,
+      name: `Mottagare ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    // Closed, with the copy the list's clock leaves: named by no contractor,
+    // and kept because the work order still holds its text.
+    const closed = await issue(type, "recipient-closed", { meaning: "DONE" });
+    const keptToBoard = await issue(type, "recipient-board-only", {
+      boardOnly: true,
+    });
+    const name = `Plåtslageri${suffix} AB`;
+    await prisma.workOrder.createMany({
+      data: [closed, keptToBoard].map((issueId) => ({
+        issueId,
+        contractorId: null,
+        recipientName: name,
+        recipientEmailCipher: null,
+        // Text that holds none of the words searched for, so the name is
+        // what matches.
+        body: "Byt packningen i kranen.",
+        sentByPersonId: board.personId,
+        deliveryStatus: "SENT" as const,
+      })),
+    });
+    const found = async (who: { personId: string }, q: string) =>
+      ids(await list(who, { view: "ALL", typeId: type.id, q }));
+
+    expect(await found(board, `PLÅTSLAGERI${suffix}`)).toEqual(
+      [closed, keptToBoard].toSorted(byText),
+    );
+    // The words in their own places: the name on the work order, the type's
+    // name on the type.
+    expect(await found(board, `plåtslageri${suffix} Mottagare`)).toEqual(
+      [closed, keptToBoard].toSorted(byText),
+    );
+    // Only on the issues the reader handles.
+    expect(await found(manager, `plåtslageri${suffix}`)).toEqual([closed]);
   });
 
   it("reads the messages and the notes through their trigram indexes", async () => {

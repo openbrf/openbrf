@@ -108,7 +108,11 @@ export interface WorkOrderView {
   id: string;
   /** The contractor on the list, or null once they were removed from it. */
   contractorId: string | null;
-  /** Null once the contractor was removed from the list and with it erased. */
+  /**
+   * Null once the board removed the contractor from the list, which erases
+   * them from it; or, once the list's own clock removed them, when the work
+   * order's text went (ADR 0057).
+   */
   recipientName: string | null;
   recipientEmail: string | null;
   /**
@@ -190,6 +194,11 @@ export interface IssueWorkOrdersView {
  *   decides what a contractor needs to know, and the preview shows them what
  *   they decided.
  * - **A contractor who is off the list**, switched off, or has no address.
+ * - **A privacy notice that is not published**, while the work order must link
+ *   it: the first to a contractor, or the first since the board changed their
+ *   name or address (GDPR art. 14(3)(b), ADR 0057 question 6). That work order
+ *   is the first communication with whoever reads the address, and is not sent
+ *   without the link; the board publishes the notice, and the handler sends.
  */
 @Injectable()
 export class WorkOrderService {
@@ -280,6 +289,7 @@ export class WorkOrderService {
       this.mailer.render({
         recipientName: prepared.recipient.name,
         body: prepared.body,
+        privacyNoticePath: prepared.privacyNoticePath,
       }),
       this.mail.isConfigured(),
     ]);
@@ -489,7 +499,9 @@ export class WorkOrderService {
   /**
    * What a preview and a sending both decide: the issue is one the reader
    * handles and not ring-fenced, the contractor is on the list with an
-   * address, and the text says something and carries no identity number.
+   * address, the text says something and carries no identity number, and the
+   * privacy notice is published if the work order must link it. Also whether
+   * it links the notice, for the preview to show.
    *
    * The text is folded as the identity-number scan folds it, and that is what
    * is both checked and stored, so what was checked is what is sent.
@@ -507,6 +519,7 @@ export class WorkOrderService {
     contractorId: string;
     recipient: { name: string; email: string };
     body: string;
+    privacyNoticePath: string | null;
   }> {
     const issue = await this.requireHandled(db, issueId, readerPersonId, as);
     if (issue.type.ringFenced) {
@@ -544,10 +557,21 @@ export class WorkOrderService {
       );
     }
 
+    // After the contractor's row is locked, in a sending: the board's change
+    // to the name or address, which clears the mark, waits for it.
+    const notice = await this.mailer.privacyNoticeFor(db, contractor.id);
+    if (notice.owed && notice.path === null) {
+      throw new IssueError(
+        "This work order must link the association's privacy notice, which is not published on its website. Publish the privacy notice first.",
+        "work-order-privacy-notice-unpublished",
+      );
+    }
+
     return {
       contractorId: contractor.id,
       recipient: { name: contractor.name, email: contractor.email },
       body,
+      privacyNoticePath: notice.owed ? notice.path : null,
     };
   }
 

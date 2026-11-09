@@ -200,7 +200,8 @@ open, overdue and unassigned. It shows no charts.
 
 The search matches each of its words somewhere in the issue's description, its
 place, its type's name, its apartment's designation, its reporter's name, a
-message in its conversation with the reporter or an internal note on it. It
+message in its conversation with the reporter, an internal note on it or the
+name one of its work orders was written to ([ADR 0057](0057-purging-issues-in-two-layers.md#the-contractor-register)). It
 reads the first six different words and ignores any after them. Case does not
 matter, and each word is matched in both Unicode forms, composed and decomposed,
 because text is stored as it was sent. A word that mixes the two forms within

@@ -4987,6 +4987,15 @@ model IssuePhoto {
 /// keeps its own copy of whom it went to. The telephone number and the address
 /// are encrypted at rest, as a reporter's address is, with no blind index:
 /// nothing looks a contractor up by either.
+///
+/// The nightly issue purge removes a contractor ten years after the last work
+/// order sent them, or after they were added if none was (ADR 0057, question
+/// 6): the general limitation period for a claim about the work
+/// (preskriptionslagen (1981:130) 2 §). On that clock alone: a work order
+/// written to them, sent or not, that still holds its text, or is on an issue
+/// under a legal hold, keeps its own copy of whom it went to, and loses it when
+/// the last of the two goes: with its text, or, for one whose text is already
+/// gone, when the hold is released.
 model Contractor {
   id String @id @default(cuid())
 
@@ -5006,8 +5015,20 @@ model Contractor {
   /// list to say whom it used.
   active Boolean @default(true)
 
+  /// When a work order that linked the association's privacy notice was
+  /// accepted by the mail server for this contractor (GDPR art. 14(3)(b),
+  /// ADR 0057 question 6). While it is null the next work order mailed to
+  /// them links the notice, and is not sent while the notice is unpublished;
+  /// the board changing the name or the address clears it, because whoever
+  /// reads that address now has not been told. It speaks for the name and
+  /// address on this row only, so a work order written to earlier ones links
+  /// the notice whatever it says (`WorkOrderMailerService`).
+  privacyNoticeGivenAt DateTime?
+
   workOrders WorkOrder[]
 
+  /// When the board added the contractor. With no work order sent them, the
+  /// ten-year clock that removes them from the list runs from here.
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -5065,11 +5086,14 @@ model WorkOrder {
   /// the list is corrected. The address encrypted as the contractor's is, with
   /// the work order's id as its context.
   ///
-  /// Both null once the contractor is removed from the list: removing a
-  /// contractor is how a sole trader's erasure is honoured, and it reaches
-  /// the copies on their work orders too (`ContractorService.remove`). The
-  /// row stays, so the issue still records that a work order went out, when,
-  /// and what it said.
+  /// Both null once the board removes the contractor from the list: that
+  /// removal is how a sole trader's erasure is honoured, and it reaches the
+  /// copies on their work orders too (`ContractorService.remove`). The list's
+  /// own clock leaves them on a work order that still holds its text or is on
+  /// an issue under a legal hold, until the last of the two goes
+  /// (`retireContractor`, `eraseRecipientsLeft`), and clears them on the
+  /// others. The row stays, so the issue still records that a work order went
+  /// out, when, and what it said.
   recipientName        String?
   recipientEmailCipher String?
 

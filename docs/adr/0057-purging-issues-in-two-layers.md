@@ -66,8 +66,11 @@ that the apartment and the place do not. The record goes, but where a work
 order's text stands, which has its clock, a bare row stays as the selector a
 later hold or restriction finds that text by, until the last of it is erased
 (see the same section). What stays of a
-work order is the record of who received it (until that contractor is removed
-from the list, which clears the name and address) and when, and which kinds of data it
+work order is the record of who received it (until the board removes that
+contractor from the list, which clears the name and address, or, once the list's
+own clock has taken the contractor off it, for as long as the work order keeps
+its text or a legal hold stands on its issue; see
+[The contractor register](#the-contractor-register)) and when, and which kinds of data it
 carried, because that is what art. 15(1)(c) and art. 19 ask the association to
 answer (decision 23); its words go too, on a clock of their own (below). The free-text
 location goes with them because decision 33 removes free text, and "the bathroom
@@ -145,6 +148,91 @@ legal hold applies:
 - **on a person it concerns**, a legal hold or a restriction under art. 18, read
   by their person as a signed-in reporter is: the text is what the case holds
   about them as well.
+
+### The contractor register
+
+The answer to question 6, which the legal review gave and the owner accepted on
+2026-11-09. A sole trader's name, telephone number and email address are
+personal data, and so are a firm's contact person's. The association's list of
+contractors holds all three. A work order written to them keeps its own copy of
+the name and the email address it was mailed to, but not the telephone number,
+which is for the handler and is sent nowhere.
+
+- **The basis.** The contract (art. 6(1)(b)) for a contractor who is a sole
+  trader, and the association's legitimate interest in hiring and reaching the
+  firm (art. 6(1)(f)) for a firm's contact person. The record of processing
+  activities' `issues` row states both.
+- **The information.** A contractor who gives the board their details
+  themselves is owed the information when they give them (art. 13(1)); one whose
+  details the board takes from somewhere else, such as the firm's own website or
+  the firm a contact person works for, is owed it within a reasonable period
+  and at the latest a month after the board obtained them (art. 14(3)(a)), and
+  sooner if the board writes to them before that month is out: at the latest
+  with that first communication (art. 14(3)(b)). The month is the outer limit
+  whichever comes first, as the EDPB's transparency guidelines (WP260 rev.01)
+  read the article. Open BRF cannot tell which of the two happened, nor when the
+  board obtained the details, and a work order meets neither deadline on its
+  own, because it may come later or never. So the board points a contractor
+  who gives their details themselves to the privacy notice when they do, and
+  one whose details it found elsewhere within a month of finding them, unless a
+  work order has gone to them by then, as the contractor list's description
+  asks. As the means for the first communication, and as a backstop for both,
+  the first work order mailed to a contractor links the association's privacy
+  notice, the page on
+  its public website every visitor reads, which is not a link into the
+  application and carries nothing from the issue. A later work order does not
+  repeat it. The list records when a mail that carried the link was accepted by
+  the mail server (`privacyNoticeGivenAt`); a mail that was refused or that
+  nobody can vouch for leaves it unset, so the next work order carries the link,
+  and the board changing the contractor's name or address clears it, because
+  whoever reads that address now has not been told. The mark speaks only for
+  the name and address the list holds: a work order written to an earlier name
+  or address, still queued when another work order to the new ones set it,
+  carries the link all the same. A work order that must carry the link is never
+  sent without it. While the notice is not on the public website for anyone to
+  read (missing, a draft, or for members only), the handler is refused the
+  preview and the sending of such a work order (`work-order-privacy-notice-unpublished`),
+  and one already queued when the notice was taken down is recorded as not sent
+  (`privacy-notice-unpublished`), for the handler to write again once the board
+  has published the notice. A work order to a contractor already told goes out
+  as before.
+- **The clock.** A contractor is removed from the list ten years after the last
+  work order sent them, or after the board added them if none was, counted as
+  a work order's text is (3,653 days, `CONTRACTOR_RETENTION_DAYS`). The anchor
+  is the general limitation period for a claim about the work
+  (preskriptionslagen (1981:130) 2 §), the same one a work order's text keeps
+  to. The nightly issue purge takes them off the list on that clock alone: the
+  row goes, with the name, the trade, the telephone number and the address the
+  list held, whether or not a work order written to them still holds its text, and
+  whether or not one is on an issue under a legal hold. The list is the
+  association's means of hiring, and it does not wait on a record whose clock
+  runs from an issue's closing, which may come years after the last work order
+  or not at all. A work order is that record, and keeps its own copy of whom it
+  went to, the name and the address it was written to, for as long as it keeps
+  what it said: one that still holds its text, or is on an issue under a legal
+  hold, keeps the copy, named by no contractor on the list. The copy goes with
+  the text, whether the work-order text purge erases it or a handler redacts it,
+  and on a work order whose text is already gone, with the release of the hold.
+  The others lose it when the contractor goes. A work order whose mail is known
+  never to have left Open BRF (`deliveryStatus` FAILED with any code but
+  `delivery-unconfirmed`) does not count as sent them: no claim about the work
+  rests on a mail the firm never got. A work order's
+  own record keeps its ten years after its issue closed, as above; this clock
+  changes nothing of it.
+  The board can remove a contractor sooner, which is how a sole trader's
+  erasure request is honoured ([ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md#the-mailed-work-order)).
+
+A contractor is not a person in the register, so no data subject access report
+is generated for one: the board answers a contractor's request from the list
+and the work orders written to them. Once the clock has removed a contractor,
+no contractor on the list names the work orders that kept their name, so the
+issue queue's search matches the name a work order was written to. The board
+handles every issue, and its search for the name in the All view, with closed
+issues included and no other filter, finds every work order that still holds
+it: Mine and Unassigned hold only some issues, and Overdue only open ones. The address is stored encrypted
+and is not searched, as a reporter's from the website's form is not. Invoices follow bookkeeping law
+(bokföringslagen (1999:1078) 7 kap. 2 §) outside Open BRF. Whether a work order
+is räkenskapsinformation is left open by the review.
 
 ### The purge reads the meaning
 
@@ -427,9 +515,10 @@ review:
    case, and art. 10 on an allegation (decision 32). Answered; see below.
 5. **The timeline** (decision 16): if it is a table of its own rather than read
    from the audit log, each person column on it needs its own answer here.
-6. **A contractor's own data**, a sole trader's name and telephone number in the
-   contractor register, which is not a person in the register: on which report,
-   and on which clock.
+6. **A contractor's own data** _(answered by the legal review, 2026-11-09)_, a
+   sole trader's name and telephone number in the contractor register, which is
+   not a person in the register: on which report, and on which clock. See
+   [The contractor register](#the-contractor-register).
 
 ### The legal review's answer to question 4
 
@@ -469,6 +558,13 @@ advice, and what no source settled is listed as open for counsel.
   board's clock; the website form's contact details keep their own 365 days. The
   record of processing activities' `issues` row states both, and its subjects gain
   board members, former residents and the property manager.
+- The nightly issue purge takes a contractor off the list ten years after the
+  last work order sent them, after the work-order texts, and the copy of whom a
+  work order went to that such a contractor left behind goes with the text, by
+  the work-order text purge or a handler's redaction, or with the release of the
+  hold that kept it. The first work order mailed to a contractor links the association's
+  privacy notice, and is not sent while the notice is unpublished
+  ([The contractor register](#the-contractor-register)).
 - An issue erasure job reads granted requests and runs before `53 3`.
   `ERASURE_DOMAINS` and `ErasureDomainKey` gain its domain, with the board's
   screen's words for it in both languages, and the list of domains in the

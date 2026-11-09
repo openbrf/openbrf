@@ -8,6 +8,11 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import {
+  eraseRecipientsLeft,
+  retireContractor,
+  WORK_ORDER_RECIPIENT_LEFT,
+} from "./contractor.service";
 import { lockIssue } from "./issue-lock";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
@@ -22,12 +27,14 @@ import {
   releaseConcernedSelectors,
 } from "./issue-concerned-persons";
 import {
+  CONTRACTOR_RETENTION_DAYS,
   detachErasedReporter,
   ISSUE_RETENTION_DAYS,
   issuePurgeCutoff,
   WORK_ORDER_BODY_RETENTION_DAYS,
   WORK_ORDER_TEXT_STANDING,
 } from "./issue-retention";
+import { WORK_ORDER_DELIVERY_FAILURES } from "./work-order-delivery";
 import { revokeWorkOrderLinks } from "./work-order-link";
 
 /** Queue the nightly public-form issue purge runs on. */
@@ -67,6 +74,8 @@ export interface IssuePurgeRunSummary {
   failed: number;
   /** The same three counts for the issues whose work-order text was erased. */
   workOrderTexts: { considered: number; purged: number; failed: number };
+  /** And for the contractors removed from the list on their clock. */
+  contractors: { considered: number; purged: number; failed: number };
 }
 
 /**
@@ -156,15 +165,18 @@ export interface IssuePurgeRunSummary {
  * passed since it was closed (see `issue-retention.ts`). Unlike the description, that text
  * is not the association's record of its building but a copy of a mail it sent
  * a firm, in a handler's words that may name the reporter or a neighbour; the
- * row stays with whom it went to and when, which is the record of the
- * disclosure. A legal hold or a restriction against the issue's reporter, or
- * against a person the issue concerns (`IssueConcernedPerson`, ADR 0057),
- * keeps the text, as it keeps the reporter's details and the issue's own free
- * text, read again under the registry key inside the transaction that erases
- * it. The record of whom the issue concerns goes with the free-text layer, but
- * its row stays as a bare selector while any work order's text stands, so a
- * hold or a restriction placed after that still reaches the text; the
- * transaction that erases the last text deletes it.
+ * row stays with when it went, which is the record of the disclosure, and with
+ * whom it went to while that contractor stays on the list. A work order whose
+ * contractor the list's clock has already taken off it (below) kept its copy
+ * of their name and address for this text's sake, and loses it with the text. A
+ * legal hold or a restriction against the issue's reporter, or against a person
+ * the issue concerns (`IssueConcernedPerson`, ADR 0057), keeps the text, as it
+ * keeps the reporter's details and the issue's own free text, read again under
+ * the registry key inside the transaction that erases it. The record of whom the
+ * issue concerns goes with the free-text layer, but its row stays as a bare
+ * selector while any work order's text stands, so a hold or a restriction placed
+ * after that still reaches the text; the transaction that erases the last text
+ * deletes it.
  *
  * On a public-form report the reporter is reached only through the address
  * index, so that index has to outlive the contact details for as long as a
@@ -184,6 +196,27 @@ export interface IssuePurgeRunSummary {
  * (`retention/purge.service.ts`), and detaches it on a later run once the text
  * is gone. A person whose erasure request was carried out is not selected
  * again, so for them the transaction that erases the last text clears it.
+ *
+ * ## The contractor list
+ *
+ * The same run takes a contractor off the association's list ten years after
+ * the last work order sent them, or after the board added them if none was
+ * (`CONTRACTOR_RETENTION_DAYS`, ADR 0057 question 6): the row goes, with the
+ * name, the trade, the telephone number and the address the list held. A sole
+ * trader's name and number are personal data, and no list keeps them for ever.
+ *
+ * On that clock alone. The list is the association's means of hiring, and a
+ * work order is a record with a clock of its own, which runs from its issue's
+ * closing and which a legal hold holds back; the list's details do not wait
+ * for it. A work order written to them, sent or not, that still holds its
+ * text, or is on an issue under a legal hold, keeps its own copy of whom it
+ * went to, the name and the address it was written to, for as long as it keeps
+ * what it said. The copy
+ * goes with the text, whether this purge erases it or a handler redacts it, and
+ * on a work order whose text is already gone, with the release of the hold
+ * (`eraseRecipientsLeft`). The other work orders lose the copy when the
+ * contractor goes (`retireContractor`). A work order whose mail is known never
+ * to have left does not count as sent them (`contractorPastWindow`).
  */
 @Injectable()
 export class IssuePurgeService implements OnModuleInit {
@@ -225,6 +258,7 @@ export class IssuePurgeService implements OnModuleInit {
     now: Date = new Date(),
     retentionDays: number = ISSUE_RETENTION_DAYS,
     workOrderRetentionDays: number = WORK_ORDER_BODY_RETENTION_DAYS,
+    contractorRetentionDays: number = CONTRACTOR_RETENTION_DAYS,
   ): Promise<IssuePurgeRunSummary> {
     const issueIds = await this.eligible(now, retentionDays);
 
@@ -263,12 +297,143 @@ export class IssuePurgeService implements OnModuleInit {
       );
     }
 
+    const workOrderTexts = await this.runWorkOrderTexts(
+      now,
+      workOrderRetentionDays,
+    );
     return {
       considered: issueIds.length,
       purged,
       failed,
-      workOrderTexts: await this.runWorkOrderTexts(now, workOrderRetentionDays),
+      workOrderTexts,
+      // After the texts, so a work order whose text goes tonight loses its
+      // copy of whom it went to with its contractor tonight too.
+      contractors: await this.runContractors(now, contractorRetentionDays),
     };
+  }
+
+  /** Removes every contractor past their window from the list. */
+  private async runContractors(
+    now: Date,
+    retentionDays: number,
+  ): Promise<IssuePurgeRunSummary["contractors"]> {
+    const contractorIds = await this.eligibleContractors(now, retentionDays);
+
+    let purged = 0;
+    let failed = 0;
+    for (const contractorId of contractorIds) {
+      try {
+        if (await this.purgeContractor(contractorId, now, retentionDays)) {
+          purged += 1;
+        }
+      } catch (error) {
+        // The contractor's id and the class of the failure, never what it
+        // was holding: see `run`.
+        failed += 1;
+        this.logger.error(
+          `Contractor purge failed for contractor ${contractorId}: ${failureName(error)}`,
+        );
+      }
+    }
+
+    if (purged > 0 || failed > 0) {
+      this.logger.log(
+        `Removed ${String(purged)} of ${String(
+          contractorIds.length,
+        )} eligible contractors from the list`,
+      );
+    }
+    if (contractorIds.length === MAX_ISSUES_PER_RUN) {
+      this.logger.log(
+        `Contractor purge stopped at its per-run bound of ${String(
+          MAX_ISSUES_PER_RUN,
+        )}; the rest are removed by the next run.`,
+      );
+    }
+
+    return { considered: contractorIds.length, purged, failed };
+  }
+
+  /**
+   * The contractors on the list past their window, the longest-standing
+   * first: added before the cutoff, and sent no work order since it.
+   */
+  async eligibleContractors(
+    now: Date,
+    retentionDays: number,
+  ): Promise<string[]> {
+    const rows = await this.prisma.contractor.findMany({
+      where: contractorPastWindow(issuePurgeCutoff(now, retentionDays)),
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: MAX_ISSUES_PER_RUN,
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * Removes one contractor past their window from the list, and answers
+   * whether it did.
+   *
+   * The window is read again under the locks a sending takes, in its order:
+   * the lock of every issue a work order went to them on, which a handler
+   * placing a legal hold takes too, and then the contractor's row, which a
+   * sending holds while it writes a work order to them. A work order written
+   * while the run is in flight therefore keeps the contractor, and a hold
+   * placed while it is in flight keeps that work order's copy of whom it went
+   * to. The entry names the contractor by id, with how many work orders lost
+   * their copy of the name and the address and how many keep it, and the
+   * window, never a name.
+   */
+  async purgeContractor(
+    contractorId: string,
+    now: Date = new Date(),
+    retentionDays: number = CONTRACTOR_RETENTION_DAYS,
+  ): Promise<boolean> {
+    const cutoff = issuePurgeCutoff(now, retentionDays);
+
+    return this.prisma.$transaction(async (tx) => {
+      const issues = await tx.workOrder.findMany({
+        where: { contractorId },
+        distinct: ["issueId"],
+        orderBy: { issueId: "asc" },
+        select: { issueId: true },
+      });
+      for (const { issueId } of issues) {
+        await lockIssue(tx, issueId);
+      }
+      await tx.$queryRaw`SELECT "id" FROM "contractor" WHERE "id" = ${contractorId} FOR UPDATE`;
+      const still = await tx.contractor.findFirst({
+        where: { id: contractorId, ...contractorPastWindow(cutoff) },
+        select: { id: true },
+      });
+      if (still === null) {
+        return false;
+      }
+
+      const { removed, workOrdersErased, workOrdersKept } =
+        await retireContractor(tx, contractorId);
+      if (!removed) {
+        return false;
+      }
+      await this.audit.record(
+        {
+          action: "SERVICE_DATA_PURGED",
+          channel: "SYSTEM",
+          actorPersonId: null,
+          targetPersonId: null,
+          targetKind: "contractor",
+          targetId: contractorId,
+          context: {
+            workOrdersErased,
+            workOrdersKept,
+            retentionDaysAfterLastWorkOrder: retentionDays,
+          },
+        },
+        tx,
+      );
+      return true;
+    });
   }
 
   /** Erases the text of the work orders on every closed issue past its window. */
@@ -336,8 +501,16 @@ export class IssuePurgeService implements OnModuleInit {
         status: { meaning: "DONE" },
         closedAt: { not: null, lte: cutoff },
         legalHoldAt: null,
-        ...WORK_ORDER_TEXT_STANDING,
         AND: [
+          // A text to erase, or the copy of whom a work order went to that a
+          // contractor taken off the list left behind on a work order whose
+          // text was redacted, and which goes on the same clock.
+          {
+            OR: [
+              WORK_ORDER_TEXT_STANDING,
+              { workOrders: { some: WORK_ORDER_RECIPIENT_LEFT } },
+            ],
+          },
           // Conditional, with the null branch beside it, for the reason
           // `eligible` gives: `NOT IN` answers null for a null column.
           ...(persons.length > 0
@@ -373,7 +546,10 @@ export class IssuePurgeService implements OnModuleInit {
 
   /**
    * Erases the text of one closed issue's work orders, and answers whether any
-   * went. The recipient, the date and the delivery record stay.
+   * went. The date and the delivery record stay, and so does whom each went to
+   * while that contractor is on the list; a work order whose contractor the
+   * list's clock took off it loses its copy of their name and address with the
+   * text (see the class comment).
    *
    * The closing and the issue's own legal hold are read again under the issue
    * lock, which a reopen and a hold placed on the issue take too
@@ -434,7 +610,8 @@ export class IssuePurgeService implements OnModuleInit {
         where: { issueId, body: { not: null } },
         data: { body: null },
       });
-      if (count === 0) {
+      const recipientsErased = await eraseRecipientsLeft(tx, { issueId });
+      if (count === 0 && recipientsErased === 0) {
         return false;
       }
       // A link to a work order with no text has nothing to show, and ends
@@ -489,6 +666,9 @@ export class IssuePurgeService implements OnModuleInit {
           targetId: issueId,
           context: {
             workOrderTexts: count,
+            ...(recipientsErased > 0
+              ? { workOrderRecipients: recipientsErased }
+              : {}),
             retentionDaysAfterClosing: retentionDays,
             ...(addressIndexCleared > 0 ? { addressIndexCleared: true } : {}),
             ...(reporterDetached ? { reporterDetached: true } : {}),
@@ -703,4 +883,30 @@ export class IssuePurgeService implements OnModuleInit {
       "issue.reporterEmail",
     );
   }
+}
+
+/**
+ * A contractor whose window has run out: added before the cutoff, and sent no
+ * work order after it. What their work orders still hold is theirs to keep,
+ * and does not keep the contractor on the list (see the class comment).
+ *
+ * A work order counts as sent them unless its mail is known never to have
+ * left this instance: one still waiting, one the mail server accepted, and one
+ * nobody can tell about (`unconfirmed`) count; one that failed before any mail
+ * server held it does not, since no claim about the work can rest on a mail
+ * the firm never got, and a handler who still hires them writes another.
+ */
+function contractorPastWindow(cutoff: Date): Prisma.ContractorWhereInput {
+  return {
+    createdAt: { lte: cutoff },
+    workOrders: {
+      none: {
+        createdAt: { gt: cutoff },
+        OR: [
+          { deliveryStatus: { in: ["PENDING", "SENT"] } },
+          { deliveryFailure: WORK_ORDER_DELIVERY_FAILURES.unconfirmed },
+        ],
+      },
+    },
+  };
 }
