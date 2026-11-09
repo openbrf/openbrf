@@ -3147,8 +3147,9 @@ export class IssueService {
 
   /**
    * Refuses, as an issue that does not exist, one a read with `omit` leaves
-   * out: an issue of a ring-fenced type, or one a person with protected
-   * personal data reported (ADR 0056). Nothing with `show`.
+   * out: an issue of a ring-fenced type, one a person with protected personal
+   * data reported, or one that concerns such a person (ADR 0056, 0057).
+   * Nothing with `show`.
    *
    * Asked inside the write's transaction, after `lockForAssignment`. The
    * ring-fence changes under the type's lock (`IssueTypeService`), so that part
@@ -3301,7 +3302,9 @@ export class IssueService {
   ): Promise<QueueRecord[]> {
     return this.prisma.$transaction(
       async (tx) => readQueueIn(tx, where, meanings, after, take),
-      { isolationLevel: "RepeatableRead" },
+      {
+        isolationLevel: "RepeatableRead",
+      },
     );
   }
 
@@ -3398,15 +3401,17 @@ export class IssueService {
      * as one the issue concerns, must not leave with the view (ADR 0057).
      */
     const protectedConcerns = new Set(
-      (
-        await this.prisma.issueConcernedPerson.findMany({
-          where: {
-            issueId: { in: issues.map((issue) => issue.id) },
-            person: { protectedPersonalData: true },
-          },
-          select: { issueId: true },
-        })
-      ).map((row) => row.issueId),
+      issues.length === 0
+        ? []
+        : (
+            await this.prisma.issueConcernedPerson.findMany({
+              where: {
+                issueId: { in: issues.map((issue) => issue.id) },
+                person: { protectedPersonalData: true },
+              },
+              select: { issueId: true },
+            })
+          ).map((row) => row.issueId),
     );
     return views.filter(
       (view) =>
