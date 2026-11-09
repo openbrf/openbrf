@@ -4911,11 +4911,11 @@ model IssuePhoto {
 /// nothing looks a contractor up by either.
 ///
 /// The nightly issue purge removes a contractor ten years after the last work
-/// order sent them, or after they were added if none was, as the board's
-/// removal does (ADR 0057, question 6): the general limitation period for a
-/// claim about the work (preskriptionslagen (1981:130) 2 §). Not while a work
-/// order sent them still holds its text or is on an issue under a legal hold,
-/// so a work order keeps whom it went to for as long as it keeps what it said.
+/// order sent them, or after they were added if none was (ADR 0057, question
+/// 6): the general limitation period for a claim about the work
+/// (preskriptionslagen (1981:130) 2 §). On that clock alone: a work order sent
+/// them that still holds its text, or is on an issue under a legal hold, keeps
+/// its own copy of whom it went to, and loses it with its text.
 model Contractor {
   id String @id @default(cuid())
 
@@ -4938,9 +4938,11 @@ model Contractor {
   /// When a work order that linked the association's privacy notice was
   /// accepted by the mail server for this contractor (GDPR art. 14(3)(b),
   /// ADR 0057 question 6). While it is null the next work order mailed to
-  /// them links the notice; the board changing the name or the address clears
-  /// it, because whoever reads that address now has not been told
-  /// (`WorkOrderMailerService`).
+  /// them links the notice, and is not sent while the notice is unpublished;
+  /// the board changing the name or the address clears it, because whoever
+  /// reads that address now has not been told. It speaks for the name and
+  /// address on this row only, so a work order written to earlier ones links
+  /// the notice whatever it says (`WorkOrderMailerService`).
   privacyNoticeGivenAt DateTime?
 
   workOrders WorkOrder[]

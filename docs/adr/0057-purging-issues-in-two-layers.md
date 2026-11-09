@@ -57,9 +57,10 @@ countable.
 free-text location, every issue message and internal note, the text of every
 work order and the contractor's notes, and every photograph and every file a
 contractor uploaded, removed from storage and not only unlinked. What stays of a
-work order is the record of who received it (until that contractor is removed
-from the list, by the board or by the list's own clock, which clears the name and
-address; see [The contractor register](#the-contractor-register)) and when, and which kinds of data it
+work order is the record of who received it (until the board removes that
+contractor from the list, which clears the name and address, or, once the list's
+own clock has taken the contractor off it, until the work order's text goes; see
+[The contractor register](#the-contractor-register)) and when, and which kinds of data it
 carried, because that is what art. 15(1)(c) and art. 19 ask the association to
 answer (decision 23); its words go too, on a clock of their own (below). The free-text
 location goes with them because decision 33 removes free text, and "the bathroom
@@ -152,19 +153,36 @@ else.
   the mail server (`privacyNoticeGivenAt`); a mail that was refused or that
   nobody can vouch for leaves it unset, so the next work order carries the link,
   and the board changing the contractor's name or address clears it, because
-  whoever reads that address now has not been told. While the notice is not
-  published a work order goes without the link and leaves it unset.
+  whoever reads that address now has not been told. The mark speaks only for
+  the name and address the list holds: a work order written to an earlier name
+  or address, still queued when another work order to the new ones set it,
+  carries the link all the same. A work order that must carry the link is never
+  sent without it. While the notice is not on the public website for anyone to
+  read (missing, a draft, or for members only), the handler is refused the
+  preview and the sending of such a work order (`work-order-privacy-notice-unpublished`),
+  and one already queued when the notice was taken down is recorded as not sent
+  (`privacy-notice-unpublished`), for the handler to write again once the board
+  has published the notice. A work order to a contractor already told goes out
+  as before.
 - **The clock.** A contractor is removed from the list ten years after the last
   work order sent them, or after the board added them if none was, counted as
   a work order's text is (3,653 days, `CONTRACTOR_RETENTION_DAYS`). The anchor
   is the general limitation period for a claim about the work
   (preskriptionslagen (1981:130) 2 §), the same one a work order's text keeps
-  to. The nightly issue purge removes them as the board's removal does: the row
-  goes, and so does the copy of the name and the address on each work order
-  sent them. It does not while a work order sent them still holds its text or
-  is on an issue under a legal hold, so a work order keeps whom it went to for
-  as long as it keeps what it said. A work order's own record keeps its ten
-  years after its issue closed, as above; this clock changes nothing of it.
+  to. The nightly issue purge takes them off the list on that clock alone: the
+  row goes, with the name, the trade, the telephone number and the address the
+  list held, whether or not a work order sent them still holds its text, and
+  whether or not one is on an issue under a legal hold. The list is the
+  association's means of hiring, and it does not wait on a record whose clock
+  runs from an issue's closing, which may come years after the last work order
+  or not at all. A work order is that record, and keeps its own copy of whom it
+  went to, the name and the address it was written to, for as long as it keeps
+  what it said: one that still holds its text, or is on an issue under a legal
+  hold, keeps the copy, named by no contractor on the list, and the work-order
+  text purge erases the copy with the text, or once the hold is released if the
+  text was redacted. The others lose it when the contractor goes. A work order's
+  own record keeps its ten years after its issue closed, as above; this clock
+  changes nothing of it.
   The board can remove a contractor sooner, which is how a sole trader's
   erasure request is honoured ([ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md#the-mailed-work-order)).
 
@@ -386,9 +404,11 @@ review:
   board's clock; the website form's contact details keep their own 365 days. The
   record of processing activities' `issues` row states both, and its subjects gain
   board members, former residents and the property manager.
-- The nightly issue purge removes a contractor from the list ten years after
-  the last work order sent them, after the work-order texts, and the first work
-  order mailed to a contractor links the association's privacy notice
+- The nightly issue purge takes a contractor off the list ten years after the
+  last work order sent them, after the work-order texts, and the work-order text
+  purge erases the copy of whom a work order went to that such a contractor left
+  behind. The first work order mailed to a contractor links the association's
+  privacy notice, and is not sent while the notice is unpublished
   ([The contractor register](#the-contractor-register)).
 - An issue erasure job reads granted requests and runs before `53 3`.
   `ERASURE_DOMAINS` and `ErasureDomainKey` gain its domain, with the board's

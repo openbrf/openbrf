@@ -177,9 +177,10 @@ export class ContractorService {
    * A work order still waiting for its mail is erased with the rest, and its
    * sending then fails as having no recipient.
    *
-   * The nightly issue purge removes a contractor the same way ten years after
-   * the last work order sent them (`IssuePurgeService`, ADR 0057 question 6);
-   * this is the board removing one sooner.
+   * The nightly issue purge takes a contractor off the list ten years after
+   * the last work order sent them (`retireContractor`, ADR 0057 question 6),
+   * and leaves their work orders whom they went to for the work orders' own
+   * clock; this is the board removing one sooner, from those work orders too.
    */
   async remove(id: string, actorPersonId: string): Promise<void> {
     const erased = await this.prisma.$transaction(async (tx) => {
@@ -401,8 +402,8 @@ function contractorNotFound(): IssueError {
  * Removes a contractor from the list and erases them from the work orders
  * sent them, and answers whether there was one to remove and how many work
  * orders lost their copy of the name and address. The board's removal
- * (`ContractorService.remove`) and the ten-year clock (`IssuePurgeService`)
- * both erase a contractor this way, and each records it in its own entry.
+ * (`ContractorService.remove`); the list's own clock takes a contractor off
+ * it with `retireContractor` instead.
  *
  * Called under the contractor's row lock, which the caller takes. The rows
  * stay, so each issue still records that a work order went out, when, what it
@@ -423,4 +424,54 @@ export async function eraseContractor(
   await revokeWorkOrderLinks(tx, { contractorId: id });
   const { count } = await tx.contractor.deleteMany({ where: { id } });
   return { removed: count > 0, workOrdersErased };
+}
+
+/**
+ * Takes a contractor off the list when the list's own clock runs out (ADR 0057
+ * question 6), and answers whether there was one to take off, how many work
+ * orders lost their copy of the name and address, and how many keep it.
+ *
+ * The row goes, with the name, the trade, the telephone number and the
+ * address the list held. A work order sent them is the association's record of
+ * a disclosure on a clock of its own, ten years after its issue closed and
+ * whatever a legal hold keeps past that, and whom it went to is part of that
+ * record for as long as it keeps what it said: one that still holds its text,
+ * or is on an issue under a legal hold, keeps its copy of the name and the
+ * address, now named by no contractor on the list, and the work-order text
+ * purge erases that copy with the text (`IssuePurgeService`). The others lose
+ * it here, as the board's removal erases it.
+ *
+ * Called by the nightly issue purge under the locks of every issue a work order
+ * went to them on and then the contractor's row lock, which it takes.
+ */
+export async function retireContractor(
+  tx: Prisma.TransactionClient,
+  id: string,
+): Promise<{
+  removed: boolean;
+  workOrdersErased: number;
+  workOrdersKept: number;
+}> {
+  const { count: workOrdersErased } = await tx.workOrder.updateMany({
+    where: {
+      contractorId: id,
+      body: null,
+      issue: { legalHoldAt: null },
+      OR: [
+        { recipientName: { not: null } },
+        { recipientEmailCipher: { not: null } },
+      ],
+    },
+    data: { recipientName: null, recipientEmailCipher: null },
+  });
+  const workOrdersKept = await tx.workOrder.count({
+    where: { contractorId: id, recipientName: { not: null } },
+  });
+  // Nobody on the list holds a link once they are off it (ADR 0055), in the
+  // order `eraseContractor` gives.
+  await revokeWorkOrderLinks(tx, { contractorId: id });
+  // The work orders' key to the row is set to null with it, and each keeps
+  // what it was written to.
+  const { count } = await tx.contractor.deleteMany({ where: { id } });
+  return { removed: count > 0, workOrdersErased, workOrdersKept };
 }

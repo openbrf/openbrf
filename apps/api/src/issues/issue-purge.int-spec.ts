@@ -780,10 +780,20 @@ describe("a report whose address is a withheld person's", () => {
 
 describe("the text of a work order", () => {
   /** A work order on the issue, as the sending writes one. */
+  /**
+   * A work order on the issue, to a contractor still on the list, as a
+   * handler's sending writes one.
+   */
   async function workOrderOn(issueId: string, body: string): Promise<string> {
+    const contractor = await prisma.contractor.create({
+      data: { name: `Rormokare ${suffix}`, trade: "Rormokare" },
+      select: { id: true },
+    });
+    contractorIds.push(contractor.id);
     const order = await prisma.workOrder.create({
       data: {
         issueId,
+        contractorId: contractor.id,
         recipientName: `Rormokare ${suffix}`,
         recipientEmailCipher: "kept-as-it-was",
         body,
@@ -1293,6 +1303,7 @@ describe("a contractor on the list", () => {
         channel: "SYSTEM",
         context: {
           workOrdersErased: 1,
+          workOrdersKept: 0,
           retentionDaysAfterLastWorkOrder: CONTRACTOR_RETENTION_DAYS,
         },
       },
@@ -1311,49 +1322,139 @@ describe("a contractor on the list", () => {
     expect(await onTheList(id)).toBe(true);
   });
 
-  it("is kept while a work order sent them still holds its text, and removed once it is gone", async () => {
-    // The issue closed after the work order went, so its text has years left.
+  async function recipientOf(orderId: string) {
+    return prisma.workOrder.findUniqueOrThrow({
+      where: { id: orderId },
+      select: {
+        contractorId: true,
+        recipientName: true,
+        recipientEmailCipher: true,
+        body: true,
+      },
+    });
+  }
+
+  it("is removed on the list's clock while a work order sent them still holds its text, which keeps whom it went to until the text goes", async () => {
+    // The issue is still open ten years after the work order went, so the
+    // text's own clock has not started; the list's has run out regardless.
     const id = await contractorAdded(CONTRACTOR_RETENTION_DAYS + 400);
-    const { orderId } = await workOrderTo(
+    const { issueId, orderId } = await workOrderTo(
       id,
       CONTRACTOR_RETENTION_DAYS + 1,
       "Byt packningen i kranen.",
     );
 
-    expect(await eligible()).not.toContain(id);
-    await expect(purge.purgeContractor(id)).resolves.toBe(false);
-    expect(await onTheList(id)).toBe(true);
-
-    await prisma.workOrder.update({
-      where: { id: orderId },
-      data: { body: null },
-    });
+    expect(await eligible()).toContain(id);
     await purge.purgeContractor(id);
     expect(await onTheList(id)).toBe(false);
+    // The list's details are gone; the work order keeps what it said and
+    // whom it was written to.
+    expect(await recipientOf(orderId)).toEqual({
+      contractorId: null,
+      recipientName: `Rormokare ${suffix}`,
+      recipientEmailCipher: "kept-as-it-was",
+      body: "Byt packningen i kranen.",
+    });
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "SERVICE_DATA_PURGED",
+        targetKind: "contractor",
+        targetId: id,
+      },
+      select: { context: true },
+    });
+    expect(entries).toEqual([
+      {
+        context: {
+          workOrdersErased: 0,
+          workOrdersKept: 1,
+          retentionDaysAfterLastWorkOrder: CONTRACTOR_RETENTION_DAYS,
+        },
+      },
+    ]);
+
+    // The issue closes, and ten years on the text goes, and whom it went to
+    // with it.
+    await close(issueId);
+    await closedDaysAgo(issueId, WORK_ORDER_BODY_RETENTION_DAYS + 1);
+    expect(
+      await purge.eligibleWorkOrderTexts(
+        new Date(),
+        WORK_ORDER_BODY_RETENTION_DAYS,
+      ),
+    ).toContain(issueId);
+    await purge.purgeWorkOrderTexts(issueId);
+    expect(await recipientOf(orderId)).toEqual({
+      contractorId: null,
+      recipientName: null,
+      recipientEmailCipher: null,
+      body: null,
+    });
   });
 
-  it("is kept while a work order sent them is on an issue under a legal hold, and removed once it is released", async () => {
+  it("is removed on the list's clock while a work order sent them is on an issue under a legal hold, which keeps whom it went to until the hold is released", async () => {
+    // A redacted text: nothing but the hold keeps the work order's copy.
     const id = await contractorAdded(CONTRACTOR_RETENTION_DAYS + 400);
-    const { issueId } = await workOrderTo(
+    const { issueId, orderId } = await workOrderTo(
       id,
       CONTRACTOR_RETENTION_DAYS + 1,
       null,
     );
+    await close(issueId);
+    await closedDaysAgo(issueId, WORK_ORDER_BODY_RETENTION_DAYS + 1);
     await prisma.issue.update({
       where: { id: issueId },
       data: { legalHoldAt: new Date() },
     });
 
-    expect(await eligible()).not.toContain(id);
-    await expect(purge.purgeContractor(id)).resolves.toBe(false);
-    expect(await onTheList(id)).toBe(true);
+    expect(await eligible()).toContain(id);
+    await purge.purgeContractor(id);
+    expect(await onTheList(id)).toBe(false);
+    expect(await recipientOf(orderId)).toMatchObject({
+      contractorId: null,
+      recipientName: `Rormokare ${suffix}`,
+      recipientEmailCipher: "kept-as-it-was",
+    });
+    // Held: the text purge leaves it.
+    await expect(purge.purgeWorkOrderTexts(issueId)).resolves.toBe(false);
+    expect((await recipientOf(orderId)).recipientName).not.toBeNull();
 
     await prisma.issue.update({
       where: { id: issueId },
       data: { legalHoldAt: null },
     });
-    await purge.purgeContractor(id);
-    expect(await onTheList(id)).toBe(false);
+    // No text stands on it, and the copy alone brings it back to the purge.
+    expect(
+      await purge.eligibleWorkOrderTexts(
+        new Date(),
+        WORK_ORDER_BODY_RETENTION_DAYS,
+      ),
+    ).toContain(issueId);
+    await purge.purgeWorkOrderTexts(issueId);
+    expect(await recipientOf(orderId)).toMatchObject({
+      recipientName: null,
+      recipientEmailCipher: null,
+    });
+  });
+
+  it("leaves whom a work order went to while its contractor stays on the list, when the text goes", async () => {
+    const id = await contractorAdded(CONTRACTOR_RETENTION_DAYS - 400);
+    const { issueId, orderId } = await workOrderTo(
+      id,
+      CONTRACTOR_RETENTION_DAYS - 400,
+      "Rensa golvbrunnen.",
+    );
+    await close(issueId);
+    await closedDaysAgo(issueId, WORK_ORDER_BODY_RETENTION_DAYS + 1);
+
+    await purge.purgeWorkOrderTexts(issueId);
+    expect(await recipientOf(orderId)).toEqual({
+      contractorId: id,
+      recipientName: `Rormokare ${suffix}`,
+      recipientEmailCipher: "kept-as-it-was",
+      body: null,
+    });
+    expect(await onTheList(id)).toBe(true);
   });
 
   it("is kept by a work order written while the purge waits for the contractor's row", async () => {

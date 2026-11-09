@@ -393,6 +393,38 @@ describe("IssueWorkOrders", () => {
     ).toBeTruthy();
   });
 
+  it("says a work order must wait for the privacy notice to be published, before and after it was queued", async () => {
+    previewWorkOrder.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "work-order-privacy-notice-unpublished" },
+    });
+    fetchIssueWorkOrders.mockResolvedValue({
+      ok: true,
+      value: orders({
+        workOrders: [
+          { ...SENT, deliveryFailure: "privacy-notice-unpublished" },
+        ],
+      }),
+    });
+    const user = userEvent.setup();
+    render(<IssueWorkOrders issue={ISSUE} />);
+
+    // The one queued before the notice was taken down is recorded as not sent.
+    expect(
+      await screen.findByText(
+        /^Inte skickad: den skulle länka till föreningens integritetspolicy/,
+      ),
+    ).toBeTruthy();
+
+    await writeDraft("Byt packningen.");
+    await user.click(screen.getByRole("button", { name: "Förhandsgranska" }));
+    expect(
+      await screen.findByText(
+        /måste länka till föreningens integritetspolicy, och integritetspolicyn är inte publicerad/,
+      ),
+    ).toBeTruthy();
+  });
+
   it("reads a work order on its way again until it settles, and then stops", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     fetchIssueWorkOrders.mockResolvedValue({

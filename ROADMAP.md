@@ -360,10 +360,11 @@ locally the application runs from source beside the PostgreSQL that
       legal hold on the issue or a legal hold or a restriction on the reporter
       is what keeps the text longer. The record of whom it went to and when stays, except that
       removing a contractor from the list clears their name and address from
-      the work orders sent them. The nightly purge removes a contractor ten
-      years after the last work order sent them, or after they were added if
-      none was, unless a work order sent them still holds its text or is on an
-      issue under a legal hold (ADR 0057). This is how a work order travels
+      the work orders sent them. The nightly purge takes a contractor off the
+      list ten years after the last work order sent them, or after they were
+      added if none was; a work order sent them that still holds its text, or
+      is on an issue under a legal hold, keeps their name and address until its
+      text goes (ADR 0057). This is how a work order travels
       while the contractor's own link waits for its legal review (ADR 0055)
 - [x] The contractor's link, built and switched off: a handler can give the
       contractor of a work order a link of their own, shown once, that opens

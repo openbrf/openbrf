@@ -60,8 +60,9 @@ let encryption: FieldEncryptionService;
 /**
  * Whether the association's privacy notice is published, as the mailer asks
  * it. Answered by a stub rather than by the shared database's page, which
- * other suites write: unpublished unless a test says otherwise, so a work
- * order carries no link but where a test asks for one.
+ * other suites write: published, as a new instance's is, unless a test says
+ * otherwise, because the first work order to a contractor is not sent without
+ * its link.
  */
 let noticePath: MockInstance<PagesService["privacyNoticePath"]>;
 let noticeUrl = "";
@@ -311,7 +312,7 @@ beforeAll(async () => {
   encryption = app.get(FieldEncryptionService);
   noticePath = vi
     .spyOn(app.get(PagesService), "privacyNoticePath")
-    .mockResolvedValue(null);
+    .mockResolvedValue(`/${PRIVACY_NOTICE_SLUG}`);
   noticeUrl = siteUrl(app.get<Env>(ENV).APP_URL, `/${PRIVACY_NOTICE_SLUG}`);
 
   createdAssociation =
@@ -528,8 +529,10 @@ describe("a work order", () => {
     expect(preview.text).not.toContain(`Lägenhet 1101 ${suffix}`);
     expect(preview.text).not.toContain(resident.lastName);
     expect(preview.text).not.toContain(resident.email);
-    // No link into the application: a contractor has no account.
-    expect(preview.text).not.toMatch(/https?:\/\//);
+    // No link into the application: a contractor has no account. The one
+    // link is the privacy notice on the website, in the first work order.
+    expect(preview.text).toContain(noticeUrl);
+    expect(preview.text.replaceAll(noticeUrl, "")).not.toMatch(/https?:\/\//);
 
     // A preview stores nothing and sends nothing.
     expect(await prisma.workOrder.count({ where: { issueId } })).toBe(0);
@@ -645,10 +648,11 @@ describe("a work order", () => {
       data: { defaultLocale: "en" },
     });
     try {
-      const rendered = await mailer.render(
-        { recipientName: "Rör AB", body: "Fix the tap." },
-        plumber.id,
-      );
+      const rendered = await mailer.render({
+        recipientName: "Rör AB",
+        body: "Fix the tap.",
+        privacyNoticePath: null,
+      });
       expect(rendered.subject).toMatch(/^Work order from /);
 
       // And the sending, which reads the language again when the worker runs.
@@ -998,136 +1002,242 @@ describe("the privacy notice", () => {
   }
 
   it("is linked in the first work order mailed to a contractor and not in a later one, until the board changes their address", async () => {
-    noticePath.mockResolvedValue(`/${PRIVACY_NOTICE_SLUG}`);
-    try {
-      const firm = await addContractor({
-        name: `Elfirman ${suffix}`,
-        trade: "Elektriker",
-        email: `el-${suffix}@firma.test`,
-      });
-      const issueId = await filed(plain, "notice-first");
+    const firm = await addContractor({
+      name: `Elfirman ${suffix}`,
+      trade: "Elektriker",
+      email: `el-${suffix}@firma.test`,
+    });
+    const issueId = await filed(plain, "notice-first");
 
-      // The preview shows the link the mail will carry.
-      expect(
-        await previewText(issueId, firm.id, "Byt säkringen i elcentralen."),
-      ).toContain(noticeUrl);
-      const first = (
-        await previewAndSend(as(manager), issueId, {
-          contractorId: firm.id,
-          body: "Byt säkringen i elcentralen.",
-        })
-      ).json<WorkOrderRow>();
-      // Not marked until the mail server has the mail.
-      expect(await givenAt(firm.id)).toBeNull();
-      const firstText = await mailed(first.id);
-      expect(firstText).toContain(noticeUrl);
-      // Nothing of the issue rides along with it.
-      expect(firstText).not.toContain(REPORT);
-      expect(await givenAt(firm.id)).not.toBeNull();
+    // The preview shows the link the mail will carry.
+    expect(
+      await previewText(issueId, firm.id, "Byt säkringen i elcentralen."),
+    ).toContain(noticeUrl);
+    const first = (
+      await previewAndSend(as(manager), issueId, {
+        contractorId: firm.id,
+        body: "Byt säkringen i elcentralen.",
+      })
+    ).json<WorkOrderRow>();
+    // Not marked until the mail server has the mail.
+    expect(await givenAt(firm.id)).toBeNull();
+    const firstText = await mailed(first.id);
+    expect(firstText).toContain(noticeUrl);
+    // Nothing of the issue rides along with it.
+    expect(firstText).not.toContain(REPORT);
+    expect(await givenAt(firm.id)).not.toBeNull();
 
-      // A later work order, on another issue, does not repeat it.
-      const later = await filed(plain, "notice-later");
-      expect(
-        await previewText(later, firm.id, "Kontrollera jordfelsbrytaren."),
-      ).not.toContain(noticeUrl);
-      const second = (
-        await previewAndSend(as(manager), later, {
-          contractorId: firm.id,
-          body: "Kontrollera jordfelsbrytaren.",
-        })
-      ).json<WorkOrderRow>();
-      expect(await mailed(second.id)).not.toMatch(/https?:\/\//);
+    // A later work order, on another issue, does not repeat it.
+    const later = await filed(plain, "notice-later");
+    expect(
+      await previewText(later, firm.id, "Kontrollera jordfelsbrytaren."),
+    ).not.toContain(noticeUrl);
+    const second = (
+      await previewAndSend(as(manager), later, {
+        contractorId: firm.id,
+        body: "Kontrollera jordfelsbrytaren.",
+      })
+    ).json<WorkOrderRow>();
+    expect(await mailed(second.id)).not.toMatch(/https?:\/\//);
 
-      // The trade changed: the same person reads the same address.
-      const traded = await inject({
-        method: "PUT",
-        url: `/api/contractors/${firm.id}`,
-        payload: {
-          name: firm.name,
-          trade: "Elinstallatör",
-          email: firm.email,
-        },
-        cookie: as(board),
-      });
-      expect(traded.statusCode).toBe(200);
-      expect(await givenAt(firm.id)).not.toBeNull();
+    // The trade changed: the same person reads the same address.
+    const traded = await inject({
+      method: "PUT",
+      url: `/api/contractors/${firm.id}`,
+      payload: {
+        name: firm.name,
+        trade: "Elinstallatör",
+        email: firm.email,
+      },
+      cookie: as(board),
+    });
+    expect(traded.statusCode).toBe(200);
+    expect(await givenAt(firm.id)).not.toBeNull();
 
-      // A new address may be somebody else, who has not been told.
-      const moved = await inject({
-        method: "PUT",
-        url: `/api/contractors/${firm.id}`,
-        payload: {
-          name: firm.name,
-          trade: "Elinstallatör",
-          email: `el-ny-${suffix}@firma.test`,
-        },
-        cookie: as(board),
-      });
-      expect(moved.statusCode).toBe(200);
-      expect(await givenAt(firm.id)).toBeNull();
-      const third = (
-        await previewAndSend(as(manager), later, {
-          contractorId: firm.id,
-          body: "Byt uttaget i tvättstugan.",
-        })
-      ).json<WorkOrderRow>();
-      expect(await mailed(third.id)).toContain(noticeUrl);
-      expect(await givenAt(firm.id)).not.toBeNull();
-    } finally {
-      noticePath.mockResolvedValue(null);
-    }
+    // A new address may be somebody else, who has not been told.
+    const moved = await inject({
+      method: "PUT",
+      url: `/api/contractors/${firm.id}`,
+      payload: {
+        name: firm.name,
+        trade: "Elinstallatör",
+        email: `el-ny-${suffix}@firma.test`,
+      },
+      cookie: as(board),
+    });
+    expect(moved.statusCode).toBe(200);
+    expect(await givenAt(firm.id)).toBeNull();
+    const third = (
+      await previewAndSend(as(manager), later, {
+        contractorId: firm.id,
+        body: "Byt uttaget i tvättstugan.",
+      })
+    ).json<WorkOrderRow>();
+    expect(await mailed(third.id)).toContain(noticeUrl);
+    expect(await givenAt(firm.id)).not.toBeNull();
   });
 
-  it("is not marked as given while the notice is unpublished, or when the mail did not go out", async () => {
+  it("refuses a work order that must link the notice while it is unpublished, records one already queued as not sent, and sends it once it is published", async () => {
     const firm = await addContractor({
       name: `Måleriet ${suffix}`,
       trade: "Målare",
       email: `mal-${suffix}@firma.test`,
     });
-
-    // Unpublished: the work order goes without the link, and the next one,
-    // once the notice is published, carries it.
     const issueId = await filed(plain, "notice-unpublished");
-    const unpublished = (
-      await previewAndSend(as(manager), issueId, {
-        contractorId: firm.id,
-        body: "Måla om trapphuset.",
-      })
+    const payload = { contractorId: firm.id, body: "Måla om trapphuset." };
+    // Queued while the notice was published.
+    const queued = (
+      await previewAndSend(as(manager), issueId, payload)
     ).json<WorkOrderRow>();
-    expect(await mailed(unpublished.id)).not.toContain(noticeUrl);
-    expect(await givenAt(firm.id)).toBeNull();
 
-    noticePath.mockResolvedValue(`/${PRIVACY_NOTICE_SLUG}`);
+    // The board takes the notice down, or makes it members' only.
+    noticePath.mockResolvedValue(null);
     try {
-      // The mail server refused it: the link reached nobody.
-      const refusedIssue = await filed(plain, "notice-refused");
-      const refused = (
-        await previewAndSend(as(manager), refusedIssue, {
+      // The preview and the sending are refused, with what to do about it.
+      for (const response of [
+        await workOrder(
+          as(manager),
+          issueId,
+          { contractorId: firm.id, body: "Måla om tvättstugan." },
+          "preview",
+        ),
+        await workOrder(as(manager), issueId, {
           contractorId: firm.id,
           body: "Måla om tvättstugan.",
-        })
-      ).json<WorkOrderRow>();
-      const send = vi
-        .spyOn(mail, "send")
-        .mockRejectedValue(
-          Object.assign(new Error("550"), { handover: "not-handed-over" }),
+          previewToken: "ignored",
+        }),
+      ]) {
+        expect(response.statusCode).toBe(409);
+        expect(response.json<{ reason: string }>().reason).toBe(
+          "work-order-privacy-notice-unpublished",
         );
+      }
+
+      // The one queued before is not sent without the link.
+      const send = vi.spyOn(mail, "send");
       try {
-        expect(await mailer.send(refused.id)).toBe("failed");
-        expect(send).toHaveBeenCalledWith(
-          expect.objectContaining({
-            props: expect.objectContaining({
-              privacyNoticePath: `/${PRIVACY_NOTICE_SLUG}`,
-            }),
-          }),
-        );
+        expect(await mailer.send(queued.id)).toBe("failed");
+        expect(send).not.toHaveBeenCalled();
       } finally {
         send.mockRestore();
       }
+      expect(
+        await prisma.workOrder.findUniqueOrThrow({
+          where: { id: queued.id },
+          select: { deliveryStatus: true, deliveryFailure: true },
+        }),
+      ).toEqual({
+        deliveryStatus: "FAILED",
+        deliveryFailure: "privacy-notice-unpublished",
+      });
       expect(await givenAt(firm.id)).toBeNull();
     } finally {
-      noticePath.mockResolvedValue(null);
+      noticePath.mockResolvedValue(`/${PRIVACY_NOTICE_SLUG}`);
     }
+
+    // Published again: the same work order is written again, is not held
+    // back as a repeat of one that never left, and carries the link.
+    const again = (
+      await previewAndSend(as(manager), issueId, payload)
+    ).json<WorkOrderRow>();
+    expect(await mailed(again.id)).toContain(noticeUrl);
+    expect(await givenAt(firm.id)).not.toBeNull();
+
+    // A contractor told already is sent work orders while it is down.
+    noticePath.mockResolvedValue(null);
+    try {
+      const later = await filed(plain, "notice-unpublished-later");
+      const sent = (
+        await previewAndSend(as(manager), later, {
+          contractorId: firm.id,
+          body: "Laga fönsterkarmen.",
+        })
+      ).json<WorkOrderRow>();
+      expect(await mailed(sent.id)).not.toMatch(/https?:\/\//);
+    } finally {
+      noticePath.mockResolvedValue(`/${PRIVACY_NOTICE_SLUG}`);
+    }
+  });
+
+  it("is not marked as given when the mail did not go out", async () => {
+    const firm = await addContractor({
+      name: `Golvfirman ${suffix}`,
+      trade: "Golvläggare",
+      email: `golv-${suffix}@firma.test`,
+    });
+    // The mail server refused it: the link reached nobody.
+    const refusedIssue = await filed(plain, "notice-refused");
+    const refused = (
+      await previewAndSend(as(manager), refusedIssue, {
+        contractorId: firm.id,
+        body: "Slipa golvet i föreningslokalen.",
+      })
+    ).json<WorkOrderRow>();
+    const send = vi
+      .spyOn(mail, "send")
+      .mockRejectedValue(
+        Object.assign(new Error("550"), { handover: "not-handed-over" }),
+      );
+    try {
+      expect(await mailer.send(refused.id)).toBe("failed");
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          props: expect.objectContaining({
+            privacyNoticePath: `/${PRIVACY_NOTICE_SLUG}`,
+          }),
+        }),
+      );
+    } finally {
+      send.mockRestore();
+    }
+    expect(await givenAt(firm.id)).toBeNull();
+  });
+
+  it("is linked in a work order queued for the name and address the board then changed, though one to the new ones went out first", async () => {
+    const firm = await addContractor({
+      name: `Låssmeden ${suffix}`,
+      trade: "Låssmed",
+      email: `las-${suffix}@firma.test`,
+    });
+    // The first contact's work order is queued, and its job is delayed.
+    const first = await filed(plain, "notice-reordered");
+    const toFirst = (
+      await previewAndSend(as(manager), first, {
+        contractorId: firm.id,
+        body: "Byt låscylindern i porten.",
+      })
+    ).json<WorkOrderRow>();
+
+    // The board gives the entry another firm's name and address.
+    const handed = await inject({
+      method: "PUT",
+      url: `/api/contractors/${firm.id}`,
+      payload: {
+        name: `Nya låssmeden ${suffix}`,
+        trade: "Låssmed",
+        email: `nya-las-${suffix}@firma.test`,
+      },
+      cookie: as(board),
+    });
+    expect(handed.statusCode).toBe(200);
+
+    // The new firm's work order goes out first, with the link, and marks the
+    // row as told.
+    const second = await filed(plain, "notice-reordered-new");
+    const toSecond = (
+      await previewAndSend(as(manager), second, {
+        contractorId: firm.id,
+        body: "Smörj låset till förrådet.",
+      })
+    ).json<WorkOrderRow>();
+    expect(await mailed(toSecond.id)).toContain(noticeUrl);
+    const told = await givenAt(firm.id);
+    expect(told).not.toBeNull();
+
+    // The first firm's, delivered last, still carries it: the mark is the new
+    // firm's, and says nothing about whoever reads the old address.
+    expect(await mailed(toFirst.id)).toContain(noticeUrl);
+    expect(await givenAt(firm.id)).toEqual(told);
   });
 });
 

@@ -957,6 +957,10 @@ afterAll(async () => {
             },
           }),
         () => prisma.issueType.deleteMany({ where: { id: issueTypeId } }),
+        () =>
+          prisma.contractor.deleteMany({
+            where: { name: `Rormokare ${suffix}` },
+          }),
         () => prisma.document.deleteMany({ where: { id: documentId } }),
         () =>
           prisma.apartmentDocument.deleteMany({
@@ -2195,9 +2199,15 @@ describe("an issue a work order's text still stands on", () => {
         outcome: "FIXED",
       },
     });
+    // A contractor still on the list, as a handler's sending names one.
+    const contractor = await prisma.contractor.create({
+      data: { name: `Rormokare ${suffix}`, trade: "Rormokare" },
+      select: { id: true },
+    });
     await prisma.workOrder.create({
       data: {
         issueId: id,
+        contractorId: contractor.id,
         recipientName: `Rormokare ${suffix}`,
         recipientEmailCipher: "kept-as-it-was",
         body: WORK_ORDER_TEXT,

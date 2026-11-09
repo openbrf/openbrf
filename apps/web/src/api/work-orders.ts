@@ -39,7 +39,8 @@ export type WorkOrderDeliveryFailure =
   | "recipient-removed"
   | "recipient-unreadable"
   | "text-erased"
-  | "ring-fenced";
+  | "ring-fenced"
+  | "privacy-notice-unpublished";
 
 /** What the contractor answered a work order through its link (ADR 0055). */
 export type WorkOrderAnswer = "ACCEPTED" | "DECLINED" | "DONE";
@@ -98,7 +99,11 @@ export interface IssuedWorkOrderLink {
 export interface WorkOrder {
   id: string;
   contractorId: string | null;
-  /** Null once the contractor was removed from the list, and erased with it. */
+  /**
+   * Null once the board removed the contractor from the list, which erases
+   * them from it; or, once the list's own clock removed them, when the work
+   * order's text went.
+   */
   recipientName: string | null;
   recipientEmail: string | null;
   /**

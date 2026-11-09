@@ -516,10 +516,11 @@ A contractor switched off stays named on the work orders sent them. A
 contractor removed from the register is erased from them as well: the copy of
 the name and address on each is cleared, and the work order stays, saying that
 it went out, when and what it said. That is how a sole trader's erasure is
-honoured; the owner confirmed both on 2026-11-03. The nightly purge removes a
-contractor the same way ten years after the last work order sent them, though
-not while one of those work orders still holds its text or is on an issue under
-a legal hold ([ADR 0057](0057-purging-issues-in-two-layers.md#the-contractor-register)). The text of a work order is
+honoured; the owner confirmed both on 2026-11-03. The nightly purge takes a
+contractor off the list ten years after the last work order sent them; a work
+order sent them that still holds its text, or is on an issue under a legal hold,
+keeps the copy of their name and address until its text goes
+([ADR 0057](0057-purging-issues-in-two-layers.md#the-contractor-register)). The text of a work order is
 erased 3,653 days after its issue was closed, so never before the tenth
 anniversary and up to a day after it, by the nightly purge, unless a
 handler redacts it before then ([ADR 0057](0057-purging-issues-in-two-layers.md#redaction)),

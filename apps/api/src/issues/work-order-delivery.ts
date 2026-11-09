@@ -4,9 +4,9 @@
  * Codes, never prose, on the board mailbox reply's rule: a mail server's
  * rejection quotes the envelope back, and the envelope is a contractor's
  * address. The four a reply has, for the same four ways a sending ends
- * without a mail server's acceptance, and four of its own, for a recipient or a
- * text erased, a type ring-fenced, or an address unreadable, before the
- * sending; a list of its own rather than theirs, so neither module offers a
+ * without a mail server's acceptance, and five of its own, for a recipient or a
+ * text erased, a type ring-fenced, an address unreadable, or a privacy notice
+ * unpublished, before the sending; a list of its own rather than theirs, so neither module offers a
  * screen a code the other produces.
  */
 export const WORK_ORDER_DELIVERY_FAILURES = {
@@ -67,6 +67,16 @@ export const WORK_ORDER_DELIVERY_FAILURES = {
    * contractor any more, so it was not sent.
    */
   ringFenced: "ring-fenced",
+
+  /**
+   * The work order owed its recipient the link to the association's privacy
+   * notice (GDPR art. 14(3)(b), ADR 0057 question 6), and the notice was not
+   * on the public website for anyone to read when the mail was to go out:
+   * missing, a draft, or for members only. A work order is never sent without
+   * the link it owes, so nothing left this instance; the handler publishes the
+   * notice and sends it again.
+   */
+  privacyNoticeUnpublished: "privacy-notice-unpublished",
 } as const;
 
 export type WorkOrderDeliveryFailure =
@@ -76,7 +86,8 @@ export type WorkOrderDeliveryFailure =
  * Whether each failure is one after which nothing left this instance: no mail
  * server, a mail send the driver places before the handover, a sending given up
  * before any attempt, a recipient or text erased, a type ring-fenced, an
- * address that could not be read back. Only `delivery-unconfirmed` is not.
+ * address that could not be read back, a privacy notice that was not
+ * published. Only `delivery-unconfirmed` is not.
  *
  * A record over every code, so a new failure code does not compile until it is
  * decided here, and does not silently count as unconfirmed.
@@ -89,6 +100,7 @@ const NEVER_LEFT_BY_FAILURE: Record<WorkOrderDeliveryFailure, boolean> = {
   [WORK_ORDER_DELIVERY_FAILURES.recipientUnreadable]: true,
   [WORK_ORDER_DELIVERY_FAILURES.textErased]: true,
   [WORK_ORDER_DELIVERY_FAILURES.ringFenced]: true,
+  [WORK_ORDER_DELIVERY_FAILURES.privacyNoticeUnpublished]: true,
   [WORK_ORDER_DELIVERY_FAILURES.unconfirmed]: false,
 };
 

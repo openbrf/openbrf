@@ -45,11 +45,20 @@ import { WORK_ORDER_DELIVERY_FAILURES } from "./work-order-delivery";
  * notice (GDPR art. 14(3)(b), ADR 0057 question 6), and a later one does not.
  * "First" is read from the contractor's row: `privacyNoticeGivenAt` is null
  * until a mail that carried the link was accepted, and the board changing the
- * contractor's name or address clears it again. A mail the server refused, or
- * one nobody can vouch for, leaves it null, so the next work order carries the
- * link; two sent to a new contractor at once may both carry it, which tells
- * them twice and never not at all. While the association's notice is not
- * published, a work order goes without the link and leaves the mark null.
+ * contractor's name or address clears it again. The mark speaks only for the
+ * name and address the row holds, so a work order written to an earlier name
+ * or address, still queued when the board changed it, carries the link
+ * whatever the mark says: whoever it goes to may never have been told. A mail
+ * the server refused, or one nobody can vouch for, leaves the mark null, so the
+ * next work order carries the link; two sent to a new contractor at once may
+ * both carry it, which tells them twice and never not at all.
+ *
+ * A work order that must carry the link is never sent without it. While the
+ * association's privacy notice is not on its public website for anyone to
+ * read, the handler is refused the preview and the sending
+ * (`WorkOrderService`), and a work order already queued when the notice was
+ * taken down is recorded as not sent (`privacy-notice-unpublished`), for the
+ * handler to send again once it is published.
  *
  * No address is ever in a job payload, and none in a log line: the payload is
  * the work order's identifier, and this worker decrypts the address as it
@@ -85,10 +94,23 @@ interface ClaimedWorkOrder {
   body: string;
   contractorId: string | null;
   /**
-   * Whether the contractor has yet to be sent the privacy notice's link; null
-   * when the work order names no contractor on the list.
+   * The name and the encrypted address on the contractor's row, read with the
+   * claim, when that row is marked as sent the privacy notice's link; null
+   * when it is not, or when the work order names no contractor on the list.
+   * The mark covers this work order's recipient only if these are the ones it
+   * was written to.
    */
-  privacyNoticeOwed: boolean | null;
+  toldName: string | null;
+  toldEmailCipher: string | null;
+}
+
+/**
+ * Whether a work order owes its recipient the privacy notice's link, and the
+ * path of the notice, which is null while it is not published.
+ */
+export interface PrivacyNoticeDue {
+  owed: boolean;
+  path: string | null;
 }
 
 /** Payload of the sending job. One id, and deliberately nothing else. */
@@ -158,35 +180,36 @@ export class WorkOrderMailerService implements OnModuleInit {
   }
 
   /**
-   * The work order as its contractor will receive it, for the handler's
-   * preview. Rendered by the same template and props the sending uses, so the
-   * preview cannot drift from the mail: with the privacy notice's link when
-   * the contractor has not yet been sent it, as the sending decides again
-   * when it runs.
+   * Whether a work order written now to a contractor on the list owes them the
+   * privacy notice's link, and where the notice is. Owed while the row is not
+   * marked as sent it: a work order written now goes to the name and address
+   * the row holds, which are what the mark speaks for. The handler's preview
+   * and sending ask it, and refuse a work order that owes the link while the
+   * notice is not published; the sending decides again when it runs.
    */
-  async render(
-    props: Omit<WorkOrderMailProps, "privacyNoticePath">,
+  async privacyNoticeFor(
+    db: Prisma.TransactionClient | PrismaService,
     contractorId: string,
-  ): Promise<RenderedMail> {
-    const [locale, givenAt, privacyNoticePath] = await Promise.all([
-      associationDefaultLocale(this.prisma),
-      this.prisma.contractor.findUnique({
+  ): Promise<PrivacyNoticeDue> {
+    const [row, path] = await Promise.all([
+      db.contractor.findUnique({
         where: { id: contractorId },
         select: { privacyNoticeGivenAt: true },
       }),
       this.pages.privacyNoticePath(),
     ]);
+    return { owed: row?.privacyNoticeGivenAt == null, path };
+  }
+
+  /**
+   * The work order as its contractor will receive it, for the handler's
+   * preview. Rendered by the same template and props the sending uses, so the
+   * preview cannot drift from the mail: with the privacy notice's link when
+   * `privacyNoticeFor` says the contractor is owed it.
+   */
+  async render(props: WorkOrderMailProps): Promise<RenderedMail> {
     return this.mail.renderMail(
-      this.workOrderMail(
-        {
-          ...props,
-          privacyNoticePath:
-            givenAt !== null && givenAt.privacyNoticeGivenAt === null
-              ? privacyNoticePath
-              : null,
-        },
-        locale,
-      ),
+      this.workOrderMail(props, await associationDefaultLocale(this.prisma)),
     );
   }
 
@@ -234,8 +257,21 @@ export class WorkOrderMailerService implements OnModuleInit {
       return "failed";
     }
 
-    const privacyNoticePath =
-      order.privacyNoticeOwed === true ? publishedNoticePath : null;
+    // A work order that owes its recipient the notice's link is not sent
+    // without it: recorded as not sent, before any mail is composed, for the
+    // handler to send again once the notice is published.
+    const owed = await this.privacyNoticeOwed(workOrderId, order, to);
+    if (owed && publishedNoticePath === null) {
+      await this.fail(
+        workOrderId,
+        WORK_ORDER_DELIVERY_FAILURES.privacyNoticeUnpublished,
+      );
+      this.logger.warn(
+        `Work order ${workOrderId} was not sent: the privacy notice it must link is not published.`,
+      );
+      return "failed";
+    }
+    const privacyNoticePath = owed ? publishedNoticePath : null;
 
     let sent: { suppressed?: true };
     try {
@@ -304,6 +340,47 @@ export class WorkOrderMailerService implements OnModuleInit {
       );
     }
     return "sent";
+  }
+
+  /**
+   * Whether this work order owes its recipient the privacy notice's link.
+   *
+   * Not owed only when the contractor's row, as the claim read it, is marked as
+   * sent the link and still holds the name and the address this work order was
+   * written to: the mark was set for whoever reads that address. A work order
+   * written before the board changed either, still queued when another work
+   * order to the new name or address set the mark, goes to someone the mark
+   * says nothing about, and carries the link. So does one whose contractor is
+   * no longer on the list, and one whose row's address cannot be read back:
+   * telling a recipient twice costs a paragraph, and not telling them at all is
+   * what art. 14 forbids.
+   */
+  private async privacyNoticeOwed(
+    workOrderId: string,
+    order: ClaimedWorkOrder,
+    to: string,
+  ): Promise<boolean> {
+    if (
+      order.contractorId === null ||
+      order.toldName === null ||
+      order.toldEmailCipher === null ||
+      order.toldName !== order.recipientName
+    ) {
+      return true;
+    }
+    try {
+      const told = await this.encryption.decrypt(
+        "contractor.email",
+        order.toldEmailCipher,
+        order.contractorId,
+      );
+      return told !== to;
+    } catch (error) {
+      this.logger.warn(
+        `Work order ${workOrderId} links the privacy notice: its contractor's address could not be read back: ${failureName(error)}`,
+      );
+      return true;
+    }
   }
 
   /**
@@ -450,10 +527,17 @@ export class WorkOrderMailerService implements OnModuleInit {
         )
       RETURNING "recipientName", "recipientEmailCipher", "body", "contractorId",
         (
-          SELECT "contractor"."privacyNoticeGivenAt" IS NULL
+          SELECT "contractor"."name"
           FROM "contractor"
           WHERE "contractor"."id" = "work_order"."contractorId"
-        ) AS "privacyNoticeOwed"
+            AND "contractor"."privacyNoticeGivenAt" IS NOT NULL
+        ) AS "toldName",
+        (
+          SELECT "contractor"."emailCipher"
+          FROM "contractor"
+          WHERE "contractor"."id" = "work_order"."contractorId"
+            AND "contractor"."privacyNoticeGivenAt" IS NOT NULL
+        ) AS "toldEmailCipher"
     `;
     if (order !== undefined) {
       return order;
