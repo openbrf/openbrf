@@ -619,6 +619,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ISSUE_DAMAGE_CASE_MARKED",
   ISSUE_DAMAGE_CASE_REMOVED:
     "register.person.report.action.ISSUE_DAMAGE_CASE_REMOVED",
+  ISSUE_CONCERNED_PERSON_ADDED:
+    "register.person.report.action.ISSUE_CONCERNED_PERSON_ADDED",
   ISSUE_RESIDENTS_LISTED:
     "register.person.report.action.ISSUE_RESIDENTS_LISTED",
   ISSUE_WORK_ORDER_SENT: "register.person.report.action.ISSUE_WORK_ORDER_SENT",

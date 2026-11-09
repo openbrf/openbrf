@@ -1,0 +1,186 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+
+import "../i18n";
+import type { IssueConcernedPerson, QueuedIssue } from "../api/issues";
+import { IssueConcernedPersonsSection } from "./IssueConcernedPersons";
+
+/**
+ * The list of whom an issue concerns (ADR 0057): it names a person or says the
+ * name is protected, records a resident picked by residency, takes one off as
+ * a removal asked twice, and offers no removal while a legal hold stands.
+ */
+
+const fetchIssueConcernedPersons = vi.fn();
+const addIssueConcernedPerson = vi.fn();
+const redactIssue = vi.fn();
+
+vi.mock("../api/issues", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/issues")>()),
+  fetchIssueConcernedPersons: (issueId: string) =>
+    fetchIssueConcernedPersons(issueId),
+  addIssueConcernedPerson: (input: unknown) => addIssueConcernedPerson(input),
+  redactIssue: (input: unknown) => redactIssue(input),
+  fetchIssueApartments: () =>
+    Promise.resolve({
+      ok: true,
+      value: [
+        { id: "apartment-1201", address: "Grannvägen 3", number: "1201" },
+      ],
+    }),
+  fetchIssueResidents: () =>
+    Promise.resolve({
+      ok: true,
+      value: [
+        { kind: "person", residencyId: "residency-nils", name: "Nils Granne" },
+      ],
+    }),
+}));
+
+const NILS: IssueConcernedPerson = {
+  kind: "person",
+  id: "record-nils",
+  name: "Nils Granne",
+};
+const SHIELDED: IssueConcernedPerson = { kind: "protected", id: "record-2" };
+
+function issue(legalHoldAt: string | null = null): QueuedIssue {
+  return {
+    id: "issue-1",
+    number: 12,
+    typeName: "Störningar",
+    legalHoldAt,
+  } as QueuedIssue;
+}
+
+beforeEach(() => {
+  fetchIssueConcernedPersons
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: [SHIELDED] });
+  addIssueConcernedPerson
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: [SHIELDED, NILS] });
+  redactIssue.mockReset().mockResolvedValue({ ok: true, value: undefined });
+});
+
+describe("whom an issue concerns", () => {
+  it("withholds a protected name, and records the resident picked by residency", async () => {
+    const session = userEvent.setup();
+    const onChanged = vi.fn();
+    render(
+      <IssueConcernedPersonsSection issue={issue()} onChanged={onChanged} />,
+    );
+
+    expect(
+      await screen.findByText("Namnet visas inte (skyddade personuppgifter)"),
+    ).toBeTruthy();
+    const add = screen.getByRole("button", {
+      name: "Störningar: lägg till den valda boende som en person ärendet gäller",
+    });
+    // Nothing to add until a resident is picked.
+    expect(add).toHaveProperty("disabled", true);
+
+    await session.selectOptions(
+      screen.getByLabelText("Lägenhet"),
+      "apartment-1201",
+    );
+    await session.selectOptions(
+      await screen.findByLabelText("Boende som det gäller"),
+      "residency-nils",
+    );
+    await session.click(add);
+
+    await waitFor(() => {
+      expect(onChanged).toHaveBeenCalled();
+    });
+    expect(addIssueConcernedPerson).toHaveBeenCalledWith({
+      issueId: "issue-1",
+      residencyId: "residency-nils",
+    });
+    expect(await screen.findByText("Nils Granne")).toBeTruthy();
+  });
+
+  it("takes a person off only when asked twice, and reads the list again", async () => {
+    const session = userEvent.setup();
+    fetchIssueConcernedPersons.mockResolvedValue({ ok: true, value: [NILS] });
+    render(
+      <IssueConcernedPersonsSection
+        issue={issue()}
+        onChanged={() => undefined}
+      />,
+    );
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: "Ta bort Nils Granne från dem som ärendet gäller",
+      }),
+    );
+    expect(redactIssue).not.toHaveBeenCalled();
+    fetchIssueConcernedPersons.mockResolvedValue({ ok: true, value: [] });
+    await session.click(
+      screen.getByRole("button", { name: "Ta bort för gott" }),
+    );
+
+    expect(redactIssue).toHaveBeenCalledWith({
+      issueId: "issue-1",
+      redaction: { target: "concernedPerson", id: "record-nils" },
+    });
+    expect(await screen.findByText("Ingen är antecknad.")).toBeTruthy();
+  });
+
+  it("offers no removal while a legal hold stands, and says why", async () => {
+    fetchIssueConcernedPersons.mockResolvedValue({ ok: true, value: [NILS] });
+    render(
+      <IssueConcernedPersonsSection
+        issue={issue("2026-11-01T09:00:00.000Z")}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(await screen.findByText("Nils Granne")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", {
+        name: "Ta bort Nils Granne från dem som ärendet gäller",
+      }),
+    ).toBeNull();
+    expect(
+      screen.getByText(
+        "Ärendet har ett rättsligt bevarandekrav, så ingen kan tas bort från listan förrän kravet hävs.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says a hold on somebody it concerns refused the removal, and reads the list again", async () => {
+    const session = userEvent.setup();
+    fetchIssueConcernedPersons.mockResolvedValue({ ok: true, value: [NILS] });
+    redactIssue.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "legal-hold" },
+    });
+    render(
+      <IssueConcernedPersonsSection
+        issue={issue()}
+        onChanged={() => undefined}
+      />,
+    );
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: "Ta bort Nils Granne från dem som ärendet gäller",
+      }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Ta bort för gott" }),
+    );
+
+    expect(
+      await screen.findByText(
+        /eller för en person som ärendet gäller, så ingenting kan tas bort/,
+      ),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchIssueConcernedPersons).toHaveBeenCalledTimes(2);
+    });
+  });
+});

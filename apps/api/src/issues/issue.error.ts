@@ -109,6 +109,11 @@ import { DomainError } from "../http/domain-error";
  * changed or taken off since, which would write over theirs unseen: the claim
  * number and the insurer are what a claim is made on.
  *
+ * `too-many-concerned-persons` is one more person on an issue that already
+ * names `ISSUE_CONCERNED_PERSON_LIMIT` as concerned (ADR 0057). A person named
+ * by a residency not held today is `resident-not-found`, as on an issue a
+ * handler opens.
+ *
  * The lifecycle's reasons (decisions 8 and 22). `merge-into-itself` is an
  * issue merged into itself; `merge-into-duplicate` one merged into an issue
  * that is itself a duplicate, which would make a chain its reporter follows
@@ -219,7 +224,8 @@ export type IssueReason =
   | "ring-fenced-post"
   | "damage-case-incomplete"
   | "damage-date-invalid"
-  | "damage-case-changed";
+  | "damage-case-changed"
+  | "too-many-concerned-persons";
 
 /**
  * Where in a message, a note or a saved reply a refused value sits: a part and
@@ -270,7 +276,8 @@ export class IssueError extends DomainError {
       reason === "work-order-recipient-removed" ||
       reason === "legal-hold" ||
       reason === "ring-fence-in-use" ||
-      reason === "damage-case-changed"
+      reason === "damage-case-changed" ||
+      reason === "too-many-concerned-persons"
         ? HttpStatus.CONFLICT
         : reason === "work-order-budget-spent"
           ? HttpStatus.TOO_MANY_REQUESTS

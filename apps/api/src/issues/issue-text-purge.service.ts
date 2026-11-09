@@ -7,12 +7,10 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
-import {
-  lockLegalHold,
-  lockLegalHoldRegistry,
-} from "../retention/legal-hold-lock";
+import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
 import {
+  isAnyPersonWithheld,
   isPersonWithheld,
   withheldPersonIds,
 } from "../retention/withheld-persons";
@@ -22,6 +20,12 @@ import {
   issueTextRetentionDays,
   issueTextRetentionYears,
 } from "./issue-free-text";
+import {
+  CONCERNS_NO_WITHHELD_PERSON,
+  concernedPersonIdsOf,
+  concernsUnlockedPerson,
+  lockPersonHolds,
+} from "./issue-concerned-persons";
 import { IssueFreeTextService } from "./issue-free-text.service";
 import { lockIssue } from "./issue-lock";
 import { issuePurgeCutoff } from "./issue-retention";
@@ -99,6 +103,10 @@ export interface IssueTextPurgeRunSummary {
  * - **A legal hold or a restriction on its reporter**: a signed-in reporter by
  *   their person, a public-form reporter by the address on the report, as the
  *   website form's own purge reads it (`issue-purge.service.ts`).
+ * - **A legal hold or a restriction on a person it concerns**
+ *   (`IssueConcernedPerson`, ADR 0057), read by their person as a signed-in
+ *   reporter is: the text is what the case holds about them as much as about
+ *   the reporter, and the record that it concerns them goes with it.
  *
  * Each is checked in the scan and again inside the transaction that removes,
  * under the issue lock and the hold's: a hold placed or an issue reopened while
@@ -288,6 +296,7 @@ export class IssueTextPurgeService implements OnModuleInit {
                 },
               ]
             : []),
+          CONCERNS_NO_WITHHELD_PERSON,
           ...(withheldAddresses.length > 0
             ? [
                 {
@@ -342,15 +351,23 @@ export class IssueTextPurgeService implements OnModuleInit {
         if (reporter === null) {
           return false;
         }
-        // The hold's locks, then the issue's: the order the person purge takes
-        // them in, so neither waits on the other the other way round.
-        if (reporter.reporterPersonId !== null) {
-          await lockLegalHold(tx, reporter.reporterPersonId);
-        }
+        // The holds' locks, then the issue's: the order the person purge takes
+        // them in, so neither waits on the other the other way round. The
+        // reporter's key among those of the people the issue concerns.
+        const concerned = await concernedPersonIdsOf(tx, issueId);
+        await lockPersonHolds(tx, [reporter.reporterPersonId, ...concerned]);
         if (reporter.reporterEmailIndex !== null) {
           await lockLegalHoldRegistry(tx);
         }
         await lockIssue(tx, issueId);
+        // Somebody recorded since the read above is kept for the next run,
+        // rather than having their hold read without their key.
+        if (await concernsUnlockedPerson(tx, issueId, concerned)) {
+          return false;
+        }
+        if (await isAnyPersonWithheld(tx, concerned)) {
+          return false;
+        }
 
         const due = await tx.issue.findFirst({
           where: { id: issueId, ...pastClock(now, years) },

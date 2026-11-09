@@ -37,7 +37,8 @@ import { issuesReportedByProtectedPersons } from "./issue-reporter-protection";
  *
  * And one more, asked beside the query in the same transaction because it
  * reads the register: **nobody with protected personal data reported the
- * issue or lives or is to live in its apartment** (`showsProtectedHousehold`).
+ * issue, is recorded as a person it concerns (ADR 0057), or lives or is to
+ * live in its apartment** (`showsProtectedHousehold`).
  * The threat review asked that such a work order fail closed until the owner
  * answers ADR 0055's question 4, since the photographs the board chose may
  * show the home.
@@ -150,8 +151,9 @@ export async function revokeWorkOrderLinks(
 }
 
 /**
- * Whether a person with protected personal data reported the issue, or lives
- * in the apartment it is about or is to live there.
+ * Whether a person with protected personal data reported the issue, is
+ * recorded as a person it concerns, or lives in the apartment it is about or
+ * is to live there.
  *
  * Asked when a link is issued and on every request through one, so a
  * protection recorded after the link was issued ends it from the next request.
@@ -166,6 +168,13 @@ export async function showsProtectedHousehold(
   today: LocalDay,
 ): Promise<boolean> {
   if ((await issuesReportedByProtectedPersons(db, [issueId])).has(issueId)) {
+    return true;
+  }
+  const protectedConcern = await db.issueConcernedPerson.findFirst({
+    where: { issueId, person: { protectedPersonalData: true } },
+    select: { id: true },
+  });
+  if (protectedConcern !== null) {
     return true;
   }
   const issue = await db.issue.findUnique({
@@ -188,15 +197,17 @@ export async function showsProtectedHousehold(
 
 /**
  * Ends the links of the issues a person with protected personal data is
- * concerned in, as a fact on each row: the issues they reported, and the
- * issues about an apartment they live in or are to live in.
+ * concerned in, as a fact on each row: the issues they reported, the issues a
+ * handler recorded as concerning them, and the issues about an apartment they
+ * live in or are to live in.
  *
  * `showsProtectedHousehold` refuses such a link on every request, but a refusal
  * that lifts with the protection would let the same address open the work order
  * again, and the glossary has such a link end, not wait. So the writes that
  * make a household protected end the links in their own transaction: a person
- * being marked as protected, and a protected person's residency being
- * recorded. A residency is counted from the day it is recorded, not the day it
+ * being marked as protected, a protected person's residency being recorded,
+ * and a protected person being recorded as one an issue concerns
+ * (`IssueConcernedPersonService.add`). A residency is counted from the day it is recorded, not the day it
  * begins, so a household moving in ahead of its date is covered before the
  * date arrives, which no write marks. Clearing the protection restores
  * nothing. The reads still write nothing (ADR 0055).
@@ -260,6 +271,7 @@ export async function revokeLinksOfProtectedHousehold(
         issue: {
           OR: [
             { reporterPersonId: input.personId },
+            { concernedPersons: { some: { personId: input.personId } } },
             { apartmentId: { in: apartmentIds } },
           ],
         },

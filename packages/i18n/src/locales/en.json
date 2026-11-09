@@ -911,6 +911,7 @@
           "ISSUE_RETENTION_RECORDED": "How long the free text of closed issues is kept was changed",
           "ISSUE_DAMAGE_CASE_MARKED": "A handler marked an issue as a damage case, or changed the mark",
           "ISSUE_DAMAGE_CASE_REMOVED": "A handler took the damage-case mark off an issue",
+          "ISSUE_CONCERNED_PERSON_ADDED": "A handler recorded a person an issue concerns",
           "MOVE_IN_RECORDED": "A move-in was recorded",
           "MOVE_OUT_RECORDED": "A move-out was recorded",
           "PLUGIN_ENABLED": "A plugin was switched on",
@@ -993,7 +994,8 @@
             "attachment": "A file",
             "workOrder": "The text of a work order",
             "workOrderNote": "A contractor's note",
-            "workOrderFile": "A contractor's photograph"
+            "workOrderFile": "A contractor's photograph",
+            "concernedPerson": "A person the issue concerns"
           },
           "legalHoldSince": "The hold stood since {{date}}",
           "retentionChanged": "From {{from}} to {{to}} years after closing"
@@ -1832,7 +1834,7 @@
       "handledByEveryHandlerHint": "Every handler sees these issues, the property manager included. An issue with no assignee is told to all of them.",
       "ringFenced": "Ring-fenced: the board's alone, and nothing leaves it",
       "ringFencedNamed": "{{name}}: ring-fenced, the board's alone and nothing leaves it",
-      "ringFencedHint": "A ring-fenced type, such as one for disturbances between neighbours, is handled by the board only. Nothing about its issues goes to the property manager, a contractor, a connected app or out by email, it is not offered on the website's form, and its free text is removed one year after the issue closes, whatever the board chose for other issues, unless a legal hold stands on the issue, or a legal hold or a restriction on the person who reported it. The ring-fence cannot be lifted once anything has been reported under the type.",
+      "ringFencedHint": "A ring-fenced type, such as one for disturbances between neighbours, is handled by the board only. Nothing about its issues goes to the property manager, a contractor, a connected app or out by email, it is not offered on the website's form, and its free text is removed one year after the issue closes, whatever the board chose for other issues, unless a legal hold stands on the issue, or a legal hold or a restriction on the person who reported it or on a person it concerns. The ring-fence cannot be lifted once anything has been reported under the type.",
       "ringFencedLocked": "Issues have been reported under this type, so it stays ring-fenced. Switch the type off and add a new one if it is needed without the ring-fence.",
       "ringFencedPublic": "Take the website's form off the type before ring-fencing it."
     },
@@ -2106,7 +2108,7 @@
     },
     "issueRetention": {
       "title": "Retention of issues",
-      "description": "How many years after an issue closes its free text is kept. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, stay with the issue; the description, the location, the conversation, the internal notes and the photographs and files are removed that many years after it closes, unless a legal hold stands on it or a legal hold or a restriction on the person who reported it.",
+      "description": "How many years after an issue closes its free text is kept. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, stay with the issue; the description, the location, the conversation, the internal notes, the photographs and files and the record of whom it concerns are removed that many years after it closes, unless a legal hold stands on it or a legal hold or a restriction on the person who reported it or on a person it concerns.",
       "years": "Years after an issue closes",
       "yearsHint": "A whole number between 1 and 10. A new instance starts at 2.",
       "purgeJob": "The purge runs every night and reads this number when it runs, so a change moves every pending date at once. After a shorter setting, the nights that follow remove the free text of the issues already past it, at most 500 issues in each run.",
@@ -2116,7 +2118,7 @@
         "range": "Choose a whole number of years between 1 and 10.",
         "unknown": "The setting could not be saved just now. Please try again."
       },
-      "ringFenced": "A ring-fenced issue type, such as one for disturbances between neighbours, has a clock of its own: its free text is removed one year after the issue closes, whatever is chosen here, unless a legal hold stands on the issue, or a legal hold or a restriction on the person who reported it. The board does not set it."
+      "ringFenced": "A ring-fenced issue type, such as one for disturbances between neighbours, has a clock of its own: its free text is removed one year after the issue closes, whatever is chosen here, unless a legal hold stands on the issue, or a legal hold or a restriction on the person who reported it or on a person it concerns. The board does not set it."
     },
     "responsibilityGuide": {
       "title": "Responsibility guide",
@@ -4129,6 +4131,7 @@
         "workOrder": "Removed the text of a work order",
         "workOrderNote": "Removed a contractor's note",
         "workOrderFile": "Removed a contractor's photograph",
+        "concernedPerson": "Removed a person the issue concerns",
         "unknown": "Removed text or a file"
       },
       "legalHoldPlaced": "Placed a legal hold",
@@ -4152,6 +4155,7 @@
       "damageCaseMarked": "Marked as a damage case: {{cause}}",
       "damageCaseMarkedUnknown": "Marked as a damage case",
       "damageCaseRemoved": "Took the damage-case mark off",
+      "concernedPersonAdded": "Recorded a person the issue concerns",
       "workOrderAnswer": {
         "accepted": "The contractor accepted a work order",
         "declined": "The contractor declined a work order",
@@ -4610,7 +4614,7 @@
       "purgedOn": "Free text removed on <data>{{date}}</data>",
       "freeTextRemoved": "The free text, the conversation and the photographs were removed on <data>{{date}}</data>. What it concerned, when it was reported and closed, the outcome and the apartment, where one was named, remain.",
       "title": "Free text and legal hold",
-      "intro": "Unless a legal hold stands on the issue itself, or a legal hold or a restriction on its reporter, a handler can remove the description, the location, a message, an internal note, a photograph, a file or the text of a work order at any time, for instance when a person named in it has been granted erasure. What is removed is gone: nothing keeps the text, and nothing is written in its place.",
+      "intro": "Unless a legal hold stands on the issue itself, or a legal hold or a restriction on its reporter or on a person it concerns, a handler can remove the description, the location, a message, an internal note, a photograph, a file or the text of a work order at any time, for instance when a person named in it has been granted erasure. What is removed is gone: nothing keeps the text, and nothing is written in its place.",
       "remove": "Remove",
       "removeDescription": "{{type}}: remove the description",
       "removeLocation": "{{type}}: remove the location",
@@ -4645,14 +4649,14 @@
         "saving": "Saving..."
       },
       "errors": {
-        "legalHold": "A legal hold stands on this issue, or a legal hold or a restriction on its reporter, so nothing can be removed. The issue has been read again.",
+        "legalHold": "A legal hold stands on this issue, or a legal hold or a restriction on its reporter or on a person it concerns, so nothing can be removed. The issue has been read again.",
         "targetNotFound": "That is already gone. The issue has been read again.",
         "unknown": "Nothing could be changed just now. Please try again."
       }
     },
     "ringFence": {
       "formWarning": "Only the board reads this - never the property manager, a contractor or a connected app - and nothing about it is sent by email. What you write, the conversation and the photographs are removed one year after the issue is closed, unless a legal hold stands on the issue, or a legal hold or a restriction on you. Describe what happened, where and when. Do not write who you think did it, or anything about anybody's health or about a crime. Formal steps under the Tenant-Ownership Act are not taken here.",
-      "caseNotice": "Ring-fenced issue. Only the board reads it. Nothing about it goes to the property manager, a contractor, a connected app or out by email, and its free text is removed one year after it is closed, unless a legal hold stands on it, or a legal hold or a restriction on the person who reported it. Formal steps under the Tenant-Ownership Act are taken outside Open BRF."
+      "caseNotice": "Ring-fenced issue. Only the board reads it. Nothing about it goes to the property manager, a contractor, a connected app or out by email, and its free text is removed one year after it is closed, unless a legal hold stands on it, or a legal hold or a restriction on the person who reported it or on a person it concerns. Formal steps under the Tenant-Ownership Act are taken outside Open BRF."
     },
     "damageCase": {
       "title": "Damage case",
@@ -4689,6 +4693,31 @@
       "markNamed": "Mark issue {{number}} as a damage case",
       "saveNamed": "Save the damage case of issue {{number}}",
       "removeNamed": "Take the damage-case mark off issue {{number}}"
+    },
+    "concerned": {
+      "title": "Who the issue concerns",
+      "intro": "Record the residents the issue is about when they did not report it themselves, such as the neighbour a report of a disturbance names. Only those who handle the issue see the list; the reporter is never shown it. It is part of the issue's free text: it is removed with the text, and a legal hold keeps it as it keeps the text.",
+      "loading": "Reading who the issue concerns...",
+      "readFailed": "Who the issue concerns could not be read just now.",
+      "none": "Nobody is recorded as concerned.",
+      "protected": "Name withheld (protected personal data)",
+      "resident": "Resident it concerns",
+      "residentNone": "Choose a resident",
+      "residentsEmpty": "Nobody lives in this apartment today.",
+      "apartmentsFailed": "The apartments could not be read, so nobody can be added just now.",
+      "add": "Add",
+      "adding": "Adding...",
+      "addNamed": "{{type}}: add the chosen resident as a person the issue concerns",
+      "removeNamed": "Remove {{name}} from those the issue concerns",
+      "removeHint": "This cannot be undone. The issue no longer says it concerns them, but what its text says about them stays until that is removed.",
+      "heldNotice": "A legal hold stands on this issue, so nobody can be removed from the list until the hold is released.",
+      "limit": "The issue names {{limit}} people as concerned, as many as it may.",
+      "errors": {
+        "residentNotFound": "That resident no longer lives there. Choose again.",
+        "limit": "The issue already names as many people as it may. The list has been read again.",
+        "alreadyRemoved": "That person is already off the list. The list has been read again.",
+        "unknown": "Nothing could be saved just now. Please try again."
+      }
     }
   },
   "boardMailbox": {
@@ -7071,9 +7100,9 @@
         },
         "issues": {
           "name": "Issue reports",
-          "purpose": "Receiving and dealing with problems in the building, including the work orders handlers send to contractors, and telling whoever handles an issue, and whoever reported it, by email. The emails about an issue carry the issue number, the issue type and a link, and those to whoever handles it the priority too, never what anybody wrote. A work order's email carries the text a handler wrote for the contractor and nothing else from the issue. An issue of a ring-fenced issue type, such as one for disturbances between neighbours, is read by the board alone and never mailed about, to anybody.",
+          "purpose": "Receiving and dealing with problems in the building, including the work orders handlers send to contractors, and telling whoever handles an issue, and whoever reported it, by email. The emails about an issue carry the issue number, the issue type and a link, and those to whoever handles it the priority too, never what anybody wrote. A work order's email carries the text a handler wrote for the contractor and nothing else from the issue. An issue of a ring-fenced issue type, such as one for disturbances between neighbours, is read by the board alone and never mailed about, to anybody. A handler may record whom an issue concerns, such as the neighbour a report of a disturbance is about, chosen from who lives in an apartment today; only those who handle the issue read it.",
           "legalBasisNote": "Legitimate interest: managing the property. A reporter may volunteer data about health (art. 9).",
-          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes and the photographs are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, the ordinary retention window chosen for it, which follows the general ten-year limitation period for a claim about the work (preskriptionslagen 2 §); a claim's limitation period can be interrupted or renewed, and the erasure does not follow that, so a legal hold on the issue or a legal hold or a restriction on the reporter is what keeps the text longer; when it was sent is kept, and whom it went to is kept while the contractor stays on the list. Removing a contractor from the list erases the name and email address on their work orders. The free text of an issue of a ring-fenced issue type, such as one for disturbances between neighbours, is purged one year after closing, whatever the board set for other issues, unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it. A damage case places a legal hold on the issue, which stands until a handler releases it, and a legal hold keeps the text of a ring-fenced issue past that year as well. A contractor stays on the association's list, with its name, trade, phone and email address, until the board removes it."
+          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes, the photographs and the record of whom the issue concerns are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it or on a person it concerns, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, the ordinary retention window chosen for it, which follows the general ten-year limitation period for a claim about the work (preskriptionslagen 2 §); a claim's limitation period can be interrupted or renewed, and the erasure does not follow that, so a legal hold on the issue or a legal hold or a restriction on the reporter is what keeps the text longer; when it was sent is kept, and whom it went to is kept while the contractor stays on the list. Removing a contractor from the list erases the name and email address on their work orders. The free text of an issue of a ring-fenced issue type, such as one for disturbances between neighbours, is purged one year after closing, whatever the board set for other issues, unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it or on a person it concerns. A damage case places a legal hold on the issue, which stands until a handler releases it, and a legal hold keeps the text of a ring-fenced issue past that year as well. A contractor stays on the association's list, with its name, trade, phone and email address, until the board removes it."
         },
         "documents": {
           "name": "Document archive",

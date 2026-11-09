@@ -25,8 +25,9 @@ import {
 
 /**
  * A redaction names what it reaches: the description or the location alone,
- * or a message, a note, a photograph, a handler's file or a work order by its
- * identifier.
+ * or a message, a note, a photograph, a handler's file, a work order, a
+ * contractor's note or photograph, or the record of a person the issue
+ * concerns, by its identifier.
  * Strict, so a field for replacement text is refused rather than ignored: a
  * redaction takes nothing in place of what it removes (ADR 0057).
  */
@@ -41,6 +42,7 @@ const redactionSchema = z.discriminatedUnion("target", [
       "workOrder",
       "workOrderNote",
       "workOrderFile",
+      "concernedPerson",
     ]),
     id: z.string().min(1).max(64),
   }),

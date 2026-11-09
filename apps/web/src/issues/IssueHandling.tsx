@@ -47,6 +47,7 @@ import {
   ISSUE_PRIORITY_LABEL,
   ISSUE_WAITING_REASON_LABEL,
 } from "./issue-labels";
+import { IssueConcernedPersonsSection } from "./IssueConcernedPersons";
 import { IssueFitHandling } from "./IssueFitHandling";
 import { IssueHandlerName, issueHandlerName } from "./IssueHandlerName";
 import { ResponsibilityGuideTable } from "./ResponsibilityGuideTable";
@@ -369,6 +370,16 @@ export function IssueHandling({
       <IssueFitHandling
         issue={issue}
         filesRevision={filesRevision}
+        onChanged={() => {
+          setReads((count) => count + 1);
+          onChanged();
+        }}
+      />
+
+      {/* Recording or removing a person writes a timeline step and nothing on
+        the issue's own row, so the timeline is read again here too. */}
+      <IssueConcernedPersonsSection
+        issue={issue}
         onChanged={() => {
           setReads((count) => count + 1);
           onChanged();
@@ -996,6 +1007,8 @@ function TimelineSentence({
               })}
         </>
       );
+    case "concernedPerson":
+      return <>{t("issues.timeline.concernedPersonAdded")}</>;
   }
 }
 
@@ -1010,4 +1023,5 @@ const REDACTED_STEP: Readonly<Record<IssueRedactionTarget, TranslationKey>> = {
   workOrder: "issues.timeline.redacted.workOrder",
   workOrderNote: "issues.timeline.redacted.workOrderNote",
   workOrderFile: "issues.timeline.redacted.workOrderFile",
+  concernedPerson: "issues.timeline.redacted.concernedPerson",
 };

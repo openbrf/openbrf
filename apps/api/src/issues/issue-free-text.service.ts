@@ -61,7 +61,8 @@ export type FreeTextRemovalOutcome =
  * nothing left to name them. The join rows go with the file by their cascade. Then
  * the text, in one transaction with the entry that records it: the description
  * emptied, the location cleared, every issue message, internal note and
- * contractor's note deleted, every contractor's link revoked, and
+ * contractor's note deleted, the record of every person the issue concerns
+ * deleted, every contractor's link revoked, and
  * `freeTextRemovedAt` written. It is written whenever the text goes, also
  * when a file attached during the run stands (the outcome is then
  * `unfinished`), and again by the run that takes that file.
@@ -150,6 +151,9 @@ export class IssueFreeTextService {
       const { count: contractorNotes } = await tx.workOrderNote.deleteMany({
         where: { workOrder: { issueId } },
       });
+      // Whom the issue concerns goes with what was written about them.
+      const { count: concernedPersons } =
+        await tx.issueConcernedPerson.deleteMany({ where: { issueId } });
       // A contractor's link to a work order on an issue whose free text is
       // gone has nothing of its own left, and ends now (ADR 0055, control B5).
       // On a closed issue it opened nothing already.
@@ -169,6 +173,7 @@ export class IssueFreeTextService {
         messages === 0 &&
         notes === 0 &&
         contractorNotes === 0 &&
+        concernedPersons === 0 &&
         current.description === "" &&
         current.location === null;
       if (nothingTaken) {
@@ -216,6 +221,7 @@ export class IssueFreeTextService {
             issueMessages: messages,
             internalNotes: notes,
             ...(contractorNotes > 0 ? { contractorNotes } : {}),
+            ...(concernedPersons > 0 ? { concernedPersons } : {}),
             files: filesRemoved,
             ...(reporterDetached ? { reporterDetached: true } : {}),
             ...removal.context,

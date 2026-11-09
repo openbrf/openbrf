@@ -6,12 +6,17 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { MediaService } from "../media/media.service";
-import {
-  lockLegalHold,
-  lockLegalHoldRegistry,
-} from "../retention/legal-hold-lock";
+import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
-import { isPersonWithheld } from "../retention/withheld-persons";
+import {
+  isAnyPersonWithheld,
+  isPersonWithheld,
+} from "../retention/withheld-persons";
+import {
+  concernedPersonIdsOf,
+  concernsUnlockedPerson,
+  lockPersonHolds,
+} from "./issue-concerned-persons";
 import { ISSUE_FREE_TEXT_STANDING_UNREDACTED } from "./issue-free-text";
 import { requireHandledIssueForWrite } from "./issue-handlers";
 import { lockIssueForHandling } from "./issue-lock";
@@ -25,8 +30,8 @@ import { revokeWorkOrderLinks } from "./work-order-link";
 /**
  * What a handler redacts: the issue's description or location, or one of its
  * messages, notes, photographs, handler's files or work orders by its
- * identifier, or a note or photograph a contractor sent through a work
- * order's link (ADR 0055).
+ * identifier, a note or photograph a contractor sent through a work order's
+ * link (ADR 0055), or the record of a person the issue concerns (ADR 0057).
  */
 export type IssueRedaction =
   | { target: "description" | "location" }
@@ -38,7 +43,8 @@ export type IssueRedaction =
         | "attachment"
         | "workOrder"
         | "workOrderNote"
-        | "workOrderFile";
+        | "workOrderFile"
+        | "concernedPerson";
       id: string;
     };
 
@@ -66,7 +72,10 @@ export interface IssueLegalHoldView {
  * stays with whom it went to and when, which is the record of the disclosure.
  * Its contractor's link ends in the same transaction (ADR 0055): a link with no
  * text has nothing to show. A note or a photograph the contractor sent through
- * the link is redacted as a handler's note or file is.
+ * the link is redacted as a handler's note or file is. The record of a person
+ * the issue concerns is deleted: it is part of the free-text layer, and a
+ * record of who a case is about that a handler took back is not one to keep
+ * marked as taken back.
  * One whose mail has not gone out yet is then not sent, and is recorded as not
  * sent (`WorkOrderMailerService`); one already on its way cannot be called
  * back. The redaction that leaves the issue with no text at all detaches a
@@ -87,10 +96,10 @@ export interface IssueLegalHoldView {
  * redaction would destroy it as surely as the clock the hold stops. The hold is
  * released first, which is its own act in the log.
  *
- * Refused as well while the issue's reporter is under a legal hold or a
- * restriction under art. 18, as the clock and the erasure job refuse: the
- * reporter's text is what such a hold or restriction keeps, whichever of the
- * three removes it. A signed-in reporter is read by their person, a
+ * Refused as well while the issue's reporter, or a person it concerns, is
+ * under a legal hold or a restriction under art. 18, as the clock and the
+ * erasure job refuse: the issue's text is what such a hold or restriction
+ * keeps of that person, whichever of the three removes it. A signed-in reporter is read by their person, a
  * public-form reporter by the address on the report (`issue-text-purge.service.ts`).
  * The refusal is the one a hold on the issue gets, so it does not say whether
  * the reporter's is a hold or a restriction, nor why it was placed. A handler
@@ -204,8 +213,12 @@ export class IssueRedactionService {
     // detach the reporter, which a hold on them forbids.
     const reporterPersonId = await this.reporterOf(issueId);
     return this.prisma.$transaction(async (tx) => {
-      await this.lockForRedaction(tx, issueId, reporterPersonId);
-      await this.requireRedactable(tx, issueId, handlerPersonId);
+      const concerned = await this.lockForRedaction(
+        tx,
+        issueId,
+        reporterPersonId,
+      );
+      await this.requireRedactable(tx, issueId, handlerPersonId, concerned);
       const now = new Date();
 
       let rowId: string | null = null;
@@ -290,6 +303,17 @@ export class IssueRedactionService {
           });
           // Nothing is left for its link to show (control B5).
           await revokeWorkOrderLinks(tx, { id: redaction.id });
+          break;
+        }
+        case "concernedPerson": {
+          rowId = redaction.id;
+          // Deleted rather than marked: nothing of it is text to blank.
+          const { count } = await tx.issueConcernedPerson.deleteMany({
+            where: { id: redaction.id, issueId },
+          });
+          if (count === 0) {
+            throw targetNotFound();
+          }
           break;
         }
         case "workOrderNote": {
@@ -406,8 +430,12 @@ export class IssueRedactionService {
       // A storage failure fails the redaction, and the file stays to retry.
       bytesFirst: true,
       keep: async (tx) => {
-        await this.lockForRedaction(tx, issueId, reporterPersonId);
-        await this.requireRedactable(tx, issueId, handlerPersonId);
+        const concerned = await this.lockForRedaction(
+          tx,
+          issueId,
+          reporterPersonId,
+        );
+        await this.requireRedactable(tx, issueId, handlerPersonId, concerned);
         return (await this.fileOf(tx, issueId, redaction)) !== fileId;
       },
       onRemoved: async (tx) => {
@@ -431,21 +459,22 @@ export class IssueRedactionService {
   }
 
   /**
-   * The locks a redaction takes: the reporter's hold, then the issue's own,
-   * the order the clock and the person purge take them in, so neither waits on
-   * the other the other way round. The person's key is the one of the reporter
-   * read before any lock, which is the one {@link detachIfFinished} may detach.
-   * A hold placed or a restriction granted while the handler was clicking has
-   * to win, and the placing takes the same keys.
+   * The locks a redaction takes: the holds of the reporter and of every person
+   * the issue concerns, then the issue's own, the order the clock and the
+   * person purge take them in, so neither waits on the other the other way
+   * round. The reporter's key is the one of the reporter read before any lock,
+   * which is the one {@link detachIfFinished} may detach. A hold placed or a
+   * restriction granted while the handler was clicking has to win, and the
+   * placing takes the same keys. Answers whose keys of the people concerned
+   * were taken.
    */
   private async lockForRedaction(
     tx: Prisma.TransactionClient,
     issueId: string,
     reporterPersonId: string | null,
-  ): Promise<void> {
-    if (reporterPersonId !== null) {
-      await lockLegalHold(tx, reporterPersonId);
-    }
+  ): Promise<string[]> {
+    const concerned = await concernedPersonIdsOf(tx, issueId);
+    await lockPersonHolds(tx, [reporterPersonId, ...concerned]);
     const reporter = await tx.issue.findUnique({
       where: { id: issueId },
       select: { reporterEmailIndex: true },
@@ -454,19 +483,31 @@ export class IssueRedactionService {
       await lockLegalHoldRegistry(tx);
     }
     await lockIssueForHandling(tx, issueId);
+    return concerned;
   }
 
   /**
    * Refuses a redaction of an issue this person does not handle, one under a
-   * legal hold of its own, and one whose reporter is under a hold or a
-   * restriction. Read under the locks of {@link lockForRedaction}.
+   * legal hold of its own, and one whose reporter or a person it concerns is
+   * under a hold or a restriction. Read under the locks of
+   * {@link lockForRedaction}, whose keys of the people concerned are
+   * `concerned`: somebody recorded since they were read is refused as held,
+   * since their hold cannot be read without their key, and the handler's
+   * screen reads the issue again on that refusal.
    */
   private async requireRedactable(
     tx: Prisma.TransactionClient,
     issueId: string,
     handlerPersonId: string,
+    concerned: readonly string[],
   ): Promise<void> {
     refuseHeld(await requireHandledForWrite(tx, issueId, handlerPersonId));
+    if (
+      (await concernsUnlockedPerson(tx, issueId, concerned)) ||
+      (await isAnyPersonWithheld(tx, concerned))
+    ) {
+      throw heldError();
+    }
     const reporter = await tx.issue.findUnique({
       where: { id: issueId },
       select: { reporterPersonId: true, reporterEmailIndex: true },
@@ -571,11 +612,12 @@ function refuseHeld(issue: { legalHoldAt: Date | null }): void {
 
 /**
  * The refusal for a hold on the issue and for a hold or a restriction on its
- * reporter, worded the same for all three so it does not say which stands.
+ * reporter or on a person it concerns, worded the same for all of them so it
+ * does not say which stands.
  */
 function heldError(): IssueError {
   return new IssueError(
-    "A legal hold stands on this issue, or a legal hold or a restriction on its reporter; nothing can be redacted until it ends.",
+    "A legal hold stands on this issue, or a legal hold or a restriction on its reporter or on a person it concerns; nothing can be redacted until it ends.",
     "legal-hold",
   );
 }

@@ -413,6 +413,15 @@ export type IssueResidentChoice =
   | { kind: "protected"; residencyId: string };
 
 /**
+ * A person an issue concerns (ADR 0057), as its handlers read the list: a name,
+ * or that the name is protected. Keyed by the record, which is what a handler
+ * removes; no person identifier and no apartment.
+ */
+export type IssueConcernedPerson =
+  | { kind: "person"; id: string; name: string }
+  | { kind: "protected"; id: string };
+
+/**
  * One step of an issue's timeline: who did what, and when. Never a reporter's
  * name, and never text anybody wrote.
  */
@@ -465,6 +474,11 @@ export type IssueTimelineStep = {
       from: IssueCostResponsibility | null;
       to: IssueCostResponsibility | null;
     }
+  /**
+   * A handler recorded a person the issue concerns (ADR 0057); never whom.
+   * Taking one off is a `redacted` step.
+   */
+  | { kind: "concernedPerson" }
 );
 
 /** One line of the association's responsibility guide (ansvarsfördelning). */
@@ -684,6 +698,31 @@ export function fetchIssueResidents(
   return apiRequest(
     "GET",
     `/api/issue-queue/apartments/${encodeURIComponent(apartmentId)}/residents`,
+  );
+}
+
+/** Whom an issue concerns, oldest record first (ADR 0057). */
+export function fetchIssueConcernedPersons(
+  issueId: string,
+): Promise<ApiResult<IssueConcernedPerson[]>> {
+  return apiRequest(
+    "GET",
+    `/api/issue-queue/${encodeURIComponent(issueId)}/concerned-persons`,
+  );
+}
+
+/**
+ * Records the resident of a residency held today as a person the issue
+ * concerns, as the resident picker offered them; answers the list.
+ */
+export function addIssueConcernedPerson(input: {
+  issueId: string;
+  residencyId: string;
+}): Promise<ApiResult<IssueConcernedPerson[]>> {
+  return apiRequest(
+    "POST",
+    `/api/issue-queue/${encodeURIComponent(input.issueId)}/concerned-persons`,
+    { residencyId: input.residencyId },
   );
 }
 

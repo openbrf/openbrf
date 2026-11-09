@@ -112,6 +112,7 @@ export {
   ISSUE_TEXT_RETENTION_YEARS,
   RING_FENCED_ISSUE_TEXT_RETENTION_YEARS,
 } from "./issue-retention.ts";
+export { ISSUE_CONCERNED_PERSON_LIMIT } from "./issue-concerned-persons.ts";
 export {
   ISSUE_DAMAGE_CASE_LIMITS,
   ISSUE_DAMAGE_CAUSES,

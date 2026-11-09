@@ -21,8 +21,16 @@ import type { Prisma } from "../generated/prisma/client";
  * every photograph and file a handler attached, and every note and photograph
  * a contractor sent through a work order's link (ADR 0055). It is removed on the
  * board's clock after the issue closes, unless a legal hold stands on the issue
- * or a legal hold or a restriction on its reporter; on the reporter's granted
- * erasure request; and, a piece at a time, whenever a handler redacts it.
+ * or a legal hold or a restriction on its reporter or on a person it concerns;
+ * on the reporter's granted erasure request; and, a piece at a time, whenever a
+ * handler redacts it.
+ *
+ * The record of whom the issue concerns (`IssueConcernedPerson`) is in the
+ * layer too, though nobody wrote it as text: that a case of a disturbance is
+ * about a named neighbour is personal data about them, and it says no more
+ * about the building than the case's apartment and place already do. It goes
+ * when the text goes, so the clock, the hold and the restriction that decide
+ * the one decide the other.
  *
  * The free-text location goes with the rest because decision 33 removes free
  * text, and "the bathroom in 1101, the neighbour's dog" is free text whatever
@@ -69,6 +77,8 @@ function standing(
       { notes: { some: {} } },
       { photos: { some: {} } },
       { attachments: { some: {} } },
+      // Whom the issue concerns (ADR 0057).
+      { concernedPersons: { some: {} } },
       // What a contractor wrote or photographed through a work order's link
       // (ADR 0055). The work order's own text has a clock of its own.
       {

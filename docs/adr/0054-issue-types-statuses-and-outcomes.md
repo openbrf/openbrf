@@ -270,6 +270,12 @@ the apartment and how many residents were listed, never who. The list of
 apartments names nobody and is not audited, as the apartment binder's chooser
 is not.
 
+The same picker names the people a case concerns, on a case already open
+([ADR 0057](0057-purging-issues-in-two-layers.md#the-people-an-issue-concerns)):
+the handler picks a residency in the same two reads, and the person behind it is
+recorded on the case. It discloses nothing the threat review below does not
+already weigh: the same names by apartment, to the same handlers.
+
 #### Threat review: residents' names by apartment
 
 What it discloses. A handler who does not read the address book, which today

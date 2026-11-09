@@ -644,10 +644,12 @@ model Person {
   systemRoles           SystemRole[]
   invitations           Invitation[]
   memberRegisterEntries MemberRegisterEntry[]
-  transfersFrom         Transfer[]            @relation("TransferFromPerson")
-  transfersTo           Transfer[]            @relation("TransferToPerson")
+  transfersFrom         Transfer[]             @relation("TransferFromPerson")
+  transfersTo           Transfer[]             @relation("TransferToPerson")
   publicationConsents   PublicationConsent[]
   legalHolds            LegalHold[]
+  /// The issues a handler recorded as concerning this person (ADR 0057).
+  issueConcerns         IssueConcernedPerson[]
   dataSubjectRequests   DataSubjectRequest[]
   pluginAccesses        PluginAccess[]
 
@@ -1913,6 +1915,8 @@ enum AuditAction {
   ISSUE_DAMAGE_CASE_MARKED
   /// A handler took the damage-case mark off an issue. The legal hold the mark placed stays until a handler releases it.
   ISSUE_DAMAGE_CASE_REMOVED
+  /// A handler recorded a person an issue concerns (ADR 0057). The entry names the issue and the record's identifier, and the handler as its actor; never the person, whom the log would otherwise keep after the record is purged.
+  ISSUE_CONCERNED_PERSON_ADDED
   /// A person was moved into an apartment.
   MOVE_IN_RECORDED
   /// A residency was given its move-out date.
@@ -4740,6 +4744,11 @@ model Issue {
   /// 28).
   damageCase IssueDamageCase?
 
+  /// The people it concerns, as a handler recorded them (ADR 0057): the
+  /// neighbour a disturbance report is about, say. Part of its free-text
+  /// layer, and removed with it.
+  concernedPersons IssueConcernedPerson[]
+
   /// What the handlers sent contractors about it, oldest first.
   workOrders  WorkOrder[]
   /// The conversation with the reporter (svar), and the handlers' own notes
@@ -4870,6 +4879,52 @@ model IssueDamageCase {
   updatedAt DateTime @updatedAt
 
   @@map("issue_damage_case")
+}
+
+/// A person an issue concerns who did not necessarily report it (berörd
+/// person, ADR 0057): the neighbour a report of a disturbance is about, the
+/// household behind a leak. A handler records them from the resident picker,
+/// on an issue of any type.
+///
+/// Personal data of its own, about the person named: that a case concerns
+/// them is what the case holds about them, so the record is part of the
+/// issue's free-text layer rather than its building record. It is removed
+/// with that layer (by the clock, by the reporter's granted erasure request),
+/// a handler removes one as a redaction, and whatever keeps the layer keeps it:
+/// a legal hold on the issue, or a legal hold or a restriction on its reporter
+/// or on any person it concerns. Read by the handlers the issue lets in and by
+/// nobody else: never by the reporter, in a mail, a work order or a link, and
+/// never on `mcp` or `ai` (ADR 0056), where an issue concerning a person with
+/// protected personal data is left out as one such a person reported is.
+///
+/// Who recorded it is on the audit log as the actor of
+/// `ISSUE_CONCERNED_PERSON_ADDED`, which never names the person: the log
+/// outlives every purge, and would keep the record after the layer is gone.
+model IssueConcernedPerson {
+  id String @id @default(cuid())
+
+  /// Cascade: the record is part of its issue.
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The person it concerns. Chosen by a handler, so the person named did not
+  /// act.
+  ///
+  /// A relation, unlike `Issue.reporterPersonId`: the row is nothing but the
+  /// link, so the cascade that removes it with a deleted person rewrites
+  /// nothing else on the issue and vetoes nothing, and through it the clock,
+  /// the issue erasure job and the reads that leave a protected person's
+  /// issues out ask after the person's holds and protection in one condition.
+  /// The person purge never deletes a person, so it does not reach the row;
+  /// the row goes with the issue's free text.
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([issueId, personId])
+  @@index([personId])
+  @@map("issue_concerned_person")
 }
 
 /// A photograph attached to an issue.

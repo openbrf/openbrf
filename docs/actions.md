@@ -511,6 +511,10 @@ of `issue_list` or answered by `issue_get`, which says it does not exist, the
 type is not in `issue_type_list`, and `issue_handler_list` and the four writes
 answer one as not found, as they answer an issue a reporter with protected
 personal data filed ([ADR 0056](adr/0056-issue-handling-on-mcp-and-ai.md#what-is-never-offered-on-mcp-or-ai)).
+So is an issue a handler recorded as concerning a person with protected
+personal data, by the same omission, and no action reads or writes whom an
+issue concerns, or offers the act that records one
+([ADR 0057](adr/0057-purging-issues-in-two-layers.md#the-people-an-issue-concerns)).
 The writes land at once on `mcp`, recorded under the channel `MCP`, and are
 only proposed on `ai`; each answers with the issue's identifier and what it
 changed, never the reporter, the description or the location, and none of them

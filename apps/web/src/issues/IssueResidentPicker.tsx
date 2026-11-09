@@ -7,6 +7,7 @@ import {
   type IssueApartment,
   type IssueResidentChoice,
 } from "../api/issues";
+import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, FIELD_DATA, HINT, LABEL, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 
@@ -17,6 +18,33 @@ export interface ResidentPick {
 }
 
 /**
+ * What the picker is for, which names its choices: the resident an issue is
+ * opened for, or a person an issue concerns (ADR 0057).
+ */
+export type ResidentPickerPurpose = "open" | "concerned";
+
+const PURPOSE_WORDS = {
+  open: {
+    resident: "issues.open.resident",
+    residentNone: "issues.open.residentNone",
+    residentsEmpty: "issues.open.residentsEmpty",
+    apartmentsFailed: "issues.open.apartmentsFailed",
+  },
+  concerned: {
+    resident: "issues.concerned.resident",
+    residentNone: "issues.concerned.residentNone",
+    residentsEmpty: "issues.concerned.residentsEmpty",
+    apartmentsFailed: "issues.concerned.apartmentsFailed",
+  },
+} as const satisfies Record<
+  ResidentPickerPurpose,
+  Record<
+    "resident" | "residentNone" | "residentsEmpty" | "apartmentsFailed",
+    TranslationKey
+  >
+>;
+
+/**
  * One answered read of an apartment's residents, with the attempt it answered:
  * a read not yet answered for the apartment and attempt on screen is loading.
  */
@@ -25,8 +53,9 @@ type ResidentsRead = { apartmentId: string; attempt: number } & (
 );
 
 /**
- * The resident picker on an issue a handler opens (decision 14, ADR 0054):
- * the apartment first, then who lives there today.
+ * The resident picker on an issue a handler opens (decision 14, ADR 0054), and
+ * on the list of whom an issue concerns (ADR 0057): the apartment first, then
+ * who lives there today.
  *
  * Every handler gets it, the property manager included, because it is not the
  * address book: there is no search, nobody who has moved out or not yet in,
@@ -41,11 +70,14 @@ type ResidentsRead = { apartmentId: string; attempt: number } & (
 export function IssueResidentPicker({
   pick,
   onPick,
+  purpose = "open",
 }: {
   pick: ResidentPick;
   onPick: (next: ResidentPick) => void;
+  purpose?: ResidentPickerPurpose;
 }): ReactElement {
   const { t } = useTranslation();
+  const words = PURPOSE_WORDS[purpose];
   const [apartments, setApartments] = useState<
     IssueApartment[] | "loading" | "failed"
   >("loading");
@@ -112,7 +144,7 @@ export function IssueResidentPicker({
   if (apartments === "failed") {
     return (
       <Notice tone="warn" live>
-        {t("issues.open.apartmentsFailed")}
+        {t(words.apartmentsFailed)}
       </Notice>
     );
   }
@@ -146,7 +178,7 @@ export function IssueResidentPicker({
 
         {pick.apartmentId === "" ? null : (
           <label className={LABEL}>
-            {t("issues.open.resident")}
+            {t(words.resident)}
             <select
               value={pick.residencyId}
               disabled={current?.kind !== "loaded" || residents.length === 0}
@@ -158,7 +190,7 @@ export function IssueResidentPicker({
               }}
               className={FIELD}
             >
-              <option value="">{t("issues.open.residentNone")}</option>
+              <option value="">{t(words.residentNone)}</option>
               {residents.map((resident, index) => (
                 <option key={resident.residencyId} value={resident.residencyId}>
                   {label(resident, index)}
@@ -187,7 +219,7 @@ export function IssueResidentPicker({
           </button>
         </Notice>
       ) : residents.length === 0 ? (
-        <p className={HINT}>{t("issues.open.residentsEmpty")}</p>
+        <p className={HINT}>{t(words.residentsEmpty)}</p>
       ) : null}
     </div>
   );
