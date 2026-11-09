@@ -368,13 +368,16 @@ meanings on each case's type. Types with the same name, compared after trimming
 and as written otherwise, merge into one whose reporters are the union of their
 audiences: `NON_MEMBER` becomes the website's form, `MEMBER` signed-in
 residents, `BOARD` handlers alone. Every merged type is handled by every handler,
-which is what every type is today. A type has one `active` setting where today
-each audience's row has its own, so a merge must not let one audience's setting
-decide another's: only duplicates that agree on `active` merge. The active
-duplicates of a name merge into one active type and the inactive duplicates into
-one inactive type, so an audience the board had closed stays closed, and the
-inactive type is still there for the cases filed under it. The merged type takes
-the earliest place in the order of the duplicates it replaces.
+which is what every type is today, except a type for disturbances or insurance,
+which a later migration hands to the board (see
+[The interim answer to question 5](#the-interim-answer-to-question-5)). A type
+has one `active` setting where today each audience's row has its own, so a
+merge must not let one audience's setting decide another's: only duplicates that
+agree on `active` merge. The active duplicates of a name merge into one active
+type and the inactive duplicates into one inactive type, so an audience the
+board had closed stays closed, and the inactive type is still there for the
+cases filed under it. The merged type takes the earliest place in the order of
+the duplicates it replaces.
 
 ### The glossary
 
@@ -462,6 +465,26 @@ change it.
   Swedish set a new instance starts with has Störningar ring-fenced, offered to
   residents and handled by the board only. An instance seeded before it has no
   Störningar type, and the board adds one and ring-fences it.
+- **An upgraded instance's type for disturbances or insurance goes to the
+  board, and is not ring-fenced.** Taken on 2026-11-08, also as a default the
+  owner may change. Before the module a type was a name the board typed, and
+  nothing said what it was for, so
+  `20261108120000_issue_disturbance_and_insurance_types_board_only` matches
+  exact names: Störningar or Störning, and Försäkringsärende, Försäkringsärenden
+  or Försäkring. It trims spaces, tabs and line breaks around the name, ignores
+  case, and on a UTF-8 database treats a composed and a decomposed ö as the
+  same. A matching type is handled by the board only, the setting decision 13
+  starts both kinds of type with, and whoever that shuts out is unassigned from
+  its issues and cleared as its default assignee. No prefix is matched:
+  "Driftstörningar" and "Störningar i TV/bredband" are outages. Nothing is
+  ring-fenced. A ring-fence on a type with issues cannot be lifted, the nightly
+  purge then removes the free text of each of its issues closed more than a
+  year earlier that no legal hold keeps, and nothing about them is mailed from
+  then on, their reporter included. A guess by name would take all of that
+  on for the board, which may need those texts as evidence. Board-only keeps
+  the property manager out from the first day, and the board can reverse it.
+  The release note asks the board to ring-fence the type itself and says what
+  that removes.
 - **Set by the board**, under `issues:configure` - a board member with a seat
   or an administrator, never the property manager - through a request of its
   own, audited as `ISSUE_TYPE_RING_FENCE_CHANGED`. The entry also carries the
