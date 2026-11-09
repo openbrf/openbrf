@@ -482,8 +482,9 @@ change it.
   its issues and cleared as its default assignee. No prefix is matched:
   "Driftstörningar" and "Störningar i TV/bredband" are outages. Nothing is
   ring-fenced. A ring-fence on a type with issues cannot be lifted, the nightly
-  purge then removes the free text of each of its issues closed more than a
-  year earlier that no legal hold keeps, and nothing about them is mailed from
+  purge then removes the free text of each of its issues closed longer ago than
+  the board's ring-fenced clock (one year unless the board changed it) that no
+  legal hold keeps, and nothing about them is mailed from
   then on, their reporter included. A guess by name would take all of that
   on for the board, which may need those texts as evidence. Board-only keeps
   the property manager out from the first day, and the board can reverse it.
@@ -505,9 +506,8 @@ change it.
   alone, and nothing about a ring-fenced issue is mailed.
 - **Never lifted once anything was reported under the type.** Lifting would hand
   the earlier reports to the property manager, the AI package and connected
-  apps, and put them back on the board's own clock, which the plan says the
-  board may not set for them. A type ring-fenced by mistake is switched off and
-  replaced.
+  apps, and move them off the ring-fenced clock onto the other types'. A type
+  ring-fenced by mistake is switched off and replaced.
 - **Held for what is filed after it, on a type that already has issues.** The
   switch may be set on a type that has issues, and it takes hold of their reads,
   mails and clock from then on. A post an earlier issue was filed from keeps its
@@ -515,11 +515,22 @@ change it.
   house can see that a report was made. Only a report made after the ring-fence
   is kept off the post (`ring-fenced-post`). The owner may ask for earlier links
   to be hidden as well.
-- **A legal hold stands over the ring-fenced clock.** The year after closing
-  applies to a ring-fenced case that no legal hold stands on, and whose reporter
-  has neither a legal hold nor a restriction on them. A damage case places a
-  hold, and a handler may place one, so such a case keeps its text until the
-  hold is released ([ADR 0057](0057-purging-issues-in-two-layers.md#the-clock)).
+- **The board sets the ring-fenced clock, and a legal hold stands over it.**
+  The free text of a ring-fenced case is removed the number of years after
+  closing the board sets for ring-fenced types, from 1 to 10 and 1 by default,
+  apart from the other types' clock: the legal review's answer of 2026-11-09,
+  which replaced the fixed year the board could not change
+  ([ADR 0057, question 4](0057-purging-issues-in-two-layers.md#the-legal-reviews-answer-to-question-4)).
+  The clock applies to a ring-fenced case that no legal hold stands on, and
+  whose reporter has neither a legal hold nor a restriction on them. A damage
+  case places a hold, and a handler may place one, so such a case keeps its
+  text until the hold is released, which the legal review confirmed
+  ([ADR 0057](0057-purging-issues-in-two-layers.md#the-clock)).
+- **The form's warning asks for what happened.** A reporter who chooses a
+  ring-fenced type is asked to describe what happened, what they saw and heard,
+  and when, and not to accuse anyone of a crime or give the details of a
+  police report: an allegation of a concrete crime is offence data under GDPR
+  art. 10 whether or not it was reported.
 
 What else the ring-fence does is in the glossary's row _ring-fenced issue type_
 (avskärmad ärendetyp): no mail about one to anybody, no report under it from a
