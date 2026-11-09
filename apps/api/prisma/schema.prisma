@@ -4931,9 +4931,11 @@ model IssueConcernedPerson {
   /// request) ends the record, but a work order's text stands on a clock of its
   /// own, and a hold or a restriction placed on this person later has to reach
   /// it. So while any work order's text stands the row stays as the selector
-  /// and nothing more: no handler reads it, it counts for no list, limit or
-  /// access report, and the issue no longer counts as having free text on its
-  /// account. The transaction that erases the last work-order text deletes it.
+  /// and nothing more: no handler reads it, it counts for no list or limit, and
+  /// the issue no longer counts as having free text on its account. It still
+  /// ties the case to the person, so the cases concerning them that they did
+  /// not report (`issuesConcerningPerson`) include it while that text stands.
+  /// The transaction that erases the last work-order text deletes it.
   recordRemovedAt DateTime?
 
   @@unique([issueId, personId])

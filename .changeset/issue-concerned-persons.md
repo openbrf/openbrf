@@ -32,4 +32,5 @@ works on an issue of any type.
   with the last of it. The record of processing activities and the board's
   settings say so in Swedish and English.
 - **Not yet on that person's access report.** A later change carries such a
-  case to the person it concerns, without the reporter.
+  case to the person it concerns, without the reporter, also while only a work
+  order's text of it stands.

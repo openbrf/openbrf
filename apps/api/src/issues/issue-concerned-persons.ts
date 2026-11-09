@@ -29,17 +29,18 @@ type Db = Prisma.TransactionClient | PrismaService;
  * it gave. A duplicate the person reported and a handler merged into this one
  * leaves this one in: it is still somebody else's report.
  *
- * Only while the record stands, which is while the issue's free-text layer
- * does: the clock, the reporter's granted erasure request and a handler's
- * removal take it, and the case is then no longer one the association holds
- * as about them. The selector that stays for a work order's text
- * ({@link endConcernedPersonRecords}) is not the record.
+ * The selector that stays for a work order's text
+ * ({@link endConcernedPersonRecords}) counts too: the row still ties the case
+ * to the person, and the text that stands is held about them, so the case
+ * stays in the report's reach until the last of that text is erased and the
+ * row goes with it. Only a handler's list, limit and free-text standing ask
+ * after `recordRemovedAt: null`; this reads the link alone.
  */
 export function issuesConcerningPerson(
   personId: string,
 ): Prisma.IssueWhereInput {
   return {
-    concernedPersons: { some: { personId, recordRemovedAt: null } },
+    concernedPersons: { some: { personId } },
     OR: [{ reporterPersonId: null }, { reporterPersonId: { not: personId } }],
   };
 }
@@ -139,7 +140,8 @@ export async function concernsUnlockedPerson(
  * reporter column. So while any work order's text stands the row is kept, with
  * `recordRemovedAt` written, as the selector the hold checks read
  * ({@link concernedPersonIdsOf}, {@link CONCERNS_NO_WITHHELD_PERSON}) and
- * nothing else: no handler's list, limit or access report counts it. With no
+ * nothing else: no handler's list, limit or free-text standing counts it, and
+ * {@link issuesConcerningPerson} still finds the case through it. With no
  * text standing the rows are deleted, and so are selectors an earlier removal
  * kept.
  *

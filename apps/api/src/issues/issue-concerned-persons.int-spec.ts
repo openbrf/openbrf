@@ -735,6 +735,13 @@ describe("the text of a work order", () => {
     return { ...issue, now };
   }
 
+  /** How many of the report query's cases for the person is this issue. */
+  function reportCases(issueId: string, personId: string) {
+    return prisma.issue.count({
+      where: { id: issueId, ...issuesConcerningPerson(personId) },
+    });
+  }
+
   function selectors(issueId: string) {
     return prisma.issueConcernedPerson.findMany({
       where: { issueId },
@@ -751,11 +758,9 @@ describe("the text of a work order", () => {
       { personId: afterHeldId, recordRemovedAt: expect.any(Date) as Date },
     ]);
     expect((await list(issueId)).json()).toEqual([]);
-    expect(
-      await prisma.issue.count({
-        where: { id: issueId, ...issuesConcerningPerson(afterHeldId) },
-      }),
-    ).toBe(0);
+    // The report's query still finds the case through the selector, as the
+    // work order's text stands.
+    expect(await reportCases(issueId, afterHeldId)).toBe(1);
     const entry = await prisma.auditLogEntry.findFirst({
       where: { targetId: issueId, action: "SERVICE_DATA_PURGED" },
       select: { context: true, targetPersonId: true },
@@ -788,6 +793,8 @@ describe("the text of a work order", () => {
     );
     expect(await body(orderId)).toBeNull();
     expect(await selectors(issueId)).toEqual([]);
+    // With the last text and the selector gone, the case is no longer one.
+    expect(await reportCases(issueId, afterHeldId)).toBe(0);
   });
 
   it("is kept by a restriction placed on a person it concerns after the free text went", async () => {
@@ -994,5 +1001,31 @@ describe("the cases about a person", () => {
     expect(ids).toContain(fromForm);
     expect(ids).not.toContain(theirOwn);
     expect(ids).not.toContain(unrelated);
+  });
+
+  it("finds a case through a selector kept for a work order's text, and still leaves out the ones they reported", async () => {
+    const neighbour = residents.neighbour.personId;
+    const aboutThem = await seed({
+      reporterPersonId: residents.reporter.personId,
+    });
+    const theirOwn = await seed({ reporterPersonId: neighbour });
+    for (const issueId of [aboutThem, theirOwn]) {
+      await concern(issueId, neighbour);
+      await prisma.issueConcernedPerson.updateMany({
+        where: { issueId },
+        data: { recordRemovedAt: new Date() },
+      });
+    }
+
+    const found = await prisma.issue.findMany({
+      where: {
+        typeId: disturbance.id,
+        ...issuesConcerningPerson(neighbour),
+      },
+      select: { id: true },
+    });
+    const ids = found.map((issue) => issue.id);
+    expect(ids).toContain(aboutThem);
+    expect(ids).not.toContain(theirOwn);
   });
 });

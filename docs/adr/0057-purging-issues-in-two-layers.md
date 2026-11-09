@@ -349,8 +349,11 @@ above all.
   clock, and the person is found through the row, as a reporter is through
   the reporter column. So where any work order's text stands, the removal does not
   delete the row but writes `recordRemovedAt` on it: it is then no record. No
-  handler reads it, it counts for no list, limit, free-text standing or access
-  report, and a handler who records the person again takes the same row back.
+  handler reads it, it counts for no list, limit or free-text standing, and a
+  handler who records the person again takes the same row back. It still ties
+  the case to the person, so the access report's query for the cases
+  concerning them (below) finds it for as long as the row stands, which is as
+  long as the work order's text does.
   It names no more than the row did and is never written to the audit log. The
   work-order text purge and a handler's redaction of a work order's text delete
   it in the transaction that erases the last text, and the removal deletes the
