@@ -34,6 +34,7 @@ import {
 } from "./processor-agreement.service";
 import { ProcessorFactsService } from "./processor-facts.service";
 import {
+  ACTIVITY_FIELDS,
   ProcessingActivityService,
   type ProcessingActivityView,
   type ProcessingRecord,
@@ -154,6 +155,17 @@ const activitySchema = z.object({
  * done.
  */
 const activityRevisionSchema = z.object({
+  expectedRevision: z.int().nonnegative().optional(),
+});
+
+/**
+ * Which fields of a board-edited seeded row take the product's wording.
+ *
+ * Names and never values: the service writes the product's statement as it
+ * computes it, so nothing the caller sends becomes the record's text.
+ */
+const adoptProductTextSchema = z.object({
+  fields: z.array(z.enum(ACTIVITY_FIELDS)).min(1).max(ACTIVITY_FIELDS.length),
   expectedRevision: z.int().nonnegative().optional(),
 });
 
@@ -328,6 +340,23 @@ export class DataProtectionController {
       ...(precondition.expectedRevision === undefined
         ? {}
         : { expectedRevision: precondition.expectedRevision }),
+      actorPersonId: actingPersonId(request),
+    });
+  }
+
+  @Post("processing-activities/:activityId/adopt-product-text")
+  @HttpCode(200)
+  async adoptProductText(
+    @Req() request: RequestWithPrincipal,
+    @Param("activityId") activityId: string,
+    @Body() body: unknown,
+  ): Promise<ProcessingActivityView> {
+    const input = adoptProductTextSchema.parse(body);
+    return this.processing.adoptProductText(activityId, {
+      fields: input.fields,
+      ...(input.expectedRevision === undefined
+        ? {}
+        : { expectedRevision: input.expectedRevision }),
       actorPersonId: actingPersonId(request),
     });
   }

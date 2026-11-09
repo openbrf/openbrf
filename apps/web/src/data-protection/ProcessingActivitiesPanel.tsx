@@ -7,9 +7,12 @@ import type {
 } from "../api/data-protection";
 import { HINT } from "../ui/controls";
 import { Panel } from "../ui/Panel";
+import { ProductTextDifference } from "./ProductTextDifference";
 
 export interface ProcessingActivitiesPanelProps {
   record: ProcessingRecord;
+  /** Called after the board adopts the product's text on a row. */
+  onAdopted: () => void;
 }
 
 /**
@@ -22,10 +25,13 @@ export interface ProcessingActivitiesPanelProps {
  * A seeded row the board has not edited says so. That matters because such a
  * row still follows the instance's settings - change the storage driver and the
  * recipients change with it - and a board that has edited one has taken it over
- * and will not see that happen again.
+ * and will not see that happen again - except where the product's own wording
+ * for the row has moved on since, which the row then shows beside the board's,
+ * with the board's to keep or the product's to adopt.
  */
 export function ProcessingActivitiesPanel({
   record,
+  onAdopted,
 }: ProcessingActivitiesPanelProps): ReactElement {
   const { t } = useTranslation();
 
@@ -147,6 +153,7 @@ export function ProcessingActivitiesPanel({
             {activity.seeded ? (
               <p className={HINT}>{t("dataProtection.processing.seeded")}</p>
             ) : null}
+            <ProductTextDifference activity={activity} onAdopted={onAdopted} />
           </li>
         ))}
       </ul>

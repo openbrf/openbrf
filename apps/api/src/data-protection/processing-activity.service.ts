@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from "@nestjs/common";
+import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import {
   type PluginNonResidentCaller,
   type PluginProcessing,
@@ -12,11 +12,13 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { LegalBasis } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
+import { I18nService } from "../i18n/i18n.service";
 import { foldedText } from "./folded-text";
 import { pluginProcessorKey } from "./processor-key";
+import { ProcessorFactsService } from "./processor-facts.service";
 import type { ProcessorFacts } from "./processors";
 import { lockProcessingActivity } from "./processing-activity-lock";
-import { SEED_KEYS, seedRows } from "./processing-activity-seed";
+import { SEED_KEYS, seedRows, type SeedRow } from "./processing-activity-seed";
 import { declaredProcessing } from "./plugin-processing";
 
 export class ProcessingActivityError extends DomainError {
@@ -28,7 +30,8 @@ export class ProcessingActivityError extends DomainError {
       | "activity-not-found"
       | "personal-identity-number"
       | "already-ended"
-      | "activity-changed",
+      | "activity-changed"
+      | "no-product-text",
   ) {
     super(message);
     this.status =
@@ -36,8 +39,13 @@ export class ProcessingActivityError extends DomainError {
         ? HttpStatus.NOT_FOUND
         : // A conflict rather than a refusal on the merits: nothing is wrong
           // with what was sent, somebody else wrote first, and the board reads
-          // the record again and decides what to do about it.
-          reason === "already-ended" || reason === "activity-changed"
+          // the record again and decides what to do about it. A row with no
+          // product text to adopt - one the board recorded, a plugin's, or one
+          // the seed still refreshes - is the same: the screen never offers the
+          // action there, so a caller asking is out of step with the record.
+          reason === "already-ended" ||
+            reason === "activity-changed" ||
+            reason === "no-product-text"
           ? HttpStatus.CONFLICT
           : HttpStatus.BAD_REQUEST;
   }
@@ -65,7 +73,7 @@ const ACTIVITY_SELECT = {
 } as const;
 
 /** The fields a board writes, in the order the record lists them. */
-const ACTIVITY_FIELDS = [
+export const ACTIVITY_FIELDS = [
   "name",
   "purpose",
   "legalBasis",
@@ -78,6 +86,9 @@ const ACTIVITY_FIELDS = [
   "retention",
   "securityMeasures",
 ] as const satisfies readonly (keyof ActivityInput)[];
+
+/** One field of a row the board writes and the seed authors. */
+export type ActivityField = (typeof ACTIVITY_FIELDS)[number];
 
 /**
  * Whether a supplied value says what the row already says.
@@ -124,7 +135,29 @@ export interface ProcessingActivityView {
    * of replacing an edit it never saw.
    */
   revision: number;
+  /**
+   * Whether the product's own statement for this row now says something the
+   * row does not.
+   *
+   * Only ever true on a seeded row the board has edited: the seed refreshes
+   * every other seeded row itself, and a row the board recorded has no product
+   * statement to differ from. The board's wording keeps winning, so nothing
+   * replaces it; the screen says that the product has moved on and lets the
+   * board take the product's wording field by field.
+   */
+  productDiffers: boolean;
+  /**
+   * What the product says now, for each field where that is not what the row
+   * holds. Empty wherever `productDiffers` is false.
+   */
+  productText: ProductText;
 }
+
+/**
+ * The product's statement of a seeded row, field by field, where it differs
+ * from the row.
+ */
+export type ProductText = Partial<Pick<ProcessingActivityView, ActivityField>>;
 
 /** The head of the record: who the controller is (GDPR art. 30(1)(a)). */
 export interface ControllerBlock {
@@ -154,6 +187,12 @@ export interface ProcessingRecord {
  * overwriting a board's own wording: the column says whether the board has
  * touched the row, and `update` sets it on any edit that changes something.
  *
+ * The cost of that rule is that a correction to the product's wording never
+ * reaches a row the board has edited either. So the record says, on each such
+ * row, where the product's statement now differs from the board's, and taking
+ * the product's wording is the board's own act (`adoptProductText`), audited
+ * like any other edit. Nothing takes it for the board.
+ *
  * Text the product wrote is refreshed for the same reason the derived fields
  * are. A row nobody has edited is the product's statement of what the instance
  * does, so a correction to that statement has to reach it - the record is
@@ -170,14 +209,18 @@ export interface ProcessingRecord {
  */
 @Injectable()
 export class ProcessingActivityService {
+  private readonly logger = new Logger(ProcessingActivityService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
+    private readonly i18n: I18nService,
+    private readonly facts: ProcessorFactsService,
   ) {}
 
   /** The whole record, controller block first. */
   async read(): Promise<ProcessingRecord> {
-    const [association, activities] = await Promise.all([
+    const [association, activities, product] = await Promise.all([
       this.prisma.association.findUnique({
         where: { id: 1 },
         select: {
@@ -195,6 +238,20 @@ export class ProcessingActivityService {
       this.prisma.processingActivity.findMany({
         orderBy: [{ source: "asc" }, { name: "asc" }],
         select: ACTIVITY_SELECT,
+      }),
+      /*
+       * The record is read without the comparison rather than not at all. It
+       * is the document the board is answerable for, and a configuration
+       * that cannot be read just now must not make it unreadable; the rows
+       * then simply show no difference until the next read.
+       */
+      this.productStatement().catch((cause: unknown) => {
+        this.logger.warn(
+          "The product's own wording could not be computed, so the record " +
+            "is shown without comparing edited rows against it.",
+          cause instanceof Error ? cause.stack : undefined,
+        );
+        return new Map<string, SeedRow>();
       }),
     ]);
 
@@ -227,7 +284,7 @@ export class ProcessingActivityService {
                 contact: association.jointControllerContact,
               },
       },
-      activities: activities.map(toView),
+      activities: activities.map((row) => toView(row, product)),
     };
   }
 
@@ -463,7 +520,8 @@ export class ProcessingActivityService {
         tx,
       );
 
-      return toView(row);
+      // A row the board recorded has no product statement to differ from.
+      return toView(row, new Map());
     });
   }
 
@@ -617,8 +675,166 @@ export class ProcessingActivityService {
         tx,
       );
 
-      return toView(row);
+      return this.viewOf(row, tx);
     });
+  }
+
+  /**
+   * Writes the product's current wording into the named fields of a seeded row
+   * the board has edited.
+   *
+   * The seed never does this on its own, and must not: a board that has
+   * written its own account of a processing is answerable for it under art.
+   * 5(2), and a background job replacing it would be the association
+   * contradicting itself. What the seed cannot tell is whether the board's
+   * wording was a deliberate choice or a copy of the product's that the product
+   * has since corrected, so the screen shows the two side by side and this is
+   * the board's own act of taking the product's.
+   *
+   * The values are the product's as this transaction computes them, never
+   * values the caller sends, so a screen read before a configuration change
+   * cannot write yesterday's statement under today's name.
+   *
+   * The row stays the board's: `updatedByPersonId` names the board member who
+   * adopted the text, the seed keeps leaving the row alone, and the next time
+   * the product's statement moves on the screen says so again. Audited as the
+   * edit it is, with the fields it changed and that the text was the
+   * product's, and never the text itself.
+   */
+  async adoptProductText(
+    activityId: string,
+    input: {
+      fields: readonly ActivityField[];
+      actorPersonId: string;
+      /** @see update */
+      expectedRevision?: number;
+    },
+  ): Promise<ProcessingActivityView> {
+    return this.prisma.$transaction(async (tx) => {
+      // Before the read, as `update` takes it, so the comparison and the write
+      // see the same row.
+      await lockProcessingActivity(tx, activityId);
+
+      const existing = await tx.processingActivity.findUnique({
+        where: { id: activityId },
+        select: ACTIVITY_SELECT,
+      });
+      if (existing === null) {
+        throw new ProcessingActivityError(
+          "There is no such processing.",
+          "activity-not-found",
+        );
+      }
+
+      const product = await this.productStatement(tx);
+      const statement = productTextOf(existing, product);
+      if (statement === null) {
+        throw new ProcessingActivityError(
+          "The product has no wording of its own for this processing to adopt.",
+          "no-product-text",
+        );
+      }
+
+      // Only the fields that still differ. One that has come back into line
+      // since the screen was read has nothing to adopt, and naming it in the
+      // audit entry would record a change that was never made.
+      const changed = ACTIVITY_FIELDS.filter(
+        (field) => input.fields.includes(field) && field in statement.differs,
+      );
+      if (changed.length === 0) {
+        // Nothing left to adopt: nothing is written, so nothing is audited,
+        // and the screen is answered with the row as it stands.
+        return toView(existing, product);
+      }
+      const data: Prisma.ProcessingActivityUpdateManyMutationInput = {};
+      for (const field of changed) {
+        Object.assign(data, { [field]: statement.row[field] });
+      }
+
+      const claimed = await tx.processingActivity.updateMany({
+        where: {
+          id: activityId,
+          ...(input.expectedRevision === undefined
+            ? {}
+            : { revision: input.expectedRevision }),
+        },
+        data: {
+          ...data,
+          // The board member who adopted it: the row stays the board's, so
+          // the seed goes on leaving it alone.
+          updatedByPersonId: input.actorPersonId,
+          // In the same statement as the fields, as on every writer to this
+          // model.
+          revision: { increment: 1 },
+        },
+      });
+      if (claimed.count === 0) {
+        throw new ProcessingActivityError(
+          "The processing changed after it was read.",
+          "activity-changed",
+        );
+      }
+
+      const row = await tx.processingActivity.findUniqueOrThrow({
+        where: { id: activityId },
+        select: ACTIVITY_SELECT,
+      });
+
+      await this.audit.record(
+        {
+          action: "PROCESSING_ACTIVITY_UPDATED",
+          channel: "WEB",
+          actorPersonId: input.actorPersonId,
+          targetKind: "processingActivity",
+          targetId: activityId,
+          context: { fields: changed, adoptedProductText: true },
+        },
+        tx,
+      );
+
+      return toView(row, product);
+    });
+  }
+
+  /**
+   * The product's own statement of every seeded row, as the seed would write
+   * it now: in the association's language and from the instance's current
+   * configuration, the two things `DataProtectionSeedService` seeds from.
+   *
+   * Plugin rows are not in it. A plugin's wording is its processing
+   * declaration, which lives in the package the board consented to and is not
+   * re-read here.
+   */
+  private async productStatement(
+    client?: Prisma.TransactionClient,
+  ): Promise<ReadonlyMap<string, SeedRow>> {
+    const db = client ?? this.prisma;
+    const [association, facts] = await Promise.all([
+      db.association.findUnique({
+        where: { id: 1 },
+        select: { defaultLocale: true },
+      }),
+      this.facts.read(client),
+    ]);
+    const t = this.i18n.translatorFor(association?.defaultLocale);
+    return new Map(seedRows(t, facts).map((row) => [row.sourceKey, row]));
+  }
+
+  /**
+   * The product's statement for a row `update` or `end` returns, read only
+   * where there can be one to show.
+   */
+  private async viewOf(
+    row: ActivityRow,
+    client: Prisma.TransactionClient,
+  ): Promise<ProcessingActivityView> {
+    const mayDiffer =
+      row.updatedByPersonId !== null &&
+      (SEED_KEYS as readonly (string | null)[]).includes(row.sourceKey);
+    return toView(
+      row,
+      mayDiffer ? await this.productStatement(client) : new Map(),
+    );
   }
 
   /** Ends a processing. The row stays, with the date it stopped. */
@@ -694,7 +910,7 @@ export class ProcessingActivityService {
         tx,
       );
 
-      return toView(row);
+      return this.viewOf(row, tx);
     });
   }
 
@@ -754,26 +970,66 @@ function assertNoIdentityNumber(input: Partial<ActivityInput>): void {
   }
 }
 
-function toView(row: {
-  id: string;
-  name: string;
-  purpose: string;
-  legalBasis: LegalBasis;
-  legalBasisNote: string | null;
-  dataSubjectCategories: string[];
-  personalDataCategories: string[];
-  recipients: string | null;
-  thirdCountryTransfer: boolean;
-  thirdCountrySafeguards: string | null;
-  retention: string;
-  securityMeasures: string | null;
-  source: string;
-  sourceKey: string | null;
-  endedAt: Date | null;
-  recordedByPersonId: string | null;
-  updatedByPersonId: string | null;
-  revision: number;
-}): ProcessingActivityView {
+/** A row as `ACTIVITY_SELECT` reads it. */
+type ActivityRow = Prisma.ProcessingActivityGetPayload<{
+  select: typeof ACTIVITY_SELECT;
+}>;
+
+/**
+ * Whether a stored value says what the product's statement says.
+ *
+ * Text is compared as the board's save stores it, folded the way
+ * `foldedText` folds it, so a board that typed the product's sentence back
+ * has not written something else. An empty text and no text are the same
+ * statement: the record says nothing either way.
+ */
+function sameStatement(
+  field: ActivityField,
+  stored: unknown,
+  product: unknown,
+): boolean {
+  const comparable = (value: unknown): unknown => {
+    if (typeof value !== "string") {
+      return value;
+    }
+    const folded = foldedText({ [field]: value }, ACTIVITY_TEXT)[field];
+    return typeof folded === "string" && folded.trim() === "" ? null : folded;
+  };
+  return sameValue(comparable(stored), comparable(product));
+}
+
+/**
+ * The product's statement of a seeded row the board has edited, and the fields
+ * where it says something the row does not. Null for every other row: one the
+ * seed still refreshes says what the product says, one the board recorded has
+ * no product statement, and a plugin's is not in `product`.
+ */
+function productTextOf(
+  row: ActivityRow,
+  product: ReadonlyMap<string, SeedRow>,
+): { row: SeedRow; differs: ProductText } | null {
+  if (row.updatedByPersonId === null || row.sourceKey === null) {
+    return null;
+  }
+  const statement = product.get(row.sourceKey);
+  if (statement === undefined) {
+    return null;
+  }
+  const differs: ProductText = {};
+  for (const field of ACTIVITY_FIELDS) {
+    if (!sameStatement(field, row[field], statement[field])) {
+      Object.assign(differs, { [field]: statement[field] });
+    }
+  }
+  return { row: statement, differs };
+}
+
+function toView(
+  row: ActivityRow,
+  product: ReadonlyMap<string, SeedRow>,
+): ProcessingActivityView {
+  const productText = productTextOf(row, product)?.differs ?? {};
+
   return {
     activityId: row.id,
     name: row.name,
@@ -792,5 +1048,7 @@ function toView(row: {
     endedAt: row.endedAt?.toISOString() ?? null,
     seeded: row.sourceKey !== null && row.updatedByPersonId === null,
     revision: row.revision,
+    productDiffers: Object.keys(productText).length > 0,
+    productText,
   };
 }

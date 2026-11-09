@@ -37,7 +37,11 @@ const PLUGIN_ROW: ProcessingActivityView = {
   endedAt: null,
   seeded: true,
   revision: 1,
+  productDiffers: false,
+  productText: {},
 };
+
+const noop = (): void => undefined;
 
 function record(activity: ProcessingActivityView): ProcessingRecord {
   return {
@@ -55,7 +59,12 @@ function record(activity: ProcessingActivityView): ProcessingRecord {
 
 describe("a plugin's row that names no personal data", () => {
   it("says the record names none on a row the install left empty", () => {
-    render(<ProcessingActivitiesPanel record={record(PLUGIN_ROW)} />);
+    render(
+      <ProcessingActivitiesPanel
+        record={record(PLUGIN_ROW)}
+        onAdopted={noop}
+      />,
+    );
 
     expect(
       screen.getByText(
@@ -70,6 +79,7 @@ describe("a plugin's row that names no personal data", () => {
     render(
       <ProcessingActivitiesPanel
         record={record({ ...PLUGIN_ROW, seeded: false, revision: 3 })}
+        onAdopted={noop}
       />,
     );
 
@@ -85,6 +95,7 @@ describe("a plugin's row that names no personal data", () => {
           ...PLUGIN_ROW,
           personalDataCategories: ["name", "apartment"],
         })}
+        onAdopted={noop}
       />,
     );
 
@@ -97,6 +108,7 @@ describe("a plugin's row that names no personal data", () => {
     render(
       <ProcessingActivitiesPanel
         record={record({ ...PLUGIN_ROW, endedAt: "2026-10-01T00:00:00.000Z" })}
+        onAdopted={noop}
       />,
     );
 

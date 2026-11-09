@@ -863,7 +863,14 @@ describe("an install with a recipient answer", () => {
       audit,
       new RestartCoordinator(testEnv),
       new ProcessorAgreementService(service(), audit),
-      new ProcessingActivityService(service(), audit),
+      new ProcessingActivityService(
+        service(),
+        audit,
+        { translatorFor: () => (key: string) => key } as never,
+        new ProcessorFactsService(testEnv, service(), {
+          describe: async () => null,
+        } as never),
+      ),
       new ProcessorFactsService(testEnv, service(), {
         describe: async () => null,
       } as never),
