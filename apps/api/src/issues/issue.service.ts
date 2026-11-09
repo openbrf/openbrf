@@ -3389,9 +3389,29 @@ export class IssueService {
         ),
       ),
     );
-    return protectedReporters === "omit"
-      ? views.filter((view) => view.reporter.kind !== "protected")
-      : views;
+    if (protectedReporters === "show") {
+      return views;
+    }
+    /*
+     * Asked again here, after the rows were read, as the reporters are: a
+     * person marked as protected between the query and this read, and recorded
+     * as one the issue concerns, must not leave with the view (ADR 0057).
+     */
+    const protectedConcerns = new Set(
+      (
+        await this.prisma.issueConcernedPerson.findMany({
+          where: {
+            issueId: { in: issues.map((issue) => issue.id) },
+            person: { protectedPersonalData: true },
+          },
+          select: { issueId: true },
+        })
+      ).map((row) => row.issueId),
+    );
+    return views.filter(
+      (view) =>
+        view.reporter.kind !== "protected" && !protectedConcerns.has(view.id),
+    );
   }
 
   /**

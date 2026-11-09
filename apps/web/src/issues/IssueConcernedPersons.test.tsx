@@ -90,6 +90,11 @@ describe("whom an issue concerns", () => {
       await screen.findByLabelText("Boende som det gäller"),
       "residency-nils",
     );
+    // The list as the next read finds it.
+    fetchIssueConcernedPersons.mockResolvedValue({
+      ok: true,
+      value: [SHIELDED, NILS],
+    });
     await session.click(add);
 
     await waitFor(() => {
@@ -314,5 +319,77 @@ describe("whom an issue concerns", () => {
     expect(await screen.findByText("Nils Granne")).toBeTruthy();
     expect(fetchIssueConcernedPersons).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+  });
+
+  it("drops an older read that lands after a newer one, so a name withheld stays withheld", async () => {
+    let answerOlder: (answer: unknown) => void = () => undefined;
+    fetchIssueConcernedPersons
+      .mockReset()
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          answerOlder = resolve;
+        }),
+      )
+      .mockResolvedValue({
+        ok: true,
+        value: [{ kind: "protected", id: NILS.id }],
+      });
+    const view = render(
+      <IssueConcernedPersonsSection issue={issue()} onChanged={vi.fn()} />,
+    );
+    // The queue hands over a newer read of the issue while the first read is
+    // still out, and the newer list lands first.
+    view.rerender(
+      <IssueConcernedPersonsSection issue={issue()} onChanged={vi.fn()} />,
+    );
+    expect(
+      await screen.findByText("Namnet visas inte (skyddade personuppgifter)"),
+    ).toBeTruthy();
+
+    answerOlder({ ok: true, value: [NILS] });
+    await waitFor(() => {
+      expect(fetchIssueConcernedPersons).toHaveBeenCalledTimes(2);
+    });
+
+    expect(screen.queryByText("Nils Granne")).toBeNull();
+    expect(
+      screen.getByText("Namnet visas inte (skyddade personuppgifter)"),
+    ).toBeTruthy();
+  });
+
+  it("puts nothing on screen from an addition's answer: the list is read again, and that read counts", async () => {
+    const session = userEvent.setup();
+    // The addition answers with the name, but the list read after it, which is
+    // the newer view of the register, withholds it.
+    addIssueConcernedPerson.mockResolvedValue({
+      ok: true,
+      value: [SHIELDED, NILS],
+    });
+    render(
+      <IssueConcernedPersonsSection issue={issue()} onChanged={vi.fn()} />,
+    );
+    await screen.findByText("Namnet visas inte (skyddade personuppgifter)");
+    await session.selectOptions(
+      screen.getByLabelText("Lägenhet"),
+      "apartment-1201",
+    );
+    await session.selectOptions(
+      await screen.findByLabelText("Boende som det gäller"),
+      "residency-nils",
+    );
+    fetchIssueConcernedPersons.mockResolvedValue({
+      ok: true,
+      value: [SHIELDED, { kind: "protected", id: NILS.id }],
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: "Störningar: lägg till den valda boende som en person ärendet gäller",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Namnet visas inte/)).toHaveLength(2);
+    });
+    expect(screen.queryByText("Nils Granne")).toBeNull();
   });
 });

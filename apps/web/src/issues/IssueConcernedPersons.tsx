@@ -100,8 +100,8 @@ export function IssueConcernedPersonsSection({
   /** Which record's removal is being asked about, or null. */
   const [confirming, setConfirming] = useState<string | null>(null);
   /*
-   * Counts every read asked and every answer to a write: a read lands only if
-   * nothing newer has been asked or written since it was sent.
+   * Counts every read asked: a read lands only if no newer one has been asked
+   * since it was sent.
    */
   const newest = useRef(0);
   /** Set once a failed read has been asked again, so a second failure takes focus. */
@@ -124,17 +124,16 @@ export function IssueConcernedPersonsSection({
 
   const save = useSaveAction(
     (act: Act) => perform(issue.id, act),
-    (value) => {
+    () => {
       setConfirming(null);
-      // An addition answers the list as it now stands; a removal does not, and
-      // the list is read again.
-      if (Array.isArray(value)) {
-        newest.current += 1;
-        setList(value as IssueConcernedPerson[]);
-        setPick(NO_PICK);
-      } else {
-        setReads((count) => count + 1);
-      }
+      /*
+       * Neither answer is put on screen: an addition's answer is the list as
+       * it stood when it was written, and one that arrives after a newer read
+       * would put back a name that read withheld. The list is read again, and
+       * that read is the one that counts.
+       */
+      setPick(NO_PICK);
+      setReads((count) => count + 1);
       onChanged();
     },
     (failure: ApiFailure) => {

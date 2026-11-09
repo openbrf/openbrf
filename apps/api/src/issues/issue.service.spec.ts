@@ -117,7 +117,12 @@ const PERSONS = [
  * persons are read for the `protectedFrom`th time: by default the first read is
  * the query's exclusion and the second the page's reporters.
  */
-function build(issueReads: (typeof PROTECTED_ISSUE)[][], protectedFrom = 2) {
+function build(
+  issueReads: (typeof PROTECTED_ISSUE)[][],
+  protectedFrom = 2,
+  /** Issues whose concerned person is protected by the time the views are made. */
+  concernedProtectedOn: readonly string[] = [],
+) {
   let personReads = 0;
   const issueFindMany = vi.fn();
   for (const rows of issueReads) {
@@ -147,6 +152,13 @@ function build(issueReads: (typeof PROTECTED_ISSUE)[][], protectedFrom = 2) {
 
   const client = {
     issue: { findMany: issueFindMany },
+    issueConcernedPerson: {
+      findMany: vi.fn(async (args: { where: { issueId: { in: string[] } } }) =>
+        concernedProtectedOn
+          .filter((id) => args.where.issueId.in.includes(id))
+          .map((issueId) => ({ issueId })),
+      ),
+    },
     // The reader is a board member, whom every issue lets in: what the board
     // only rule leaves out is shown against a real database in
     // `issues.int-spec.ts`.
@@ -314,6 +326,34 @@ describe("a page of the queue read while a reporter's data becomes protected", (
  * agree with the day the list and the counts were read by, not with the day it
  * is serialised on.
  */
+describe("a page of the queue read while a concerned person's data becomes protected", () => {
+  it("leaves out the issue they are recorded on, which the query still let through", async () => {
+    const { service } = build([[ORDINARY_ISSUE, LATER_ISSUE]], 99, [
+      ORDINARY_ISSUE.id,
+    ]);
+
+    const page = await service.pageOfQueue(
+      "person-board",
+      { limit: 2 },
+      "omit",
+    );
+
+    expect(page.issues.map((issue) => issue.id)).toEqual([LATER_ISSUE.id]);
+  });
+
+  it("keeps it for a read that withholds nothing", async () => {
+    const { service } = build([[ORDINARY_ISSUE]], 99, [ORDINARY_ISSUE.id]);
+
+    const page = await service.pageOfQueue(
+      "person-board",
+      { limit: 1 },
+      "show",
+    );
+
+    expect(page.issues.map((issue) => issue.id)).toEqual([ORDINARY_ISSUE.id]);
+  });
+});
+
 describe("the queue read as the association's day turns", () => {
   // Winter time, so the offset to UTC is a plain hour: 23:59:59 on the 10th
   // is 22:59:59 UTC, and one second on 00:00:01 on the 11th.
