@@ -97,6 +97,13 @@ const personIds = [
 const addressId = `ir-address-${suffix}`;
 const apartmentId = `ir-apartment-${suffix}`;
 const typeId = `ir-type-${suffix}`;
+/**
+ * The contractor on the list every work order here was written to, as the
+ * application always names one. A work order with no contractor that still
+ * names whom it went to is the copy the list's clock leaves, which a
+ * redaction erases (`eraseRecipientsLeft`).
+ */
+const contractorId = `ir-contractor-${suffix}`;
 let type: IssueTypeFixture;
 
 let boardCookie = "";
@@ -178,6 +185,7 @@ async function createWorkOrder(
   const order = await prisma.workOrder.create({
     data: {
       issueId,
+      contractorId,
       recipientName: `Rormokare ${suffix}`,
       recipientEmailCipher: "kept-as-it-was",
       body: input.body === undefined ? WORK_ORDER_TEXT : input.body,
@@ -507,6 +515,9 @@ beforeAll(async () => {
     name: `Vattenskada ${suffix}`,
     reporters: ["RESIDENTS"],
   });
+  await prisma.contractor.create({
+    data: { id: contractorId, name: `Rormokare ${suffix}`, trade: "Rormokare" },
+  });
 
   boardCookie = await signIn(board.email);
   residentCookie = await signIn(resident.email);
@@ -526,6 +537,7 @@ afterAll(async () => {
   });
   await prisma.issue.deleteMany({ where: { typeId } });
   await prisma.issueType.deleteMany({ where: { id: typeId } });
+  await prisma.contractor.deleteMany({ where: { id: contractorId } });
   await prisma.dataSubjectRequest.deleteMany({
     where: { personId: { in: personIds } },
   });

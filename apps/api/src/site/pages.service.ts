@@ -602,15 +602,32 @@ export class PagesService {
    * footer is on every page including the ones an anonymous visitor reads: a
    * link printed there for a page they would be answered 404 for is both a
    * broken link and a hint that the page exists.
+   *
+   * Read on the caller's client, so a transaction that asks does not wait for
+   * a second connection while it holds its own. With `share`, under a share
+   * lock on the page's row: a change to its status still in flight is waited
+   * for and read as it commits, and none can commit until the caller's
+   * transaction ends. A work order's sending asks so while it claims the work
+   * order (`WorkOrderMailerService`).
    */
-  async privacyNoticePath(): Promise<string | null> {
-    const row = await this.prisma.page.findUnique({
-      where: { slug: PRIVACY_NOTICE_SLUG },
-      select: { status: true },
-    });
-    return row !== null && row.status === "PUBLIC"
-      ? `/${PRIVACY_NOTICE_SLUG}`
-      : null;
+  async privacyNoticePath(
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+    options: { share?: boolean } = {},
+  ): Promise<string | null> {
+    let status: PageStatus | undefined;
+    if (options.share === true) {
+      const [row] = await db.$queryRaw<{ status: PageStatus }[]>`
+        SELECT "status" FROM "page" WHERE "slug" = ${PRIVACY_NOTICE_SLUG} FOR SHARE
+      `;
+      status = row?.status;
+    } else {
+      const row = await db.page.findUnique({
+        where: { slug: PRIVACY_NOTICE_SLUG },
+        select: { status: true },
+      });
+      status = row?.status;
+    }
+    return status === "PUBLIC" ? `/${PRIVACY_NOTICE_SLUG}` : null;
   }
 
   private static toSitePage(row: {

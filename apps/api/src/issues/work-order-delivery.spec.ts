@@ -17,6 +17,7 @@ describe("workOrderKnownNotSent", () => {
         WORK_ORDER_DELIVERY_FAILURES.recipientUnreadable,
         WORK_ORDER_DELIVERY_FAILURES.textErased,
         WORK_ORDER_DELIVERY_FAILURES.ringFenced,
+        WORK_ORDER_DELIVERY_FAILURES.privacyNoticeUnpublished,
       ].sort(),
     );
     for (const failure of Object.values(WORK_ORDER_DELIVERY_FAILURES)) {

@@ -56,6 +56,8 @@ const WORK_ORDER_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "work-order-duplicate": "issues.workOrders.errors.duplicate",
   "issue-closed": "issues.workOrders.errors.issueClosed",
   "work-order-budget-spent": "issues.workOrders.errors.budgetSpent",
+  "work-order-privacy-notice-unpublished":
+    "issues.workOrders.errors.privacyNoticeUnpublished",
   "invalid-body": "issues.workOrders.errors.unknown",
 };
 
@@ -183,6 +185,8 @@ const DELIVERY_FAILURE_LABEL: Readonly<
   "recipient-unreadable": "issues.workOrders.failure.recipientUnreadable",
   "text-erased": "issues.workOrders.failure.textErased",
   "ring-fenced": "issues.workOrders.failure.ringFenced",
+  "privacy-notice-unpublished":
+    "issues.workOrders.failure.privacyNoticeUnpublished",
 };
 
 /** A draft a preview was asked for, so its answer is matched to it. */
@@ -1138,10 +1142,14 @@ function ContractorLinkPanel({
   const named = workOrderNamed(order, locale);
   const answeredForGood =
     record.answer === "DECLINED" || record.answer === "DONE";
+  // Nobody on the list to give it to: the board removed the contractor, or
+  // the list's clock took them off it and the work order only keeps whom it
+  // went to. The server refuses either (`work-order-recipient-removed`).
   const unavailable =
     order.body === null ||
     order.redactedAt !== null ||
-    order.recipientName === null;
+    order.recipientName === null ||
+    order.contractorId === null;
   const issuable =
     link.offered &&
     !answeredForGood &&

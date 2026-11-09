@@ -58,7 +58,11 @@ import { DomainError } from "../http/domain-error";
  * anything leaves. `work-order-duplicate` is the same text to the same
  * contractor on the same issue a moment after the first, and
  * `work-order-budget-spent` a handler who has sent as many work orders as one
- * person may in an hour.
+ * person may in an hour. `work-order-privacy-notice-unpublished` is a work
+ * order that must link the association's privacy notice, the first to a
+ * contractor or to their new name or address, while the notice is not on the
+ * public website for anyone to read (ADR 0057, question 6): the board
+ * publishes it first.
  *
  * `issue-closed` is also a handler writing a work order on an issue that is
  * done, which is reopened first.
@@ -174,6 +178,7 @@ export type IssueReason =
   | "work-order-preview-stale"
   | "work-order-duplicate"
   | "work-order-budget-spent"
+  | "work-order-privacy-notice-unpublished"
   | "work-order-links-off"
   | "work-order-not-found"
   | "work-order-answered"
@@ -265,6 +270,7 @@ export class IssueError extends DomainError {
       reason === "entry-not-resident" ||
       reason === "work-order-preview-stale" ||
       reason === "work-order-duplicate" ||
+      reason === "work-order-privacy-notice-unpublished" ||
       reason === "work-order-answered" ||
       reason === "work-order-text-erased" ||
       reason === "work-order-recipient-removed" ||

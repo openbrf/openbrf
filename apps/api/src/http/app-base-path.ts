@@ -24,3 +24,15 @@ export const APP_BASE_PATH = "/app";
 export function applicationUrl(origin: string): string {
   return `${origin.replace(/\/+$/, "")}${APP_BASE_PATH}`;
 }
+
+/**
+ * A page of the association's own website under an instance origin, such as
+ * its privacy notice in a mail. The website has the root, so the path is
+ * joined to the origin itself and not to the application's prefix; the
+ * trailing slash is trimmed for the reason `applicationUrl` gives.
+ *
+ * @param path Starts with a slash, as the website's own paths do.
+ */
+export function siteUrl(origin: string, path: string): string {
+  return `${origin.replace(/\/+$/, "")}${path}`;
+}

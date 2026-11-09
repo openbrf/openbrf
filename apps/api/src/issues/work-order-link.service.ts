@@ -313,7 +313,10 @@ export class WorkOrderLinkService {
           "work-order-text-erased",
         );
       }
-      if (order.recipientName === null) {
+      // Erased by the board's removal, or still named on the work order
+      // after the list's clock took the contractor off it (`retireContractor`):
+      // either way nobody on the list is there to give a link to.
+      if (order.recipientName === null || order.contractorId === null) {
         throw new IssueError(
           "The contractor of this work order was removed from the list.",
           "work-order-recipient-removed",
@@ -1197,7 +1200,12 @@ export class WorkOrderLinkService {
     await tx.$queryRaw`SELECT "id" FROM "work_order" WHERE "id" = ${workOrderId} AND "issueId" = ${issueId} FOR UPDATE`;
     const order = await tx.workOrder.findFirst({
       where: { id: workOrderId, issueId },
-      select: { answer: true, body: true, recipientName: true },
+      select: {
+        answer: true,
+        body: true,
+        recipientName: true,
+        contractorId: true,
+      },
     });
     if (order === null) {
       throw new IssueError("No such work order.", "work-order-not-found");

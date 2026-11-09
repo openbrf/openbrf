@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 
 import { ActionsModule } from "../actions/actions.module";
 import { MediaModule } from "../media/media.module";
+import { PagesModule } from "../site/pages.module";
 import { IssueActionsRegistrar } from "./issue-actions.registrar";
 import { IssueConversationService } from "./issue-conversation.service";
 import { IssueFitService } from "./issue-fit.service";
@@ -70,7 +71,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
  * put on an issue or a work order.
  */
 @Module({
-  imports: [ActionsModule, MediaModule],
+  imports: [ActionsModule, MediaModule, PagesModule],
   controllers: [
     IssueReportController,
     IssueQueueController,

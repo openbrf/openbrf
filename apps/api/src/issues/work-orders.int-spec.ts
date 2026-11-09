@@ -4,16 +4,30 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
+import { ENV } from "../config/config.module";
+import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { siteUrl } from "../http/app-base-path";
+import { I18nService } from "../i18n/i18n.service";
 import { MailService } from "../mail/mail.service";
+import { PagesService, PRIVACY_NOTICE_SLUG } from "../site/pages.service";
 import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import { backendPid, waitersBehind } from "../testing/lock-waiters";
 import {
   createIssueTypeFixture,
   type IssueTypeFixture,
@@ -45,6 +59,15 @@ let mail: MailService;
 let mailer: WorkOrderMailerService;
 let purge: IssuePurgeService;
 let encryption: FieldEncryptionService;
+/**
+ * Whether the association's privacy notice is published, as the mailer asks
+ * it. Answered by a stub rather than by the shared database's page, which
+ * other suites write: published, as a new instance's is, unless a test says
+ * otherwise, because the first work order to a contractor is not sent without
+ * its link.
+ */
+let noticePath: MockInstance<PagesService["privacyNoticePath"]>;
+let noticeUrl = "";
 
 const suffix = process.hrtime.bigint().toString(36);
 const PASSWORD = "a-long-enough-password";
@@ -289,6 +312,10 @@ beforeAll(async () => {
   mailer = app.get(WorkOrderMailerService);
   purge = app.get(IssuePurgeService);
   encryption = app.get(FieldEncryptionService);
+  noticePath = vi
+    .spyOn(app.get(PagesService), "privacyNoticePath")
+    .mockResolvedValue(`/${PRIVACY_NOTICE_SLUG}`);
+  noticeUrl = siteUrl(app.get<Env>(ENV).APP_URL, `/${PRIVACY_NOTICE_SLUG}`);
 
   createdAssociation =
     (await prisma.association.findUnique({
@@ -368,6 +395,7 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(async () => {
+  noticePath.mockRestore();
   await prisma.issue.deleteMany({
     where: { typeId: { in: Object.values(typeIds) } },
   });
@@ -503,8 +531,10 @@ describe("a work order", () => {
     expect(preview.text).not.toContain(`Lägenhet 1101 ${suffix}`);
     expect(preview.text).not.toContain(resident.lastName);
     expect(preview.text).not.toContain(resident.email);
-    // No link into the application: a contractor has no account.
-    expect(preview.text).not.toMatch(/https?:\/\//);
+    // No link into the application: a contractor has no account. The one
+    // link is the privacy notice on the website, in the first work order.
+    expect(preview.text).toContain(noticeUrl);
+    expect(preview.text.replaceAll(noticeUrl, "")).not.toMatch(/https?:\/\//);
 
     // A preview stores nothing and sends nothing.
     expect(await prisma.workOrder.count({ where: { issueId } })).toBe(0);
@@ -623,6 +653,7 @@ describe("a work order", () => {
       const rendered = await mailer.render({
         recipientName: "Rör AB",
         body: "Fix the tap.",
+        privacyNoticePath: null,
       });
       expect(rendered.subject).toMatch(/^Work order from /);
 
@@ -927,6 +958,413 @@ describe("a work order", () => {
     expect(JSON.stringify(entries.map((entry) => entry.context))).not.toContain(
       suffix,
     );
+  });
+});
+
+describe("the privacy notice", () => {
+  // Sent by the property manager, whose hourly budget no earlier test spends,
+  // so the board's stays for the tests that follow.
+  /** Sends a work order through the worker, and returns the mail's text. */
+  async function mailed(id: string): Promise<string> {
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
+    try {
+      expect(await mailer.send(id)).toBe("sent");
+      const handed = send.mock.calls[0]?.[0];
+      if (handed === undefined) {
+        throw new Error("The mailer handed nothing over.");
+      }
+      return (await mail.renderMail(handed)).text;
+    } finally {
+      send.mockRestore();
+    }
+  }
+
+  async function givenAt(id: string): Promise<Date | null> {
+    return (
+      await prisma.contractor.findUniqueOrThrow({
+        where: { id },
+        select: { privacyNoticeGivenAt: true },
+      })
+    ).privacyNoticeGivenAt;
+  }
+
+  async function previewText(
+    issueId: string,
+    contractorId: string,
+    body: string,
+  ): Promise<string> {
+    const response = await workOrder(
+      as(manager),
+      issueId,
+      { contractorId, body },
+      "preview",
+    );
+    expect(response.statusCode).toBe(200);
+    return response.json<{ text: string }>().text;
+  }
+
+  it("is linked in the first work order mailed to a contractor and not in a later one, until the board changes their address", async () => {
+    const firm = await addContractor({
+      name: `Elfirman ${suffix}`,
+      trade: "Elektriker",
+      email: `el-${suffix}@firma.test`,
+    });
+    const issueId = await filed(plain, "notice-first");
+
+    // The preview shows the link the mail will carry.
+    expect(
+      await previewText(issueId, firm.id, "Byt säkringen i elcentralen."),
+    ).toContain(noticeUrl);
+    const first = (
+      await previewAndSend(as(manager), issueId, {
+        contractorId: firm.id,
+        body: "Byt säkringen i elcentralen.",
+      })
+    ).json<WorkOrderRow>();
+    // Not marked until the mail server has the mail.
+    expect(await givenAt(firm.id)).toBeNull();
+    const firstText = await mailed(first.id);
+    expect(firstText).toContain(noticeUrl);
+    // Nothing of the issue rides along with it.
+    expect(firstText).not.toContain(REPORT);
+    expect(await givenAt(firm.id)).not.toBeNull();
+
+    // A later work order, on another issue, does not repeat it.
+    const later = await filed(plain, "notice-later");
+    expect(
+      await previewText(later, firm.id, "Kontrollera jordfelsbrytaren."),
+    ).not.toContain(noticeUrl);
+    const second = (
+      await previewAndSend(as(manager), later, {
+        contractorId: firm.id,
+        body: "Kontrollera jordfelsbrytaren.",
+      })
+    ).json<WorkOrderRow>();
+    expect(await mailed(second.id)).not.toMatch(/https?:\/\//);
+
+    // The trade changed: the same person reads the same address.
+    const traded = await inject({
+      method: "PUT",
+      url: `/api/contractors/${firm.id}`,
+      payload: {
+        name: firm.name,
+        trade: "Elinstallatör",
+        email: firm.email,
+      },
+      cookie: as(board),
+    });
+    expect(traded.statusCode).toBe(200);
+    expect(await givenAt(firm.id)).not.toBeNull();
+
+    // A new address may be somebody else, who has not been told.
+    const moved = await inject({
+      method: "PUT",
+      url: `/api/contractors/${firm.id}`,
+      payload: {
+        name: firm.name,
+        trade: "Elinstallatör",
+        email: `el-ny-${suffix}@firma.test`,
+      },
+      cookie: as(board),
+    });
+    expect(moved.statusCode).toBe(200);
+    expect(await givenAt(firm.id)).toBeNull();
+    const third = (
+      await previewAndSend(as(manager), later, {
+        contractorId: firm.id,
+        body: "Byt uttaget i tvättstugan.",
+      })
+    ).json<WorkOrderRow>();
+    expect(await mailed(third.id)).toContain(noticeUrl);
+    expect(await givenAt(firm.id)).not.toBeNull();
+  });
+
+  it("refuses a work order that must link the notice while it is unpublished, records one already queued as not sent, and sends it once it is published", async () => {
+    const firm = await addContractor({
+      name: `Måleriet ${suffix}`,
+      trade: "Målare",
+      email: `mal-${suffix}@firma.test`,
+    });
+    const issueId = await filed(plain, "notice-unpublished");
+    const payload = { contractorId: firm.id, body: "Måla om trapphuset." };
+    // Queued while the notice was published.
+    const queued = (
+      await previewAndSend(as(manager), issueId, payload)
+    ).json<WorkOrderRow>();
+
+    // The board takes the notice down, or makes it members' only.
+    noticePath.mockResolvedValue(null);
+    try {
+      // The preview and the sending are refused, with what to do about it.
+      for (const response of [
+        await workOrder(
+          as(manager),
+          issueId,
+          { contractorId: firm.id, body: "Måla om tvättstugan." },
+          "preview",
+        ),
+        await workOrder(as(manager), issueId, {
+          contractorId: firm.id,
+          body: "Måla om tvättstugan.",
+          previewToken: "ignored",
+        }),
+      ]) {
+        expect(response.statusCode).toBe(409);
+        expect(response.json<{ reason: string }>().reason).toBe(
+          "work-order-privacy-notice-unpublished",
+        );
+      }
+
+      // The one queued before is not sent without the link.
+      const send = vi.spyOn(mail, "send");
+      try {
+        expect(await mailer.send(queued.id)).toBe("failed");
+        expect(send).not.toHaveBeenCalled();
+      } finally {
+        send.mockRestore();
+      }
+      expect(
+        await prisma.workOrder.findUniqueOrThrow({
+          where: { id: queued.id },
+          select: { deliveryStatus: true, deliveryFailure: true },
+        }),
+      ).toEqual({
+        deliveryStatus: "FAILED",
+        deliveryFailure: "privacy-notice-unpublished",
+      });
+      expect(await givenAt(firm.id)).toBeNull();
+    } finally {
+      noticePath.mockResolvedValue(`/${PRIVACY_NOTICE_SLUG}`);
+    }
+
+    // Published again: the same work order is written again, is not held
+    // back as a repeat of one that never left, and carries the link.
+    const again = (
+      await previewAndSend(as(manager), issueId, payload)
+    ).json<WorkOrderRow>();
+    expect(await mailed(again.id)).toContain(noticeUrl);
+    expect(await givenAt(firm.id)).not.toBeNull();
+
+    // A contractor told already is sent work orders while it is down.
+    noticePath.mockResolvedValue(null);
+    try {
+      const later = await filed(plain, "notice-unpublished-later");
+      const sent = (
+        await previewAndSend(as(manager), later, {
+          contractorId: firm.id,
+          body: "Laga fönsterkarmen.",
+        })
+      ).json<WorkOrderRow>();
+      expect(await mailed(sent.id)).not.toMatch(/https?:\/\//);
+    } finally {
+      noticePath.mockResolvedValue(`/${PRIVACY_NOTICE_SLUG}`);
+    }
+  });
+
+  it("is not marked as given when the mail did not go out", async () => {
+    const firm = await addContractor({
+      name: `Golvfirman ${suffix}`,
+      trade: "Golvläggare",
+      email: `golv-${suffix}@firma.test`,
+    });
+    // The mail server refused it: the link reached nobody.
+    const refusedIssue = await filed(plain, "notice-refused");
+    const refused = (
+      await previewAndSend(as(manager), refusedIssue, {
+        contractorId: firm.id,
+        body: "Slipa golvet i föreningslokalen.",
+      })
+    ).json<WorkOrderRow>();
+    const send = vi
+      .spyOn(mail, "send")
+      .mockRejectedValue(
+        Object.assign(new Error("550"), { handover: "not-handed-over" }),
+      );
+    try {
+      expect(await mailer.send(refused.id)).toBe("failed");
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          props: expect.objectContaining({
+            privacyNoticePath: `/${PRIVACY_NOTICE_SLUG}`,
+          }),
+        }),
+      );
+    } finally {
+      send.mockRestore();
+    }
+    expect(await givenAt(firm.id)).toBeNull();
+  });
+
+  it("is linked in a work order queued for the name and address the board then changed, though one to the new ones went out first", async () => {
+    const firm = await addContractor({
+      name: `Låssmeden ${suffix}`,
+      trade: "Låssmed",
+      email: `las-${suffix}@firma.test`,
+    });
+    // The first contact's work order is queued, and its job is delayed.
+    const first = await filed(plain, "notice-reordered");
+    const toFirst = (
+      await previewAndSend(as(manager), first, {
+        contractorId: firm.id,
+        body: "Byt låscylindern i porten.",
+      })
+    ).json<WorkOrderRow>();
+
+    // The board gives the entry another firm's name and address.
+    const handed = await inject({
+      method: "PUT",
+      url: `/api/contractors/${firm.id}`,
+      payload: {
+        name: `Nya låssmeden ${suffix}`,
+        trade: "Låssmed",
+        email: `nya-las-${suffix}@firma.test`,
+      },
+      cookie: as(board),
+    });
+    expect(handed.statusCode).toBe(200);
+
+    // The new firm's work order goes out first, with the link, and marks the
+    // row as told.
+    const second = await filed(plain, "notice-reordered-new");
+    const toSecond = (
+      await previewAndSend(as(manager), second, {
+        contractorId: firm.id,
+        body: "Smörj låset till förrådet.",
+      })
+    ).json<WorkOrderRow>();
+    expect(await mailed(toSecond.id)).toContain(noticeUrl);
+    const told = await givenAt(firm.id);
+    expect(told).not.toBeNull();
+
+    // The first firm's, delivered last, still carries it: the mark is the new
+    // firm's, and says nothing about whoever reads the old address.
+    expect(await mailed(toFirst.id)).toContain(noticeUrl);
+    expect(await givenAt(firm.id)).toEqual(told);
+  });
+
+  it("is read from the page in the claim's own transaction, which waits for the board taking it down and then sends nothing", async () => {
+    /*
+     * The one case that asks the database rather than the stub. The page is
+     * this worker database's own, so it is made published for the case and put
+     * back as it was in `finally`.
+     */
+    const pages = app.get(PagesService);
+    const seeded = await pages.seedPrivacyNotice(
+      app.get(I18nService).translatorFor("sv"),
+    );
+    const page = await prisma.page.findUniqueOrThrow({
+      where: { slug: PRIVACY_NOTICE_SLUG },
+      select: { id: true, status: true },
+    });
+    const unpublishing = gate();
+    const committed = gate();
+    let holding: Promise<void> | undefined;
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
+    try {
+      await prisma.page.update({
+        where: { id: page.id },
+        data: { status: "PUBLIC" },
+      });
+      // The spy is on the instance, so the prototype still has the lookup.
+      noticePath.mockImplementation((db, options) =>
+        PagesService.prototype.privacyNoticePath.call(pages, db, options),
+      );
+
+      const firm = await addContractor({
+        name: `Glasmästeriet ${suffix}`,
+        trade: "Glasmästare",
+        email: `glas-${suffix}@firma.test`,
+      });
+      const issueId = await filed(plain, "notice-taken-down");
+      const payload = { contractorId: firm.id, body: "Byt rutan i porten." };
+      const queued = (
+        await previewAndSend(as(manager), issueId, payload)
+      ).json<WorkOrderRow>();
+
+      // The board takes the notice down, and has not committed yet.
+      let holder = 0;
+      holding = prisma.$transaction(
+        async (tx) => {
+          holder = await backendPid(tx);
+          await tx.page.update({
+            where: { id: page.id },
+            data: { status: "DRAFT" },
+          });
+          unpublishing.reach();
+          await committed.opened;
+        },
+        { timeout: 30_000 },
+      );
+      await unpublishing.reached;
+
+      // A lookup without the share lock would read the notice as published
+      // and send now, without waiting.
+      const running = mailer.send(queued.id);
+      await waitFor(async () => (await waitersBehind(prisma, holder)) > 0);
+      // And the one waiting is the claim's own transaction, which has taken
+      // the work order: a lookup on a connection of its own would wait
+      // holding nothing of it, and with a pool of one would never be served.
+      const [claim] = await prisma.$queryRaw<{ holding: number }[]>`
+        SELECT count(*)::int AS holding
+        FROM pg_locks
+        WHERE pid IN (
+            SELECT pid FROM pg_stat_activity
+            WHERE ${holder}::int = ANY (pg_blocking_pids(pid))
+          )
+          AND locktype = 'relation'
+          AND relation = 'work_order'::regclass
+          AND mode = 'RowExclusiveLock'
+          AND granted`;
+      expect(claim?.holding).toBe(1);
+      expect(send).not.toHaveBeenCalled();
+
+      committed.open();
+      await holding;
+      expect(await running).toBe("failed");
+      expect(send).not.toHaveBeenCalled();
+      expect(
+        await prisma.workOrder.findUniqueOrThrow({
+          where: { id: queued.id },
+          select: { deliveryStatus: true, deliveryFailure: true },
+        }),
+      ).toEqual({
+        deliveryStatus: "FAILED",
+        deliveryFailure: "privacy-notice-unpublished",
+      });
+      expect(await givenAt(firm.id)).toBeNull();
+
+      // Published again, the work order written again carries the link.
+      await prisma.page.update({
+        where: { id: page.id },
+        data: { status: "PUBLIC" },
+      });
+      const again = (
+        await previewAndSend(as(manager), issueId, payload)
+      ).json<WorkOrderRow>();
+      send.mockClear();
+      expect(await mailer.send(again.id)).toBe("sent");
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          props: expect.objectContaining({
+            privacyNoticePath: `/${PRIVACY_NOTICE_SLUG}`,
+          }),
+        }),
+      );
+      expect(await givenAt(firm.id)).not.toBeNull();
+    } finally {
+      committed.open();
+      await holding?.catch(() => undefined);
+      send.mockRestore();
+      noticePath.mockResolvedValue(`/${PRIVACY_NOTICE_SLUG}`);
+      if (seeded.created) {
+        await prisma.page.delete({ where: { id: page.id } });
+      } else {
+        await prisma.page.update({
+          where: { id: page.id },
+          data: { status: page.status },
+        });
+      }
+    }
   });
 });
 
