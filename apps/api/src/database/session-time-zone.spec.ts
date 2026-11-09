@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 import ConnectionParameters from "pg/lib/connection-parameters";
 
 import { pinnedSessionConfig } from "./session-time-zone";
@@ -12,11 +19,25 @@ function sentOptions(connectionString: string): string | undefined {
 }
 
 describe("pinnedSessionConfig", () => {
+  // `pinnedSessionConfig` reads PGOPTIONS, so a machine that sets it must not
+  // change what these tests see.
+  beforeEach(() => {
+    vi.stubEnv("PGOPTIONS", "");
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
   it("asks for UTC when the connection string says nothing", () => {
+    expect(sentOptions("postgres://u:p@db:5432/openbrf")).toBe(
+      "-c TimeZone=UTC",
+    );
+  });
+
+  it("asks for UTC when PGOPTIONS is not set at all", () => {
+    vi.stubEnv("PGOPTIONS", undefined);
+    expect(process.env.PGOPTIONS).toBeUndefined();
     expect(sentOptions("postgres://u:p@db:5432/openbrf")).toBe(
       "-c TimeZone=UTC",
     );
