@@ -9,6 +9,7 @@ import {
   Req,
 } from "@nestjs/common";
 import {
+  ACTIVITY_FIELDS,
   calendarDateSchema,
   DATA_PROTECTION_LIMITS,
   DATA_SUBJECT_CATEGORIES,
@@ -34,7 +35,6 @@ import {
 } from "./processor-agreement.service";
 import { ProcessorFactsService } from "./processor-facts.service";
 import {
-  ACTIVITY_FIELDS,
   ProcessingActivityService,
   type ProcessingActivityView,
   type ProcessingRecord,

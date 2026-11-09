@@ -4,7 +4,11 @@ import {
   type PluginProcessing,
   readsAddressBook,
 } from "@openbrf/plugin-sdk";
-import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
+import {
+  ACTIVITY_FIELDS,
+  type ActivityField,
+  scanForPersonalIdentityNumbers,
+} from "@openbrf/shared";
 import type { TFunction } from "i18next";
 
 import { AuditLogService } from "../audit/audit-log.service";
@@ -13,6 +17,7 @@ import type { Prisma } from "../generated/prisma/client";
 import type { LegalBasis } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { I18nService } from "../i18n/i18n.service";
+import { failureFrames, failureName } from "../logging/failure";
 import { foldedText } from "./folded-text";
 import { pluginProcessorKey } from "./processor-key";
 import { ProcessorFactsService } from "./processor-facts.service";
@@ -72,23 +77,11 @@ const ACTIVITY_SELECT = {
   revision: true,
 } as const;
 
-/** The fields a board writes, in the order the record lists them. */
-export const ACTIVITY_FIELDS = [
-  "name",
-  "purpose",
-  "legalBasis",
-  "legalBasisNote",
-  "dataSubjectCategories",
-  "personalDataCategories",
-  "recipients",
-  "thirdCountryTransfer",
-  "thirdCountrySafeguards",
-  "retention",
-  "securityMeasures",
-] as const satisfies readonly (keyof ActivityInput)[];
-
-/** One field of a row the board writes and the seed authors. */
-export type ActivityField = (typeof ACTIVITY_FIELDS)[number];
+/*
+ * Every field the board writes is a field of the input, so a name added to the
+ * shared list that the API does not accept fails here.
+ */
+ACTIVITY_FIELDS satisfies readonly (keyof ActivityInput)[];
 
 /**
  * Whether a supplied value says what the row already says.
@@ -248,8 +241,8 @@ export class ProcessingActivityService {
       this.productStatement().catch((cause: unknown) => {
         this.logger.warn(
           "The product's own wording could not be computed, so the record " +
-            "is shown without comparing edited rows against it.",
-          cause instanceof Error ? cause.stack : undefined,
+            `is shown without comparing edited rows against it: ${failureName(cause)}.`,
+          failureFrames(cause),
         );
         return new Map<string, SeedRow>();
       }),

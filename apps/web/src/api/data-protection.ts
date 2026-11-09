@@ -1,4 +1,5 @@
 import type {
+  ActivityField,
   DataSubjectCategory,
   PersonalDataCategory,
 } from "@openbrf/shared";
@@ -173,23 +174,6 @@ export interface ProcessingActivityView {
   /** What the product says now, for each field where the row says otherwise. */
   productText: ProductText;
 }
-
-/** The fields of a row the board writes and the product seeds. */
-export const ACTIVITY_FIELDS = [
-  "name",
-  "purpose",
-  "legalBasis",
-  "legalBasisNote",
-  "dataSubjectCategories",
-  "personalDataCategories",
-  "recipients",
-  "thirdCountryTransfer",
-  "thirdCountrySafeguards",
-  "retention",
-  "securityMeasures",
-] as const;
-
-export type ActivityField = (typeof ACTIVITY_FIELDS)[number];
 
 /** The product's statement of a row, for the fields where it differs. */
 export type ProductText = Partial<Pick<ProcessingActivityView, ActivityField>>;

@@ -1,11 +1,10 @@
+import { ACTIVITY_FIELDS, type ActivityField } from "@openbrf/shared";
 import type { TFunction } from "i18next";
 import { useId, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
-  ACTIVITY_FIELDS,
   adoptProductText,
-  type ActivityField,
   type ProcessingActivityView,
 } from "../api/data-protection";
 import { HINT, LABEL, SECONDARY_BUTTON } from "../ui/controls";
