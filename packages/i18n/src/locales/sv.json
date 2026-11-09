@@ -6094,6 +6094,36 @@
       "personalDataPrefix": "Personuppgifter:",
       "personalDataNoneRecorded": "Inga angivna. Den här posten anger inga kategorier av personuppgifter, vilket inte betyder att tillägget inte behandlar några; kontrollera vad det behandlar och för in kategorierna.",
       "thirdCountry": "Uppgifter kan föras till land utanför EU och EES.",
+      "productText": {
+        "marker": "Skiljer sig från produktens text",
+        "unavailable": "Produktens text kunde inte jämföras med den här raden just nu, så en eventuell skillnad visas inte. Ladda om sidan för att försöka igen.",
+        "explanation": "Styrelsen har ändrat den här raden, så produkten skriver inte över den. För fälten nedan säger produkten något annat än raden, antingen för att styrelsen skrev egen text eller för att produktens text har ändrats sedan dess. Styrelsens text gäller tills styrelsen väljer att använda produktens.",
+        "board": "Styrelsens text",
+        "product": "Produktens text",
+        "adopt": "Använd produktens text",
+        "adopting": "Sparar...",
+        "empty": "Inget angivet",
+        "yes": "Ja",
+        "no": "Nej",
+        "fields": {
+          "name": "Namn",
+          "purpose": "Ändamål",
+          "legalBasis": "Rättslig grund",
+          "legalBasisNote": "Om den rättsliga grunden",
+          "dataSubjectCategories": "Kategorier av registrerade",
+          "personalDataCategories": "Kategorier av personuppgifter",
+          "recipients": "Mottagare",
+          "thirdCountryTransfer": "Överföring till land utanför EU och EES",
+          "thirdCountrySafeguards": "Skyddsåtgärder vid överföringen",
+          "retention": "Bevarande",
+          "securityMeasures": "Säkerhetsåtgärder"
+        },
+        "errors": {
+          "changed": "Raden ändrades efter att den lästes, så ingenting sparades. Den visas nu som den är.",
+          "noProductText": "Raden har ingen text från produkten att använda längre. Den visas nu som den är.",
+          "unknown": "Produktens text kunde inte sparas just nu."
+        }
+      },
       "controller": {
         "name": "Personuppgiftsansvarig",
         "contact": "Kontaktuppgifter",
