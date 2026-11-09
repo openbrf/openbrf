@@ -358,8 +358,12 @@ replaces a colleague's correction unseen.
 
 Where a handler records that the cost is the tenant-owner's, and where an issue is
 closed as the tenant-owner's responsibility, the screen says that a message on
-the issue is not a notice to remedy (rättelseanmaning) under BRL 7 kap. 12 a §,
-which the association sends outside Open BRF in a way that shows it arrived.
+the issue is not a notice to remedy (rättelseanmaning) under BRL 7 kap. 12 a §.
+If the association requires the tenant-owner to put something right, that is
+done outside Open BRF, for example by registered letter to the tenant-owner's
+usual address. The notice then counts as given even if the letter is not
+collected (7 kap. 32 §). If it is sent in another way, the association needs to
+be able to show that it arrived.
 
 ### The migration
 

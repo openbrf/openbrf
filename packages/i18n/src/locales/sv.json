@@ -2376,7 +2376,7 @@
         "readContact": "Tillägget kan läsa vilka dessa personer är. Utanför de adresser boende använder kan det läsa deras namn och deras e-postadresser och telefonnummer.",
         "readNames": "Tillägget kan läsa vilka dessa personer är. Utanför de adresser boende använder kan det läsa deras namn.",
         "see": "De ser vad boende visar. Vad tillägget visar dem av boendes uppgifter är tilläggets val, och dess beskrivning säger vad det är. Tillägget talar om för en boende innan hen erbjuder eller lägger upp något att dessa personer kommer att se det. Ett namn och en lägenhet som visas för att personen själv har valt det hämtas ur registret vid varje läsning och slutar visas när personen inte längre betjänas. Open BRF kan inte se vad en uppgift i övrigt innehåller, fritext inräknad, och kan därför inte kontrollera det.",
-        "propertyManager": "Förvaltaren är en extern part. Föreningens personuppgiftsbiträdesavtal med förvaltaren måste binda deras personal till tystnadsplikt och till föreningens ändamål för det de ser här, oavsett om de använder tillägget i sitt arbete för föreningen eller för egen räkning. Systemrollen gäller per konto: avsluta den när någon i deras personal slutar."
+        "propertyManager": "Förvaltaren är en extern part. Föreningens personuppgiftsbiträdesavtal med förvaltaren måste binda deras personal till tystnadsplikt och till föreningens ändamål för det de ser här, oavsett om de använder tillägget i sitt arbete för föreningen eller för egen räkning. Avtalet måste också täcka deras arbete i Open BRF: SBC:s mall, till exempel, knyter behandlingen till den plattform som SBC själva använder. Systemrollen gäller per konto: avsluta den när någon i deras personal slutar."
       },
       "ai": {
         "title": "Ett AI-paket",
@@ -4095,7 +4095,7 @@
       "costResponsibility": "Vem betalar",
       "costResponsibilityNamed": "{{type}}: vem betalar",
       "costResponsibilityUnset": "Inte angivet",
-      "notANoticeToRemedy": "Ett svar i ärendet är inte en uppmaning att vidta rättelse (rättelseanmaning) enligt 7 kap. 12 a § bostadsrättslagen. Kräver föreningen rättelse görs det utanför Open BRF, på ett sätt som visar att uppmaningen har kommit fram, till exempel med rekommenderat brev."
+      "notANoticeToRemedy": "Ett svar i ärendet är inte en uppmaning att vidta rättelse (rättelseanmaning) enligt 7 kap. 12 a § bostadsrättslagen. Kräver föreningen rättelse görs det utanför Open BRF, till exempel med rekommenderat brev till bostadsrättshavarens vanliga adress. Då räknas uppmaningen som lämnad även om brevet inte hämtas ut (7 kap. 32 §). Skickas den på annat sätt behöver föreningen kunna visa att den kom fram."
     },
     "timeline": {
       "__after__": "handling",
