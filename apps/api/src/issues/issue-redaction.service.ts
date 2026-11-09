@@ -16,6 +16,7 @@ import {
   concernedPersonIdsOf,
   concernsUnlockedPerson,
   lockPersonHolds,
+  releaseConcernedSelectors,
 } from "./issue-concerned-persons";
 import { ISSUE_FREE_TEXT_STANDING_UNREDACTED } from "./issue-free-text";
 import { requireHandledIssueForWrite } from "./issue-handlers";
@@ -303,13 +304,17 @@ export class IssueRedactionService {
           });
           // Nothing is left for its link to show (control B5).
           await revokeWorkOrderLinks(tx, { id: redaction.id });
+          // The last text gone, the selector kept for it goes too.
+          await releaseConcernedSelectors(tx, issueId);
           break;
         }
         case "concernedPerson": {
           rowId = redaction.id;
           // Deleted rather than marked: nothing of it is text to blank.
+          // Only a record that stands: the selector kept for a work order's
+          // text is no handler's to name, or to take the hold off.
           const { count } = await tx.issueConcernedPerson.deleteMany({
-            where: { id: redaction.id, issueId },
+            where: { id: redaction.id, issueId, recordRemovedAt: null },
           });
           if (count === 0) {
             throw targetNotFound();

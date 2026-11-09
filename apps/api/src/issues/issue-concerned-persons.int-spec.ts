@@ -91,6 +91,11 @@ const movedOutId = `cp-moved-out-${suffix}`;
 /** People a hold or a restriction reaches only after a scan has run. */
 const lateHeldId = `cp-late-held-${suffix}`;
 const lateRestrictedId = `cp-late-restricted-${suffix}`;
+/** People a hold or a restriction reaches only after the free text went. */
+const afterHeldId = `cp-after-held-${suffix}`;
+const afterRestrictedId = `cp-after-restricted-${suffix}`;
+const afterErasedId = `cp-after-erased-${suffix}`;
+const erasedReporterId = `cp-erased-reporter-${suffix}`;
 
 const residencyOf: Record<string, string> = {};
 const personIds = [
@@ -101,6 +106,10 @@ const personIds = [
   movedOutId,
   lateHeldId,
   lateRestrictedId,
+  afterHeldId,
+  afterRestrictedId,
+  afterErasedId,
+  erasedReporterId,
 ];
 
 const typeIds = {
@@ -645,7 +654,14 @@ describe("the text of a work order", () => {
 
   beforeAll(async () => {
     purge = app.get(IssuePurgeService);
-    for (const id of [lateHeldId, lateRestrictedId]) {
+    for (const id of [
+      lateHeldId,
+      lateRestrictedId,
+      afterHeldId,
+      afterRestrictedId,
+      afterErasedId,
+      erasedReporterId,
+    ]) {
       await prisma.person.create({
         data: { id, firstName: "Sen", lastName: `Skyddad${suffix}` },
       });
@@ -703,6 +719,160 @@ describe("the text of a work order", () => {
       purge.purgeWorkOrderTexts(plain.issueId, now, days),
     ).resolves.toBe(true);
     expect(await body(plain.orderId)).toBeNull();
+  });
+
+  /** The clock's removal of the free-text layer, then what stands. */
+  async function afterTheLayerWent(personId: string) {
+    const now = new Date();
+    const issue = await closedWithOrder(personId);
+    expect(await clock.purgeIssue(issue.issueId, now, 1)).toBe("removed");
+    const gone = await prisma.issue.findUniqueOrThrow({
+      where: { id: issue.issueId },
+      select: { description: true, freeTextRemovedAt: true },
+    });
+    expect(gone.description).toBe("");
+    expect(gone.freeTextRemovedAt).not.toBeNull();
+    return { ...issue, now };
+  }
+
+  function selectors(issueId: string) {
+    return prisma.issueConcernedPerson.findMany({
+      where: { issueId },
+      select: { personId: true, recordRemovedAt: true },
+    });
+  }
+
+  it("is kept by a hold placed on a person it concerns after the free text went, on the scan and on a direct erasure", async () => {
+    const { issueId, orderId, now } = await afterTheLayerWent(afterHeldId);
+
+    // The record is gone for every reader, and the selector stands for the
+    // text alone.
+    expect(await selectors(issueId)).toEqual([
+      { personId: afterHeldId, recordRemovedAt: expect.any(Date) as Date },
+    ]);
+    expect((await list(issueId)).json()).toEqual([]);
+    expect(
+      await prisma.issue.count({
+        where: { id: issueId, ...issuesConcerningPerson(afterHeldId) },
+      }),
+    ).toBe(0);
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: { targetId: issueId, action: "SERVICE_DATA_PURGED" },
+      select: { context: true, targetPersonId: true },
+    });
+    expect(entry?.context).toMatchObject({ concernedPersons: 1 });
+    expect(JSON.stringify(entry)).not.toContain(afterHeldId);
+
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: afterHeldId,
+        reason: "Tvist om musiken",
+        placedByPersonId: board.personId,
+      },
+      select: { id: true },
+    });
+    expect(await purge.eligibleWorkOrderTexts(now, days)).not.toContain(
+      issueId,
+    );
+    await expect(purge.purgeWorkOrderTexts(issueId, now, days)).resolves.toBe(
+      false,
+    );
+    expect(await body(orderId)).not.toBeNull();
+    expect(await selectors(issueId)).toHaveLength(1);
+
+    // Released, the text goes, and the selector with the last of it.
+    await prisma.legalHold.delete({ where: { id: hold.id } });
+    expect(await purge.eligibleWorkOrderTexts(now, days)).toContain(issueId);
+    await expect(purge.purgeWorkOrderTexts(issueId, now, days)).resolves.toBe(
+      true,
+    );
+    expect(await body(orderId)).toBeNull();
+    expect(await selectors(issueId)).toEqual([]);
+  });
+
+  it("is kept by a restriction placed on a person it concerns after the free text went", async () => {
+    const { issueId, orderId, now } =
+      await afterTheLayerWent(afterRestrictedId);
+    await prisma.person.update({
+      where: { id: afterRestrictedId },
+      data: { processingRestrictedAt: new Date() },
+    });
+    expect(await purge.eligibleWorkOrderTexts(now, days)).not.toContain(
+      issueId,
+    );
+    await expect(purge.purgeWorkOrderTexts(issueId, now, days)).resolves.toBe(
+      false,
+    );
+    expect(await body(orderId)).not.toBeNull();
+    expect(await selectors(issueId)).toHaveLength(1);
+  });
+
+  it("is kept for a person concerned on an issue whose reporter's erasure was granted, and the selector goes with a handler's redaction of the last text", async () => {
+    const issueId = await seed({
+      reporterPersonId: erasedReporterId,
+      closedDaysAgo: 30,
+    });
+    await concern(issueId, afterErasedId);
+    const order = await prisma.workOrder.create({
+      data: {
+        issueId,
+        recipientName: `Rormokare ${suffix}`,
+        recipientEmailCipher: "kept-as-it-was",
+        body: "Tala med grannen i 1201 om musiken.",
+        sentByPersonId: board.personId,
+        deliveryStatus: "SENT",
+      },
+      select: { id: true },
+    });
+    await grantErasure(prisma, erasedReporterId, board.personId);
+    await erasure.run();
+
+    const gone = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: { description: true, freeTextRemovedAt: true },
+    });
+    expect(gone.description).toBe("");
+    expect(gone.freeTextRemovedAt).not.toBeNull();
+    expect(await body(order.id)).not.toBeNull();
+    expect(await selectors(issueId)).toEqual([
+      { personId: afterErasedId, recordRemovedAt: expect.any(Date) as Date },
+    ]);
+
+    // A handler's redaction of the last text takes the selector too.
+    const redacted = await redact(issueId, {
+      target: "workOrder",
+      id: order.id,
+    });
+    expect(redacted.statusCode, redacted.body).toBe(204);
+    expect(await body(order.id)).toBeNull();
+    expect(await selectors(issueId)).toEqual([]);
+  });
+
+  it("takes the selector back as the record when a handler names the person again", async () => {
+    const issueId = await seed({ closedDaysAgo: null });
+    await concern(issueId, residents.neighbour.personId);
+    await prisma.workOrder.create({
+      data: {
+        issueId,
+        recipientName: `Rormokare ${suffix}`,
+        recipientEmailCipher: "kept-as-it-was",
+        body: "Tala med grannen om musiken.",
+        sentByPersonId: board.personId,
+        deliveryStatus: "SENT",
+      },
+    });
+    await prisma.issueConcernedPerson.updateMany({
+      where: { issueId },
+      data: { recordRemovedAt: new Date() },
+    });
+    expect((await list(issueId)).json()).toEqual([]);
+
+    const answer = await add(issueId, residents.neighbour.personId);
+    expect(answer.statusCode, answer.body).toBe(201);
+    expect(answer.json<unknown[]>()).toHaveLength(1);
+    expect(await selectors(issueId)).toEqual([
+      { personId: residents.neighbour.personId, recordRemovedAt: null },
+    ]);
   });
 
   it("is kept by a hold or a restriction on a person it concerns placed after the scan", async () => {

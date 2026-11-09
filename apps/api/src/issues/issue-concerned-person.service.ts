@@ -41,7 +41,8 @@ export type IssueConcernedPersonView =
  *
  * The record is personal data of its own, about the person named, and part of
  * the issue's free-text layer (`issue-free-text.ts`): it goes when the text
- * goes, by the clock or the reporter's granted erasure request, and a hold on
+ * goes, by the clock or the reporter's granted erasure request (a bare selector
+ * stays while a work order's text does, which nobody reads), and a hold on
  * the issue or a hold or a restriction on its reporter or on any person it
  * concerns keeps it, as it keeps the text (`issue-concerned-persons.ts`). A
  * handler takes one off as a redaction (`IssueRedactionService`), under the
@@ -122,8 +123,10 @@ export class IssueConcernedPersonService {
         throw new IssueError("No such resident.", "resident-not-found");
       }
 
+      // The selector kept for a work order's text is not a record, and counts
+      // for neither the limit nor "already recorded" (`recordRemovedAt`).
       const recorded = await tx.issueConcernedPerson.findMany({
-        where: { issueId },
+        where: { issueId, recordRemovedAt: null },
         select: { personId: true },
       });
       if (recorded.some((row) => row.personId === resident.personId)) {
@@ -136,8 +139,14 @@ export class IssueConcernedPersonService {
         );
       }
 
-      const row = await tx.issueConcernedPerson.create({
-        data: { issueId, personId: resident.personId },
+      // One row per person and issue: a person whose record was taken off while
+      // a work order's text stands is recorded again on the row that is left.
+      const row = await tx.issueConcernedPerson.upsert({
+        where: {
+          issueId_personId: { issueId, personId: resident.personId },
+        },
+        create: { issueId, personId: resident.personId },
+        update: { recordRemovedAt: null, createdAt: now },
         select: { id: true },
       });
       recordedId = row.id;
@@ -181,7 +190,7 @@ export class IssueConcernedPersonService {
     issueId: string,
   ): Promise<IssueConcernedPersonView[]> {
     const rows = await db.issueConcernedPerson.findMany({
-      where: { issueId },
+      where: { issueId, recordRemovedAt: null },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: {
         id: true,

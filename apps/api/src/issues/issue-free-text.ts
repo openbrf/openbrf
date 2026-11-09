@@ -77,8 +77,9 @@ function standing(
       { notes: { some: {} } },
       { photos: { some: {} } },
       { attachments: { some: {} } },
-      // Whom the issue concerns (ADR 0057).
-      { concernedPersons: { some: {} } },
+      // Whom the issue concerns (ADR 0057). Not the selector kept for a work
+      // order's text: nothing of the record is left in it.
+      { concernedPersons: { some: { recordRemovedAt: null } } },
       // What a contractor wrote or photographed through a work order's link
       // (ADR 0055). The work order's own text has a clock of its own.
       {

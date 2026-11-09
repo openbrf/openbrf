@@ -25,7 +25,11 @@ works on an issue of any type.
   that text keeps the record too. A legal hold or a restriction on a person an
   issue concerns now keeps the issue's free text and the text of its work
   orders, as one on its reporter does: the clock skips the issue, the reporter's erasure request counts it as kept,
-  and a handler cannot remove its text. The record of processing activities
-  and the board's settings say so in Swedish and English.
+  and a handler cannot remove its text. Where a work order's text still stands
+  when the rest of the free text is removed, a bare reference to each person
+  the issue concerns stays, which no handler reads, so that a hold or a
+  restriction placed on the person later still keeps that text; it is deleted
+  with the last of it. The record of processing activities and the board's
+  settings say so in Swedish and English.
 - **Not yet on that person's access report.** A later change carries such a
   case to the person it concerns, without the reporter.

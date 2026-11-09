@@ -60,7 +60,10 @@ contractor uploaded, removed from storage and not only unlinked. The record of
 whom the case concerns goes with them ([The people an issue
 concerns](#the-people-an-issue-concerns)): nobody wrote it as text, but it is
 what the case holds about a named person, and it says nothing of the building
-that the apartment and the place do not. What stays of a
+that the apartment and the place do not. The record goes, but where a work
+order's text stands, which has its clock, a bare row stays as the selector a
+later hold or restriction finds that text by, until the last of it is erased
+(see the same section). What stays of a
 work order is the record of who received it (until that contractor is removed
 from the list, which clears the name and address) and when, and which kinds of data it
 carried, because that is what art. 15(1)(c) and art. 19 ask the association to
@@ -334,9 +337,26 @@ above all.
   legal hold on the case, a legal hold or a restriction on its reporter, and a
   legal hold or a restriction on any person it concerns. A handler takes one off
   as a redaction (`ISSUE_REDACTED`, target `concernedPerson`), which deletes the
-  row, under the same refusals. The person purge does not detach it: as the
-  reporter column is, the record is what ties the case to the person while the
-  text about them stands, and it goes when that text does. A person's own erasure
+  row, under the same refusals: it is the way to correct a person recorded in
+  error, and it leaves no selector, as the case was not about them. The person
+  purge does not detach it: as the reporter column is, the record is what ties
+  the case to the person while the text about them stands, and it goes when that
+  text does.
+- **A bare selector stays for a work order's text.** The free-text layer's
+  removal, by the clock or by the reporter's granted request, leaves the
+  work orders' text on its own ten-year clock. A legal hold or a restriction
+  placed on a person the case concerns after the layer went must still stop that
+  clock, and the person is found through the row, as a reporter is through
+  the reporter column. So where any work order's text stands, the removal does not
+  delete the row but writes `recordRemovedAt` on it: it is then no record. No
+  handler reads it, it counts for no list, limit, free-text standing or access
+  report, and a handler who records the person again takes the same row back.
+  It names no more than the row did and is never written to the audit log. The
+  work-order text purge and a handler's redaction of a work order's text delete
+  it in the transaction that erases the last text, and the removal deletes the
+  row outright where no text stands. The row still counts for protection: an
+  issue concerning a person with protected personal data stays out of what leaves
+  the instance for as long as it stands. A person's own erasure
   request does not reach a case somebody else reported, as above; a request
   naming the issue is carried out by a handler's redaction, the record included.
 - **Read by the handlers the issue lets in, and nobody else.** Never by the

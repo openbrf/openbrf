@@ -4889,8 +4889,10 @@ model IssueDamageCase {
 /// Personal data of its own, about the person named: that a case concerns
 /// them is what the case holds about them, so the record is part of the
 /// issue's free-text layer rather than its building record. It is removed
-/// with that layer (by the clock, by the reporter's granted erasure request),
-/// a handler removes one as a redaction, and whatever keeps the layer keeps it:
+/// with that layer (by the clock, by the reporter's granted erasure request;
+/// while a work order's text stands the row stays as a bare selector, see
+/// `recordRemovedAt`), a handler removes one as a redaction, and whatever keeps
+/// the layer keeps it:
 /// a legal hold on the issue, or a legal hold or a restriction on its reporter
 /// or on any person it concerns. Read by the handlers the issue lets in and by
 /// nobody else: never by the reporter, in a mail, a work order or a link, and
@@ -4921,6 +4923,18 @@ model IssueConcernedPerson {
   person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
+
+  /// When the record was taken off the issue and only the selector was kept,
+  /// null while the record stands.
+  ///
+  /// The free-text layer's removal (the clock, the reporter's granted erasure
+  /// request) ends the record, but a work order's text stands on a clock of its
+  /// own, and a hold or a restriction placed on this person later has to reach
+  /// it. So while any work order's text stands the row stays as the selector
+  /// and nothing more: no handler reads it, it counts for no list, limit or
+  /// access report, and the issue no longer counts as having free text on its
+  /// account. The transaction that erases the last work-order text deletes it.
+  recordRemovedAt DateTime?
 
   @@unique([issueId, personId])
   @@index([personId])

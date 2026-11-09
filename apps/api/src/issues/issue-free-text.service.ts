@@ -4,6 +4,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { MediaService } from "../media/media.service";
+import { endConcernedPersonRecords } from "./issue-concerned-persons";
 import { detachErasedReporter } from "./issue-retention";
 import { revokeWorkOrderLinks } from "./work-order-link";
 
@@ -62,8 +63,12 @@ export type FreeTextRemovalOutcome =
  * the text, in one transaction with the entry that records it: the description
  * emptied, the location cleared, every issue message, internal note and
  * contractor's note deleted, the record of every person the issue concerns
- * deleted, every contractor's link revoked, and
- * `freeTextRemovedAt` written. It is written whenever the text goes, also
+ * ended, every contractor's link revoked, and
+ * `freeTextRemovedAt` written. The record of a person the issue concerns is
+ * deleted unless a work order's text stands, which has a clock of its own: the
+ * row then stays as a bare selector, so that a hold or a restriction placed on
+ * the person later still reaches that text, and goes with the last of it
+ * (`endConcernedPersonRecords`). It is written whenever the text goes, also
  * when a file attached during the run stands (the outcome is then
  * `unfinished`), and again by the run that takes that file.
  *
@@ -151,9 +156,13 @@ export class IssueFreeTextService {
       const { count: contractorNotes } = await tx.workOrderNote.deleteMany({
         where: { workOrder: { issueId } },
       });
-      // Whom the issue concerns goes with what was written about them.
-      const { count: concernedPersons } =
-        await tx.issueConcernedPerson.deleteMany({ where: { issueId } });
+      // Whom the issue concerns goes with what was written about them, but for
+      // the bare selector a work order's text still needs (ADR 0057).
+      const concernedPersons = await endConcernedPersonRecords(
+        tx,
+        issueId,
+        now,
+      );
       // A contractor's link to a work order on an issue whose free text is
       // gone has nothing of its own left, and ends now (ADR 0055, control B5).
       // On a closed issue it opened nothing already.

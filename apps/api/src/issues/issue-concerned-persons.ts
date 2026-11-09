@@ -32,13 +32,14 @@ type Db = Prisma.TransactionClient | PrismaService;
  * Only while the record stands, which is while the issue's free-text layer
  * does: the clock, the reporter's granted erasure request and a handler's
  * removal take it, and the case is then no longer one the association holds
- * as about them.
+ * as about them. The selector that stays for a work order's text
+ * ({@link endConcernedPersonRecords}) is not the record.
  */
 export function issuesConcerningPerson(
   personId: string,
 ): Prisma.IssueWhereInput {
   return {
-    concernedPersons: { some: { personId } },
+    concernedPersons: { some: { personId, recordRemovedAt: null } },
     OR: [{ reporterPersonId: null }, { reporterPersonId: { not: personId } }],
   };
 }
@@ -126,4 +127,64 @@ export async function concernsUnlockedPerson(
 ): Promise<boolean> {
   const now = await concernedPersonIdsOf(tx, issueId);
   return now.some((personId) => !locked.includes(personId));
+}
+
+/**
+ * Ends the record of whom an issue concerns, as the free-text layer's removal
+ * does, and answers how many records it ended.
+ *
+ * A work order's text stands on a clock of its own (ten years, ADR 0057), and
+ * a legal hold or a restriction placed on a person the issue concerns after
+ * the layer went has to reach it, as one on the reporter does through the
+ * reporter column. So while any work order's text stands the row is kept, with
+ * `recordRemovedAt` written, as the selector the hold checks read
+ * ({@link concernedPersonIdsOf}, {@link CONCERNS_NO_WITHHELD_PERSON}) and
+ * nothing else: no handler's list, limit or access report counts it. With no
+ * text standing the rows are deleted, and so are selectors an earlier removal
+ * kept.
+ *
+ * Called under the issue's lock, in the transaction that removes the layer.
+ * The last work-order text's erasure deletes the selector
+ * ({@link releaseConcernedSelectors}).
+ */
+export async function endConcernedPersonRecords(
+  tx: Prisma.TransactionClient,
+  issueId: string,
+  now: Date,
+): Promise<number> {
+  const textStands = await tx.workOrder.count({
+    where: { issueId, body: { not: null } },
+  });
+  if (textStands > 0) {
+    const { count } = await tx.issueConcernedPerson.updateMany({
+      where: { issueId, recordRemovedAt: null },
+      data: { recordRemovedAt: now },
+    });
+    return count;
+  }
+  const { count } = await tx.issueConcernedPerson.deleteMany({
+    where: { issueId, recordRemovedAt: null },
+  });
+  await releaseConcernedSelectors(tx, issueId);
+  return count;
+}
+
+/**
+ * Deletes the selectors {@link endConcernedPersonRecords} kept, once no work
+ * order's text stands on the issue. Called by what erases a work order's text,
+ * in the transaction that does, under the issue's lock: the work-order text
+ * purge and a handler's redaction of one.
+ */
+export async function releaseConcernedSelectors(
+  tx: Prisma.TransactionClient,
+  issueId: string,
+): Promise<number> {
+  const { count } = await tx.issueConcernedPerson.deleteMany({
+    where: {
+      issueId,
+      recordRemovedAt: { not: null },
+      issue: { workOrders: { none: { body: { not: null } } } },
+    },
+  });
+  return count;
 }

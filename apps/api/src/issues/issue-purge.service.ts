@@ -19,6 +19,7 @@ import {
 import {
   CONCERNS_NO_WITHHELD_PERSON,
   concernedPersonIdsOf,
+  releaseConcernedSelectors,
 } from "./issue-concerned-persons";
 import {
   detachErasedReporter,
@@ -160,7 +161,10 @@ export interface IssuePurgeRunSummary {
  * against a person the issue concerns (`IssueConcernedPerson`, ADR 0057),
  * keeps the text, as it keeps the reporter's details and the issue's own free
  * text, read again under the registry key inside the transaction that erases
- * it.
+ * it. The record of whom the issue concerns goes with the free-text layer, but
+ * its row stays as a bare selector while any work order's text stands, so a
+ * hold or a restriction placed after that still reaches the text; the
+ * transaction that erases the last text deletes it.
  *
  * On a public-form report the reporter is reached only through the address
  * index, so that index has to outlive the contact details for as long as a
@@ -437,6 +441,10 @@ export class IssuePurgeService implements OnModuleInit {
       // with it (ADR 0055, control B5). On a closed issue it opened nothing
       // already; the revocation makes the end a fact on the row.
       await revokeWorkOrderLinks(tx, { issueId });
+      // The selector kept for these texts, once the free-text layer's record
+      // of whom the issue concerns is gone (`endConcernedPersonRecords`), goes
+      // with the last of them.
+      await releaseConcernedSelectors(tx, issueId);
 
       /*
        * The address index a public-form report kept past its contact details
