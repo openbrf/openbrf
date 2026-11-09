@@ -306,6 +306,77 @@ describe("the sensitive-data warning", () => {
       });
     });
 
+    it("files nothing when the board only ring-fenced the type, and shows its warning with the draft kept", async () => {
+      const session = userEvent.setup();
+      const ordinary: ReportableIssueType = { ...noise(1), ringFenced: false };
+      renderPanel({ types: [...TYPES, ordinary], rereadTypes: [noise(1)] });
+      await fillIn(session);
+      expect(screen.getByText(/aldrig resten av anmälan/i)).toBeTruthy();
+
+      await session.click(
+        screen.getByRole("button", { name: /skicka anmälan/i }),
+      );
+
+      expect(
+        await screen.findByText(/har ändrats sedan du öppnade/i),
+      ).toBeTruthy();
+      expect(reportIssue).not.toHaveBeenCalled();
+      // The ring-fenced type's own warning, in place of the ordinary one.
+      expect(screen.queryByText(/aldrig resten av anmälan/i)).toBeNull();
+      expect(
+        screen.getByText(/konversationen och fotografierna/i),
+      ).toBeTruthy();
+      expect(
+        (
+          screen.getByRole("textbox", {
+            name: /vad har hänt/i,
+          }) as HTMLTextAreaElement
+        ).value,
+      ).toBe("Det lät högt i trapphuset.");
+    });
+
+    it("keeps the draft on the form when the type was ring-fenced under a report from a post", async () => {
+      const session = userEvent.setup();
+      const ordinary: ReportableIssueType = { ...noise(1), ringFenced: false };
+      fetchReportableTypes.mockResolvedValue({
+        ok: true,
+        value: [noise(1)],
+      });
+      render(
+        <ReportIssuePanel
+          types={[ordinary]}
+          apartments={APARTMENTS}
+          prefill={{
+            postId: "post-1",
+            description: "Det lät högt i trapphuset.",
+            photos: [],
+            photosMissing: 0,
+          }}
+          onReported={() => undefined}
+        />,
+      );
+      await session.selectOptions(
+        screen.getByLabelText(/vad gäller det/i),
+        "type-noise",
+      );
+
+      await session.click(
+        screen.getByRole("button", { name: /skicka anmälan/i }),
+      );
+
+      expect(
+        await screen.findByText(/har ändrats sedan du öppnade/i),
+      ).toBeTruthy();
+      expect(reportIssue).not.toHaveBeenCalled();
+      // Not the empty state: the text and the type are still there to read.
+      expect(
+        (screen.getByLabelText(/vad har hänt/i) as HTMLTextAreaElement).value,
+      ).toBe("Det lät högt i trapphuset.");
+      expect(
+        screen.getByText(/konversationen och fotografierna/i),
+      ).toBeTruthy();
+    });
+
     it("files when the notice is as it was read", async () => {
       const session = userEvent.setup();
       renderPanel({ types: [...TYPES, noise(1)] });

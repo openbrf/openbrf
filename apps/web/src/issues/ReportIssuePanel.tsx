@@ -319,14 +319,20 @@ export function ReportIssuePanel({
    * the link would tell it a report was made. A follow-up started from a post
    * is not linked to it, so it keeps its ring-fenced type.
    */
-  const offeredTypes =
-    reread.against === types
-      ? types.map((type) => reread.byId.get(type.id) ?? type)
-      : types;
-  const typeChoices =
-    linkedPostId === null
-      ? offeredTypes
-      : offeredTypes.filter((type) => !type.ringFenced);
+  /*
+   * Which types are offered is decided on the list the form was given; the
+   * re-read only changes what a type shows (its notice, and the warning if it
+   * has become ring-fenced). A type the board ring-fenced while the form was
+   * open stays on the form with the reporter's draft, and a report from a post
+   * is refused by the server with its own message (`ring-fenced-post`), rather
+   * than the form giving way to "nothing to report under" and taking the
+   * text and photographs with it.
+   */
+  const shownAsRead = (type: ReportableIssueType): ReportableIssueType =>
+    reread.against === types ? (reread.byId.get(type.id) ?? type) : type;
+  const typeChoices = (
+    linkedPostId === null ? types : types.filter((type) => !type.ringFenced)
+  ).map(shownAsRead);
   const typeId = offered(draft.typeId, typeChoices);
   const chosen = typeChoices.find((type) => type.id === typeId);
   const apartmentId = offered(draft.apartmentId, apartments);
