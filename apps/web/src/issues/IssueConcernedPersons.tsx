@@ -12,6 +12,7 @@ import {
 } from "../api/issues";
 import type { TranslationKey } from "../i18n/translation-key";
 import { HINT, SECONDARY_BUTTON } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import { TwoPressConfirm } from "../ui/TwoPressConfirm";
@@ -74,7 +75,9 @@ const NO_PICK: ResidentPick = { apartmentId: "", residencyId: "" };
  * One write at a time, adding and removing alike. The list is read when the
  * section opens and after every answer; a read that a newer one has overtaken
  * is dropped when it lands, so a slow answer cannot put back a person just
- * removed. A refusal says what was refused until the handler picks again or
+ * removed. It is read again too when the queue hands over a newer read of the
+ * issue, so a name never outlives the protection placed on its resident, and
+ * a failed read offers a retry. A refusal says what was refused until the handler picks again or
  * asks again.
  */
 export function IssueConcernedPersonsSection({
@@ -101,7 +104,15 @@ export function IssueConcernedPersonsSection({
    * nothing newer has been asked or written since it was sent.
    */
   const newest = useRef(0);
+  /** Set once a failed read has been asked again, so a second failure takes focus. */
+  const [retried, setRetried] = useState(false);
 
+  /*
+   * Read again whenever the queue hands over a newer read of the issue, and
+   * not only when the issue changes: a resident marked protected since the
+   * list was read is listed as protected on the next read, and a name kept on
+   * screen from before would tell a handler what the instance withholds.
+   */
   useEffect(() => {
     const version = ++newest.current;
     void fetchIssueConcernedPersons(issue.id).then((answer) => {
@@ -109,7 +120,7 @@ export function IssueConcernedPersonsSection({
         setList(answer.ok ? answer.value : "failed");
       }
     });
-  }, [issue.id, reads]);
+  }, [issue, reads]);
 
   const save = useSaveAction(
     (act: Act) => perform(issue.id, act),
@@ -172,9 +183,15 @@ export function IssueConcernedPersonsSection({
           {t("issues.concerned.loading")}
         </p>
       ) : list === "failed" ? (
-        <Notice tone="warn" live>
-          {t("issues.concerned.readFailed")}
-        </Notice>
+        <LoadFailure
+          messageKey="issues.concerned.readFailed"
+          focusRetry={retried}
+          onRetry={() => {
+            setRetried(true);
+            setList("loading");
+            setReads((count) => count + 1);
+          }}
+        />
       ) : persons.length === 0 ? (
         <p className="text-small">{t("issues.concerned.none")}</p>
       ) : (

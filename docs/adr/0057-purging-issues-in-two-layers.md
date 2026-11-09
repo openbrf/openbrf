@@ -350,7 +350,8 @@ above all.
   the reporter column. So where any work order's text stands, the removal does not
   delete the row but writes `recordRemovedAt` on it: it is then no record. No
   handler reads it, it counts for no list, limit or free-text standing, and a
-  handler who records the person again takes the same row back. It still ties
+  handler who records the person again replaces it with a new record, so a
+  removal asked on the earlier record's identifier is refused. It still ties
   the case to the person, so the access report's query for the cases
   concerning them (below) finds it for as long as the row stands, which is as
   long as the work order's text does.

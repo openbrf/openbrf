@@ -24,6 +24,10 @@ import { WORK_ORDER_BODY_RETENTION_DAYS } from "./issue-retention";
 import { IssueTextPurgeService } from "./issue-text-purge.service";
 import { IssueService } from "./issue.service";
 import { showsProtectedHousehold } from "./work-order-link";
+import {
+  mintWorkOrderLinkToken,
+  workOrderLinkDigest,
+} from "./work-order-link-token";
 
 /**
  * The people an issue concerns (berörd person, ADR 0057), over HTTP and
@@ -855,7 +859,7 @@ describe("the text of a work order", () => {
     expect(await selectors(issueId)).toEqual([]);
   });
 
-  it("takes the selector back as the record when a handler names the person again", async () => {
+  it("replaces the selector with a new record when a handler names the person again, and refuses a removal asked on the earlier one", async () => {
     const issueId = await seed({ closedDaysAgo: null });
     await concern(issueId, residents.neighbour.personId);
     await prisma.workOrder.create({
@@ -873,6 +877,10 @@ describe("the text of a work order", () => {
       data: { recordRemovedAt: new Date() },
     });
     expect((await list(issueId)).json()).toEqual([]);
+    const earlier = await prisma.issueConcernedPerson.findFirstOrThrow({
+      where: { issueId },
+      select: { id: true },
+    });
 
     const answer = await add(issueId, residents.neighbour.personId);
     expect(answer.statusCode, answer.body).toBe(201);
@@ -880,6 +888,20 @@ describe("the text of a work order", () => {
     expect(await selectors(issueId)).toEqual([
       { personId: residents.neighbour.personId, recordRemovedAt: null },
     ]);
+    const now = await prisma.issueConcernedPerson.findFirstOrThrow({
+      where: { issueId },
+      select: { id: true },
+    });
+    expect(now.id).not.toBe(earlier.id);
+
+    // A removal a handler asked on the list read before: the record it named is
+    // gone, and the one recorded since stands.
+    const stale = await redact(issueId, {
+      target: "concernedPerson",
+      id: earlier.id,
+    });
+    expect(stale.statusCode).toBe(404);
+    expect(await recorded(issueId)).toBe(1);
   });
 
   it("is kept by a hold or a restriction on a person it concerns placed after the scan", async () => {
@@ -947,7 +969,7 @@ describe("the reporter's granted erasure", () => {
 });
 
 describe("the ring-fence of a protected person", () => {
-  it("leaves an issue concerning them out of a read leaving the instance, and ends a contractor's link", async () => {
+  it("leaves an issue concerning them out of a read leaving the instance", async () => {
     const issueId = await seed({});
     await concern(issueId, residents.shielded.personId);
     const issues = app.get(IssueService);
@@ -970,6 +992,69 @@ describe("the ring-fence of a protected person", () => {
     expect(
       await showsProtectedHousehold(prisma, other, localDayOf(new Date())),
     ).toBe(false);
+  });
+
+  it("ends a contractor's live link in the transaction that records a protected person, and keeps it ended", async () => {
+    const issueId = await seed({});
+    const order = await prisma.workOrder.create({
+      data: {
+        issueId,
+        recipientName: `Rormokare ${suffix}`,
+        body: "Tala med grannen om musiken.",
+        sentByPersonId: board.personId,
+        deliveryStatus: "SENT",
+      },
+      select: { id: true },
+    });
+    const link = await prisma.workOrderLink.create({
+      data: {
+        workOrderId: order.id,
+        tokenDigest: workOrderLinkDigest(mintWorkOrderLinkToken()),
+        expiresAt: new Date(Date.now() + DAY),
+      },
+      select: { id: true },
+    });
+
+    const answer = await add(issueId, residents.shielded.personId);
+    expect(answer.statusCode, answer.body).toBe(201);
+
+    const ended = await prisma.workOrderLink.findUniqueOrThrow({
+      where: { id: link.id },
+      select: { revokedAt: true },
+    });
+    expect(ended.revokedAt).not.toBeNull();
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "ISSUE_WORK_ORDER_LINK_REVOKED",
+        targetKind: "issue",
+        targetId: issueId,
+      },
+      select: { actorPersonId: true, context: true },
+    });
+    expect(entries).toEqual([
+      {
+        actorPersonId: board.personId,
+        context: { workOrderId: order.id, linkId: link.id },
+      },
+    ]);
+
+    // Clearing the protection restores nothing: the link stays ended.
+    await prisma.person.update({
+      where: { id: residents.shielded.personId },
+      data: { protectedPersonalData: false },
+    });
+    try {
+      const still = await prisma.workOrderLink.findUniqueOrThrow({
+        where: { id: link.id },
+        select: { revokedAt: true },
+      });
+      expect(still.revokedAt).not.toBeNull();
+    } finally {
+      await prisma.person.update({
+        where: { id: residents.shielded.personId },
+        data: { protectedPersonalData: true },
+      });
+    }
   });
 });
 

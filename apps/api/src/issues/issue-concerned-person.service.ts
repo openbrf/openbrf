@@ -139,14 +139,20 @@ export class IssueConcernedPersonService {
         );
       }
 
-      // One row per person and issue: a person whose record was taken off while
-      // a work order's text stands is recorded again on the row that is left.
-      const row = await tx.issueConcernedPerson.upsert({
+      // One row per person and issue, so a selector kept for a work order's
+      // text is replaced rather than taken back: the new record has an
+      // identifier of its own, and a removal asked on the earlier record's
+      // (a handler who read the list before the clock ended it) is refused as
+      // a record that is gone, never carried out on one recorded since.
+      await tx.issueConcernedPerson.deleteMany({
         where: {
-          issueId_personId: { issueId, personId: resident.personId },
+          issueId,
+          personId: resident.personId,
+          recordRemovedAt: { not: null },
         },
-        create: { issueId, personId: resident.personId },
-        update: { recordRemovedAt: null, createdAt: now },
+      });
+      const row = await tx.issueConcernedPerson.create({
+        data: { issueId, personId: resident.personId },
         select: { id: true },
       });
       recordedId = row.id;

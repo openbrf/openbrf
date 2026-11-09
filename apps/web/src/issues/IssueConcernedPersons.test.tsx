@@ -268,4 +268,51 @@ describe("whom an issue concerns", () => {
     expect(onChanged).not.toHaveBeenCalled();
     expect(fetchIssueConcernedPersons).toHaveBeenCalledTimes(1);
   });
+
+  it("reads the list again when the queue hands over a newer read of the issue, so a name newly protected is withheld", async () => {
+    fetchIssueConcernedPersons
+      .mockReset()
+      .mockResolvedValueOnce({ ok: true, value: [NILS] })
+      .mockResolvedValue({
+        ok: true,
+        value: [{ kind: "protected", id: NILS.id }],
+      });
+    const view = render(
+      <IssueConcernedPersonsSection issue={issue()} onChanged={vi.fn()} />,
+    );
+    expect(await screen.findByText("Nils Granne")).toBeTruthy();
+
+    // The same issue, read again by the queue.
+    view.rerender(
+      <IssueConcernedPersonsSection issue={issue()} onChanged={vi.fn()} />,
+    );
+
+    expect(
+      await screen.findByText("Namnet visas inte (skyddade personuppgifter)"),
+    ).toBeTruthy();
+    expect(screen.queryByText("Nils Granne")).toBeNull();
+    expect(fetchIssueConcernedPersons).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers a retry when the list could not be read, and shows the list once it can", async () => {
+    const session = userEvent.setup();
+    fetchIssueConcernedPersons
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 503, reason: "unavailable" },
+      })
+      .mockResolvedValue({ ok: true, value: [NILS] });
+    render(
+      <IssueConcernedPersonsSection issue={issue()} onChanged={vi.fn()} />,
+    );
+
+    await session.click(
+      await screen.findByRole("button", { name: "Försök igen" }),
+    );
+
+    expect(await screen.findByText("Nils Granne")).toBeTruthy();
+    expect(fetchIssueConcernedPersons).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+  });
 });
