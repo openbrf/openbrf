@@ -351,7 +351,10 @@ locally the application runs from source beside the PostgreSQL that
       handler's text and nothing else from the issue: not the report, not who
       made it, not the photographs, and no link into the application. The
       first work order mailed to a contractor links the association's privacy
-      notice, as GDPR art. 14(3)(b) asks. A ring-fenced issue type
+      notice, as GDPR art. 14(3)(b) asks of a first communication; one whose
+      details the board found elsewhere is owed the notice within a month
+      even if no work order goes (art. 14(3)(a)), which the contractor list's
+      description asks the board to see to. A ring-fenced issue type
       reaches no contractor, refused in the service, the preview included.
       The text of a work order is erased ten years after its issue was closed,
       the ordinary retention window chosen for it, which follows the general

@@ -147,12 +147,18 @@ else.
 - **The information.** A contractor who gives the board their details
   themselves is owed the information when they give them (art. 13(1)); one whose
   details the board takes from somewhere else, such as the firm's own website or
-  the firm a contact person works for, is owed it at the latest at the first
-  communication with them (art. 14(3)(b)). Open BRF cannot tell which of the two
-  happened. For the first, the board points a contractor who gives their
-  details themselves to the privacy notice when they do, as the contractor
-  list's description asks; a work order does not meet that deadline, because
-  it may come later or never. For the second, and as a backstop for the first,
+  the firm a contact person works for, is owed it within a reasonable period
+  and at the latest a month after the board obtained them (art. 14(3)(a)), and
+  sooner if the board writes to them before that month is out: at the latest
+  with that first communication (art. 14(3)(b)). The month is the outer limit
+  whichever comes first, as the EDPB's transparency guidelines (WP260 rev.01)
+  read the article. Open BRF cannot tell which of the two happened, nor when the
+  board obtained the details, and a work order meets neither deadline on its
+  own, because it may come later or never. So the board points a contractor
+  who gives their details themselves to the privacy notice when they do, and
+  one whose details it found elsewhere within a month of finding them, unless a
+  work order has gone to them by then, as the contractor list's description
+  asks. As the means for the first communication, and as a backstop for both,
   the first work order mailed to a contractor links the association's privacy
   notice, the page on
   its public website every visitor reads, which is not a link into the

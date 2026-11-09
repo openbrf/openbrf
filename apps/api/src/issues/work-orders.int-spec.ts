@@ -22,10 +22,12 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { siteUrl } from "../http/app-base-path";
+import { I18nService } from "../i18n/i18n.service";
 import { MailService } from "../mail/mail.service";
 import { PagesService, PRIVACY_NOTICE_SLUG } from "../site/pages.service";
 import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import { backendPid, waitersBehind } from "../testing/lock-waiters";
 import {
   createIssueTypeFixture,
   type IssueTypeFixture,
@@ -1238,6 +1240,131 @@ describe("the privacy notice", () => {
     // firm's, and says nothing about whoever reads the old address.
     expect(await mailed(toFirst.id)).toContain(noticeUrl);
     expect(await givenAt(firm.id)).toEqual(told);
+  });
+
+  it("is read from the page in the claim's own transaction, which waits for the board taking it down and then sends nothing", async () => {
+    /*
+     * The one case that asks the database rather than the stub. The page is
+     * this worker database's own, so it is made published for the case and put
+     * back as it was in `finally`.
+     */
+    const pages = app.get(PagesService);
+    const seeded = await pages.seedPrivacyNotice(
+      app.get(I18nService).translatorFor("sv"),
+    );
+    const page = await prisma.page.findUniqueOrThrow({
+      where: { slug: PRIVACY_NOTICE_SLUG },
+      select: { id: true, status: true },
+    });
+    const unpublishing = gate();
+    const committed = gate();
+    let holding: Promise<void> | undefined;
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
+    try {
+      await prisma.page.update({
+        where: { id: page.id },
+        data: { status: "PUBLIC" },
+      });
+      // The spy is on the instance, so the prototype still has the lookup.
+      noticePath.mockImplementation((db, options) =>
+        PagesService.prototype.privacyNoticePath.call(pages, db, options),
+      );
+
+      const firm = await addContractor({
+        name: `Glasmästeriet ${suffix}`,
+        trade: "Glasmästare",
+        email: `glas-${suffix}@firma.test`,
+      });
+      const issueId = await filed(plain, "notice-taken-down");
+      const payload = { contractorId: firm.id, body: "Byt rutan i porten." };
+      const queued = (
+        await previewAndSend(as(manager), issueId, payload)
+      ).json<WorkOrderRow>();
+
+      // The board takes the notice down, and has not committed yet.
+      let holder = 0;
+      holding = prisma.$transaction(
+        async (tx) => {
+          holder = await backendPid(tx);
+          await tx.page.update({
+            where: { id: page.id },
+            data: { status: "DRAFT" },
+          });
+          unpublishing.reach();
+          await committed.opened;
+        },
+        { timeout: 30_000 },
+      );
+      await unpublishing.reached;
+
+      // A lookup without the share lock would read the notice as published
+      // and send now, without waiting.
+      const running = mailer.send(queued.id);
+      await waitFor(async () => (await waitersBehind(prisma, holder)) > 0);
+      // And the one waiting is the claim's own transaction, which has taken
+      // the work order: a lookup on a connection of its own would wait
+      // holding nothing of it, and with a pool of one would never be served.
+      const [claim] = await prisma.$queryRaw<{ holding: number }[]>`
+        SELECT count(*)::int AS holding
+        FROM pg_locks
+        WHERE pid IN (
+            SELECT pid FROM pg_stat_activity
+            WHERE ${holder}::int = ANY (pg_blocking_pids(pid))
+          )
+          AND locktype = 'relation'
+          AND relation = 'work_order'::regclass
+          AND mode = 'RowExclusiveLock'
+          AND granted`;
+      expect(claim?.holding).toBe(1);
+      expect(send).not.toHaveBeenCalled();
+
+      committed.open();
+      await holding;
+      expect(await running).toBe("failed");
+      expect(send).not.toHaveBeenCalled();
+      expect(
+        await prisma.workOrder.findUniqueOrThrow({
+          where: { id: queued.id },
+          select: { deliveryStatus: true, deliveryFailure: true },
+        }),
+      ).toEqual({
+        deliveryStatus: "FAILED",
+        deliveryFailure: "privacy-notice-unpublished",
+      });
+      expect(await givenAt(firm.id)).toBeNull();
+
+      // Published again, the work order written again carries the link.
+      await prisma.page.update({
+        where: { id: page.id },
+        data: { status: "PUBLIC" },
+      });
+      const again = (
+        await previewAndSend(as(manager), issueId, payload)
+      ).json<WorkOrderRow>();
+      send.mockClear();
+      expect(await mailer.send(again.id)).toBe("sent");
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          props: expect.objectContaining({
+            privacyNoticePath: `/${PRIVACY_NOTICE_SLUG}`,
+          }),
+        }),
+      );
+      expect(await givenAt(firm.id)).not.toBeNull();
+    } finally {
+      committed.open();
+      await holding?.catch(() => undefined);
+      send.mockRestore();
+      noticePath.mockResolvedValue(`/${PRIVACY_NOTICE_SLUG}`);
+      if (seeded.created) {
+        await prisma.page.delete({ where: { id: page.id } });
+      } else {
+        await prisma.page.update({
+          where: { id: page.id },
+          data: { status: page.status },
+        });
+      }
+    }
   });
 });
 

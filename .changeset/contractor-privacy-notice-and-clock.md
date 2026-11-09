@@ -5,10 +5,13 @@
 ---
 
 The first work order mailed to a contractor now links the association's
-privacy notice on its website, as GDPR art. 14(3)(b) asks, and a later one
-does not. A contractor who gives the board their details themselves is owed
-the notice when they do (art. 13), and the contractor list's description asks
-the board to point them to it then. A contractor counts as told once the mail server has accepted a mail
+privacy notice on its website, which GDPR art. 14(3)(b) asks of a first
+communication, and a later one does not. A contractor who gives the board
+their details themselves is owed the notice when they do (art. 13), and one
+whose details the board found elsewhere is owed it within a month even if no
+work order goes to them (art. 14(3)(a)). The contractor list's description
+asks the board to point them to it in both cases. A contractor counts as told
+once the mail server has accepted a mail
 that carried the link. After the board changes the contractor's name or email
 address, the next work order carries the link again. A work order still queued
 for the earlier name or address also carries it, even if a work order to the
