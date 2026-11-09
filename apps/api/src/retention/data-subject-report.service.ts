@@ -1827,8 +1827,10 @@ export class DataSubjectReportService {
         /*
          * Derived here rather than stored, as a booking's is: the board's
          * setting moves every pending date by that act alone, and a type
-         * ring-fenced since moves its issues onto the shorter clock. Stated as
-         * the earliest day for the reason the booking gives, and read on the
+         * ring-fenced since moves its issues onto the board's ring-fenced
+         * clock, which is set apart from the other types' clock and may be
+         * the shorter or the longer. Stated as the earliest day for the
+         * reason the booking gives, and read on the
          * association's calendar as it is.
          */
         freeTextErasableFrom:

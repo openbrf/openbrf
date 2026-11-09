@@ -1341,25 +1341,35 @@ describe("the clock", () => {
       where: { id: issueId },
       data: { statusId: fenced.statusIds.DONE, outcome: "FIXED", closedAt },
     });
-    // The settings are the association's singleton, which the retention suite
-    // changes while it runs: read on either side of the report, so the date
-    // the report states is the one for the setting it read.
-    const before = await issueTextClocks(prisma);
-    const report = await app
-      .get(DataSubjectReportService)
-      .portable(resident.personId);
-    const after = await issueTextClocks(prisma);
-    const on = (years: number) =>
-      formatDayOfInstant(
-        new Date(
-          closedAt.getTime() + issueTextRetentionDays(years) * 86_400_000,
-        ),
-      );
+    // A ring-fenced clock that is neither the default nor the other types'
+    // clock (two and one by default), so a report dated on a fixed year fails.
+    const distinctYears = 7;
+    const previous = await issueTextClocks(prisma);
+    await prisma.association.update({
+      where: { id: 1 },
+      data: { ringFencedIssueTextRetentionYears: distinctYears },
+    });
+    let report: Awaited<ReturnType<DataSubjectReportService["portable"]>>;
+    try {
+      report = await app
+        .get(DataSubjectReportService)
+        .portable(resident.personId);
+    } finally {
+      await prisma.association.update({
+        where: { id: 1 },
+        data: { ringFencedIssueTextRetentionYears: previous.ringFencedYears },
+      });
+    }
 
     const dated = report.issues.find((entry) => entry.issueId === issueId);
     expect(dated?.onLegalHold).toBe(false);
-    expect([on(before.ringFencedYears), on(after.ringFencedYears)]).toContain(
-      dated?.freeTextErasableFrom,
+    expect(dated?.freeTextErasableFrom).toBe(
+      formatDayOfInstant(
+        new Date(
+          closedAt.getTime() +
+            issueTextRetentionDays(distinctYears) * 86_400_000,
+        ),
+      ),
     );
   });
 

@@ -352,8 +352,9 @@ export type QueuedIssueView = IssueRowView & {
   typeHandledBy: IssueHandledBy;
   /**
    * Whether its type is ring-fenced (decision 32): read by the board alone,
-   * with nothing about it leaving it, and its free text removed a year after
-   * closing.
+   * with nothing about it leaving it, and its free text removed on the
+   * board's ring-fenced clock after closing, which is set apart from the other
+   * types' clock. A legal hold or a restriction keeps it until it lifts.
    */
   typeRingFenced: boolean;
   /** When it last moved into DONE, or null while it is open. */
