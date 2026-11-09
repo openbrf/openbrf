@@ -441,10 +441,11 @@ describe("a damage case", () => {
      * The mark takes the issue's lock (`lockIssueForHandling`) before it
      * writes `legalHoldAt`, and the purge reads the hold again under that
      * lock. `markDamageCase` opens its own transaction and cannot be paused,
-     * so the holder here takes the same lock and writes the same hold. The
-     * purge queues behind it on the advisory key, which `pg_locks` shows, and
-     * finds the hold once it commits. A purge that read the hold before the
-     * lock would remove the text.
+     * so the holder here takes the same locks and writes the same hold. The
+     * purge takes the type's lock first, then the issue's, so it queues behind
+     * the holder on the type's advisory key, which `pg_locks` shows, and finds
+     * the hold once it commits. A purge that read the hold before the locks
+     * would remove the text.
      */
     const issueId = await opened(leak, "held");
     await prisma.issue.update({
@@ -487,7 +488,9 @@ describe("a damage case", () => {
         ringFencedYears: 1,
       });
       await waitFor(
-        async () => (await advisoryLockCount(prisma, key, false)) > 0n,
+        async () =>
+          (await advisoryLockCount(prisma, `issue-type:${leak.id}`, false)) >
+          0n,
       );
 
       releaseHolder?.();
