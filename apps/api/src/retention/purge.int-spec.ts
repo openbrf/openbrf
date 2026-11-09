@@ -2444,7 +2444,10 @@ describe("an issue a work order's text still stands on", () => {
     // The clock then takes the note, the last text on the case, and the link
     // goes with it: no run of the person purge selects the requester again.
     await expect(
-      textPurge.purgeIssue(workOrderFirstId, new Date(), 10),
+      textPurge.purgeIssue(workOrderFirstId, new Date(), {
+        years: 10,
+        ringFencedYears: 1,
+      }),
     ).resolves.toBe("removed");
     expect(await reporterOf(workOrderFirstId)).toBeNull();
 
@@ -2468,7 +2471,10 @@ describe("an issue a work order's text still stands on", () => {
     await laterIssueWithFreeText(freeTextFirstId);
 
     await expect(
-      textPurge.purgeIssue(freeTextFirstId, new Date(), 10),
+      textPurge.purgeIssue(freeTextFirstId, new Date(), {
+        years: 10,
+        ringFencedYears: 1,
+      }),
     ).resolves.toBe("removed");
     expect(await textOn(freeTextFirstId)).toBe(WORK_ORDER_TEXT);
     expect(await reporterOf(freeTextFirstId)).toBe(requester);
@@ -2566,7 +2572,10 @@ describe("an issue a work order's text still stands on", () => {
     // and the link goes with them.
     await pastTheTenYears(messageRedactedId);
     await expect(
-      textPurge.purgeIssue(messageRedactedId, new Date(), 10),
+      textPurge.purgeIssue(messageRedactedId, new Date(), {
+        years: 10,
+        ringFencedYears: 1,
+      }),
     ).resolves.toBe("removed");
     expect(await reporterOf(messageRedactedId)).toBeNull();
   });

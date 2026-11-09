@@ -31,7 +31,8 @@ Connected apps and the AI package can assign and move issues.
   run, oldest closing first. A board that wants to keep it longer sets a longer
   period under Settings before that night. An issue of a type the board has
   ring-fenced before that night loses its free text after one year instead,
-  whatever the period says. A legal hold on the issue or on its reporter, or a
+  the period every instance starts ring-fenced types at, unless the board sets
+  a longer one for them first. A legal hold on the issue or on its reporter, or a
   restriction of the reporter's processing, stops the removal; a board that
   answers a data subject access request about these issues says so, and checks
   what was actually removed rather than reading it from the date.
@@ -325,15 +326,23 @@ number, shown in the queue, on the reporter's own list and in every mail.
   form and ring-fences it in the settings. The issues already reported under it
   are then ring-fenced with it, and the ring-fence cannot be lifted once the
   type has issues. From the next night, the nightly purge removes the free
-  text of each of those issues that closed more than a year earlier, unless a legal hold
-  stands on the issue, or a legal hold or a restriction on its reporter. A
+  text of each of those issues that closed longer ago than the ring-fenced
+  period, one year unless the board set another, unless a legal hold stands on
+  the issue, or a legal hold or a restriction on its reporter. A
   board that may need those texts, as evidence in a dispute with a resident for
   example, places a legal hold first. From then on nothing about those issues
   is mailed, to a handler or to their reporter.
 - **Its own retention period.** The free text of a ring-fenced issue is purged
-  one year after it closes, whatever the board set for other issues, unless a
-  legal hold stands on the issue or a legal hold or a restriction on its
-  reporter. The board does not set the year.
+  a number of years after it closes that the board sets under Settings apart
+  from the other issues' period, from one to ten and one on every instance
+  until the board changes it, unless a legal hold stands on the issue or a
+  legal hold or a restriction on its reporter. The period may be longer than
+  the other issues' or shorter. A change is recorded in the audit log, as a
+  change to the other period is.
+- **What the form asks for.** The warning on a ring-fenced type's form asks
+  the reporter to describe what happened, what they saw and heard, and when,
+  and not to accuse anyone of a crime, give the details of a police report,
+  write who they think did it, or write about anybody's health.
 
 ## Reopening, merging and known faults
 
@@ -438,9 +447,10 @@ file, removed from storage and not only from the issue.
   most 1,000. An issue whose removal fails does not stop the scan, so a run
   can reach issues beyond the oldest 500. A file whose stored copy cannot be
   removed stays, with the text, until a later night succeeds. An issue of a
-  ring-fenced type is eligible after one year whatever period is set, unless a
-  legal hold stands on the issue or a legal hold or a restriction on its
-  reporter, so a longer period does not protect its text.
+  ring-fenced type is eligible after the ring-fenced period instead, one year
+  unless the board set another, unless a legal hold stands on the issue or a
+  legal hold or a restriction on its reporter, so the other issues' period
+  neither shortens nor lengthens it.
 - **Legal hold on an issue.** A handler places and releases one. While it
   stands, the issue keeps its free text past its period and nobody can redact
   it. A legal hold or restriction on the reporter does the same for their

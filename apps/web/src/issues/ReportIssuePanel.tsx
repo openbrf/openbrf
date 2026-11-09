@@ -476,7 +476,7 @@ export function ReportIssuePanel({
         {/* Standing, not live, and above the description: it is there before
             anything is typed, because it is what the reporter needs to know
             while they write. A ring-fenced type says who reads it instead,
-            and what not to write (decision 32). */}
+            what to write and what not to (decision 32). */}
         <div id={warningId}>
           <Notice tone="warn">
             {chosen?.ringFenced === true
@@ -566,13 +566,17 @@ export function ReportIssuePanel({
         </section>
 
         {/* How long what is written and photographed here is kept (GDPR art.
-            13(2)(a)), on the clock of the type chosen, as the purge keeps it.
-            A ring-fenced type's warning above already says its year. */}
-        {chosen === undefined || chosen.ringFenced ? null : (
+            13(2)(a)), on the clock of the type chosen, as the purge keeps it:
+            the board's, or for a ring-fenced type the board's ring-fenced
+            one, whose text names what is removed and what keeps it. */}
+        {chosen === undefined ? null : (
           <p className={HINT}>
-            {t("issues.report.retention", {
-              count: chosen.textRetentionYears,
-            })}
+            {t(
+              chosen.ringFenced
+                ? "issues.ringFence.retention"
+                : "issues.report.retention",
+              { count: chosen.textRetentionYears },
+            )}
           </p>
         )}
 

@@ -420,7 +420,12 @@ describe("a damage case", () => {
     // A claim is often made after the repair: a closed issue is marked too.
     expect((await mark(issueId, CLAIM)).statusCode).toBe(200);
 
-    expect(await textPurge.purgeIssue(issueId, new Date(), 2)).toBe("kept");
+    expect(
+      await textPurge.purgeIssue(issueId, new Date(), {
+        years: 2,
+        ringFencedYears: 1,
+      }),
+    ).toBe("kept");
     expect(
       (
         await prisma.issue.findUniqueOrThrow({
@@ -477,7 +482,10 @@ describe("a damage case", () => {
         async () => (await advisoryLockCount(prisma, key, true)) > 0n,
       );
 
-      running = textPurge.purgeIssue(issueId, new Date(), 2);
+      running = textPurge.purgeIssue(issueId, new Date(), {
+        years: 2,
+        ringFencedYears: 1,
+      });
       await waitFor(
         async () => (await advisoryLockCount(prisma, key, false)) > 0n,
       );

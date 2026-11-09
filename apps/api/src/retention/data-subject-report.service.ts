@@ -16,8 +16,8 @@ import { pluginProcessorKey } from "../data-protection/processor-key";
 import {
   ISSUE_FREE_TEXT_STANDING,
   issueTextClockYears,
+  issueTextClocks,
   issueTextRetentionDays,
-  issueTextRetentionYears,
 } from "../issues/issue-free-text";
 import {
   ISSUE_MESSAGE_ORDER,
@@ -690,9 +690,10 @@ export class DataSubjectReportService {
             },
           });
 
-    // The clock the free text of an ordinary type's issues is on, read in this
-    // transaction so the dates below agree with the setting the report names.
-    const issueTextYears = await issueTextRetentionYears(tx);
+    // The clocks the free text of the issues is on, the ordinary types' and a
+    // ring-fenced type's, read in this transaction so the dates below agree
+    // with the settings the report names.
+    const issueClocks = await issueTextClocks(tx);
     const issues = await tx.issue.findMany({
       where: { reporterPersonId: personId },
       orderBy: [{ createdAt: "desc" }],
@@ -1839,7 +1840,7 @@ export class DataSubjectReportService {
                 computeIssuePurgeDate(
                   issue.closedAt,
                   issueTextRetentionDays(
-                    issueTextClockYears(issueTextYears, issue.type.ringFenced),
+                    issueTextClockYears(issueClocks, issue.type.ringFenced),
                   ),
                 ),
               ),

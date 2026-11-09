@@ -3424,8 +3424,14 @@ function auditDetail(
   if (entry.action === "ISSUE_RETENTION_RECORDED") {
     const from = context?.["yearsAfterClosingFrom"];
     const to = context?.["yearsAfterClosingTo"];
+    // An entry for the ring-fenced clock says so; an entry without the mark,
+    // written before that clock was the board's too, is the other one.
+    const key =
+      context?.["ringFenced"] === true
+        ? "register.person.report.auditDetail.retentionChangedRingFenced"
+        : "register.person.report.auditDetail.retentionChanged";
     return typeof from === "number" && typeof to === "number"
-      ? t("register.person.report.auditDetail.retentionChanged", { from, to })
+      ? t(key, { from, to })
       : null;
   }
   if (context === null) {

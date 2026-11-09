@@ -110,7 +110,7 @@ describe("the sensitive-data warning", () => {
     ).toBeTruthy();
   });
 
-  it("says who reads a ring-fenced type, and what not to write, once it is chosen", async () => {
+  it("says who reads a ring-fenced type, what to write and what not to, once it is chosen", async () => {
     const session = userEvent.setup();
     renderPanel({
       types: [
@@ -131,10 +131,19 @@ describe("the sensitive-data warning", () => {
     );
     // Not the property manager, as the ordinary warning says: only the board.
     expect(screen.getByText(/läses bara av styrelsen/i)).toBeTruthy();
-    expect(screen.getByText(/skriv inte vem du tror/i)).toBeTruthy();
+    // What happened, as it was seen and heard, and not an accusation of a
+    // crime (GDPR art. 10).
+    expect(
+      screen.getByText(/beskriv vad som hände, vad du såg och hörde, och när/i),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /anklaga inte någon för brott och lämna inte uppgifter ur en polisanmälan/i,
+      ),
+    ).toBeTruthy();
     expect(screen.queryByText(/extern förvaltare/i)).toBeNull();
     // Read before the description is written, not after it.
-    const warning = screen.getByText(/skriv inte vem du tror/i);
+    const warning = screen.getByText(/anklaga inte någon för brott/i);
     const description = screen.getByRole("textbox", {
       name: /vad har hänt/i,
     });
@@ -145,8 +154,8 @@ describe("the sensitive-data warning", () => {
   });
 
   it("says how long the text is kept, on the clock of the type chosen", async () => {
-    // GDPR art. 13(2)(a), where the reporter writes. A ring-fenced type's
-    // warning states its own year, so the line is for an ordinary type.
+    // GDPR art. 13(2)(a), where the reporter writes, for an ordinary type and
+    // for a ring-fenced one on the board's ring-fenced clock.
     const session = userEvent.setup();
     renderPanel({
       types: [
@@ -156,7 +165,7 @@ describe("the sensitive-data warning", () => {
           name: "Störningar",
           reporters: ["RESIDENTS"],
           ringFenced: true,
-          textRetentionYears: 1,
+          textRetentionYears: 3,
         },
       ],
     });
@@ -194,13 +203,16 @@ describe("the sensitive-data warning", () => {
       "type-noise",
     );
     expect(screen.queryByText(/aldrig resten av anmälan/i)).toBeNull();
-    // The ring-fence's own warning names the conversation and the photographs
-    // beside the text, since it is the only retention notice on this form.
+    // The ring-fence's own line names the conversation and the photographs
+    // beside the text, on the type's clock rather than the other types'.
     expect(
       screen.getByText(
-        /det du skriver, konversationen och fotografierna tas bort ett år efter/i,
+        /det du skriver, konversationen och fotografierna tas bort 3 år efter/i,
       ),
     ).toBeTruthy();
+    expect(
+      screen.queryByText(/tas bort 2 år efter att ärendet har stängts/i),
+    ).toBeNull();
   });
 
   it("keeps the intro line for an ordinary type, and drops it for a ring-fenced one", async () => {
