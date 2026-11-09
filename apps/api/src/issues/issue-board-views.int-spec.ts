@@ -1454,7 +1454,8 @@ describe("the search", () => {
       name: `Mottagare ${suffix}`,
       reporters: ["RESIDENTS"],
     });
-    // Closed, with the copy the list's clock leaves: named by no contractor.
+    // Closed, with the copy the list's clock leaves: named by no contractor,
+    // and kept because the work order still holds its text.
     const closed = await issue(type, "recipient-closed", { meaning: "DONE" });
     const keptToBoard = await issue(type, "recipient-board-only", {
       boardOnly: true,
@@ -1466,7 +1467,9 @@ describe("the search", () => {
         contractorId: null,
         recipientName: name,
         recipientEmailCipher: null,
-        body: null,
+        // Text that holds none of the words searched for, so the name is
+        // what matches.
+        body: "Byt packningen i kranen.",
         sentByPersonId: board.personId,
         deliveryStatus: "SENT" as const,
       })),

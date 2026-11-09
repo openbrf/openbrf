@@ -41,8 +41,9 @@ address when the contractor goes.
 
 The issue queue's search now also matches the name a work order was written to.
 After the clock has removed a contractor, the board finds the work orders that
-still hold their name by searching for it with closed issues included. The
-email address is stored encrypted and is not searched.
+still hold their name by searching for it in the All view, with closed issues
+included and no other filter. The email address is stored encrypted and is not
+searched.
 
 The record of processing activities' text for issues gives the legal basis for
 the contractor list: the contract for a sole trader, and legitimate interest
