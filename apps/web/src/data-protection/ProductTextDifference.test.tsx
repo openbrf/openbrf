@@ -58,7 +58,7 @@ describe("a board-edited row whose product text has moved on", () => {
   it("says so in words, with the board's text beside the product's", () => {
     render(<ProductTextDifference activity={EDITED_ROW} onAdopted={vi.fn()} />);
 
-    expect(screen.getByText("Produktens text har ändrats")).not.toBeNull();
+    expect(screen.getByText("Skiljer sig från produktens text")).not.toBeNull();
     expect(
       screen.getByText("Tills nyckeln lämnas tillbaka, enligt styrelsen."),
     ).not.toBeNull();
@@ -110,6 +110,49 @@ describe("a board-edited row whose product text has moved on", () => {
       expect((button as HTMLButtonElement).disabled).toBe(true);
     }
     expect(adoptProductText).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds the next adoption until the read brings the row the last one wrote", async () => {
+    adoptProductText.mockResolvedValue({
+      ok: true,
+      value: { ...EDITED_ROW, revision: 8 },
+    });
+    const onAdopted = vi.fn();
+    const { rerender } = render(
+      <ProductTextDifference activity={EDITED_ROW} onAdopted={onAdopted} />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Använd produktens text",
+        description: "Bevarande",
+      }),
+    );
+    await waitFor(() => {
+      expect(onAdopted).toHaveBeenCalledTimes(1);
+    });
+
+    // The adoption is answered, but the screen still holds revision 7: a
+    // second adoption sent with it would be refused.
+    const legalBasis = () =>
+      screen.getByRole("button", {
+        name: "Använd produktens text",
+        description: "Rättslig grund",
+      }) as HTMLButtonElement;
+    expect(legalBasis().disabled).toBe(true);
+
+    rerender(
+      <ProductTextDifference
+        activity={{
+          ...EDITED_ROW,
+          revision: 8,
+          retention: "Två år efter att beställningen avslutats.",
+          productText: { legalBasis: "LEGITIMATE_INTEREST" },
+        }}
+        onAdopted={onAdopted}
+      />,
+    );
+    expect(legalBasis().disabled).toBe(false);
   });
 
   it("says the row moved, and reads it again, when the adoption is refused for it", async () => {

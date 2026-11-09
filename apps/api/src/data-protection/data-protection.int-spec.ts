@@ -1859,6 +1859,27 @@ describe("record of processing", () => {
       expect((await activityOf(EDITED)).productDiffers).toBe(true);
     });
 
+    it("refuses a stale adoption even where there is nothing left to write", async () => {
+      const product = await productRow(EDITED);
+      const target = await activityOf(EDITED);
+      // Another board member's save brings the field back into line, so the
+      // adoption below would write nothing; its copy is still not the row.
+      const moved = await inject({
+        method: "PUT",
+        url: `/api/data-protection/processing-activities/${target.activityId}`,
+        payload: { retention: product.retention },
+        headers: { cookie: boardCookie },
+      });
+      expect(moved.statusCode).toBe(200);
+
+      const stale = await adopt(target.activityId, {
+        fields: ["retention"],
+        expectedRevision: target.revision,
+      });
+      expect(stale.statusCode).toBe(409);
+      expect(reasonOf(stale)).toBe("activity-changed");
+    });
+
     it("refuses an adoption built on a copy somebody else has replaced", async () => {
       const target = await activityOf(EDITED);
       const moved = await inject({

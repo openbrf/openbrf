@@ -30,7 +30,9 @@ export interface ProductTextDifferenceProps {
  *
  * One adoption at a time per row: the buttons are disabled while one is in
  * flight, because each is sent with the revision this read saw and the second
- * would be refused as built on a replaced copy.
+ * would be refused as built on a replaced copy. For the same reason they stay
+ * disabled after an adoption that wrote, until the screen's read brings the
+ * row at the revision that adoption left it at.
  */
 export function ProductTextDifference({
   activity,
@@ -40,16 +42,33 @@ export function ProductTextDifference({
   const id = useId();
   // Which field's button was pressed, so only that one says it is saving.
   const [adopting, setAdopting] = useState<ActivityField | null>(null);
-  const adopt = useSaveAction(adoptProductText, onAdopted, (failure) => {
-    // The row moved under the screen: read it again, so what is shown is what
-    // the refusal was about.
-    if (
-      failure.reason === "activity-changed" ||
-      failure.reason === "no-product-text"
-    ) {
+  /*
+   * The revision the last adoption left the row at. Until the screen's read
+   * has brought that row, `activity.revision` is the one the adoption replaced,
+   * and a second adoption sent with it would be refused. An adoption with
+   * nothing left to write leaves the revision where it was, so it holds
+   * nothing back.
+   */
+  const [adoptedRevision, setAdoptedRevision] = useState<number | null>(null);
+  const adopt = useSaveAction(
+    adoptProductText,
+    (adopted) => {
+      setAdoptedRevision(adopted.revision);
       onAdopted();
-    }
-  });
+    },
+    (failure) => {
+      // The row moved under the screen: read it again, so what is shown is
+      // what the refusal was about.
+      if (
+        failure.reason === "activity-changed" ||
+        failure.reason === "no-product-text"
+      ) {
+        onAdopted();
+      }
+    },
+  );
+  const awaitingRead =
+    adoptedRevision !== null && activity.revision < adoptedRevision;
 
   const fields = ACTIVITY_FIELDS.filter(
     (field) => field in activity.productText,
@@ -99,7 +118,7 @@ export function ProductTextDifference({
               <button
                 type="button"
                 className={SECONDARY_BUTTON}
-                disabled={adopt.pending}
+                disabled={adopt.pending || awaitingRead}
                 aria-describedby={`${id}-${field}`}
                 onClick={() => {
                   setAdopting(field);

@@ -6095,8 +6095,8 @@
       "personalDataNoneRecorded": "None recorded. This record names no categories of personal data, which does not mean the plugin handles none; check what it handles and record the categories.",
       "thirdCountry": "Data may be transferred outside the EU and the EEA.",
       "productText": {
-        "marker": "The product's text has changed",
-        "explanation": "The board has edited this row, so the product does not overwrite it. For the fields below the product now says something other than the row. The board's text stands until the board chooses to adopt the product's.",
+        "marker": "Differs from the product's text",
+        "explanation": "The board has edited this row, so the product does not overwrite it. For the fields below the product says something other than the row, either because the board wrote its own text or because the product's text has changed since. The board's text stands until the board chooses to adopt the product's.",
         "board": "The board's text",
         "product": "The product's text",
         "adopt": "Adopt the product's text",

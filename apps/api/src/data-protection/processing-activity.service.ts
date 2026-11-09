@@ -232,20 +232,7 @@ export class ProcessingActivityService {
         orderBy: [{ source: "asc" }, { name: "asc" }],
         select: ACTIVITY_SELECT,
       }),
-      /*
-       * The record is read without the comparison rather than not at all. It
-       * is the document the board is answerable for, and a configuration
-       * that cannot be read just now must not make it unreadable; the rows
-       * then simply show no difference until the next read.
-       */
-      this.productStatement().catch((cause: unknown) => {
-        this.logger.warn(
-          "The product's own wording could not be computed, so the record " +
-            `is shown without comparing edited rows against it: ${failureName(cause)}.`,
-          failureFrames(cause),
-        );
-        return new Map<string, SeedRow>();
-      }),
+      this.productStatementOrNone(),
     ]);
 
     return {
@@ -534,7 +521,7 @@ export class ProcessingActivityService {
     },
   ): Promise<ProcessingActivityView> {
     const input = foldedText(given, ACTIVITY_TEXT);
-    return this.prisma.$transaction(async (tx) => {
+    const row = await this.prisma.$transaction(async (tx) => {
       /*
        * Before the read, so the comparison below and the write after it see the
        * same row. Read outside the transaction, a second save committing in
@@ -668,8 +655,9 @@ export class ProcessingActivityService {
         tx,
       );
 
-      return this.viewOf(row, tx);
+      return row;
     });
+    return this.viewOf(row);
   }
 
   /**
@@ -735,6 +723,21 @@ export class ProcessingActivityService {
         (field) => input.fields.includes(field) && field in statement.differs,
       );
       if (changed.length === 0) {
+        /*
+         * The precondition holds here too. A field another board member's save
+         * has since brought into line leaves nothing to write, but the caller's
+         * copy is still not the row: answering 200 would tell a screen built on
+         * it that its read stands.
+         */
+        if (
+          input.expectedRevision !== undefined &&
+          input.expectedRevision !== existing.revision
+        ) {
+          throw new ProcessingActivityError(
+            "The processing changed after it was read.",
+            "activity-changed",
+          );
+        }
         // Nothing left to adopt: nothing is written, so nothing is audited,
         // and the screen is answered with the row as it stands.
         return toView(existing, product);
@@ -814,19 +817,40 @@ export class ProcessingActivityService {
   }
 
   /**
+   * The product's statement, or none where it cannot be computed just now.
+   *
+   * What is read or written is shown without the comparison rather than not
+   * at all. The record is the document the board is answerable for, and a
+   * configuration that cannot be read just now must not make it unreadable,
+   * nor undo a save or an ending that has committed; the rows then simply show
+   * no difference until the next read.
+   */
+  private productStatementOrNone(): Promise<ReadonlyMap<string, SeedRow>> {
+    return this.productStatement().catch((cause: unknown) => {
+      this.logger.warn(
+        "The product's own wording could not be computed, so edited rows " +
+          `are shown without comparing them against it: ${failureName(cause)}.`,
+        failureFrames(cause),
+      );
+      return new Map<string, SeedRow>();
+    });
+  }
+
+  /**
    * The product's statement for a row `update` or `end` returns, read only
    * where there can be one to show.
+   *
+   * After the write's transaction and outside it: the comparison is a view of
+   * the row and no part of the write, so it failing must not roll the write
+   * and its audit entry back.
    */
-  private async viewOf(
-    row: ActivityRow,
-    client: Prisma.TransactionClient,
-  ): Promise<ProcessingActivityView> {
+  private async viewOf(row: ActivityRow): Promise<ProcessingActivityView> {
     const mayDiffer =
       row.updatedByPersonId !== null &&
       (SEED_KEYS as readonly (string | null)[]).includes(row.sourceKey);
     return toView(
       row,
-      mayDiffer ? await this.productStatement(client) : new Map(),
+      mayDiffer ? await this.productStatementOrNone() : new Map(),
     );
   }
 
@@ -835,7 +859,7 @@ export class ProcessingActivityService {
     activityId: string,
     actorPersonId: string,
   ): Promise<ProcessingActivityView> {
-    return this.prisma.$transaction(async (tx) => {
+    const row = await this.prisma.$transaction(async (tx) => {
       /*
        * Before the read, as its sibling `update` takes it and for the same
        * reason: read outside the transaction, the already-ended check answered
@@ -903,8 +927,9 @@ export class ProcessingActivityService {
         tx,
       );
 
-      return this.viewOf(row, tx);
+      return row;
     });
+    return this.viewOf(row);
   }
 
   /** How many seeded rows exist, for the boot hook to decide on. */

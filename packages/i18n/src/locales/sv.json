@@ -6095,8 +6095,8 @@
       "personalDataNoneRecorded": "Inga angivna. Den här posten anger inga kategorier av personuppgifter, vilket inte betyder att tillägget inte behandlar några; kontrollera vad det behandlar och för in kategorierna.",
       "thirdCountry": "Uppgifter kan föras till land utanför EU och EES.",
       "productText": {
-        "marker": "Produktens text har ändrats",
-        "explanation": "Styrelsen har ändrat den här raden, så produkten skriver inte över den. För fälten nedan säger produkten nu något annat än raden. Styrelsens text gäller tills styrelsen väljer att använda produktens.",
+        "marker": "Skiljer sig från produktens text",
+        "explanation": "Styrelsen har ändrat den här raden, så produkten skriver inte över den. För fälten nedan säger produkten något annat än raden, antingen för att styrelsen skrev egen text eller för att produktens text har ändrats sedan dess. Styrelsens text gäller tills styrelsen väljer att använda produktens.",
         "board": "Styrelsens text",
         "product": "Produktens text",
         "adopt": "Använd produktens text",

@@ -4,10 +4,11 @@
 "@openbrf/i18n": minor
 ---
 
-The record of processing activities now shows when the product's own wording
-for a row the board has edited has changed since. The seed still never
-overwrites a row the board has edited, so a correction to the product's text
-does not reach that row by itself. Such a row now shows, field by field, the
+The record of processing activities now shows where a row the board has
+edited says something other than the product's own wording, whether because the
+board wrote its own text or because the product's text has changed since. The
+seed still never overwrites a row the board has edited, so a correction to the
+product's text does not reach that row by itself. Such a row now shows, field by field, the
 board's text beside the product's, with an action that adopts the product's
 text for one field. Adopting writes the product's current text, is recorded in
 the audit log with who adopted it and which fields, and leaves the row the
