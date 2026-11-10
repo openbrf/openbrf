@@ -242,8 +242,13 @@ photograph or an uploaded file. Redacting replaces the text with a mark saying
 it was redacted and when; nothing keeps the earlier text, so a redaction is not
 an edit with a history. Removing a file removes it from storage. A work order
 whose text is redacted stays on the issue with whom it went to and when, which is
-the record of the disclosure (the recipient's name and address go if the
-contractor is later removed from the list, [ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md#the-mailed-work-order)); one whose mail has not gone out yet is not sent,
+the record of the disclosure. The recipient's name and address stay for as long
+as the contractor is on the list and go if the board later removes them
+([ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md#the-mailed-work-order)).
+Where the list's own clock has already taken the contractor off it, the copy the
+work order kept for its text's sake goes with the redaction. A copy outlives
+its text only on an issue under a legal hold, where the text was already gone
+when the clock ran; it goes when the hold is released. One whose mail has not gone out yet is not sent,
 and is recorded as not sent.
 
 Each act is recorded in the audit log against the case, by its own action, with
