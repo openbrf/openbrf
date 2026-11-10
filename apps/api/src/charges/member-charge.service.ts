@@ -265,7 +265,7 @@ export class MemberChargeService {
     const charge = await this.prisma.$transaction(async (tx) => {
       await this.requireParty(tx, personId, apartmentId);
       if (issueId !== null) {
-        await this.requireHandledIssue(tx, issueId, input.actorPersonId, now);
+        await this.requireHandledIssue(tx, issueId, input.actorPersonId);
       }
 
       const financialYearStartMonth = await financialYearStartMonthInForce(tx);
@@ -818,12 +818,16 @@ export class MemberChargeService {
    * Refuses an issue the actor does not handle, by the issue queue's own rule
    * (`issuesHandledWhere`), and one that does not exist alike: the charge
    * screen must not tell a board member about an issue the queue would not.
+   *
+   * Judged at its own instant, read once the lock is held, rather than at the
+   * one `record` dates the charge by: a board seat that ended while the charge
+   * waited on the lock is not read as it stood before the wait, as no write on
+   * an issue reads it so (`requireHandledIssueForWrite`).
    */
   private async requireHandledIssue(
     tx: Prisma.TransactionClient,
     issueId: string,
     actorPersonId: string,
-    now: Date,
   ): Promise<void> {
     /*
      * The lock every other write on an issue takes before it decides who
@@ -832,6 +836,8 @@ export class MemberChargeService {
      * never links to an issue its actor stopped handling in between.
      */
     await lockIssueForHandling(tx, issueId);
+    // After the lock wait: one instant for the actor's role and scope.
+    const now = new Date();
     /*
      * Whether they handle issues at all first: the scope below answers the
      * narrower of its two for a person who handles none, which is still a

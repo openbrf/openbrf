@@ -11,6 +11,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
@@ -125,6 +126,7 @@ let encryption: FieldEncryptionService;
 let associationCreatedHere = false;
 
 const suffix = process.hrtime.bigint().toString(36);
+const DAY_MS = 24 * 60 * 60 * 1000;
 const PASSWORD = "a-long-enough-password";
 
 function person(key: string, firstName: string, lastName: string) {
@@ -142,8 +144,8 @@ const resident = person("resident", "Rune", "Boende");
 /** Reports one issue, and is given protected personal data after it. */
 const shielded = person("shielded", "Siv", "Skyddad");
 /**
- * Handles issues by a board seat alone, which the test that needs it gives and
- * takes away: no administrator or property manager role stands in for it.
+ * Handles issues by a board seat alone, which the tests that need it give and
+ * take away: no administrator or property manager role stands in for it.
  */
 const seated = person("seated", "Sture", "Ledamot");
 const people = [board, manager, resident, shielded, seated];
@@ -865,6 +867,117 @@ describe("a charge made from an issue", () => {
       });
     }
   });
+
+  it.each([
+    ["an issue every handler handles", false],
+    ["an issue kept to the board", true],
+  ])(
+    "judges who handles %s at the instant the lock is got, so a charge from an actor whose seat ends while it waits is refused",
+    async (key, boardOnly) => {
+      /*
+       * The seat is the actor's only way to handle issues and ends two days on.
+       * The charge is started with the clock where it is, and the clock is
+       * moved four days on while it waits behind the issue's lock: a charge
+       * that judged the seat at the instant it started would still see it and
+       * link, one that reads the clock after the lock sees none.
+       */
+      const issueId = await filed(
+        `charge-seat-lapses-${boardOnly ? "board" : "every"}`,
+      );
+      if (boardOnly) {
+        await prisma.issue.update({
+          where: { id: issueId },
+          data: { boardOnly: true },
+        });
+      }
+      const now = new Date();
+      await prisma.boardPosition.create({
+        data: {
+          personId: seated.personId,
+          position: "BOARD_MEMBER",
+          electedOn: new Date("2025-05-15"),
+          endedOn: new Date(
+            Date.UTC(
+              now.getUTCFullYear(),
+              now.getUTCMonth(),
+              now.getUTCDate() + 2,
+            ),
+          ),
+        },
+      });
+      let reached: (pid: number) => void = () => undefined;
+      const holding = new Promise<number>((resolve) => {
+        reached = resolve;
+      });
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let other: Promise<void> | null = null;
+      vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+      try {
+        // The seat alone lets the actor handle it before the wait, so the
+        // refusal below is the clock read after the lock.
+        const before = await inject({
+          method: "GET",
+          url: `/api/member-charges/issues/${issueId}/basis`,
+          cookie: cookies[seated.personId],
+        });
+        expect(before.statusCode, `the seat lets the actor handle ${key}`).toBe(
+          200,
+        );
+        other = prisma.$transaction(
+          async (tx) => {
+            await lockIssueForHandling(tx, issueId);
+            reached(await backendPid(tx));
+            await gate;
+          },
+          { timeout: 30_000 },
+        );
+        const holder = await holding;
+
+        let answered = false;
+        const request = inject({
+          method: "POST",
+          url: "/api/member-charges",
+          cookie: cookies[seated.personId],
+          payload: {
+            apartmentId,
+            chargedOn: today(),
+            amount: "91.00",
+            reason: `Ärende: Säte som löper ut ${suffix}`,
+            vatTreatment: "EXEMPT",
+            issueId,
+          },
+        }).finally(() => {
+          answered = true;
+        });
+        await waitFor(
+          async () => answered || (await waitersBehind(prisma, holder)) > 0,
+        );
+        expect(answered, "the charge waits behind the issue's lock").toBe(
+          false,
+        );
+        vi.setSystemTime(new Date(Date.now() + 4 * DAY_MS));
+        release();
+        await other;
+
+        const response = await request;
+        expect(response.statusCode).toBe(404);
+        expect(response.json<{ reason: string }>().reason).toBe(
+          "issue-not-found",
+        );
+        expect(await prisma.memberCharge.count({ where: { issueId } })).toBe(0);
+      } finally {
+        release();
+        await other?.catch(() => undefined);
+        vi.useRealTimers();
+        await prisma.boardPosition.deleteMany({
+          where: { personId: seated.personId },
+        });
+      }
+    },
+  );
 
   it("withholds the link once the reporter has protected personal data, for a charge on the person and on the apartment, on both reads", async () => {
     const issueId = await filed("shielded", shielded.personId);
