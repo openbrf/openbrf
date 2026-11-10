@@ -317,9 +317,9 @@ services:
       # board enters").
       OPENBRF_ALLOW_PRIVATE_HOSTS: ${OPENBRF_ALLOW_PRIVATE_HOSTS:-false}
 
-      # The contractor's link to a work order (ADR 0055). Off until the legal
-      # review of a contractor as a recipient of the association's data clears
-      # it (docs/deployment.md, "The contractor's link").
+      # The contractor's link to a work order (ADR 0055). Off until counsel
+      # answers whether the link makes the contractor a processor
+      # (docs/deployment.md, "The contractor's link").
       OPENBRF_CONTRACTOR_LINKS_ENABLED: ${OPENBRF_CONTRACTOR_LINKS_ENABLED:-false}
 
       # Private links the issue report form may have mailed in an hour, to

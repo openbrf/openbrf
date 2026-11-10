@@ -3840,7 +3840,7 @@
       "title": "Your issue",
       "type": "Type",
       "status": "Status",
-      "received": "Received",
+      "received": "Filed",
       "meaning": {
         "NEW": "Received",
         "IN_PROGRESS": "In progress",
