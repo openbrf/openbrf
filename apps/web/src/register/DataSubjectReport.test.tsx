@@ -70,13 +70,21 @@ const CHARGE_REASON = [
   "Den gamla tappades bort.",
 ].join("\n");
 
-const { fetchDataSubjectReport } = vi.hoisted(() => ({
+const {
+  fetchDataSubjectReport,
+  fetchIssueAccessWeighing,
+  saveIssueAccessWeighing,
+} = vi.hoisted(() => ({
   fetchDataSubjectReport: vi.fn(),
+  fetchIssueAccessWeighing: vi.fn(),
+  saveIssueAccessWeighing: vi.fn(),
 }));
 
 vi.mock("./register-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./register-api")>()),
   fetchDataSubjectReport,
+  fetchIssueAccessWeighing,
+  saveIssueAccessWeighing,
 }));
 
 const { loadPluginTranslations } = vi.hoisted(() => ({
@@ -123,6 +131,7 @@ const EMPTY_REPORT: Report = {
   publicationConsents: [],
   legalHolds: [],
   issues: [],
+  issuesConcerning: [],
   issueAssignments: [],
   documents: [],
   apartmentDocuments: [],
@@ -387,6 +396,40 @@ const FULL_REPORT: Report = {
       closedAt: null,
       photographs: 2,
       messages: [],
+      notes: [],
+      workOrders: [],
+    },
+  ],
+  issuesConcerning: [
+    {
+      issueId: "issue-9",
+      number: 52,
+      typeName: "Störningar",
+      meaning: "DONE",
+      outcome: "FIXED",
+      waitingReason: null,
+      recordedAt: "2026-01-08T09:00:00.000Z",
+      reportedAt: "2026-01-07T21:00:00.000Z",
+      closedAt: "2026-01-20T10:00:00.000Z",
+      freeTextErasableFrom: "2027-01-20",
+      onLegalHold: false,
+      freeTextRemovedAt: null,
+      description: { state: "withheld", because: "IDENTIFIES_REPORTER" },
+      descriptionRedactedAt: null,
+      location: { state: "given", text: "Trapphuset" },
+      locationRedactedAt: null,
+      messages: [
+        {
+          messageId: "message-9",
+          writtenAt: "2026-01-09T08:00:00.000Z",
+          side: "HANDLER",
+          signature: "BOARD",
+          redactedAt: null,
+          content: { state: "given", text: "Vi har pratat med er granne." },
+        },
+      ],
+      notes: [],
+      photographs: 0,
       workOrders: [],
     },
   ],
@@ -2193,8 +2236,9 @@ describe("what the document prints", () => {
     expect(screen.getByText("2026-10-01")).toBeTruthy();
     expect(screen.getByText("2026-10-02")).toBeTruthy();
     expect(screen.getAllByText(/Borttaget av en handläggare/)).toHaveLength(2);
-    expect(screen.getAllByText("2026-11-03")).toHaveLength(3);
-    expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(3);
+    // The location, the description, the conversation and the notes.
+    expect(screen.getAllByText("2026-11-03")).toHaveLength(4);
+    expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(4);
   });
 
   it("names the capacity somebody was present at a general meeting in", async () => {
@@ -2349,7 +2393,7 @@ describe("what the document prints", () => {
       expect(screen.getAllByText(/Borttaget av en handläggare/)).toHaveLength(
         2,
       );
-      expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(3);
+      expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(4);
       expect(screen.queryByText(/Removed by a handler/)).toBeNull();
       expect(screen.queryByText(/Free text removed on/)).toBeNull();
     } finally {
@@ -2503,6 +2547,153 @@ describe("what the document prints", () => {
     expect(grantRow?.textContent).toContain("Upplåtelse");
     const purchaseRow = transfers.getByText("Storgatan 12 1201").closest("tr");
     expect(purchaseRow?.textContent).toContain("Överlåtelse");
+  });
+});
+
+describe("what the board weighed under art. 15(4)", () => {
+  const inSwedish = i18n.getFixedT("sv");
+
+  it("prints a case somebody else reported with what was given, and the reason for what was left out", async () => {
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const section = sectionOf(inSwedish(SECTION_TITLE.issuesConcerning));
+    const row = within(section).getByText("Trapphuset").closest("tr");
+    expect(row).not.toBeNull();
+    const cells = within(row as HTMLElement);
+    // The case itself, always.
+    expect(cells.getByText("Ärende 52")).toBeTruthy();
+    expect(cells.getByText("Störningar")).toBeTruthy();
+    // A handler's message signed with a role, given whole.
+    expect(cells.getByText("Vi har pratat med er granne.")).toBeTruthy();
+    expect(cells.getByText("Styrelsen")).toBeTruthy();
+    // The description left out, with its reason and none of its words.
+    expect(
+      cells.getByText(
+        "Utelämnat: det skulle avslöja vem som anmälde ärendet (artikel 15.4 i dataskyddsförordningen)",
+      ),
+    ).toBeTruthy();
+    // That something was left out, why, and where to complain.
+    expect(
+      within(section).getByText(/klaga hos Integritetsskyddsmyndigheten/),
+    ).toBeTruthy();
+    expect(
+      within(section).getByText(/säger inte vem som anmälde/),
+    ).toBeTruthy();
+    // Weighed throughout, so it prints.
+    expect(
+      (screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  it("gives none of an unweighed note, and will not print until it is weighed", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          notes: [
+            {
+              noteId: "note-1",
+              writtenAt: "2026-01-06T08:00:00.000Z",
+              redactedAt: null,
+              content: { state: "unweighed" },
+            },
+            {
+              noteId: "note-2",
+              writtenAt: "2026-01-07T08:00:00.000Z",
+              redactedAt: null,
+              content: { state: "given", text: "Ringde om porten." },
+            },
+          ],
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const section = sectionOf(inSwedish(SECTION_TITLE.issues));
+    expect(
+      within(section).getByText(
+        "Inte utlämnat: styrelsen har ännu inte prövat det",
+      ),
+    ).toBeTruthy();
+    expect(within(section).getByText("Ringde om porten.")).toBeTruthy();
+    expect(
+      screen.getByText(/En text i ärendena nedan är inte prövad/),
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    // Nothing was left out, so the report says nothing of a complaint.
+    expect(
+      within(section).queryByText(/Integritetsskyddsmyndigheten/),
+    ).toBeNull();
+  });
+
+  it("opens the board's weighing from the issue, and produces the report again once it is saved", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    fetchIssueAccessWeighing.mockResolvedValue({
+      issueId: issue.issueId,
+      number: issue.number,
+      typeName: issue.typeName,
+      report: "reporter",
+      texts: [
+        {
+          part: "NOTE",
+          id: "note-1",
+          writtenAt: "2026-01-06T08:00:00.000Z",
+          side: null,
+          text: "Grannen i 1202 har klagat förut.",
+          decision: null,
+        },
+      ],
+    });
+    saveIssueAccessWeighing.mockResolvedValue({});
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          notes: [
+            {
+              noteId: "note-1",
+              writtenAt: "2026-01-06T08:00:00.000Z",
+              redactedAt: null,
+              content: { state: "unweighed" },
+            },
+          ],
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+    expect(fetchDataSubjectReport).toHaveBeenCalledTimes(1);
+
+    const section = sectionOf(inSwedish(SECTION_TITLE.issues));
+    fireEvent.click(
+      within(section).getByRole("button", { name: "Pröva vad som lämnas ut" }),
+    );
+    // The words are on the board's screen to weigh, never on the report.
+    await screen.findByText("Grannen i 1202 har klagat förut.");
+    fireEvent.click(
+      screen.getByRole("radio", {
+        name: "Utelämna: det handlar om någon annan",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Spara prövningen" }));
+
+    await waitFor(() => {
+      expect(fetchDataSubjectReport).toHaveBeenCalledTimes(2);
+    });
+    expect(saveIssueAccessWeighing).toHaveBeenCalledWith(
+      FULL_REPORT.person.personId,
+      issue.issueId,
+      [{ part: "NOTE", id: "note-1", withheldBecause: "ABOUT_ANOTHER_PERSON" }],
+    );
   });
 });
 

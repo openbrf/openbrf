@@ -1,5 +1,6 @@
 import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import {
+  type IssueAccessPart,
   compareLocalDays,
   dateColumnOf,
   formatDateColumn,
@@ -24,6 +25,7 @@ import {
   ISSUE_MESSAGE_SELECT,
   toReporterView,
 } from "../issues/issue-message-view";
+import { issuesConcerningPerson } from "../issues/issue-concerned-persons";
 import { issuesReportedByProtectedPersons } from "../issues/issue-reporter-protection";
 import { computeIssuePurgeDate } from "../issues/issue-retention";
 import { pluginAccessViews } from "../plugin-access/plugin-access";
@@ -87,6 +89,7 @@ import type {
   ReportPostalAddress,
   ReportProxyAuthorisation,
   ReportSignInSession,
+  ReportWeighedText,
 } from "./data-subject-report";
 import {
   holdingPeriods,
@@ -94,8 +97,15 @@ import {
   terminationsDuringHolding,
 } from "./holding-periods";
 import { dueOn } from "../data-protection/data-subject-request";
-import { workOrderKnownNotSent } from "../issues/work-order-delivery";
 import { connectedAppHost } from "../connected-apps/client-host";
+import {
+  ISSUE_NOTE_ORDER,
+  WEIGHED_NOTE_SELECT,
+  reportNote,
+  reportWorkOrder,
+  weighedText,
+  weighingKey,
+} from "./issue-access-weighing";
 import { ExportSlots } from "./export-slots";
 import { computePurgeDate } from "./purge-date";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
@@ -728,11 +738,22 @@ export class DataSubjectReportService {
         type: { select: { name: true, ringFenced: true } },
         _count: { select: { photos: true } },
         // The conversation as the reporter reads it on their own screen
-        // (`toReporterView`). Never an internal note: that is a table of its
-        // own, which this read does not touch (ADR 0057, question 1).
+        // (`toReporterView`). The internal notes are read apart, below.
         messages: {
           orderBy: ISSUE_MESSAGE_ORDER,
           select: ISSUE_MESSAGE_SELECT,
+        },
+        // The internal notes, with the board's weighing of each for the
+        // reporter's report (ADR 0057, question 1). Never the author.
+        notes: {
+          orderBy: ISSUE_NOTE_ORDER,
+          select: {
+            ...WEIGHED_NOTE_SELECT,
+            accessWeighings: {
+              where: { concernedPersonId: null },
+              select: { withheldBecause: true },
+            },
+          },
         },
         // Whom the issue was sent to (art. 15(1)(c)); never the text, which is
         // the handler's and may name others (see `ReportIssueWorkOrder`).
@@ -766,6 +787,85 @@ export class DataSubjectReportService {
           select: { id: true },
         })
       ).map((issue) => issue.id),
+    );
+
+    /*
+     * The cases a handler recorded as concerning this person that somebody
+     * else reported (ADR 0057, question 3). The case, and its words only as
+     * the board weighed them for this report: never its reporter, their
+     * apartment or their link, which the select does not reach.
+     */
+    const concerning = await tx.issue.findMany({
+      where: issuesConcerningPerson(personId),
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      select: {
+        id: true,
+        number: true,
+        status: { select: { meaning: true } },
+        outcome: true,
+        waitingReason: true,
+        location: true,
+        description: true,
+        descriptionRedactedAt: true,
+        locationRedactedAt: true,
+        freeTextRemovedAt: true,
+        legalHoldAt: true,
+        createdAt: true,
+        closedAt: true,
+        type: { select: { name: true, ringFenced: true } },
+        _count: { select: { photos: true } },
+        // This person's record, one by the unique key, and the board's
+        // weighing of each text for their report through it.
+        concernedPersons: {
+          where: { personId },
+          select: {
+            createdAt: true,
+            accessWeighings: {
+              select: {
+                part: true,
+                messageId: true,
+                noteId: true,
+                withheldBecause: true,
+              },
+            },
+          },
+        },
+        messages: {
+          orderBy: ISSUE_MESSAGE_ORDER,
+          select: {
+            id: true,
+            side: true,
+            signature: true,
+            body: true,
+            redactedAt: true,
+            createdAt: true,
+          },
+        },
+        notes: { orderBy: ISSUE_NOTE_ORDER, select: WEIGHED_NOTE_SELECT },
+        workOrders: {
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: {
+            recipientName: true,
+            createdAt: true,
+            deliveryStatus: true,
+            deliveryFailure: true,
+            _count: { select: { links: true, exposures: true } },
+          },
+        },
+      },
+    });
+    const concerningWithFreeText = new Set(
+      concerning.length === 0
+        ? []
+        : (
+            await tx.issue.findMany({
+              where: {
+                id: { in: concerning.map((issue) => issue.id) },
+                AND: [ISSUE_FREE_TEXT_STANDING],
+              },
+              select: { id: true },
+            })
+          ).map((issue) => issue.id),
     );
 
     // The issues and types that name this person as their assignee, which
@@ -1851,17 +1951,85 @@ export class DataSubjectReportService {
         closedAt: issue.closedAt?.toISOString() ?? null,
         photographs: issue._count.photos,
         messages: issue.messages.map(toReporterView),
-        workOrders: issue.workOrders.map((order) => ({
-          recipientName: order.recipientName,
-          writtenAt: order.createdAt.toISOString(),
-          deliveryStatus: order.deliveryStatus,
-          notSent:
-            order.deliveryStatus === "FAILED" &&
-            workOrderKnownNotSent(order.deliveryFailure),
-          linkGiven: order._count.links > 0,
-          photosShared: order._count.exposures,
-        })),
+        notes: issue.notes.map((note) =>
+          reportNote(note, note.accessWeighings[0]),
+        ),
+        workOrders: issue.workOrders.map(reportWorkOrder),
       })),
+      issuesConcerning: concerning.map((issue) => {
+        // One record per person on an issue (the unique key), and the where
+        // found the issue through it.
+        const record = issue.concernedPersons[0];
+        const weighings = new Map(
+          (record?.accessWeighings ?? []).map((weighing) => [
+            weighingKey(weighing.part, weighing.messageId ?? weighing.noteId),
+            weighing,
+          ]),
+        );
+        const weighed = (
+          part: IssueAccessPart,
+          text: string | null,
+          id: string | null = null,
+        ): ReportWeighedText | null =>
+          text === null || text === ""
+            ? null
+            : weighedText(text, weighings.get(weighingKey(part, id)));
+        return {
+          issueId: issue.id,
+          number: issue.number,
+          typeName: issue.type.name,
+          meaning: issue.status.meaning,
+          outcome: issue.outcome,
+          waitingReason: issue.waitingReason,
+          recordedAt: (record?.createdAt ?? issue.createdAt).toISOString(),
+          reportedAt: issue.createdAt.toISOString(),
+          closedAt: issue.closedAt?.toISOString() ?? null,
+          // On the reporter's issues' rule (above), so the two sections date
+          // the same layer alike.
+          freeTextErasableFrom:
+            issue.status.meaning !== "DONE" ||
+            issue.legalHoldAt !== null ||
+            !concerningWithFreeText.has(issue.id)
+              ? null
+              : formatDayOfInstant(
+                  computeIssuePurgeDate(
+                    issue.closedAt,
+                    issueTextRetentionDays(
+                      issueTextClockYears(issueClocks, issue.type.ringFenced),
+                    ),
+                  ),
+                ),
+          onLegalHold: issue.legalHoldAt !== null,
+          freeTextRemovedAt: issue.freeTextRemovedAt?.toISOString() ?? null,
+          description:
+            issue.descriptionRedactedAt === null
+              ? weighed("DESCRIPTION", issue.description)
+              : null,
+          descriptionRedactedAt:
+            issue.descriptionRedactedAt?.toISOString() ?? null,
+          location:
+            issue.locationRedactedAt === null
+              ? weighed("LOCATION", issue.location)
+              : null,
+          locationRedactedAt: issue.locationRedactedAt?.toISOString() ?? null,
+          messages: issue.messages.map((message) => ({
+            messageId: message.id,
+            writtenAt: message.createdAt.toISOString(),
+            side: message.side,
+            signature: message.side === "HANDLER" ? message.signature : null,
+            redactedAt: message.redactedAt?.toISOString() ?? null,
+            content:
+              message.redactedAt === null
+                ? weighed("MESSAGE", message.body, message.id)
+                : null,
+          })),
+          notes: issue.notes.map((note) =>
+            reportNote(note, weighings.get(weighingKey("NOTE", note.id))),
+          ),
+          photographs: issue._count.photos,
+          workOrders: issue.workOrders.map(reportWorkOrder),
+        };
+      }),
       issueAssignments: [
         ...assignedIssues.map((issue) => ({
           kind: "issue" as const,

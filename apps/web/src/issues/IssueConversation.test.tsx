@@ -636,7 +636,7 @@ describe("internal notes", () => {
     expect(within(notes).getByText("Bea Styrelse")).toBeTruthy();
     expect(
       within(notes).getByText(
-        "Bara de som hanterar ärendet läser dessa. Anmälaren gör det aldrig.",
+        /Bara de som hanterar ärendet läser dessa här, och anmälaren ser dem aldrig på skärmen\./,
       ),
     ).toBeTruthy();
 

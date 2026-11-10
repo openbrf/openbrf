@@ -275,7 +275,10 @@ The same picker names the people a case concerns, on a case already open
 ([ADR 0057](0057-purging-issues-in-two-layers.md#the-people-an-issue-concerns)):
 the handler picks a residency in the same two reads, and the person behind it is
 recorded on the case. It discloses nothing the threat review below does not
-already weigh: the same names by apartment, to the same handlers.
+already weigh: the same names by apartment, to the same handlers. The person
+recorded gets the case in their access report, its words as the board weighed
+them under art. 15(4) and never its reporter
+([ADR 0057](0057-purging-issues-in-two-layers.md#the-boards-weighing-under-art-154)).
 
 #### Threat review: residents' names by apartment
 

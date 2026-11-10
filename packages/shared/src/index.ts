@@ -114,6 +114,14 @@ export {
 } from "./issue-retention.ts";
 export { ISSUE_CONCERNED_PERSON_LIMIT } from "./issue-concerned-persons.ts";
 export {
+  ISSUE_ACCESS_PARTS,
+  ISSUE_ACCESS_WITHHOLDING_REASONS,
+} from "./issue-access-weighing.ts";
+export type {
+  IssueAccessPart,
+  IssueAccessWithholdingReason,
+} from "./issue-access-weighing.ts";
+export {
   ISSUE_DAMAGE_CASE_LIMITS,
   ISSUE_DAMAGE_CAUSES,
 } from "./issue-damage-case.ts";

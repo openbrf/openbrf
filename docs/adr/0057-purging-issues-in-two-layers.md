@@ -5,9 +5,10 @@ Date: 2026-11-02
 ## Status
 
 Accepted, with the questions under [Open questions](#open-questions) left to the
-owner and to the legal review the issue module plan names, except question 4,
-which the legal review answered on 2026-11-09
-([below](#the-legal-reviews-answer-to-question-4)). Amends
+owner and to the legal review the issue module plan names, except questions 1, 3
+and 4, which the legal review answered on 2026-11-09
+([The board's weighing under art. 15(4)](#the-boards-weighing-under-art-154),
+[below](#the-legal-reviews-answer-to-question-4)). Amends
 [ADR 0019](0019-every-column-that-names-a-person-is-answered-for.md): a column
 naming a person somebody else chose is answered by a section, and this record
 says which. The fourth of four records for the issue module (ADRs 0054 to 0057),
@@ -387,9 +388,10 @@ open (question 2).
 
 The `issues` section keeps reading the cases a person reported, and gains what
 the module adds to them: the status's meaning, the outcome, the issue messages
-the reporter can read on their own case, and the date the free-text layer is
-removed, now that one exists. It never carries the assignee, a handler's name or
-an internal note's author.
+the reporter can read on their own case, the internal notes as the board weighed
+them ([below](#the-boards-weighing-under-art-154)), and the date the free-text
+layer is removed, now that one exists. It never carries the assignee, a
+handler's name or an internal note's author.
 
 **A column naming a person somebody else chose is answered by a section** (this
 amends ADR 0019). An assignee and a type's default assignee are such columns: the
@@ -477,23 +479,108 @@ above all.
   clock had removed the record. The timeline says that a person was recorded,
   never whom.
 - **The access report reads it, apart from the reporter's own cases.**
-  `issuesConcerningPerson` (`issue-concerned-persons.ts`) is the one where-input for "the cases concerning P
-  that P did not report"; the section that carries such a case to P, and the
-  board's art. 15(4) weighing of what of the reporter's words it leaves out, are a
-  change of their own. Until it lands, `IssueConcernedPerson.personId` is a named
-  gap under [ADR 0019](0019-every-column-that-names-a-person-is-answered-for.md),
-  the fifth.
+  `issuesConcerningPerson` (`issue-concerned-persons.ts`) is the one where-input
+  for "the cases concerning P that P did not report", and the
+  `issuesConcerning` section is what carries such a case to P, with the board's
+  art. 15(4) weighing of its words
+  ([The board's weighing under art. 15(4)](#the-boards-weighing-under-art-154)).
+  `IssueConcernedPerson.personId` is answered by that section, and is no longer
+  a gap under [ADR 0019](0019-every-column-that-names-a-person-is-answered-for.md).
+
+### The board's weighing under art. 15(4)
+
+The legal review answered questions 1 and 3 on 2026-11-09. Two kinds of case
+reach a person's access report with words in them that are not only theirs:
+
+- **The internal notes on a case they reported** (question 1). EDPB Guidelines
+  01/2022 v2.1, Example 15 and paras 96-97: notes about a person, subjective
+  comments included, are their personal data and are given, subject to the
+  national exemptions. The memo exemption in dataskyddslagen 5 kap. 2 § is not
+  relied on in this release, so no handler marks a note as a working memo. A
+  note may hold words about somebody else, the neighbour a disturbance is about
+  above all.
+- **A case somebody else reported that concerns them** (question 3; EDPB paras
+  96, 104-105 and 168-174; C-487/21, para 44). The case is theirs to know of,
+  and what it holds in words is the reporter's and the handlers', which may
+  tell who reported it.
+
+Art. 15(4) has the controller weigh each against the rights of others, case by
+case: a concrete harm, not a general concern (para 172); redact rather than
+refuse (para 173); never withhold the case whole (para 168); and say what was
+left out and why, and that the person may complain to IMY (para 174). So the
+board weighs every such text before the report gives it (access weighing,
+`IssueAccessWeighing`):
+
+- **What is weighed.** For the reporter's own report, each internal note: their
+  own words and the conversation are theirs already, as the reporter's screen
+  shows them. For a person a case concerns, every text of the case: the
+  description, the free-text location, each issue message and each internal
+  note. A text a handler redacted, or the purge removed, has nothing left to
+  give and is not weighed.
+- **What a weighing says.** Each text is given whole, or left out for one of
+  two reasons: it would tell who reported the case (only on a case somebody
+  else reported), or it is about somebody else. A text cannot be given in part:
+  a handler who wants a sentence gone redacts it on the issue, which removes it
+  for everybody. The report prints a given text whole, and for a text left out
+  its date, its part and the reason, never a word of it, with a sentence saying
+  that something was left out under art. 15(4) and that the person may
+  complain to IMY.
+- **A text nobody has weighed is not given.** The report lists it, by date and
+  part, as not yet weighed, and gives none of it. The board's screen counts
+  those and does not print the report until each is weighed, so a report is not
+  handed over with something left out for no stated reason. A note written
+  after a weighing has not been weighed.
+- **Who weighs.** Whoever may produce the report (`addressBook:read` and
+  `protectedData:reveal`), on the report's own screen, because the weighing is
+  part of producing it. The producer reads every text the report would carry
+  and so reads these, a ring-fenced case's included, as they already read the
+  reporter's own description; the routes are the report's
+  (`/api/data-subject-reports/persons/:personId/issues/:issueId/weighing`), not
+  the issue module's, and a handler the case lets in who cannot produce a report
+  cannot weigh. The read of the texts sends `Cache-Control: no-store`.
+- **One weighing per report and case.** A save replaces the one before it for
+  that person and that case, in one transaction under the issue's lock, so two
+  board members saving at once leave one weighing whole and not a mix. The
+  reporter's weighing and each concerned person's are apart: a note may be
+  given to one and left out of the other's.
+- **Personal data of its own, gone with the text.** A weighing row says which
+  text of a case went into whose report, so it is in the free-text layer: it
+  goes with the message or note it weighs, with the record of whom the case
+  concerns whose report it is (both by cascade), and with the layer when the
+  clock or the reporter's granted erasure removes it (`IssueFreeTextService`),
+  the rows on the description and the location included. A handler's redaction
+  of one text leaves its row with nothing to give. It names no person by
+  column; the record and the issue do.
+- **The log names the person, never the case.** `ISSUE_ACCESS_WEIGHED` names
+  the board member as its actor, the person whose report it is as its target,
+  and how many texts were given and left out. Never the issue, and never a
+  word: the log outlives every purge, and an entry naming both the case and the
+  person would keep, for good, that the case concerned them. It is on the
+  timeline of no issue.
+
+The `issuesConcerning` section carries such a case with its number, its type,
+its meaning and outcome, why it waits, when it was reported, closed and
+recorded as concerning the person, the date its text is removed or that a hold
+on it keeps it, how many photographs it holds, and whom it was sent to (art.
+15(1)(c)), and its words only as the board weighed them. Never its reporter in
+any form: no name, no apartment, no address, no link, and no other source.
+Whether the reporter may be withheld as the source under art. 15(1)(g) is still
+open for counsel (question 3), so the report names none, and says so. Like
+`issues`, it rests on legitimate interest and stays out of the art. 20 export.
 
 ## Open questions
 
 Calls the plan does not make, left to the owner and, where marked, to the legal
 review:
 
-1. **Internal notes about a reporter, under art. 15** _(legal review)_. A reporter
-   never sees an internal note on the screen (decision 18). An internal note
-   about them is personal data about them, and art. 15 gives them a copy unless
-   an exemption applies. Whether the `issues` section carries them, and under
-   which exemption it would not.
+1. **Internal notes about a reporter, under art. 15** _(legal review)_: answered
+   on 2026-11-09. A reporter never sees an internal note on the screen
+   (decision 18), and the `issues` section carries the notes on their cases,
+   each as the board weighed it under art. 15(4)
+   ([The board's weighing under art. 15(4)](#the-boards-weighing-under-art-154)).
+   No handler's mark keeps a working memo out under dataskyddslagen 5 kap. 2 §
+   in this release. What "minnesanteckning" covers in a case system is open for
+   counsel.
 2. **Where the issue erasure job stops.** The job itself, its registration and
    its place before `53 3` are decided above; two edges of what it reaches are
    not. A merged case (decision 22) carries more than one reporter's words: whether
@@ -511,7 +598,9 @@ review:
    and that the person may complain to IMY, and the case is never withheld whole
    (EDPB Guidelines 01/2022, paras 168-174). Which cases are about the person is
    what a handler records ([The people an issue
-   concerns](#the-people-an-issue-concerns)). Still open, for counsel: whether
+   concerns](#the-people-an-issue-concerns)), and the `issuesConcerning` section
+   carries it ([The board's weighing under art.
+   15(4)](#the-boards-weighing-under-art-154)). Still open, for counsel: whether
    the reporter may also be withheld as the source under art. 15(1)(g), which
    art. 15(4) does not limit (para 169) and so would need a national restriction.
    Until that is answered the report names no source for these cases.
@@ -575,9 +664,11 @@ advice, and what no source settled is listed as open for counsel.
   screen's words for it in both languages, and the list of domains in the
   comment over `erasure-domains.ts` names issues.
 - `COLUMN_COVERAGE` gains an entry for every new column, and the `gap` list stays
-  at four, but for `IssueConcernedPerson.personId`, the fifth until the access
-  report's section for the cases about a person lands. `DATA_SUBJECT_REPORT_SECTIONS` gains `issueAssignments`, held to both
-  applications' report types and printed by the document.
+  at four: `IssueConcernedPerson.personId` and
+  `IssueAccessWeighing.concernedPersonId` are answered by `issuesConcerning`.
+  `DATA_SUBJECT_REPORT_SECTIONS` gains `issueAssignments` and
+  `issuesConcerning`, held to both applications' report types and printed by
+  the document.
 - A photograph is removed from storage for the first time, by the clock, by the
   issue erasure job and by a handler. The person purge's comment that nothing is
   removed from storage narrows to the person purge itself.

@@ -21,9 +21,11 @@
 
 import type {
   AuditChannelName,
+  IssueAccessWithholdingReason,
   IssueEntryAnswer,
   IssueCostResponsibility,
   IssueOutcome,
+  IssueSignature,
   IssueStatusMeaning,
   IssueWaitingReason,
 } from "@openbrf/shared";
@@ -622,16 +624,123 @@ export interface ReportIssue {
    * conversation, which its own reporter alone reads, so no other reporter's
    * words are here.
    *
-   * Never an internal note, on this issue or any other. Whether art. 15 gives
-   * a reporter the notes the handlers keep about their issue, and under which
-   * exemption it would not, is with the legal review (ADR 0057, question 1);
-   * until it answers, the copy carries what the reporter's own screen does.
+   * Never an internal note: those are in `notes`, weighed as the screen
+   * never shows them.
    */
   messages: ReporterIssueMessageView[];
+  /**
+   * The internal notes the handlers wrote on it, oldest first (EDPB Guidelines
+   * 01/2022, Example 15, paras 96-97; ADR 0057, question 1). The reporter
+   * never reads one on their own screen (decision 18), and a note may hold
+   * words about somebody else, so each is given only as the board weighed it
+   * under art. 15(4) for this report: whole, or left out for a stated reason.
+   * Never who wrote it.
+   */
+  notes: ReportIssueNote[];
   /**
    * The work orders a handler sent a contractor about it, oldest first: the
    * recipients this issue was disclosed to, which GDPR art. 15(1)(c) has the
    * report name.
+   */
+  workOrders: ReportIssueWorkOrder[];
+}
+
+/**
+ * A text on an issue as this person's report gives it, after the board's
+ * weighing under art. 15(4) (access weighing, ADR 0057).
+ *
+ * - `given`: the text whole, as it stands.
+ * - `withheld`: left out, and why. Never any of the words.
+ * - `unweighed`: nobody has weighed it for this report yet, so none of it is
+ *   given. The board's screen says so and does not print the report until it
+ *   is weighed.
+ */
+export type ReportWeighedText =
+  | { state: "given"; text: string }
+  | { state: "withheld"; because: IssueAccessWithholdingReason }
+  | { state: "unweighed" };
+
+/**
+ * An internal note on an issue, as an access report carries it: when it was
+ * written, and its text as the board weighed it. Never who wrote it, whom the
+ * reporter is never told (decision 19).
+ */
+export interface ReportIssueNote {
+  noteId: string;
+  writtenAt: string;
+  /** When a handler redacted it (ADR 0057); `content` is then null. */
+  redactedAt: string | null;
+  content: ReportWeighedText | null;
+}
+
+/**
+ * A message in the conversation on a case somebody else reported, as the
+ * report of a person it concerns carries it. The reporter's own are marked as
+ * the reporter's and never named; a handler's carries the role it was signed
+ * with, never a person (decision 19).
+ */
+export interface ReportConcerningIssueMessage {
+  messageId: string;
+  writtenAt: string;
+  side: "REPORTER" | "HANDLER";
+  /** The role a handler signed it with; null on the reporter's. */
+  signature: IssueSignature | null;
+  /** When a handler redacted it (ADR 0057); `content` is then null. */
+  redactedAt: string | null;
+  content: ReportWeighedText | null;
+}
+
+/**
+ * A case a handler recorded as concerning this person, which somebody else
+ * reported (EDPB Guidelines 01/2022, paras 96 and 104-105; ADR 0057, question
+ * 3). `issuesConcerningPerson` is what finds them.
+ *
+ * The case itself is always here: its number, its type, its dates, where it
+ * stands and how it ended. Withholding a case whole is not what art. 15(4)
+ * allows (EDPB, para 168). What it holds in words, the description, the
+ * location, the conversation and the internal notes, is given only as the
+ * board weighed it for this report, because it is the reporter's words and the
+ * handlers' and may tell who reported it (paras 172-173).
+ *
+ * Never the reporter: no name, no apartment, no address, no link. Nor its
+ * source in any other form: whether the reporter may be withheld as the source
+ * under art. 15(1)(g) is open for counsel, so the report names none.
+ */
+export interface ReportIssueConcerning {
+  issueId: string;
+  /** The issue's number, as the association's letters name it. */
+  number: number;
+  typeName: string;
+  meaning: IssueStatusMeaning;
+  outcome: IssueOutcome | null;
+  waitingReason: IssueWaitingReason | null;
+  /** When a handler recorded that the case concerns this person. */
+  recordedAt: string;
+  reportedAt: string;
+  closedAt: string | null;
+  /**
+   * "YYYY-MM-DD": the earliest day the purge removes the free-text layer, and
+   * the record of whom it concerns with it, on the clock of the issue's type,
+   * as on `ReportIssue`. Null while the issue is open, under a legal hold on
+   * it, and once nothing of the layer is left.
+   */
+  freeTextErasableFrom: string | null;
+  onLegalHold: boolean;
+  /** When the purge removed the free-text layer (ADR 0057). */
+  freeTextRemovedAt: string | null;
+  /** Null once redacted or removed, which the dates beside it say. */
+  description: ReportWeighedText | null;
+  descriptionRedactedAt: string | null;
+  /** Null where none was given, or once redacted or removed. */
+  location: ReportWeighedText | null;
+  locationRedactedAt: string | null;
+  messages: ReportConcerningIssueMessage[];
+  notes: ReportIssueNote[];
+  /** A number, as on `ReportIssue`, never the files. */
+  photographs: number;
+  /**
+   * The contractors the case was sent to (art. 15(1)(c)), as on `ReportIssue`:
+   * whom, when and whether it went out, never the text.
    */
   workOrders: ReportIssueWorkOrder[];
 }
@@ -1866,6 +1975,7 @@ export interface DataSubjectReport {
     releaseReason: string | null;
   }[];
   issues: ReportIssue[];
+  issuesConcerning: ReportIssueConcerning[];
   issueAssignments: ReportIssueAssignment[];
   documents: ReportDocument[];
   apartmentDocuments: ReportApartmentDocument[];

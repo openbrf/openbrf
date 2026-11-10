@@ -522,7 +522,8 @@
           "retention": "Gallring",
           "dataSubjectRequests": "Vad du har begärt om dina uppgifter",
           "personalDataBreaches": "Personuppgiftsincidenter som rört dina uppgifter",
-          "transferReversals": "Hävda och återgångna överlåtelser"
+          "transferReversals": "Hävda och återgångna överlåtelser",
+          "issuesConcerning": "Ärenden som andra anmält och som gäller dig"
         },
         "field": {
           "name": "Namn",
@@ -685,7 +686,8 @@
           "eraseOn": "Raderingsdatum",
           "setAside": "Undanlagd",
           "nameChoice": "Du valde att visa ditt namn",
-          "conversation": "Meddelanden"
+          "conversation": "Meddelanden",
+          "notes": "Interna anteckningar"
         },
         "appScope": {
           "read": "Läsa uppgifter",
@@ -913,6 +915,7 @@
           "ISSUE_DAMAGE_CASE_MARKED": "En handläggare markerade ett ärende som skadeärende eller ändrade markeringen",
           "ISSUE_DAMAGE_CASE_REMOVED": "En handläggare tog bort skadeärendemarkeringen från ett ärende",
           "ISSUE_CONCERNED_PERSON_ADDED": "En handläggare antecknade en person som ett ärende gäller",
+          "ISSUE_ACCESS_WEIGHED": "Styrelsen vägde vad av ett ärende som tas med i registerutdraget",
           "MOVE_IN_RECORDED": "En inflyttning registrerades",
           "MOVE_OUT_RECORDED": "En utflyttning registrerades",
           "PLUGIN_ENABLED": "Ett tillägg slogs på",
@@ -1048,7 +1051,48 @@
         "issuePlace": "Gemensamt utrymme: {{place}}",
         "issueTextErasableFrom": "Fritexten kan gallras från <data>{{date}}</data>",
         "issueLegalHold": "Fritexten sparas under ett rättsligt bevarandekrav på ärendet",
-        "issueClosed": "Avslutat <data>{{date}}</data>"
+        "issueClosed": "Avslutat <data>{{date}}</data>",
+        "issuesConcerningIntro": "Någon annan har anmält de här ärendena, och föreningen har antecknat att de gäller dig. Utdraget säger inte vem som anmälde dem. Varje ärende står med sitt nummer, sin typ, sina datum, hur det står till och hur det slutade. Det som ärendet innehåller i text lämnas ut där styrelsen efter prövning bedömt att det kan lämnas ut, och vid det som utelämnats står skälet.",
+        "issueConcernRecorded": "Antecknat som att det gäller dig <data>{{date}}</data>",
+        "weighed": {
+          "withheld": {
+            "IDENTIFIES_REPORTER": "Utelämnat: det skulle avslöja vem som anmälde ärendet (artikel 15.4 i dataskyddsförordningen)",
+            "ABOUT_ANOTHER_PERSON": "Utelämnat: det handlar om någon annan (artikel 15.4 i dataskyddsförordningen)"
+          },
+          "unweighed": "Inte utlämnat: styrelsen har ännu inte prövat det",
+          "notice": "En del av det som ärendena innehåller har utelämnats, eftersom det skulle inverka negativt på andras rättigheter och friheter att lämna ut det (artikel 15.4 i dataskyddsförordningen). Skälet står vid varje del som utelämnats. Om du inte håller med kan du klaga hos Integritetsskyddsmyndigheten (IMY), imy.se."
+        },
+        "weighing": {
+          "pending_one": "En text i ärendena nedan är inte prövad, och inget av den lämnas ut. Pröva den innan du skriver ut och lämnar över utdraget.",
+          "pending_other": "{{count}} texter i ärendena nedan är inte prövade, och inget av dem lämnas ut. Pröva dem innan du skriver ut och lämnar över utdraget.",
+          "open": "Pröva vad som lämnas ut",
+          "headingLoading": "Pröva vad som lämnas ut",
+          "heading": "Pröva ärende {{number}} ({{type}}) för utdraget",
+          "loading": "Läser ärendets texter...",
+          "loadFailed": "Ärendets texter gick inte att läsa. Försök igen.",
+          "intro": {
+            "reporter": "Personen anmälde ärendet, och deras egna ord och meddelandena lämnas ut som de läser dem. De interna anteckningarna syns inte för dem: lämna ut varje anteckning, eller utelämna den där den handlar om någon annan (artikel 15.4 i dataskyddsförordningen). Utelämna bara det du måste; utdraget säger att något utelämnats och varför.",
+            "concerned": "Någon annan anmälde ärendet, och en handläggare har antecknat att det gäller den här personen. Ärendets nummer, typ, datum, status och utfall lämnas alltid ut. Lämna ut varje text, eller utelämna den där den skulle avslöja vem som anmälde ärendet eller handlar om någon annan (artikel 15.4 i dataskyddsförordningen). Utelämna bara det du måste; utdraget säger att något utelämnats och varför, och aldrig vem som anmälde ärendet."
+          },
+          "nothing": "Det finns inget kvar att pröva i ärendet.",
+          "part": {
+            "DESCRIPTION": "Beskrivning",
+            "LOCATION": "Plats",
+            "MESSAGE_REPORTER": "Meddelande från anmälaren",
+            "MESSAGE_HANDLER": "Meddelande från en handläggare",
+            "NOTE": "Intern anteckning"
+          },
+          "choice": {
+            "given": "Lämna ut",
+            "IDENTIFIES_REPORTER": "Utelämna: det skulle avslöja vem som anmälde ärendet",
+            "ABOUT_ANOTHER_PERSON": "Utelämna: det handlar om någon annan"
+          },
+          "chooseEach": "Välj för varje text innan du sparar.",
+          "save": "Spara prövningen",
+          "saving": "Sparar...",
+          "saveFailed": "Prövningen gick inte att spara. Försök igen.",
+          "close": "Stäng"
+        }
       },
       "requests": {
         "kind": {
@@ -4431,7 +4475,7 @@
     },
     "notes": {
       "title": "Interna anteckningar",
-      "hint": "Bara de som hanterar ärendet läser dessa. Anmälaren gör det aldrig.",
+      "hint": "Bara de som hanterar ärendet läser dessa här, och anmälaren ser dem aldrig på skärmen. Anmälarens registerutdrag, och utdraget för en person som ärendet gäller, kan ändå ta med en anteckning sedan styrelsen prövat det (artikel 15 i dataskyddsförordningen).",
       "empty": "Inga anteckningar än.",
       "label": "Anteckning",
       "labelNamed": "{{type}}: intern anteckning",
@@ -4705,7 +4749,7 @@
     },
     "concerned": {
       "title": "Vem ärendet gäller",
-      "intro": "Anteckna de boende som ärendet handlar om när de inte själva anmälde det, till exempel grannen som en störningsanmälan nämner. Bara de som handlägger ärendet ser listan; anmälaren visas den aldrig. Den hör till ärendets fritext: den gallras med texten, och ett rättsligt bevarandekrav behåller den som det behåller texten.",
+      "intro": "Anteckna de boende som ärendet handlar om när de inte själva anmälde det, till exempel grannen som en störningsanmälan nämner. Bara de som handlägger ärendet ser listan; anmälaren visas den aldrig. Den hör till ärendets fritext: den gallras med texten, och ett rättsligt bevarandekrav behåller den som det behåller texten. En person på listan får ärendet i sitt registerutdrag, och dess text så långt styrelsen efter prövning bedömer att den kan lämnas ut, aldrig vem som anmälde det.",
       "loading": "Läser vem ärendet gäller...",
       "readFailed": "Det gick inte att läsa vem ärendet gäller just nu.",
       "none": "Ingen är antecknad.",
@@ -7111,7 +7155,7 @@
           "name": "Felanmälningar",
           "purpose": "Ta emot och åtgärda fel i huset, med de arbetsorder som skickas till entreprenörer, och meddela den som handlägger ett ärende och den som anmälde det med e-post. Mejlen om ett ärende innehåller ärendenummer, ärendetyp och en länk, och de till den som handlägger det också prioritet, aldrig vad någon har skrivit. Mejlet med en arbetsorder innehåller den text en handläggare skrev till entreprenören och inget annat från ärendet; det första till en entreprenör länkar också föreningens integritetspolicy. Ett ärende av en avskärmad ärendetyp, som Störningar, läses bara av styrelsen och mejlas aldrig om, till någon. En handläggare kan anteckna vem ett ärende gäller, till exempel grannen som en störningsanmälan handlar om, vald bland dem som bor i en lägenhet i dag; bara de som handlägger ärendet läser det.",
           "legalBasisNote": "Berättigat intresse: att förvalta fastigheten. Den som anmäler kan självmant skriva uppgifter om hälsa (art. 9). Registret över entreprenörer: avtalet (art. 6(1)(b)) för en entreprenör som är enskild näringsidkare, och berättigat intresse, att kunna anlita och nå företaget, för en kontaktperson hos ett företag.",
-          "retention": "Vad ärendet gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, behålls. Beskrivningen, platsen, svaren, de interna anteckningarna, bilderna och uppgiften om vem ärendet gäller gallras det antal år efter avslut som styrelsen bestämmer (1 till 10, 2 som standard) om inte ett rättsligt bevarandekrav gäller för ärendet eller ett rättsligt bevarandekrav eller en begränsning för den som anmälde det eller för en person som ärendet gäller, eller tidigare när anmälarens begäran om radering beviljas. Kopplingen till anmälaren tas bort när anmälarens egna personuppgifter gallras, när den texten är borta och ingen arbetsorders text finns kvar, så att ett rättsligt bevarandekrav eller en begränsning som läggs på personen senare fortfarande behåller texten. Kontaktuppgifterna i en anmälan från det öppna formuläret gallras 365 dagar efter avslut; har en arbetsorder skickats om anmälan sparas e-postadressen i en kodad form som inte går att läsa tillbaka tills arbetsorderns text raderas, så att ett rättsligt bevarandekrav eller en begränsning för den som anmälde fortfarande behåller texten. Texten i en arbetsorder till en entreprenör raderas tio år efter att ärendet avslutats, det vanliga gallringsfönster som valts för den och som följer den allmänna tioåriga preskriptionstiden för ett anspråk om arbetet (preskriptionslagen 2 §); preskriptionen av ett anspråk kan avbrytas eller börja om, och raderingen följer inte det, så ett rättsligt bevarandekrav för ärendet eller ett rättsligt bevarandekrav eller en begränsning för anmälaren eller för en person som ärendet gäller är det som behåller texten längre; om en arbetsorders text fortfarande finns kvar när resten av ärendets fritext tas bort sparas en ren intern hänvisning till varje person som ärendet gäller, som ingen läser, så att ett rättsligt bevarandekrav eller en begränsning som läggs på personen senare fortfarande behåller texten, och den raderas tillsammans med den sista texten; när den skickades sparas, och vem den gick till sparas så länge entreprenören finns kvar i registret och, när registrets egen klocka har tagit bort entreprenören, så länge arbetsordern har kvar sin text eller ärendet har ett rättsligt bevarandekrav. När styrelsen tar bort en entreprenör från registret raderas namn och e-postadress på dess arbetsorder. Fritexten i ett ärende av en avskärmad ärendetyp, som Störningar, gallras på en egen klocka, det antal år efter avslut som styrelsen bestämmer för de ärendena skilt från de andra (1 till 10, 1 som standard), om inte ett rättsligt bevarandekrav står på ärendet eller ett rättsligt bevarandekrav eller en begränsning gäller för den som anmälde det eller för en person som ärendet gäller. Ett skadeärende lägger ett rättsligt bevarandekrav på ärendet, och det gör också den första markeringen av en besiktningsanmärkning; kravet står kvar tills en handläggare häver det, och ett rättsligt bevarandekrav håller kvar texten i ett avskärmat ärende längre än dess klocka. En entreprenör tas bort ur föreningens register, med namn, yrke, telefonnummer och e-postadress, tio år efter den senaste arbetsordern till den, eller efter att den lades till om ingen har skickats, efter den allmänna tioåriga preskriptionstiden (preskriptionslagen 2 §), vad dess arbetsorder än har kvar; styrelsen kan ta bort den tidigare."
+          "retention": "Vad ärendet gällde, när det anmäldes och stängdes, utfallet och lägenheten, om en angavs, behålls. Beskrivningen, platsen, svaren, de interna anteckningarna, bilderna, uppgiften om vem ärendet gäller och styrelsens prövning av den texten för ett registerutdrag gallras det antal år efter avslut som styrelsen bestämmer (1 till 10, 2 som standard) om inte ett rättsligt bevarandekrav gäller för ärendet eller ett rättsligt bevarandekrav eller en begränsning för den som anmälde det eller för en person som ärendet gäller, eller tidigare när anmälarens begäran om radering beviljas. Kopplingen till anmälaren tas bort när anmälarens egna personuppgifter gallras, när den texten är borta och ingen arbetsorders text finns kvar, så att ett rättsligt bevarandekrav eller en begränsning som läggs på personen senare fortfarande behåller texten. Kontaktuppgifterna i en anmälan från det öppna formuläret gallras 365 dagar efter avslut; har en arbetsorder skickats om anmälan sparas e-postadressen i en kodad form som inte går att läsa tillbaka tills arbetsorderns text raderas, så att ett rättsligt bevarandekrav eller en begränsning för den som anmälde fortfarande behåller texten. Texten i en arbetsorder till en entreprenör raderas tio år efter att ärendet avslutats, det vanliga gallringsfönster som valts för den och som följer den allmänna tioåriga preskriptionstiden för ett anspråk om arbetet (preskriptionslagen 2 §); preskriptionen av ett anspråk kan avbrytas eller börja om, och raderingen följer inte det, så ett rättsligt bevarandekrav för ärendet eller ett rättsligt bevarandekrav eller en begränsning för anmälaren eller för en person som ärendet gäller är det som behåller texten längre; om en arbetsorders text fortfarande finns kvar när resten av ärendets fritext tas bort sparas en ren intern hänvisning till varje person som ärendet gäller, som ingen läser, så att ett rättsligt bevarandekrav eller en begränsning som läggs på personen senare fortfarande behåller texten, och den raderas tillsammans med den sista texten; när den skickades sparas, och vem den gick till sparas så länge entreprenören finns kvar i registret och, när registrets egen klocka har tagit bort entreprenören, så länge arbetsordern har kvar sin text eller ärendet har ett rättsligt bevarandekrav. När styrelsen tar bort en entreprenör från registret raderas namn och e-postadress på dess arbetsorder. Fritexten i ett ärende av en avskärmad ärendetyp, som Störningar, gallras på en egen klocka, det antal år efter avslut som styrelsen bestämmer för de ärendena skilt från de andra (1 till 10, 1 som standard), om inte ett rättsligt bevarandekrav står på ärendet eller ett rättsligt bevarandekrav eller en begränsning gäller för den som anmälde det eller för en person som ärendet gäller. Ett skadeärende lägger ett rättsligt bevarandekrav på ärendet, och det gör också den första markeringen av en besiktningsanmärkning; kravet står kvar tills en handläggare häver det, och ett rättsligt bevarandekrav håller kvar texten i ett avskärmat ärende längre än dess klocka. En entreprenör tas bort ur föreningens register, med namn, yrke, telefonnummer och e-postadress, tio år efter den senaste arbetsordern till den, eller efter att den lades till om ingen har skickats, efter den allmänna tioåriga preskriptionstiden (preskriptionslagen 2 §), vad dess arbetsorder än har kvar; styrelsen kan ta bort den tidigare."
         },
         "documents": {
           "name": "Dokumentarkiv",

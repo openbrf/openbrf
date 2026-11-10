@@ -515,6 +515,10 @@ So is an issue a handler recorded as concerning a person with protected
 personal data, by the same omission, and no action reads or writes whom an
 issue concerns, or offers the act that records one
 ([ADR 0057](adr/0057-purging-issues-in-two-layers.md#the-people-an-issue-concerns)).
+Nor does any action read or record the board's art. 15(4) weighing of an
+issue's text for an access report: it is part of producing the report, which no
+action offers either
+([ADR 0057](adr/0057-purging-issues-in-two-layers.md#the-boards-weighing-under-art-154)).
 The writes land at once on `mcp`, recorded under the channel `MCP`, and are
 only proposed on `ai`; each answers with the issue's identifier and what it
 changed, never the reporter, the description or the location, and none of them
