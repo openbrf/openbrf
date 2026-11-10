@@ -97,6 +97,9 @@ const typeIds = {
   plain: `il-type-plain-${suffix}`,
   boardOnly: `il-type-board-${suffix}`,
   internal: `il-type-internal-${suffix}`,
+  /** Two types a follow-up crosses between, made by the test that needs them. */
+  crossedA: `il-type-crossed-a-${suffix}`,
+  crossedB: `il-type-crossed-b-${suffix}`,
 };
 let plain: IssueTypeFixture;
 let boardOnly: IssueTypeFixture;
@@ -892,6 +895,87 @@ describe("a follow-up racing a handler's reopening", () => {
     expect(
       await prisma.issue.count({ where: { followsIssueId: earlier } }),
     ).toBe(0);
+  });
+});
+
+describe("two follow-ups whose earlier and new types are swapped", () => {
+  /*
+   * One follows up an issue of type A under type B, the other an issue of type
+   * B under type A. A write holding both types' locks, as a merge of an issue
+   * of one into an issue of the other does, lets each queue on the first type
+   * lock it takes, then lets go of both at once. Were a follow-up to take the
+   * new type's lock before the earlier type's, one would get B and the other
+   * A and each wait on the other's: PostgreSQL ends one of them as a deadlock
+   * and a valid report fails.
+   */
+  it("files both, neither waiting on the other in a cycle", async () => {
+    // A sorts before B, so a type lock taken in sorted order is A's first.
+    const a = await createIssueTypeFixture(prisma, {
+      id: typeIds.crossedA,
+      name: `Korsad A ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    const b = await createIssueTypeFixture(prisma, {
+      id: typeIds.crossedB,
+      name: `Korsad B ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    const ofA = await filed(a, resident);
+    await close(ofA, a);
+    const ofB = await filed(b, neighbour);
+    await close(ofB, b);
+
+    const keys = [a.id, b.id].map((id) => `issue-type:${id}`);
+    const lock = await holdLocks(async (tx) => {
+      for (const id of [a.id, b.id].sort()) {
+        await lockIssueType(tx, id);
+      }
+    });
+    try {
+      const underB = outcomeOf(() =>
+        as(resident, "POST", "/api/issues", {
+          typeId: b.id,
+          description: `Följer upp under B ${suffix}`,
+          followsIssueId: ofA,
+        }),
+      );
+      const underA = outcomeOf(() =>
+        as(neighbour, "POST", "/api/issues", {
+          typeId: a.id,
+          description: `Följer upp under A ${suffix}`,
+          followsIssueId: ofB,
+        }),
+      );
+      // Both queued behind the holder, on whichever type lock each takes first.
+      await waitFor(async () => {
+        let waiting = 0n;
+        for (const key of keys) {
+          waiting += await advisoryLockCount(prisma, key, false);
+        }
+        return waiting >= 2n;
+      });
+      await lock.release();
+
+      const answers = await Promise.all([underB, underA]);
+      for (const answered of answers) {
+        if (!answered.ok) {
+          throw answered.error;
+        }
+        expect(answered.value.statusCode).toBe(201);
+      }
+    } finally {
+      await lock.release();
+    }
+    expect(
+      await prisma.issue.findMany({
+        where: { followsIssueId: { in: [ofA, ofB] } },
+        select: { typeId: true, followsIssueId: true },
+        orderBy: { typeId: "asc" },
+      }),
+    ).toEqual([
+      { typeId: a.id, followsIssueId: ofB },
+      { typeId: b.id, followsIssueId: ofA },
+    ]);
   });
 });
 

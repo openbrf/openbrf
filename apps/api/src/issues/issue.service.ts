@@ -922,16 +922,11 @@ export class IssueService {
 
     await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
-      // Whether the reporter may still report the type, and the status a new
-      // report enters, decided again under the type's lock that `file` holds
-      // to the insert: the read above was a refusal before any work, and a
-      // change to the type's settings may have committed since.
-      await lockIssueType(tx, type.id);
-      const { newStatusId } = await this.types.requireReportableLocked(
-        tx,
-        principal,
-        type.id,
-      );
+      // The type's lock first. A follow-up takes it with the earlier issue's
+      // type's, both in one sorted order (`requireFollowable`): taking the new
+      // type's alone first would hold it while waiting on the earlier type's,
+      // and two follow-ups whose earlier and new types are swapped would each
+      // hold what the other waits for.
       if (followsIssueId !== null) {
         await requireFollowable(
           tx,
@@ -939,7 +934,18 @@ export class IssueService {
           principal.personId,
           type.id,
         );
+      } else {
+        await lockIssueType(tx, type.id);
       }
+      // Whether the reporter may still report the type, and the status a new
+      // report enters, decided again under the type's lock that `file` holds
+      // to the insert: the read above was a refusal before any work, and a
+      // change to the type's settings may have committed since.
+      const { newStatusId } = await this.types.requireReportableLocked(
+        tx,
+        principal,
+        type.id,
+      );
       // The type's default NEW status: a report is new until a handler moves it.
       const filed = await this.file(tx, { ...data, statusId: newStatusId });
       if (postId !== null) {
@@ -3947,7 +3953,8 @@ export type QueueRecord = Prisma.IssueGetPayload<{
  * earlier issue's type and of the type being filed under, in one sorted order,
  * and then the earlier issue's own. The type before the issue is the order
  * `lockIssueForHandling` keeps, and sorting the types keeps two follow-ups
- * whose earlier and new types are swapped from waiting on each other.
+ * whose earlier and new types are swapped from waiting on each other. So it is
+ * the first lock a follow-up takes: `report` takes no type's lock before it.
  * `file` takes the new type's lock again, which a transaction already holds.
  */
 async function requireFollowable(
