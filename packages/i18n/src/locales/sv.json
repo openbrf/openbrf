@@ -524,7 +524,7 @@
           "dataSubjectRequests": "Vad du har begärt om dina uppgifter",
           "personalDataBreaches": "Personuppgiftsincidenter som rört dina uppgifter",
           "transferReversals": "Hävda och återgångna överlåtelser",
-          "issuesConcerning": "Ärenden som gäller dig och som du inte har anmält"
+          "issuesConcerning": "Ärenden som gäller dig, där du inte är antecknad som anmälare"
         },
         "field": {
           "name": "Namn",
@@ -1053,7 +1053,7 @@
         "issueTextErasableFrom": "Fritexten kan gallras från <data>{{date}}</data>",
         "issueLegalHold": "Fritexten sparas under ett rättsligt bevarandekrav på ärendet",
         "issueClosed": "Avslutat <data>{{date}}</data>",
-        "issuesConcerningIntro": "Föreningen har antecknat att de här ärendena gäller dig, och du har inte anmält dem. Utdraget säger inte vem som anmälde dem, om någon gjorde det. Varje ärende står med sitt nummer, sin typ, sina datum, hur det står till och hur det slutade. Det som ärendet innehåller i text lämnas ut där styrelsen efter prövning bedömt att det kan lämnas ut, och vid det som utelämnats står skälet.",
+        "issuesConcerningIntro": "Föreningen har antecknat att de här ärendena gäller dig, och du är inte antecknad som anmälare av dem. Utdraget säger inte vem som anmälde dem, om någon gjorde det. Varje ärende står med sitt nummer, sin typ, sina datum, hur det står till och hur det slutade. Det som ärendet innehåller i text lämnas ut där styrelsen efter prövning bedömt att det kan lämnas ut, och vid det som utelämnats står skälet.",
         "issueConcernRecorded": "Antecknat som att det gäller dig <data>{{date}}</data>",
         "weighed": {
           "givenInPart": {
@@ -1077,7 +1077,7 @@
           "loadFailed": "Ärendets texter gick inte att läsa. Försök igen.",
           "intro": {
             "reporter": "Personen anmälde ärendet, och deras egna ord och meddelandena lämnas ut som de läser dem. De interna anteckningarna syns inte för dem: lämna ut varje anteckning, lämna ut den delvis med orden om någon annan utelämnade, eller utelämna den där inget av den kan lämnas ut (artikel 15.4 i dataskyddsförordningen). Utelämna bara det du måste; utdraget säger att något utelämnats och varför.",
-            "concerned": "Personen anmälde inte ärendet, och en handläggare har antecknat att det gäller dem. Ärendets nummer, typ, datum, status och utfall lämnas alltid ut. Lämna ut varje text, lämna ut den delvis med de ord utelämnade som skulle avslöja vem som anmälde ärendet eller som handlar om någon annan, eller utelämna den där inget av den kan lämnas ut (artikel 15.4 i dataskyddsförordningen). Utelämna bara det du måste; utdraget säger att något utelämnats och varför, och aldrig vem som anmälde ärendet, om någon gjorde det."
+            "concerned": "Personen är inte antecknad som anmälare av ärendet, och en handläggare har antecknat att det gäller dem. Ärendets nummer, typ, datum, status och utfall lämnas alltid ut. Lämna ut varje text, lämna ut den delvis med de ord utelämnade som skulle avslöja vem som anmälde ärendet eller som handlar om någon annan, eller utelämna den där inget av den kan lämnas ut (artikel 15.4 i dataskyddsförordningen). Utelämna bara det du måste; utdraget säger att något utelämnats och varför, och aldrig vem som anmälde ärendet, om någon gjorde det."
           },
           "nothing": "Det finns inget kvar att pröva i ärendet.",
           "part": {
