@@ -20,6 +20,7 @@ import {
   IssueRetentionController,
 } from "./issue-retention.controller";
 import { IssueResidentsService } from "./issue-residents.service";
+import { IssueConcernedPersonService } from "./issue-concerned-person.service";
 import { IssueSavedReplyService } from "./issue-saved-reply.service";
 import { IssueTextPurgeService } from "./issue-text-purge.service";
 import { IssueTypeService } from "./issue-type.service";
@@ -90,6 +91,7 @@ import { ResponsibilityGuideService } from "./responsibility-guide.service";
     IssueTypeService,
     IssuePurgeService,
     IssueResidentsService,
+    IssueConcernedPersonService,
     IssueConversationService,
     IssueSavedReplyService,
     IssueFitService,

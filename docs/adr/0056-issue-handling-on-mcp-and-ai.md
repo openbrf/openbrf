@@ -144,6 +144,12 @@ the naming rules there.
   reporter. The writes this record adds, and `issue_handler_list`, answer a
   ring-fenced issue as not found by the same omission, as they answer an issue a
   reporter with protected personal data filed.
+- **An issue concerning a person with protected personal data**, as a handler
+  recorded it ([ADR 0057](0057-purging-issues-in-two-layers.md#the-people-an-issue-concerns)):
+  left out of every read and answered as not found by every write, by the same
+  omission (`omit`), because a case about such a person is about their
+  household whoever reported it. Whom an issue concerns is itself on no read or
+  write.
 - **An internal note**, read or written.
 - **The resident's permission to enter** (decision 29), **the common-area place**
   of an issue (decision 30) and **the mark of an inspection finding with its

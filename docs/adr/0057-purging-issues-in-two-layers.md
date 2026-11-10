@@ -58,7 +58,14 @@ countable.
 **What goes** is everything a person wrote or photographed: the description, the
 free-text location, every issue message and internal note, the text of every
 work order and the contractor's notes, and every photograph and every file a
-contractor uploaded, removed from storage and not only unlinked. What stays of a
+contractor uploaded, removed from storage and not only unlinked. The record of
+whom the case concerns goes with them ([The people an issue
+concerns](#the-people-an-issue-concerns)): nobody wrote it as text, but it is
+what the case holds about a named person, and it says nothing of the building
+that the apartment and the place do not. The record goes, but where a work
+order's text stands, which has its clock, a bare row stays as the selector a
+later hold or restriction finds that text by, until the last of it is erased
+(see the same section). What stays of a
 work order is the record of who received it (until the board removes that
 contractor from the list, which clears the name and address, or, once the list's
 own clock has taken the contractor off it, for as long as the work order keeps
@@ -137,7 +144,10 @@ legal hold applies:
   leaves it, and a handler releases it as any other; a mark put on again after
   that is a new finding and places it again;
 - **on its reporter**, a legal hold or a restriction under art. 18, as the
-  website form's purge already reads one through the reporter's address index.
+  website form's purge already reads one through the reporter's address index;
+- **on a person it concerns**, a legal hold or a restriction under art. 18, read
+  by their person as a signed-in reporter is: the text is what the case holds
+  about them as well.
 
 ### The contractor register
 
@@ -266,9 +276,10 @@ that the association needs what the case holds for a claim (art. 17(3)(e)), and 
 redaction would remove it as surely as the clock the hold stops; the hold is
 released first, which is its own entry in the log.
 
-A redaction is refused as well while the case's reporter is under a legal hold or
-a restriction under art. 18, read as the clock reads it: a signed-in reporter by
-their person, a public-form reporter by the address on the report. The reason is
+A redaction is refused as well while the case's reporter, or a person it
+concerns, is under a legal hold or a restriction under art. 18, read as the clock
+reads it: a signed-in reporter and a concerned person by their person, a
+public-form reporter by the address on the report. The reason is
 the one the clock stops for: the reporter's text is what that hold or restriction
 keeps, and a handler's redaction would remove it as the clock would. The refusal
 is the one a hold on the case gets: it does not say whether the reporter's is a
@@ -359,10 +370,12 @@ What it reaches:
   finished the case (above).
 - **Kept, and counted as kept**: a case the person reported that is not in the
   `DONE` meaning, which is still with the board as an open key order or motion
-  is ([ADR 0016](0016-closing-a-granted-erasure-on-evidence.md)), and a case
+  is ([ADR 0016](0016-closing-a-granted-erasure-on-evidence.md)), a case
   under a legal hold of its own, such as a damage case or an inspection
-  finding. Each holds the request
-  open, with its reason, until the case closes or the hold is released.
+  finding, and a case concerning a person under a legal hold or a restriction,
+  whose data the layer is as much as the reporter's. Each holds the request
+  open, with its reason, until the case closes or the hold or the restriction
+  ends.
 
 A person named in a case somebody else reported is not reached by this job. That
 is the request naming an issue (`DataSubjectRequest.issueId`), carried out by a
@@ -403,6 +416,74 @@ entered a case, the author of a handler's message, the author of an internal not
 An issue message the reporter wrote is answered by the `issues` section, as the
 reporter column is.
 
+### The people an issue concerns
+
+A case can be about somebody who did not report it: the neighbour a report of a
+disturbance names, the household a leak came from. That person's data is in the
+case, and art. 15 gives them a copy of it (EDPB Guidelines 01/2022, paras 96 and
+104-105; C-487/21, para 44), so the association has to be able to find the cases
+about them. The text cannot be searched for a person; a handler records them
+(berörd person, `IssueConcernedPerson`), on an issue of any type, Störningar
+above all.
+
+- **Picked as a resident is picked**, from the apartments and then who lives in
+  one today (`IssueResidentsService`), by residency, so the property manager
+  names nobody a door would not show them. The list reads a name, or that the
+  name is protected, keyed by the record and never by the person. At most
+  `ISSUE_CONCERNED_PERSON_LIMIT` on one issue (ten).
+- **Personal data of its own, in the free-text layer.** The record is what the
+  case holds about the person named, so it is purged with the layer by the clock
+  and by the reporter's granted request, and kept by whatever keeps the layer: a
+  legal hold on the case, a legal hold or a restriction on its reporter, and a
+  legal hold or a restriction on any person it concerns. A handler takes one off
+  as a redaction (`ISSUE_REDACTED`, target `concernedPerson`), which deletes the
+  row, under the same refusals: it is the way to correct a person recorded in
+  error, and it leaves no selector, as the case was not about them. The person
+  purge does not detach it: as the reporter column is, the record is what ties
+  the case to the person while the text about them stands, and it goes when that
+  text does.
+- **A bare selector stays for a work order's text.** The free-text layer's
+  removal, by the clock or by the reporter's granted request, leaves the
+  work orders' text on its own ten-year clock. A legal hold or a restriction
+  placed on a person the case concerns after the layer went must still stop that
+  clock, and the person is found through the row, as a reporter is through
+  the reporter column. So where any work order's text stands, the removal does not
+  delete the row but writes `recordRemovedAt` on it: it is then no record. No
+  handler reads it, it counts for no list, limit or free-text standing, and a
+  handler who records the person again replaces it with a new record, so a
+  removal asked on the earlier record's identifier is refused. It still ties
+  the case to the person, so the access report's query for the cases
+  concerning them (below) finds it for as long as the row stands, which is as
+  long as the work order's text does.
+  It names no more than the row did and is never written to the audit log. The
+  work-order text purge and a handler's redaction of a work order's text delete
+  it in the transaction that erases the last text, and the removal deletes the
+  row outright where no text stands. The row still counts for protection: an
+  issue concerning a person with protected personal data stays out of what leaves
+  the instance for as long as it stands. A person's own erasure
+  request does not reach a case somebody else reported, as above; a request
+  naming the issue is carried out by a handler's redaction, the record included.
+- **Read by the handlers the issue lets in, and nobody else.** Never by the
+  reporter, in a mail, in a work order or through either link, and never on
+  `mcp` or `ai`, where an issue concerning a person with protected personal data
+  is left out as one such a person reported is
+  ([ADR 0056](0056-issue-handling-on-mcp-and-ai.md)); a contractor's link to it
+  ends, as it does for a protected reporter
+  ([ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md)).
+- **The log records the act and never the person.** `ISSUE_CONCERNED_PERSON_ADDED`
+  names the handler as its actor and the record by its identifier, with no target
+  person: the log is exempt from every purge, and an entry naming the person
+  would keep, for good, which neighbour a disturbance case was about after the
+  clock had removed the record. The timeline says that a person was recorded,
+  never whom.
+- **The access report reads it, apart from the reporter's own cases.**
+  `issuesConcerningPerson` (`issue-concerned-persons.ts`) is the one where-input for "the cases concerning P
+  that P did not report"; the section that carries such a case to P, and the
+  board's art. 15(4) weighing of what of the reporter's words it leaves out, are a
+  change of their own. Until it lands, `IssueConcernedPerson.personId` is a named
+  gap under [ADR 0019](0019-every-column-that-names-a-person-is-answered-for.md),
+  the fifth.
+
 ## Open questions
 
 Calls the plan does not make, left to the owner and, where marked, to the legal
@@ -422,8 +503,18 @@ review:
    it stays open until a handler has redacted what the decision covers, rather
    than being closed with that act still owed.
 3. **A neighbour's report in somebody else's access report** _(legal review, art.
-   15(4))_: a case about a person who did not report it, where that person asks
-   for their data.
+   15(4))_: answered on 2026-11-09. A case about a person who did not report it
+   goes into that person's access report, with its number, type, dates, status,
+   outcome and what it holds about them, and never the reporter's identity nor
+   the reporter's words where they would identify the reporter. The board records
+   the art. 15(4) weighing; the report says that something was left out, why,
+   and that the person may complain to IMY, and the case is never withheld whole
+   (EDPB Guidelines 01/2022, paras 168-174). Which cases are about the person is
+   what a handler records ([The people an issue
+   concerns](#the-people-an-issue-concerns)). Still open, for counsel: whether
+   the reporter may also be withheld as the source under art. 15(1)(g), which
+   art. 15(4) does not limit (para 169) and so would need a national restriction.
+   Until that is answered the report names no source for these cases.
 4. **The ring-fenced clock** _(legal review)_: whether Störningar may be held this
    way at all, for how long, whether a legal hold may stand on a ring-fenced
    case, and art. 10 on an allegation (decision 32). Answered; see below.
@@ -484,7 +575,8 @@ advice, and what no source settled is listed as open for counsel.
   screen's words for it in both languages, and the list of domains in the
   comment over `erasure-domains.ts` names issues.
 - `COLUMN_COVERAGE` gains an entry for every new column, and the `gap` list stays
-  at four. `DATA_SUBJECT_REPORT_SECTIONS` gains `issueAssignments`, held to both
+  at four, but for `IssueConcernedPerson.personId`, the fifth until the access
+  report's section for the cases about a person lands. `DATA_SUBJECT_REPORT_SECTIONS` gains `issueAssignments`, held to both
   applications' report types and printed by the document.
 - A photograph is removed from storage for the first time, by the clock, by the
   issue erasure job and by a handler. The person purge's comment that nothing is

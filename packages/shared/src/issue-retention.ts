@@ -62,7 +62,9 @@ export const RING_FENCED_ISSUE_TEXT_RETENTION_YEARS = {
  * alone; the rest are rows of their own and are named with their identifier.
  * A work order's text is erased and the work order stays, with whom it went to
  * and when (ADR 0057). A note or a photograph a contractor sent through a work
- * order's link (ADR 0055) is redacted like a handler's note or file.
+ * order's link (ADR 0055) is redacted like a handler's note or file. A person
+ * an issue concerns (ADR 0057) is part of its free-text layer, and a handler
+ * takes the record of them off as a redaction too: the record is deleted.
  */
 export const ISSUE_REDACTION_TARGETS = [
   "description",
@@ -74,6 +76,7 @@ export const ISSUE_REDACTION_TARGETS = [
   "workOrder",
   "workOrderNote",
   "workOrderFile",
+  "concernedPerson",
 ] as const;
 
 export type IssueRedactionTarget = (typeof ISSUE_REDACTION_TARGETS)[number];

@@ -3,6 +3,10 @@ import { dateColumnOf, localDayOf } from "@openbrf/shared";
 import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import {
+  CONCERNS_A_WITHHELD_PERSON,
+  CONCERNS_NO_WITHHELD_PERSON,
+} from "../issues/issue-concerned-persons";
 import { ISSUE_FREE_TEXT_STANDING } from "../issues/issue-free-text";
 import { withheldAddressIndexes } from "./withheld-addresses";
 
@@ -425,8 +429,9 @@ export function pluginRecordsErasedOnRequest(
 
 /**
  * The issues whose free text a granted erasure request removes: every issue the
- * person reported that is closed, under no legal hold of its own, and still
- * has some of its free-text layer standing (ADR 0057).
+ * person reported that is closed, under no legal hold of its own, concerning
+ * nobody under a legal hold or a restriction, and still has some of its
+ * free-text layer standing (ADR 0057).
  *
  * The free-text layer and nothing else. The building record stays, and so does
  * the reporter column until the person purge, which runs last, finds the text
@@ -445,8 +450,11 @@ export function issuesErasedOnRequest(
 
 /**
  * What entitles a granted request to an issue's free text, without asking
- * whether any stands: the person reported it, it is closed, and no legal hold
- * of its own stands on it.
+ * whether any stands: the person reported it, it is closed, no legal hold of
+ * its own stands on it, and no person it concerns is under a legal hold or a
+ * restriction. The layer is what the case holds about each of them too, and
+ * the record that it concerns them goes with it, so a hold or a restriction
+ * on one of them keeps it from the reporter's request as from the clock.
  *
  * What the removal's own re-check asks. The removal takes the files before the
  * text, so by the time it asks about the text the last file may be gone and
@@ -460,15 +468,17 @@ export function issueErasureGrounds(
     reporterPersonId: personId,
     status: { meaning: "DONE" },
     legalHoldAt: null,
+    ...CONCERNS_NO_WITHHELD_PERSON,
   };
 }
 
 /**
  * The issues a granted erasure request leaves standing: one the person
  * reported that is still open, which the board is still dealing with as it is
- * an open key order or motion, and one under a legal hold of its own, such as a
- * damage case. Each holds the request open until it closes or the hold is
- * released.
+ * an open key order or motion, one under a legal hold of its own, such as a
+ * damage case, and one concerning a person under a legal hold or a
+ * restriction. Each holds the request open until it closes or the hold or the
+ * restriction ends.
  */
 export function issuesKeptFromErasure(
   personId: ErasurePersonFilter,
@@ -481,6 +491,7 @@ export function issuesKeptFromErasure(
         OR: [
           { status: { meaning: { not: "DONE" } } },
           { legalHoldAt: { not: null } },
+          CONCERNS_A_WITHHELD_PERSON,
         ],
       },
     ],
@@ -617,7 +628,7 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
       client.issue.count({ where: issuesErasedOnRequest(personId) }),
     kept: {
       because:
-        "an issue they reported is still open, or under a legal hold of its own",
+        "an issue they reported is still open, under a legal hold of its own, or concerns a person under a legal hold or a restriction",
       count: async (client, personId) =>
         client.issue.count({ where: issuesKeptFromErasure(personId) }),
     },

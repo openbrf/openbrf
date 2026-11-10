@@ -367,8 +367,10 @@ sections above leave open, this is what was decided:
   (`WORK_ORDER_LINK_DAYS`, never extended), a decline, done, a handler
   withdrawing it, the work order's text redacted or purged, its contractor
   removed from the list, its issue closed or ring-fenced, and a person with
-  protected personal data having reported the issue or living in its
-  apartment, a residency recorded ahead of its move-in date included. Every
+  protected personal data having reported the issue, being recorded as a
+  person it concerns ([ADR 0057](0057-purging-issues-in-two-layers.md#the-people-an-issue-concerns)),
+  or living in its apartment, a residency recorded ahead of its move-in date
+  included. Every
   one of them is read in the lookup on every request. A
   redaction, a purge, a ring-fence, a contractor removed and the issue closed
   (merged into another as a duplicate included) also revoke the link in their
@@ -378,17 +380,18 @@ sections above leave open, this is what was decided:
   one if the work goes on. So does protection: marking a person as protected,
   and recording a protected person's residency (counted from the day it is
   recorded, not the day it begins), revoke the links of the issues they
-  reported and of the issues about that apartment, in the same transaction and
-  audited on the channel of the write. Issuing a link and those writes take
+  reported, of the issues recorded as concerning them and of the issues about
+  that apartment, in the same transaction and audited on the channel of the
+  write; so does recording a protected person as one an issue concerns. Issuing a link and those writes take
   one lock (`lockHouseholdProtection`), so a link issued while a protection is
   written is either found by it and revoked, or finds it and is refused. Every
   holder takes it after its other advisory locks and before it first writes a
   person or a residency, so none waits on another while holding what that one
   waits for; an import chunk with a residency holds it to the commit, and so
   holds link issuing, marking a person protected and a move-in back for as
-  long as the chunk runs. Those three run in a transaction allowed longer than
-  an import chunk (`HOUSEHOLD_PROTECTION_TRANSACTION`), so they wait rather
-  than fail.
+  long as the chunk runs. Those three, and recording a person an issue
+  concerns, run in a transaction allowed longer than an import chunk
+  (`HOUSEHOLD_PROTECTION_TRANSACTION`), so they wait rather than fail.
   Clearing the protection restores nothing. A read still writes nothing. The
   handlers' record reads the same conditions, the protected household
   included, so it never says a link opens what the contractor is refused; the

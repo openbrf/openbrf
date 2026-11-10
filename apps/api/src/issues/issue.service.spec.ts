@@ -117,7 +117,18 @@ const PERSONS = [
  * persons are read for the `protectedFrom`th time: by default the first read is
  * the query's exclusion and the second the page's reporters.
  */
-function build(issueReads: (typeof PROTECTED_ISSUE)[][], protectedFrom = 2) {
+function build(
+  issueReads: (typeof PROTECTED_ISSUE)[][],
+  protectedFrom = 2,
+  /**
+   * The concerned persons recorded on the issues, and whether each is protected
+   * by the time the views are made.
+   */
+  concerned: readonly {
+    issueId: string;
+    protectedPersonalData: boolean;
+  }[] = [],
+) {
   let personReads = 0;
   const issueFindMany = vi.fn();
   for (const rows of issueReads) {
@@ -145,8 +156,28 @@ function build(issueReads: (typeof PROTECTED_ISSUE)[][], protectedFrom = 2) {
     },
   );
 
+  // Honours the filter the service asks with, so a query that drops the
+  // protected flag returns the unprotected person too and the tests fail.
+  const concernedFindMany = vi.fn(
+    async (args: {
+      where: {
+        issueId: { in: string[] };
+        person?: { protectedPersonalData?: true };
+      };
+    }) =>
+      concerned
+        .filter(
+          (row) =>
+            args.where.issueId.in.includes(row.issueId) &&
+            (args.where.person?.protectedPersonalData !== true ||
+              row.protectedPersonalData),
+        )
+        .map(({ issueId }) => ({ issueId })),
+  );
+
   const client = {
     issue: { findMany: issueFindMany },
+    issueConcernedPerson: { findMany: concernedFindMany },
     // The reader is a board member, whom every issue lets in: what the board
     // only rule leaves out is shown against a real database in
     // `issues.int-spec.ts`.
@@ -171,7 +202,7 @@ function build(issueReads: (typeof PROTECTED_ISSUE)[][], protectedFrom = 2) {
     {} as IssueReporterLinkService,
     {} as IssueMailer,
   );
-  return { service, issueFindMany };
+  return { service, issueFindMany, concernedFindMany };
 }
 
 describe("a page of the queue read while a reporter's data becomes protected", () => {
@@ -305,6 +336,69 @@ describe("a page of the queue read while a reporter's data becomes protected", (
       "NEW.0|2026-03-01T08:00:00.000Z|protected-issue-id",
     );
     expect(issueFindMany).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The queue read across midnight: the day is taken inside the transaction, and
+ * the clock turns before the rows become views. A row's `overdue` must then
+ * agree with the day the list and the counts were read by, not with the day it
+ * is serialised on.
+ */
+describe("a page of the queue read while a concerned person's data becomes protected", () => {
+  it("leaves out the issue they are recorded on, which the query still let through", async () => {
+    const { service, concernedFindMany } = build(
+      [[ORDINARY_ISSUE, LATER_ISSUE]],
+      99,
+      [{ issueId: ORDINARY_ISSUE.id, protectedPersonalData: true }],
+    );
+
+    const page = await service.pageOfQueue(
+      "person-board",
+      { limit: 2 },
+      "omit",
+    );
+
+    expect(page.issues.map((issue) => issue.id)).toEqual([LATER_ISSUE.id]);
+    expect(concernedFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          person: { protectedPersonalData: true },
+        }),
+      }),
+    );
+  });
+
+  it("keeps an issue whose concerned person is not protected", async () => {
+    const { service } = build([[ORDINARY_ISSUE, LATER_ISSUE]], 99, [
+      { issueId: ORDINARY_ISSUE.id, protectedPersonalData: false },
+    ]);
+
+    const page = await service.pageOfQueue(
+      "person-board",
+      { limit: 2 },
+      "omit",
+    );
+
+    expect(page.issues.map((issue) => issue.id)).toEqual([
+      ORDINARY_ISSUE.id,
+      LATER_ISSUE.id,
+    ]);
+  });
+
+  it("keeps it for a read that withholds nothing, without asking", async () => {
+    const { service, concernedFindMany } = build([[ORDINARY_ISSUE]], 99, [
+      { issueId: ORDINARY_ISSUE.id, protectedPersonalData: true },
+    ]);
+
+    const page = await service.pageOfQueue(
+      "person-board",
+      { limit: 1 },
+      "show",
+    );
+
+    expect(page.issues.map((issue) => issue.id)).toEqual([ORDINARY_ISSUE.id]);
+    expect(concernedFindMany).not.toHaveBeenCalled();
   });
 });
 

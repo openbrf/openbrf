@@ -212,7 +212,7 @@ describe("removing a text", () => {
 
     expect(
       await screen.findByText(
-        /Ett rättsligt bevarandekrav gäller för ärendet, eller ett rättsligt bevarandekrav eller en begränsning för den som anmälde det, så ingenting kan tas bort\. Ärendet har lästs om\./,
+        /Ett rättsligt bevarandekrav gäller för ärendet, eller ett rättsligt bevarandekrav eller en begränsning för den som anmälde det eller för en person som ärendet gäller, så ingenting kan tas bort\. Ärendet har lästs om\./,
       ),
     ).toBeTruthy();
     expect(onChanged).toHaveBeenCalled();

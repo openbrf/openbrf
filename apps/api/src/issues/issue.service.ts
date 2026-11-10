@@ -49,6 +49,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { databaseNow } from "../database/database-clock";
 import { PrismaService } from "../database/prisma.service";
 import { readAuthors } from "../feed/feed-author";
+import { CONCERNS_NO_PROTECTED_PERSON } from "./issue-concerned-persons";
 import { type IssueLinkOutcome, linkIssueToPost } from "../feed/feed-issue";
 import { type AuditAction, Prisma } from "../generated/prisma/client";
 import { failureName } from "../logging/failure";
@@ -463,8 +464,11 @@ export interface IssueDamageCaseView {
  *
  * `omit` leaves out every issue of a ring-fenced type as well (decision 32,
  * ADR 0056), by the same omission and for the same callers: nothing about a
- * ring-fenced issue reaches `mcp` or `ai`, whoever reported it. The name is
- * the first rule's; both are what a read leaving the instance withholds.
+ * ring-fenced issue reaches `mcp` or `ai`, whoever reported it. So is every
+ * issue a handler recorded as concerning a person with protected personal
+ * data (ADR 0057), for the reason a protected reporter's is left out. The name
+ * is the first rule's; all three are what a read leaving the instance
+ * withholds.
  *
  * The writes the actions reach (`assign`, `setPriority`, `setTargetDate`,
  * `setStatus`) and the list of who may be assigned (`handlers`) take it too,
@@ -475,12 +479,17 @@ export type ProtectedReporters = "show" | "omit";
 
 /**
  * The issues a read of this kind may name: with `omit`, none of a ring-fenced
- * type. Put under `AND`, as the protected reporters' filter is.
+ * type, and none recorded as concerning a person with protected personal data
+ * (ADR 0057): a case about such a person is about their household whoever
+ * reported it, as one they reported is. Put under `AND`, as the protected
+ * reporters' filter is.
  */
 function outsideRingFence(
   protectedReporters: ProtectedReporters,
 ): Prisma.IssueWhereInput {
-  return protectedReporters === "omit" ? { type: { ringFenced: false } } : {};
+  return protectedReporters === "omit"
+    ? { type: { ringFenced: false }, ...CONCERNS_NO_PROTECTED_PERSON }
+    : {};
 }
 
 /**
@@ -665,6 +674,12 @@ export type IssueTimelineStep = {
       from: IssueCostResponsibility | null;
       to: IssueCostResponsibility | null;
     }
+  /**
+   * A handler recorded a person the issue concerns (ADR 0057). Never whom: the
+   * entry does not name them, and the list of whom it concerns is read beside
+   * the timeline, while it stands. Taking one off is a `redacted` step.
+   */
+  | { kind: "concernedPerson" }
 );
 
 /** What a charge made from an issue starts with: see `chargeBasis`. */
@@ -3142,8 +3157,9 @@ export class IssueService {
 
   /**
    * Refuses, as an issue that does not exist, one a read with `omit` leaves
-   * out: an issue of a ring-fenced type, or one a person with protected
-   * personal data reported (ADR 0056). Nothing with `show`.
+   * out: an issue of a ring-fenced type, one a person with protected personal
+   * data reported, or one that concerns such a person (ADR 0056, 0057).
+   * Nothing with `show`.
    *
    * Asked inside the write's transaction, after `lockForAssignment`. The
    * ring-fence changes under the type's lock (`IssueTypeService`), so that part
@@ -3296,7 +3312,9 @@ export class IssueService {
   ): Promise<QueueRecord[]> {
     return this.prisma.$transaction(
       async (tx) => readQueueIn(tx, where, meanings, after, take),
-      { isolationLevel: "RepeatableRead" },
+      {
+        isolationLevel: "RepeatableRead",
+      },
     );
   }
 
@@ -3384,9 +3402,31 @@ export class IssueService {
         ),
       ),
     );
-    return protectedReporters === "omit"
-      ? views.filter((view) => view.reporter.kind !== "protected")
-      : views;
+    if (protectedReporters === "show") {
+      return views;
+    }
+    /*
+     * Asked again here, after the rows were read, as the reporters are: a
+     * person marked as protected between the query and this read, and recorded
+     * as one the issue concerns, must not leave with the view (ADR 0057).
+     */
+    const protectedConcerns = new Set(
+      issues.length === 0
+        ? []
+        : (
+            await this.prisma.issueConcernedPerson.findMany({
+              where: {
+                issueId: { in: issues.map((issue) => issue.id) },
+                person: { protectedPersonalData: true },
+              },
+              select: { issueId: true },
+            })
+          ).map((row) => row.issueId),
+    );
+    return views.filter(
+      (view) =>
+        view.reporter.kind !== "protected" && !protectedConcerns.has(view.id),
+    );
   }
 
   /**
@@ -4193,6 +4233,7 @@ const TIMELINE_ACTIONS = [
   "ISSUE_DAMAGE_CASE_MARKED",
   "ISSUE_DAMAGE_CASE_REMOVED",
   "ISSUE_COST_RESPONSIBILITY_CHANGED",
+  "ISSUE_CONCERNED_PERSON_ADDED",
 ] as const satisfies readonly AuditAction[];
 
 /**
@@ -4332,6 +4373,8 @@ function timelineStep(
         marked: entry.action === "ISSUE_DAMAGE_CASE_MARKED",
         cause: oneOf(text("cause"), ISSUE_DAMAGE_CAUSES),
       };
+    case "ISSUE_CONCERNED_PERSON_ADDED":
+      return { kind: "concernedPerson", at, actor };
     case "ISSUE_COST_RESPONSIBILITY_CHANGED":
       return {
         kind: "costResponsibility",

@@ -17,9 +17,15 @@ import { lockIssue } from "./issue-lock";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
 import {
+  isAnyPersonWithheld,
   isPersonWithheld,
   withheldPersonIds,
 } from "../retention/withheld-persons";
+import {
+  CONCERNS_NO_WITHHELD_PERSON,
+  concernedPersonIdsOf,
+  releaseConcernedSelectors,
+} from "./issue-concerned-persons";
 import {
   CONTRACTOR_RETENTION_DAYS,
   detachErasedReporter,
@@ -162,9 +168,15 @@ export interface IssuePurgeRunSummary {
  * row stays with when it went, which is the record of the disclosure, and with
  * whom it went to while that contractor stays on the list. A work order whose
  * contractor the list's clock has already taken off it (below) kept its copy
- * of their name and address for this text's sake, and loses it with the text. A legal hold or a restriction against the issue's reporter keeps
- * the text, as it keeps the reporter's details, read again under the registry
- * key inside the transaction that erases it.
+ * of their name and address for this text's sake, and loses it with the text. A
+ * legal hold or a restriction against the issue's reporter, or against a person
+ * the issue concerns (`IssueConcernedPerson`, ADR 0057), keeps the text, as it
+ * keeps the reporter's details and the issue's own free text, read again under
+ * the registry key inside the transaction that erases it. The record of whom the
+ * issue concerns goes with the free-text layer, but its row stays as a bare
+ * selector while any work order's text stands, so a hold or a restriction placed
+ * after that still reaches the text; the transaction that erases the last text
+ * deletes it.
  *
  * On a public-form report the reporter is reached only through the address
  * index, so that index has to outlive the contact details for as long as a
@@ -470,10 +482,11 @@ export class IssuePurgeService implements OnModuleInit {
    * The closed issues with a work order whose text is still kept past its
    * window, by the oldest closing first.
    *
-   * An issue under a legal hold of its own (`legalHoldAt`, ADR 0057), or whose
+   * An issue under a legal hold of its own (`legalHoldAt`, ADR 0057), whose
    * reporter is withheld - a person under a legal hold or a restriction, or a
-   * public-form address that is theirs - is excluded by the query rather than
-   * dropped from its answer, for the reason `eligible` gives about its bound.
+   * public-form address that is theirs - or that concerns a person under
+   * either, is excluded by the query rather than dropped from its answer, for
+   * the reason `eligible` gives about its bound.
    */
   async eligibleWorkOrderTexts(
     now: Date,
@@ -520,6 +533,7 @@ export class IssuePurgeService implements OnModuleInit {
                 },
               ]
             : []),
+          CONCERNS_NO_WITHHELD_PERSON,
         ],
       },
       orderBy: [{ closedAt: "asc" }, { id: "asc" }],
@@ -540,11 +554,13 @@ export class IssuePurgeService implements OnModuleInit {
    * The closing and the issue's own legal hold are read again under the issue
    * lock, which a reopen and a hold placed on the issue take too
    * (`lockIssueForHandling`), so an issue reopened or held since the scan
-   * keeps its texts; and the reporter's hold or restriction is read again
-   * under the legal hold registry key, which a hold placement and a
-   * restriction grant take too, so one committed while the run is in flight
-   * wins. The entry records how many texts went and the window, never a word
-   * of them.
+   * keeps its texts; and the hold or restriction of the reporter and of every
+   * person the issue concerns is read again under the legal hold registry key,
+   * which a hold placement and a restriction grant take too, so one committed
+   * while the run is in flight wins. The people it concerns are read under the
+   * issue lock, which recording one takes, so nobody is added between the read
+   * and the erasure. The entry records how many texts went and the window,
+   * never a word of them.
    */
   async purgeWorkOrderTexts(
     issueId: string,
@@ -584,6 +600,11 @@ export class IssuePurgeService implements OnModuleInit {
       ) {
         return false;
       }
+      if (
+        await isAnyPersonWithheld(tx, await concernedPersonIdsOf(tx, issueId))
+      ) {
+        return false;
+      }
 
       const { count } = await tx.workOrder.updateMany({
         where: { issueId, body: { not: null } },
@@ -597,6 +618,10 @@ export class IssuePurgeService implements OnModuleInit {
       // with it (ADR 0055, control B5). On a closed issue it opened nothing
       // already; the revocation makes the end a fact on the row.
       await revokeWorkOrderLinks(tx, { issueId });
+      // The selector kept for these texts, once the free-text layer's record
+      // of whom the issue concerns is gone (`endConcernedPersonRecords`), goes
+      // with the last of them.
+      await releaseConcernedSelectors(tx, issueId);
 
       /*
        * The address index a public-form report kept past its contact details

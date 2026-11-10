@@ -10,11 +10,15 @@ import {
   issuesErasedOnRequest,
 } from "../retention/erasure-domains";
 import { lockErasureEligibility } from "../retention/erasure-lock";
-import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
   erasureRequestedPersonIds,
   isErasureInForce,
 } from "../retention/withheld-persons";
+import {
+  concernedPersonIdsOf,
+  concernsUnlockedPerson,
+  lockPersonHolds,
+} from "./issue-concerned-persons";
 import { IssueFreeTextService } from "./issue-free-text.service";
 import { lockIssue } from "./issue-lock";
 
@@ -51,8 +55,9 @@ export interface IssueErasureRunSummary {
  * internal notes and every photograph and file, from storage. The building
  * record stays.
  *
- * An issue they reported that is still open, or under a hold of its own, is
- * kept, and counted as kept: the request stays open with that reason until the
+ * An issue they reported that is still open, under a hold of its own, or
+ * concerning a person under a legal hold or a restriction, is kept, and
+ * counted as kept: the request stays open with that reason until the
  * issue closes or the hold is released. `ERASURE_DOMAINS` says both, and the
  * closing job counts both before it writes `executedAt`.
  *
@@ -162,11 +167,18 @@ export class IssueErasureService implements OnModuleInit {
       targetPersonId: personId,
       context: { onRequest: true },
       stillDue: async (tx) => {
-        // The hold, then what decides whether an erasure may run, then the
+        // The holds - the reporter's and those of the people the issue
+        // concerns - then what decides whether an erasure may run, then the
         // issue: the order the person purge takes them in.
-        await lockLegalHold(tx, personId);
+        const concerned = await concernedPersonIdsOf(tx, issueId);
+        await lockPersonHolds(tx, [personId, ...concerned]);
         await lockErasureEligibility(tx, personId);
         await lockIssue(tx, issueId);
+        // Somebody recorded since the read above is left for the next run,
+        // rather than having their hold read without their key.
+        if (await concernsUnlockedPerson(tx, issueId, concerned)) {
+          return false;
+        }
         if (!(await isErasureInForce(tx, personId, now))) {
           return false;
         }

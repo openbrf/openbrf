@@ -182,6 +182,13 @@ const COLUMN_COVERAGE = {
   IssueType: {
     defaultAssigneePersonId: { sections: ["issueAssignments"] },
   },
+  /*
+   * A person a handler recorded an issue as concerning: chosen by somebody
+   * else, so they did not act, and the entry recording it names nobody but
+   * the handler. The section that carries such a case to the person, without
+   * its reporter (ADR 0057, question 3), is a change of its own.
+   */
+  IssueConcernedPerson: { personId: { notReported: "gap" } },
   // The handler who sent a work order is its sending's actor.
   WorkOrder: { sentByPersonId: { actedAs: ["ISSUE_WORK_ORDER_SENT"] } },
   /*
@@ -445,6 +452,7 @@ const WORK_ORDER_PERSONAL_COLUMNS: readonly ColumnsOf["WorkOrder"][] = [
 const NAMED_GAPS = [
   "ContactSubmission.handledByPersonId",
   "ImportSession.createdById",
+  "IssueConcernedPerson.personId",
   "MeetingAttendance.onBehalfOfPersonId",
   "SignupRequest.emailIndex",
 ];

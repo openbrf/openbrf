@@ -257,6 +257,9 @@ export async function lockIssueForHandling(
  * while holding what that one waits for: taken after every other advisory key
  * a transaction takes, and before the first write to a person or a residency.
  * - Issuing takes it after the type's, the issue's and the work order's row.
+ * - Recording a person an issue concerns (`IssueConcernedPersonService.add`)
+ *   takes it after the type's and the issue's, and writes neither a person nor
+ *   a residency.
  * - `PersonService.setProtectedPersonalData` takes it before it writes the
  *   person, so it never holds the person's row while it waits.
  * - A move-in (`MoveService.enterResidency`) takes it after the apartment's and

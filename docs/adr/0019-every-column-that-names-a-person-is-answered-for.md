@@ -76,7 +76,7 @@ exist fails to compile. Each column has one of:
   an address, which identifies nobody) and `gap`.
 
 The spec fails for a column the walk finds with no entry, for an entry the walk
-does not find, for a `gap` not in the pinned list of four, and for a
+does not find, for a `gap` not in the pinned list, and for a
 `neverWritten` model whose delegate a production file writes - read from the
 same walk of the source the erasure specs use, through `writtenDelegates` on
 `SourceFacts` in `apps/api/src/testing/erasure-source-facts.ts`.
@@ -155,7 +155,7 @@ Ended sessions are swept nightly. Persons purged before this change who still
 have an accepted invitation are selected once more on the next run, and each
 gets a SERVICE_DATA_PURGED entry for it.
 
-Four columns are named gaps, each closed in a change of its own:
+Five columns are named gaps, each closed in a change of its own:
 
 - `SignupRequest.emailIndex`: an approved request - the name, the phone, the
   claimed address and the apartment the person typed - is kept, and reachable
@@ -167,6 +167,10 @@ Four columns are named gaps, each closed in a change of its own:
   either; the session is deleted when it expires.
 - `MeetingAttendance.onBehalfOfPersonId`: printed on the assistant's report as
   an identifier, while the member they came with is not told on theirs.
+- `IssueConcernedPerson.personId`: a person a handler recorded an issue as
+  concerning ([ADR 0057](0057-purging-issues-in-two-layers.md#the-people-an-issue-concerns)).
+  The section that carries such a case to them, without its reporter, waits on
+  the art. 15(4) step it needs.
 
 The rule is the guard's limit. A column that names a person under another name
 and without a relation passes it, and so does data keyed by a value rather than

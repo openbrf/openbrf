@@ -75,6 +75,10 @@ import {
   IssueResidentsService,
 } from "./issue-residents.service";
 import {
+  IssueConcernedPersonService,
+  type IssueConcernedPersonView,
+} from "./issue-concerned-person.service";
+import {
   type IssueApartmentView,
   type IssueBoardFilter,
   type IssueHandlerView,
@@ -194,6 +198,11 @@ const mergeSchema = z.strictObject({
 /** A known fault's notice: the handler's own words, never only whitespace. */
 const knownFaultSchema = z.strictObject({
   body: z.string().trim().min(1).max(ISSUE_KNOWN_FAULT_LIMITS.body),
+});
+
+/** A resident recorded as a person the issue concerns, by their residency. */
+const concernedPersonSchema = z.strictObject({
+  residencyId: z.string().min(1).max(64),
 });
 
 const assignSchema = z.object({
@@ -576,6 +585,7 @@ export class IssueQueueController {
     private readonly fit: IssueFitService,
     private readonly places: IssuePlaceService,
     private readonly reporterLinks: IssueReporterLinkService,
+    private readonly concernedPersons: IssueConcernedPersonService,
   ) {}
 
   /**
@@ -842,6 +852,35 @@ export class IssueQueueController {
     @Req() request: RequestWithPrincipal,
   ): Promise<IssueTimelineStep[]> {
     return this.issues.timeline(actingPersonId(request), id);
+  }
+
+  /**
+   * Whom the issue concerns (ADR 0057), by name or as protected, keyed by the
+   * record. A handler takes one off as a redaction.
+   */
+  @Get(":id/concerned-persons")
+  async listConcernedPersons(
+    @Param("id") id: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssueConcernedPersonView[]> {
+    return this.concernedPersons.list(actingPersonId(request), id);
+  }
+
+  /**
+   * Records the resident of a residency held today, as the resident picker
+   * offers them, as a person the issue concerns; answers the list.
+   */
+  @Post(":id/concerned-persons")
+  async addConcernedPerson(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<IssueConcernedPersonView[]> {
+    return this.concernedPersons.add(
+      actingPersonId(request),
+      id,
+      concernedPersonSchema.parse(body).residencyId,
+    );
   }
 
   @Post(":id/assignee")

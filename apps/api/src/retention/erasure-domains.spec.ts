@@ -487,7 +487,7 @@ describe("what a granted erasure request still owes one person", () => {
         owed: 1,
         kept: 2,
         keptBecause:
-          "an issue they reported is still open, or under a legal hold of its own",
+          "an issue they reported is still open, under a legal hold of its own, or concerns a person under a legal hold or a restriction",
       },
     ]);
   });

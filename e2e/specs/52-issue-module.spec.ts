@@ -124,6 +124,21 @@ async function openHandling(row: Locator, type: string): Promise<void> {
   await expect(row.getByText("Tidslinje", { exact: true })).toBeVisible();
 }
 
+/**
+ * A row's text without its pickers' options: the handling lists every
+ * apartment of the register to choose from (as the picker of a resident an
+ * issue concerns does), and a list of choices tells nothing of the reporter.
+ */
+async function textBesidesChoices(row: Locator): Promise<string> {
+  return row.evaluate((element) => {
+    const copy = element.cloneNode(true) as Element;
+    copy.querySelectorAll("select").forEach((select) => {
+      select.remove();
+    });
+    return copy.textContent;
+  });
+}
+
 /** Saves one of the handling's select forms, waiting for the server. */
 async function saveChoice(
   page: Page,
@@ -484,8 +499,9 @@ test("an issue goes from a report to a reopened case, and nothing leaks on the w
       ).toBeVisible();
       await openHandling(row, LEAK);
       await expect(row.getByText("Anmält", { exact: true })).toBeVisible();
+      const shown = await textBesidesChoices(row);
       for (const told of SHIELDED_TELLS) {
-        await expect(row).not.toContainText(told);
+        expect(shown).not.toContain(told);
       }
     });
 
@@ -847,8 +863,9 @@ test("an issue goes from a report to a reopened case, and nothing leaks on the w
       await expect(
         row.getByText(/^Den som anmälde har skyddade personuppgifter/),
       ).toBeVisible();
+      const shown = await textBesidesChoices(row);
       for (const told of SHIELDED_TELLS) {
-        await expect(row).not.toContainText(told);
+        expect(shown).not.toContain(told);
       }
     });
 

@@ -398,6 +398,19 @@ locally the application runs from source beside the PostgreSQL that
       reported under. The form asks the reporter for what happened, what they
       saw and heard and when, not for an accusation of a crime (ADR 0054,
       decisions 28 and 32; ADR 0057, question 4)
+- [x] The people an issue concerns: a handler records the residents an issue is
+      about who did not report it, such as the neighbour a report of a
+      disturbance names, on an issue of any type, from the picker an issue is
+      opened from. Only the handlers of the issue read the list, a protected
+      resident by no name; the reporter, the mails, a work order and both links
+      carry none of it, an issue about a protected resident is left out of what
+      a connected app or the AI package reads, and the audit log records the act
+      and never the person. The record is personal data of its own and goes with
+      the issue's free text, and a legal hold or a restriction on a person it
+      concerns keeps that text as one on the reporter does (ADR 0057)
+- [ ] The access report of a person an issue concerns: each case about them that
+      somebody else reported, without the reporter, after the board's art. 15(4)
+      weighing (ADR 0057, question 3)
 - [x] Mail about issues: a new issue to its assignee, or to the type's handlers
       when it lands unassigned; an urgent one to every handler of its type; an
       assignment to the new assignee; a reopened one to its assignee; and one
