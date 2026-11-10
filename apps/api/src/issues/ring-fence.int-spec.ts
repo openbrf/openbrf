@@ -1249,6 +1249,82 @@ describe("merging duplicates", () => {
       }),
     ).toEqual({ mergedIntoIssueId: fencedIssue });
   });
+
+  it("refuses to ring-fence a type merged with an ordinary one, either way round, until the merge is undone", async () => {
+    const kept = await addType("behallen", { reporters: ["RESIDENTS"] });
+    const other = await addType("annan", { reporters: ["RESIDENTS"] });
+    const into = await reported(kept, `Det droppar i taket ${suffix}`);
+    const sameType = await reported(kept, `Det droppar igen ${suffix}`);
+    const duplicate = await reported(other, `Taket läcker ${suffix}`);
+    for (const from of [sameType, duplicate]) {
+      const merged = await inject({
+        method: "POST",
+        url: `/api/issue-queue/${from}/merge`,
+        payload: { intoIssueId: into },
+        cookie: as(board),
+      });
+      expect(merged.statusCode, merged.body).toBe(201);
+    }
+    const ownView = async () => {
+      const mine = await inject({
+        method: "GET",
+        url: "/api/issues/mine",
+        cookie: as(resident),
+      });
+      expect(mine.statusCode).toBe(200);
+      return mine
+        .json<{ id: string; mergedIntoMeaning: string | null }[]>()
+        .find((issue) => issue.id === duplicate);
+    };
+    expect((await ownView())?.mergedIntoMeaning).toBe("NEW");
+
+    // The type merged into and the type of the duplicate alike: the fence
+    // would leave the duplicate's reporter following a report on its other
+    // side, and a message to the duplicates reaching them.
+    for (const type of [kept, other]) {
+      const refused = await setRingFence(type.id, true);
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json<{ reason: string }>().reason).toBe(
+        "ring-fence-merged",
+      );
+      expect(
+        await prisma.issueType.findUniqueOrThrow({
+          where: { id: type.id },
+          select: { ringFenced: true, handledBy: true },
+        }),
+      ).toEqual({ ringFenced: false, handledBy: "EVERY_HANDLER" });
+    }
+
+    // Reopening the duplicate undoes the merge, and the type is ring-fenced
+    // with the merge inside it kept.
+    const reopened = await inject({
+      method: "POST",
+      url: `/api/issue-queue/${duplicate}/status`,
+      payload: { statusId: other.statusIds.IN_PROGRESS },
+      cookie: as(board),
+    });
+    expect(reopened.statusCode, reopened.body).toBe(201);
+    expect((await setRingFence(kept.id, true)).statusCode).toBe(200);
+    expect((await ownView())?.mergedIntoMeaning).toBeNull();
+    const toDuplicates = await inject({
+      method: "POST",
+      url: `/api/issue-queue/${into}/duplicate-messages`,
+      payload: { body: "Vi har kallat in en takläggare." },
+      cookie: as(board),
+    });
+    expect(toDuplicates.statusCode, toDuplicates.body).toBe(201);
+    expect(toDuplicates.json()).toEqual({ sent: 1, skipped: 0 });
+    expect(
+      await prisma.issueMessage.count({
+        where: { issueId: duplicate, side: "HANDLER" },
+      }),
+    ).toBe(0);
+    expect(
+      await prisma.issueMessage.count({
+        where: { issueId: sameType, side: "HANDLER" },
+      }),
+    ).toBe(1);
+  });
 });
 
 describe("the clock", () => {

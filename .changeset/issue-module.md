@@ -320,7 +320,9 @@ number, shown in the queue, on the reporter's own list and in every mail.
   never reads, counts or is given one of its issues and is unassigned when a
   type is ring-fenced. No work order is written on one, and nothing about one
   is mailed, to a handler or its reporter. No issue is merged across the
-  ring-fence. A connected app and the AI package are offered neither its issues
+  ring-fence, and a type is not ring-fenced while one of its issues is merged
+  with an issue of a type that is not: the board reopens the duplicate first,
+  which undoes the merge. A connected app and the AI package are offered neither its issues
   nor the type. No report under it is made from a post, and the website's form
   offers none. The ring-fence cannot be lifted once anything has been reported
   under the type; a type ring-fenced by mistake is switched off and replaced.

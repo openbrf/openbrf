@@ -98,7 +98,10 @@ import { DomainError } from "../http/domain-error";
  *
  * The ring-fence's reasons (decision 32). `ring-fence-in-use` is lifting the
  * ring-fence of a type issues have been reported under, which would hand them
- * to whoever the ring-fence keeps out. `ring-fenced-board-only` is opening a
+ * to whoever the ring-fence keeps out. `ring-fence-merged` is ring-fencing a
+ * type one of whose issues is merged with an issue of an ordinary type, either
+ * way round, which would let a reporter go on following, or being told of, a
+ * report across the fence. `ring-fenced-board-only` is opening a
  * ring-fenced type to every handler, and `ring-fenced-public` offering one on
  * the website's form, or ring-fencing a type the form offers: its reporter is
  * reached by mail alone, and nothing about a ring-fenced issue is mailed.
@@ -224,6 +227,7 @@ export type IssueReason =
   | "redaction-target-not-found"
   | "legal-hold"
   | "ring-fence-in-use"
+  | "ring-fence-merged"
   | "ring-fenced-board-only"
   | "ring-fenced-public"
   | "ring-fenced-post"
@@ -282,6 +286,7 @@ export class IssueError extends DomainError {
       reason === "work-order-recipient-removed" ||
       reason === "legal-hold" ||
       reason === "ring-fence-in-use" ||
+      reason === "ring-fence-merged" ||
       reason === "damage-case-changed" ||
       reason === "too-many-concerned-persons"
         ? HttpStatus.CONFLICT

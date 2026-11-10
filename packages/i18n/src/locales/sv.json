@@ -1888,6 +1888,7 @@
         "tooManyStatuses": "Den här typen har redan så många statusar som den får ha.",
         "assigneeNotAHandler": "Den personen hanterar inte ärenden av den här typen. Välj någon som gör det.",
         "ringFenceInUse": "Ärenden har anmälts under typen, så avskärmningen står kvar. Stäng av typen i stället.",
+        "ringFenceMerged": "Ett ärende av typen är sammanslaget med ett ärende av en typ som inte är avskärmad. Öppna dubletten igen först, så upphävs sammanslagningen, och avskärma sedan typen.",
         "ringFencedBoardOnly": "En avskärmad typ hanteras bara av styrelsen.",
         "ringFencedPublic": "En avskärmad typ erbjuds inte i webbplatsens formulär."
       },

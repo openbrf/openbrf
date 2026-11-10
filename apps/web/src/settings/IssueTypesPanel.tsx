@@ -57,6 +57,7 @@ const TYPE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "too-many-statuses": "settings.issueTypes.errors.tooManyStatuses",
   "assignee-not-a-handler": "settings.issueTypes.errors.assigneeNotAHandler",
   "ring-fence-in-use": "settings.issueTypes.errors.ringFenceInUse",
+  "ring-fence-merged": "settings.issueTypes.errors.ringFenceMerged",
   "ring-fenced-board-only": "settings.issueTypes.errors.ringFencedBoardOnly",
   "ring-fenced-public": "settings.issueTypes.errors.ringFencedPublic",
 };

@@ -752,6 +752,14 @@ export class IssueTypeService {
    * still queued is refused at its claim and recorded as not sent. A request
    * that changes nothing writes nothing.
    *
+   * Ring-fencing is refused while an issue of the type is merged with an issue
+   * of an ordinary type, either way round (`ring-fence-merged`): the
+   * duplicate's reporter would go on following the other report, and a
+   * handler's message to the duplicates would go on reaching them, across the
+   * fence (decision 32). A merge takes the locks of both issues' types, so
+   * none lands between this check and the change. The board reopens the
+   * duplicate first, which undoes the merge.
+   *
    * Ring-fencing a type also revokes every contractor's link to a work order on
    * its issues, in the same transaction (ADR 0055, control B5 of its threat
    * review). The lookup refuses them anyway; the revocation writes the end onto
@@ -798,6 +806,7 @@ export class IssueTypeService {
         }
         if (ringFenced) {
           refuseOutsideRingFence("BOARD", type.reporters);
+          await refuseMergesAcrossRingFence(tx, id);
         }
         const now = new Date();
         if (ringFenced && type.handledBy !== "BOARD") {
@@ -1182,6 +1191,41 @@ function refuseOutsideRingFence(
     throw new IssueError(
       "A ring-fenced issue type is not offered on the website's form.",
       "ring-fenced-public",
+    );
+  }
+}
+
+/**
+ * Refuses ring-fencing a type while one of its issues is merged with an issue
+ * of an ordinary type of another, either way round (decision 32): the merge
+ * would carry what the ring-fence keeps in across it, to the duplicate's
+ * reporter or from a handler's message to the duplicates. A merge between two
+ * issues of the type itself stays on one side.
+ *
+ * The caller holds the type's lock, which a merge takes for the types of both
+ * its issues (`lockIssuesForHandling`).
+ */
+async function refuseMergesAcrossRingFence(
+  tx: Prisma.TransactionClient,
+  typeId: string,
+): Promise<void> {
+  const ordinaryElsewhere = {
+    typeId: { not: typeId },
+    type: { ringFenced: false },
+  } satisfies Prisma.IssueWhereInput;
+  const crossing = await tx.issue.findFirst({
+    where: {
+      OR: [
+        { typeId, mergedInto: ordinaryElsewhere },
+        { ...ordinaryElsewhere, mergedInto: { typeId } },
+      ],
+    },
+    select: { id: true },
+  });
+  if (crossing !== null) {
+    throw new IssueError(
+      "An issue of this type is merged with an issue of a type that is not ring-fenced. Reopen the duplicate before ring-fencing the type.",
+      "ring-fence-merged",
     );
   }
 }

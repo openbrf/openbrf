@@ -1888,6 +1888,7 @@
         "tooManyStatuses": "This type already has as many statuses as it may.",
         "assigneeNotAHandler": "That person does not handle issues of this type. Choose someone who does.",
         "ringFenceInUse": "Issues have been reported under this type, so the ring-fence stays. Switch the type off instead.",
+        "ringFenceMerged": "An issue of this type is merged with an issue of a type that is not ring-fenced. Reopen the duplicate first, which undoes the merge, and then ring-fence the type.",
         "ringFencedBoardOnly": "A ring-fenced type is handled by the board only.",
         "ringFencedPublic": "A ring-fenced type is not offered on the website's form."
       },

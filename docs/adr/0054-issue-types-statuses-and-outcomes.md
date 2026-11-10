@@ -525,6 +525,14 @@ change it.
   house can see that a report was made. Only a report made after the ring-fence
   is kept off the post (`ring-fenced-post`). The owner may ask for earlier links
   to be hidden as well.
+- **Not set while a merge crosses it.** A type is not ring-fenced while one of
+  its issues is merged with an issue of a type that is not ring-fenced, either
+  way round (`ring-fence-merged`): the duplicate's reporter would go on
+  following the other report, and a handler's message to the duplicates would
+  go on reaching them, across the fence. The board reopens the duplicate
+  first, which undoes the merge. A merge takes the locks of both issues'
+  types, as ring-fencing takes the type's, so none lands between the check and
+  the change. A merge between two issues of the type itself is kept.
 - **The board sets the ring-fenced clock, and a legal hold stands over it.**
   The free text of a ring-fenced case is removed the number of years after
   closing the board sets for ring-fenced types, from 1 to 10 and 1 by default,
