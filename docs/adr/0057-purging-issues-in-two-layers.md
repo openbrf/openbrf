@@ -559,6 +559,11 @@ board weighs every such text before the report gives it (access weighing,
   is printed instead. The save counts from the moment it is sent, since the
   server may commit it before the answer arrives. A note written after a
   weighing has not been weighed.
+  The document printed is the report as produced, dated by its `generatedOn`
+  line. A weighing another board member saves in the meantime is not seen
+  until the report is produced again: the screen does not poll, and the printed
+  copy states the day it was produced, so what a person was given is what that
+  day's weighing allowed.
 - **Who weighs.** Whoever may produce the report (`addressBook:read` and
   `protectedData:reveal`), on the report's own screen, because the weighing is
   part of producing it. The producer reads every text the report would carry
@@ -651,8 +656,12 @@ review:
    copy a person is given, on a case they reported and on one that concerns them,
    and if so how the board weighs it under art. 15(4) like the other texts of
    the case. Today the report gives the recipient and the date and never the
-   words, which leaves a gap while the text stands (ten years after closing,
-   unless a handler redacted it first). A follow-up change takes it up.
+   words, which leaves a gap while the text stands. Ten years after closing is
+   the ordinary clock, not a date after which the text is gone: a legal hold or
+   a restriction keeps it longer ([the clocks](#the-two-clocks)), and a
+   handler's redaction ends it sooner. Where a hold or restriction stands, the
+   text is still there and still part of the art. 15(3) copy. A follow-up change
+   takes it up.
 
 ### The legal review's answer to question 4
 
