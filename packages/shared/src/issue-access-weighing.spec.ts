@@ -2,7 +2,9 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   ISSUE_ACCESS_LEFT_OUT_MARK as MARK,
+  ISSUE_ACCESS_PARTS,
   isGivenInPartOf,
+  issueAccessPartHasId,
 } from "./issue-access-weighing.ts";
 
 const TEXT =
@@ -148,5 +150,15 @@ describe("isGivenInPartOf", () => {
         written,
       ),
     ).toBe(true);
+  });
+});
+
+describe("issueAccessPartHasId", () => {
+  it("names a message, a note and a work order by identifier, and nothing else", () => {
+    expect(ISSUE_ACCESS_PARTS.filter(issueAccessPartHasId)).toEqual([
+      "MESSAGE",
+      "NOTE",
+      "WORK_ORDER",
+    ]);
   });
 });

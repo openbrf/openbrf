@@ -1879,7 +1879,7 @@ export function DataSubjectReport({
                         {t("issues.number", { number: issue.number })}
                       </span>
                       {issue.typeName}
-                      {issue.notes.some((note) => note.content !== null) ? (
+                      {ownWeighableTexts(issue).length > 0 ? (
                         <WeighButton
                           open={weighingIssueId === issue.issueId}
                           onClick={() => {
@@ -2061,9 +2061,10 @@ export function DataSubjectReport({
                       />
                     </td>
                     <td className={DATA_CELL}>{String(issue.photographs)}</td>
-                    {/* Whom the issue was sent to and when (art. 15(1)(c)):
-                      never the work order's text, which is the handler's and
-                      may name somebody else. */}
+                    {/* Whom the issue was sent to and when (art. 15(1)(c)),
+                      and each work order's text as the board weighed it for
+                      this report, because it is the handler's and may name
+                      somebody else (ADR 0057, question 7). */}
                     <td className={TEXT_CELL}>
                       <IssueWorkOrders orders={issue.workOrders} />
                     </td>
@@ -2071,7 +2072,7 @@ export function DataSubjectReport({
                 ))}
               </Rows>
               {report.issues.some((issue) =>
-                issue.notes.some((note) => leftOutOf(note.content)),
+                ownWeighableTexts(issue).some(leftOutOf),
               ) ? (
                 <WithheldNotice />
               ) : null}
@@ -3841,9 +3842,24 @@ function DispatchingPlugin({
  * heading cannot be printed that the title map does not hold.
  */
 /**
+ * The texts of an issue the person reported that the report weighs, as it
+ * gives them: each internal note and each work order's text, leaving out what
+ * a handler redacted or the purge removed. Their own words and the
+ * conversation are theirs already, and not weighed.
+ */
+function ownWeighableTexts(
+  issue: Report["issues"][number],
+): ReportWeighedText[] {
+  return [
+    ...issue.notes.map((note) => note.content),
+    ...issue.workOrders.map((order) => order.content),
+  ].filter((content) => content !== null);
+}
+
+/**
  * The texts of a case somebody else reported that the report weighs, as it
- * gives them: the description, the location, each message and each note,
- * leaving out what a handler redacted or the purge removed.
+ * gives them: the description, the location, each message, each note and each
+ * work order's text, leaving out what a handler redacted or the purge removed.
  */
 function weighableTexts(
   issue: Report["issuesConcerning"][number],
@@ -3853,17 +3869,16 @@ function weighableTexts(
     issue.location,
     ...issue.messages.map((message) => message.content),
     ...issue.notes.map((note) => note.content),
+    ...issue.workOrders.map((order) => order.content),
   ].filter((content) => content !== null);
 }
 
 /** How many texts on the report nobody has weighed yet (ADR 0057). */
 function unweighedTexts(report: Report): number {
   return [
-    ...report.issues.flatMap((issue) =>
-      issue.notes.map((note) => note.content),
-    ),
+    ...report.issues.flatMap(ownWeighableTexts),
     ...report.issuesConcerning.flatMap(weighableTexts),
-  ].filter((content) => content?.state === "unweighed").length;
+  ].filter((content) => content.state === "unweighed").length;
 }
 
 const WITHHELD_LABEL = {
@@ -3966,8 +3981,10 @@ function IssueNotes({
 }
 
 /**
- * Whom an issue was sent to and when (art. 15(1)(c)): never the work order's
- * text, which is the handler's and may name somebody else.
+ * Whom an issue was sent to and when (art. 15(1)(c)), and what each work order
+ * said as the board weighed it (ADR 0057, question 7): the handler's words to
+ * a contractor, which may name somebody else. A text a handler redacted, or
+ * the purge erased, says so.
  */
 function IssueWorkOrders({
   orders,
@@ -3980,22 +3997,33 @@ function IssueWorkOrders({
   }
   return (
     <>
-      {orders.map((order, index) => (
-        <span key={index} className="block">
-          <span className="font-data text-data">{day(order.writtenAt)}</span>{" "}
-          {order.recipientName ??
-            t("register.person.report.workOrder.removedContractor")}
-          {" · "}
-          {t(
-            WORK_ORDER_DELIVERY_LABEL[
-              order.notSent ? "NOT_SENT" : order.deliveryStatus
-            ],
+      {orders.map((order) => (
+        <span key={order.workOrderId} className="mb-1 block">
+          <span className="block">
+            <span className="font-data text-data">{day(order.writtenAt)}</span>{" "}
+            {order.recipientName ??
+              t("register.person.report.workOrder.removedContractor")}
+            {" · "}
+            {t(
+              WORK_ORDER_DELIVERY_LABEL[
+                order.notSent ? "NOT_SENT" : order.deliveryStatus
+              ],
+            )}
+            {order.linkGiven
+              ? ` · ${t("register.person.report.field.workOrderLinkGiven", {
+                  count: order.photosShared,
+                })}`
+              : null}
+          </span>
+          {order.redactedAt !== null ? (
+            <RedactedMark at={order.redactedAt} t={t} />
+          ) : order.content === null ? (
+            <span className="block text-ink-muted">
+              {t("register.person.report.workOrder.textErased")}
+            </span>
+          ) : (
+            <WeighedText content={order.content} />
           )}
-          {order.linkGiven
-            ? ` · ${t("register.person.report.field.workOrderLinkGiven", {
-                count: order.photosShared,
-              })}`
-            : null}
         </span>
       ))}
     </>

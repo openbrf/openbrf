@@ -614,6 +614,12 @@ export class IssuePurgeService implements OnModuleInit {
       if (count === 0 && recipientsErased === 0) {
         return false;
       }
+      // The board's weighing of the texts for an access report, and a copy
+      // given in part with it, has nothing left to give and holds some of the
+      // words (ADR 0057, question 7).
+      await tx.issueAccessWeighing.deleteMany({
+        where: { issueId, part: "WORK_ORDER" },
+      });
       // A link to a work order with no text has nothing to show, and ends
       // with it (ADR 0055, control B5). On a closed issue it opened nothing
       // already; the revocation makes the end a fact on the row.

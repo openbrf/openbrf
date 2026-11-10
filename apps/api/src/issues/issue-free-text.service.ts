@@ -155,9 +155,13 @@ export class IssueFreeTextService {
       });
       // The board's weighing of the text for an access report has nothing
       // left to weigh (ADR 0057). The rows on a message or a note went with
-      // it; those on the description, the location and a kept selector go
-      // here.
-      await tx.issueAccessWeighing.deleteMany({ where: { issueId } });
+      // it; those on the description and the location go here. Not a work
+      // order's: its text stands on its own clock, in the report of the
+      // reporter and of each person the kept selector ties to the case, and
+      // its weighing goes with that text (question 7).
+      await tx.issueAccessWeighing.deleteMany({
+        where: { issueId, part: { not: "WORK_ORDER" } },
+      });
       const { count: contractorNotes } = await tx.workOrderNote.deleteMany({
         where: { workOrder: { issueId } },
       });

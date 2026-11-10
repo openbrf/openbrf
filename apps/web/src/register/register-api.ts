@@ -2043,10 +2043,12 @@ export interface ReportIssueNote {
 }
 
 /**
- * Whom an issue was sent to, oldest first. `recipientName` is null once the
- * contractor was removed from the list. Never the text or an address.
+ * Whom an issue was sent to, oldest first, and what each work order said as
+ * the board weighed it (ADR 0057, question 7). `recipientName` is null once
+ * the contractor was removed from the list. Never an address.
  */
 export interface ReportIssueWorkOrder {
+  workOrderId: string;
   recipientName: string | null;
   /** When it was written and queued; whether it went is `deliveryStatus`. */
   writtenAt: string;
@@ -2057,6 +2059,10 @@ export interface ReportIssueWorkOrder {
   linkGiven: boolean;
   /** How many of the issue's photographs the board chose for the link. */
   photosShared: number;
+  /** When a handler redacted the text; `content` is then null. */
+  redactedAt: string | null;
+  /** Null once redacted, or once the purge erased the text. */
+  content: ReportWeighedText | null;
 }
 
 /**
@@ -2075,6 +2081,8 @@ export interface IssueAccessWeighing {
     id: string | null;
     writtenAt: string;
     side: "REPORTER" | "HANDLER" | null;
+    /** Whom a work order went to; null for every other part, or once removed. */
+    recipientName: string | null;
     text: string;
     /**
      * `given`, the reason it is left out, whole or in part, or null while

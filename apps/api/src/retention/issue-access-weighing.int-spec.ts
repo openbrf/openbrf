@@ -9,6 +9,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
 import { IssueFreeTextService } from "../issues/issue-free-text.service";
+import { IssuePurgeService } from "../issues/issue-purge.service";
 import { IssueRedactionService } from "../issues/issue-redaction.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
@@ -29,8 +30,11 @@ import type { IssueAccessWeighingView } from "./issue-access-weighing.service";
  * somebody else reported: always its number, type, dates and where it stands,
  * its words only as weighed, and never its reporter. A text given in part is
  * given as the board's copy with words left out, and the text itself stays as
- * written. The weighing is the board's, under the report's own gate, and the
- * log names the person and never the issue.
+ * written. The text of a work order is weighed in both reports like the
+ * other texts (question 7), outlives the free-text layer with its weighing, and
+ * goes with it by the work-order text purge or a redaction. The weighing is
+ * the board's, under the report's own gate, and the log names the person and
+ * never the issue.
  */
 
 loadEnvForIntegrationTests();
@@ -168,6 +172,20 @@ async function filed(input: {
 function note(issueId: string, body: string) {
   return prisma.issueNote.create({
     data: { issueId, authorPersonId: board.personId, body },
+    select: { id: true },
+  });
+}
+
+function workOrder(issueId: string, body: string) {
+  return prisma.workOrder.create({
+    data: {
+      issueId,
+      recipientName: `Rörfirman ${suffix}`,
+      recipientEmailCipher: `cipher-${suffix}`,
+      body,
+      deliveryStatus: "SENT",
+      sentByPersonId: board.personId,
+    },
     select: { id: true },
   });
 }
@@ -600,6 +618,44 @@ describe("a case about a person who did not report it", () => {
     ).toBe(rows.length);
   });
 
+  it("holds each work order of an issue to a weighing of its own", async () => {
+    const issue = await filed({
+      reporterPersonId: reporter.personId,
+      description: `Läckage i källaren ${suffix}`,
+    });
+    const first = await workOrder(issue.id, `Kolla ventilen ${suffix}`);
+    const second = await workOrder(issue.id, `Kolla pumpen ${suffix}`);
+
+    // Two work orders on one issue and report, neither a message nor a note:
+    // the index names the work order too, or the second would clash with the
+    // first.
+    for (const order of [first, second]) {
+      await prisma.issueAccessWeighing.create({
+        data: {
+          issueId: issue.id,
+          concernedPersonId: null,
+          part: "WORK_ORDER",
+          workOrderId: order.id,
+          withheldBecause: null,
+        },
+      });
+    }
+    await expect(
+      prisma.issueAccessWeighing.create({
+        data: {
+          issueId: issue.id,
+          concernedPersonId: null,
+          part: "WORK_ORDER",
+          workOrderId: first.id,
+          withheldBecause: "ABOUT_ANOTHER_PERSON",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "P2002" });
+    expect(
+      await prisma.issueAccessWeighing.count({ where: { issueId: issue.id } }),
+    ).toBe(2);
+  });
+
   it("is the report's own gate, and refuses an issue the report does not carry", async () => {
     const issue = await filed({
       reporterPersonId: reporter.personId,
@@ -895,5 +951,268 @@ describe("a text given in part", () => {
     );
     expect(entry?.description).toBeNull();
     expect(JSON.stringify(entry)).not.toContain("trummor");
+  });
+});
+
+describe("the text of a work order", () => {
+  it("is in the reporter's report only as the board weighed it", async () => {
+    const issue = await filed({
+      reporterPersonId: reporter.personId,
+      description: `Droppande kran ${suffix}`,
+    });
+    const order = await workOrder(
+      issue.id,
+      `Byt packningen hos Rut, grannen i 1202 har vattenskada ${suffix}`,
+    );
+    const other = await workOrder(issue.id, `Kolla stammen ${suffix}`);
+
+    // Unweighed: listed with whom it went to, and none of its words.
+    const before = (await reportOf(reporter.personId)).issues.find(
+      (item) => item.issueId === issue.id,
+    );
+    expect(before?.workOrders.map((item) => item.content)).toEqual([
+      { state: "unweighed" },
+      { state: "unweighed" },
+    ]);
+    expect(before?.workOrders[0]?.recipientName).toBe(`Rörfirman ${suffix}`);
+    expect(JSON.stringify(before)).not.toContain("packningen");
+
+    const view = await readWeighing(reporter.personId, issue.id);
+    expect(view.report).toBe("reporter");
+    expect(
+      view.texts.map((text) => [text.part, text.id, text.recipientName]),
+    ).toEqual([
+      ["WORK_ORDER", order.id, `Rörfirman ${suffix}`],
+      ["WORK_ORDER", other.id, `Rörfirman ${suffix}`],
+    ]);
+
+    // The reporter's own report never leaves a text out for naming them.
+    const naming = await weigh(reporter.personId, issue.id, [
+      {
+        part: "WORK_ORDER",
+        id: order.id,
+        withheldBecause: "IDENTIFIES_REPORTER",
+      },
+    ]);
+    expect(naming.statusCode).toBe(422);
+    expect(naming.json()).toMatchObject({ reason: "reason-not-allowed" });
+    // A work order is named by its identifier, as a note is.
+    const unnamed = await weigh(reporter.personId, issue.id, [
+      { part: "WORK_ORDER", id: null, withheldBecause: null },
+    ]);
+    expect(unnamed.statusCode).toBe(422);
+    expect(unnamed.json()).toMatchObject({ reason: "text-not-weighable" });
+
+    expect(
+      (
+        await weigh(reporter.personId, issue.id, [
+          {
+            part: "WORK_ORDER",
+            id: order.id,
+            withheldBecause: "ABOUT_ANOTHER_PERSON",
+            givenText: `Byt packningen hos Rut […] ${suffix}`,
+          },
+          { part: "WORK_ORDER", id: other.id, withheldBecause: null },
+        ])
+      ).statusCode,
+    ).toBe(200);
+
+    const after = (await reportOf(reporter.personId)).issues.find(
+      (item) => item.issueId === issue.id,
+    );
+    expect(after?.workOrders.map((item) => item.content)).toEqual([
+      {
+        state: "givenInPart",
+        text: `Byt packningen hos Rut […] ${suffix}`,
+        because: "ABOUT_ANOTHER_PERSON",
+      },
+      { state: "given", text: `Kolla stammen ${suffix}` },
+    ]);
+    // Never the words left out, the address it went to, or who sent it.
+    expect(JSON.stringify(after)).not.toContain("vattenskada");
+    expect(JSON.stringify(after)).not.toContain(`cipher-${suffix}`);
+    expect(JSON.stringify(after?.workOrders)).not.toContain(board.personId);
+  });
+
+  it("is weighed in a concerned person's report, and counted in the log", async () => {
+    const since = new Date();
+    const issue = await filed({
+      reporterPersonId: reporter.personId,
+      description: `Grannen i 1103 borrar sent ${suffix}`,
+    });
+    await prisma.issueConcernedPerson.create({
+      data: { issueId: issue.id, personId: neighbour.personId },
+    });
+    const order = await workOrder(
+      issue.id,
+      `Rut i 1102 klagar, mät ljudet hos Nils ${suffix}`,
+    );
+
+    const view = await readWeighing(neighbour.personId, issue.id);
+    expect(view.texts.map((text) => text.part)).toEqual([
+      "DESCRIPTION",
+      "WORK_ORDER",
+    ]);
+    expect(
+      (
+        await weigh(neighbour.personId, issue.id, [
+          {
+            part: "DESCRIPTION",
+            id: null,
+            withheldBecause: "IDENTIFIES_REPORTER",
+          },
+          {
+            part: "WORK_ORDER",
+            id: order.id,
+            withheldBecause: "IDENTIFIES_REPORTER",
+            givenText: `[…] mät ljudet hos Nils ${suffix}`,
+          },
+        ])
+      ).statusCode,
+    ).toBe(200);
+
+    const entry = (await reportOf(neighbour.personId)).issuesConcerning.find(
+      (item) => item.issueId === issue.id,
+    );
+    expect(entry?.workOrders[0]?.content).toEqual({
+      state: "givenInPart",
+      text: `[…] mät ljudet hos Nils ${suffix}`,
+      because: "IDENTIFIES_REPORTER",
+    });
+    expect(JSON.stringify(entry)).not.toContain("1102");
+    expect(JSON.stringify(entry)).not.toContain(reporter.personId);
+    // The reporter's report has weighed nothing of it: the two are apart.
+    const own = (await reportOf(reporter.personId)).issues.find(
+      (item) => item.issueId === issue.id,
+    );
+    expect(own?.workOrders[0]?.content).toEqual({ state: "unweighed" });
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "ISSUE_ACCESS_WEIGHED",
+        actorPersonId: board.personId,
+        targetPersonId: neighbour.personId,
+        createdAt: { gte: since },
+      },
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.context).toEqual({
+      given: 0,
+      givenInPart: 1,
+      withheld: 1,
+    });
+    expect(JSON.stringify(entries[0])).not.toContain("ljudet");
+    expect(JSON.stringify(entries[0])).not.toContain(order.id);
+  });
+
+  it("outlives the free-text layer with its weighing, and goes with the work-order text purge", async () => {
+    const issue = await filed({
+      reporterPersonId: reporter.personId,
+      description: `Fuktfläck i badrummet ${suffix}`,
+      meaning: "DONE",
+    });
+    await prisma.issueConcernedPerson.create({
+      data: { issueId: issue.id, personId: neighbour.personId },
+    });
+    const order = await workOrder(issue.id, `Fuktmät badrummet ${suffix}`);
+    expect(
+      (
+        await weigh(reporter.personId, issue.id, [
+          { part: "WORK_ORDER", id: order.id, withheldBecause: null },
+        ])
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await weigh(neighbour.personId, issue.id, [
+          { part: "DESCRIPTION", id: null, withheldBecause: null },
+          { part: "WORK_ORDER", id: order.id, withheldBecause: null },
+        ])
+      ).statusCode,
+    ).toBe(200);
+
+    expect(
+      await app.get(IssueFreeTextService).remove(issue.id, new Date(), {
+        stillDue: () => Promise.resolve(true),
+        targetPersonId: null,
+        context: { ground: "test" },
+      }),
+    ).toBe("removed");
+    // The description's weighing went with the layer; the work order's text
+    // stands on its own clock, and so does its weighing in both reports.
+    expect(
+      await prisma.issueAccessWeighing.findMany({
+        where: { issueId: issue.id },
+        select: { part: true, workOrderId: true },
+      }),
+    ).toEqual([
+      { part: "WORK_ORDER", workOrderId: order.id },
+      { part: "WORK_ORDER", workOrderId: order.id },
+    ]);
+    // The bare selector still ties the case to the person, so their report
+    // still gives the text.
+    const kept = (await reportOf(neighbour.personId)).issuesConcerning.find(
+      (item) => item.issueId === issue.id,
+    );
+    expect(kept?.workOrders[0]?.content).toEqual({
+      state: "given",
+      text: `Fuktmät badrummet ${suffix}`,
+    });
+
+    expect(
+      await app
+        .get(IssuePurgeService)
+        .purgeWorkOrderTexts(issue.id, new Date("2040-01-01T00:00:00Z")),
+    ).toBe(true);
+    expect(
+      await prisma.issueAccessWeighing.count({ where: { issueId: issue.id } }),
+    ).toBe(0);
+    const own = (await reportOf(reporter.personId)).issues.find(
+      (item) => item.issueId === issue.id,
+    );
+    expect(own?.workOrders[0]).toMatchObject({
+      redactedAt: null,
+      content: null,
+    });
+  });
+
+  it("goes with a handler's redaction of the text, the copy with it", async () => {
+    const issue = await filed({
+      reporterPersonId: reporter.personId,
+      description: `Trasigt fönster ${suffix}`,
+    });
+    const order = await workOrder(
+      issue.id,
+      `Glasa om fönstret hos Rut ${suffix}`,
+    );
+    expect(
+      (
+        await weigh(reporter.personId, issue.id, [
+          {
+            part: "WORK_ORDER",
+            id: order.id,
+            withheldBecause: "ABOUT_ANOTHER_PERSON",
+            givenText: `Glasa om fönstret […] ${suffix}`,
+          },
+        ])
+      ).statusCode,
+    ).toBe(200);
+
+    await app.get(IssueRedactionService).redact(board.personId, issue.id, {
+      target: "workOrder",
+      id: order.id,
+    });
+
+    expect(
+      await prisma.issueAccessWeighing.count({ where: { issueId: issue.id } }),
+    ).toBe(0);
+    const own = (await reportOf(reporter.personId)).issues.find(
+      (item) => item.issueId === issue.id,
+    );
+    expect(own?.workOrders[0]?.redactedAt).not.toBeNull();
+    expect(own?.workOrders[0]?.content).toBeNull();
+    expect(JSON.stringify(own)).not.toContain("Glasa");
+    // Nothing left to weigh.
+    expect((await readWeighing(reporter.personId, issue.id)).texts).toEqual([]);
   });
 });

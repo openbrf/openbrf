@@ -5,6 +5,7 @@ import {
   isGivenInPartOf,
 } from "@openbrf/shared";
 import { useEffect, useId, useRef, useState } from "react";
+import type { TFunction } from "i18next";
 import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -43,7 +44,10 @@ type Option =
 
 type Text = IssueAccessWeighing["texts"][number];
 
-/** One text, by its part and, for a message or a note, its identifier. */
+/**
+ * One text, by its part and, for a message, a note or a work order, its
+ * identifier.
+ */
 function keyOf(text: Pick<Text, "part" | "id">): string {
   return `${text.part}:${text.id ?? ""}`;
 }
@@ -80,7 +84,10 @@ const PART_LABEL = {
   DESCRIPTION: "register.person.report.weighing.part.DESCRIPTION",
   LOCATION: "register.person.report.weighing.part.LOCATION",
   NOTE: "register.person.report.weighing.part.NOTE",
-} as const satisfies Record<Exclude<Text["part"], "MESSAGE">, TranslationKey>;
+} as const satisfies Record<
+  Exclude<Text["part"], "MESSAGE" | "WORK_ORDER">,
+  TranslationKey
+>;
 
 const OPTION_LABEL = {
   given: "register.person.report.weighing.choice.given",
@@ -94,13 +101,27 @@ const OPTION_LABEL = {
     "register.person.report.weighing.choice.withheld.ABOUT_ANOTHER_PERSON",
 } as const satisfies Record<Option, TranslationKey>;
 
-function partLabel(text: Text): TranslationKey {
-  if (text.part !== "MESSAGE") {
-    return PART_LABEL[text.part];
+/**
+ * What the text is, as its legend names it: a work order by whom it went to,
+ * so the board can tell one from another, and a message by whose side wrote it.
+ */
+function partLabel(text: Text, t: TFunction): string {
+  switch (text.part) {
+    case "MESSAGE":
+      return t(
+        text.side === "HANDLER"
+          ? "register.person.report.weighing.part.MESSAGE_HANDLER"
+          : "register.person.report.weighing.part.MESSAGE_REPORTER",
+      );
+    case "WORK_ORDER":
+      return text.recipientName === null
+        ? t("register.person.report.weighing.part.WORK_ORDER_REMOVED")
+        : t("register.person.report.weighing.part.WORK_ORDER", {
+            recipient: text.recipientName,
+          });
+    default:
+      return t(PART_LABEL[text.part]);
   }
-  return text.side === "HANDLER"
-    ? "register.person.report.weighing.part.MESSAGE_HANDLER"
-    : "register.person.report.weighing.part.MESSAGE_REPORTER";
 }
 
 /** The association's day of an instant, as the report states every date. */
@@ -135,8 +156,8 @@ export interface IssueAccessWeighingPanelProps {
  * board takes the words it must not give out of a copy of it, each place
  * marked, and the report prints that copy and the reason; the text itself
  * stays as written. The report never prints a word left out. A reporter's own
- * report weighs only the internal notes, and never leaves anything out for
- * telling them who reported their own case.
+ * report weighs only the internal notes and the work orders' text, and never
+ * leaves anything out for telling them who reported their own case.
  *
  * Saved whole: every text the panel shows needs a choice, and the save
  * replaces the weighing before it. A failed save keeps the choices on screen
@@ -323,7 +344,7 @@ export function IssueAccessWeighingPanel({
                   disabled={saving}
                 >
                   <legend className="text-label text-ink-muted uppercase">
-                    {t(partLabel(text))}{" "}
+                    {partLabel(text, t)}{" "}
                     <span className="font-data text-data normal-case">
                       {day(text.writtenAt)}
                     </span>

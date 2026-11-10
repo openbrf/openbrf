@@ -120,6 +120,7 @@ export {
   ISSUE_ACCESS_PARTS,
   ISSUE_ACCESS_WITHHOLDING_REASONS,
   isGivenInPartOf,
+  issueAccessPartHasId,
 } from "./issue-access-weighing.ts";
 export type {
   IssueAccessPart,

@@ -1847,8 +1847,10 @@ describe("what the report contains", () => {
     expect(waiting?.waitingReason).toBe("CONTRACTOR");
     expect(waiting?.outcome).toBeNull();
     // Whom the issue was sent to and when (art. 15(1)(c)), oldest first; a
-    // removed contractor is named by nobody, and no text or address is copied.
-    expect(waiting?.workOrders).toEqual([
+    // removed contractor is named by nobody, and no address is copied. The
+    // text is given only once the board has weighed it (ADR 0057, question 7),
+    // which nobody has here, so none of it is.
+    expect(waiting?.workOrders).toMatchObject([
       {
         recipientName: `Rormokare ${suffix}`,
         writtenAt: "2026-02-20T09:00:00.000Z",
@@ -1856,6 +1858,8 @@ describe("what the report contains", () => {
         notSent: false,
         linkGiven: false,
         photosShared: 0,
+        redactedAt: null,
+        content: { state: "unweighed" },
       },
       {
         recipientName: null,
@@ -1866,6 +1870,8 @@ describe("what the report contains", () => {
         notSent: false,
         linkGiven: false,
         photosShared: 0,
+        redactedAt: null,
+        content: { state: "unweighed" },
       },
       {
         recipientName: `Elektriker ${suffix}`,
@@ -1875,6 +1881,8 @@ describe("what the report contains", () => {
         notSent: true,
         linkGiven: false,
         photosShared: 0,
+        redactedAt: null,
+        content: { state: "unweighed" },
       },
       {
         recipientName: `Platslagare ${suffix}`,
@@ -1885,6 +1893,8 @@ describe("what the report contains", () => {
         // disclosed: both stay on the report.
         linkGiven: true,
         photosShared: 2,
+        redactedAt: null,
+        content: { state: "unweighed" },
       },
     ]);
     // Never answered, and the common area by its name.

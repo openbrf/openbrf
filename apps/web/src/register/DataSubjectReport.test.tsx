@@ -2082,28 +2082,37 @@ describe("what the document prints", () => {
           ...issue,
           workOrders: [
             {
+              workOrderId: "work-order-1",
               recipientName: "Rörmokare Ab",
               writtenAt: "2026-01-06T09:00:00.000Z",
               deliveryStatus: "SENT",
               notSent: false,
               linkGiven: true,
               photosShared: 2,
+              redactedAt: null,
+              content: null,
             },
             {
+              workOrderId: "work-order-2",
               recipientName: null,
               writtenAt: "2026-01-07T09:00:00.000Z",
               deliveryStatus: "FAILED",
               notSent: false,
               linkGiven: false,
               photosShared: 0,
+              redactedAt: null,
+              content: null,
             },
             {
+              workOrderId: "work-order-3",
               recipientName: "Elektriker Ab",
               writtenAt: "2026-01-08T09:00:00.000Z",
               deliveryStatus: "FAILED",
               notSent: true,
               linkGiven: false,
               photosShared: 0,
+              redactedAt: null,
+              content: null,
             },
           ],
         },
@@ -2636,6 +2645,143 @@ describe("what the board weighed under art. 15(4)", () => {
     expect(instead.classList.contains("print:block")).toBe(true);
     // Nothing was left out, so the report says nothing of a complaint.
     expect(within(section).queryByText(/klaga hos IMY/)).toBeNull();
+  });
+
+  it("gives a work order's text as the board weighed it, and will not print while one is unweighed", async () => {
+    // ADR 0057, question 7: the handler's words to a contractor are part of
+    // the reporter's copy (art. 15(3)), weighed as a note is, on an issue with
+    // no note to weigh as well.
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    const order = {
+      recipientName: "Rörmokare Ab",
+      deliveryStatus: "SENT" as const,
+      notSent: false,
+      linkGiven: false,
+      photosShared: 0,
+      redactedAt: null,
+    };
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          notes: [],
+          workOrders: [
+            {
+              ...order,
+              workOrderId: "work-order-1",
+              writtenAt: "2026-01-06T09:00:00.000Z",
+              content: { state: "given", text: "Byt packningen i köket." },
+            },
+            {
+              ...order,
+              workOrderId: "work-order-2",
+              writtenAt: "2026-01-07T09:00:00.000Z",
+              content: { state: "withheld", because: "ABOUT_ANOTHER_PERSON" },
+            },
+            {
+              ...order,
+              workOrderId: "work-order-3",
+              writtenAt: "2026-01-08T09:00:00.000Z",
+              content: { state: "unweighed" },
+            },
+            {
+              ...order,
+              workOrderId: "work-order-4",
+              writtenAt: "2026-01-09T09:00:00.000Z",
+              redactedAt: "2026-02-01T09:00:00.000Z",
+              content: null,
+            },
+            {
+              ...order,
+              workOrderId: "work-order-5",
+              writtenAt: "2026-01-10T09:00:00.000Z",
+              content: null,
+            },
+          ],
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const section = within(sectionOf(inSwedish(SECTION_TITLE.issues)));
+    expect(section.getByText("Byt packningen i köket.")).toBeTruthy();
+    expect(
+      section.getByText(
+        "Utelämnat: det handlar om någon annan (artikel 15.4 i dataskyddsförordningen)",
+      ),
+    ).toBeTruthy();
+    expect(
+      section.getByText("Inte utlämnat: styrelsen har ännu inte prövat det"),
+    ).toBeTruthy();
+    // A redacted text says when, and an erased one that its time ran out.
+    expect(section.getByText(/Borttaget av en handläggare/)).toBeTruthy();
+    expect(
+      section.getByText("Texten raderades när dess lagringstid gick ut."),
+    ).toBeTruthy();
+    // Something was left out, so the report says why and where to complain.
+    expect(section.getByText(/klaga hos IMY/)).toBeTruthy();
+    // The board can weigh it from the issue, and the report is not printed
+    // until it has.
+    expect(
+      section.getByRole("button", { name: "Pröva vad som lämnas ut" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/En text i ärendena nedan är inte prövad/),
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("gives a work order's text on a case somebody else reported only as weighed", async () => {
+    const [concerning] = FULL_REPORT.issuesConcerning;
+    if (concerning === undefined) throw new Error("the fixture holds a case");
+    renderReport({
+      ...FULL_REPORT,
+      issuesConcerning: [
+        {
+          ...concerning,
+          description: { state: "given", text: "Musik på natten." },
+          workOrders: [
+            {
+              workOrderId: "work-order-1",
+              recipientName: "Ljudtekniker Ab",
+              writtenAt: "2026-01-06T09:00:00.000Z",
+              deliveryStatus: "SENT",
+              notSent: false,
+              linkGiven: false,
+              photosShared: 0,
+              redactedAt: null,
+              content: {
+                state: "givenInPart",
+                text: "Mät ljudet från 1103 […]",
+                because: "IDENTIFIES_REPORTER",
+              },
+            },
+          ],
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const section = within(
+      sectionOf(inSwedish(SECTION_TITLE.issuesConcerning)),
+    );
+    expect(section.getByText("Mät ljudet från 1103 […]")).toBeTruthy();
+    expect(
+      section.getByText(
+        /^Delvis utlämnat: ord som skulle avslöja vem som anmälde ärendet/,
+      ),
+    ).toBeTruthy();
+    // The work order alone left something out, and the report says so.
+    expect(section.getByText(/klaga hos IMY/)).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
   });
 
   it("prints a text given in part as the board's copy, with the reason and none of the words left out", async () => {

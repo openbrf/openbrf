@@ -103,11 +103,13 @@ import {
   KEYED_WEIGHING_SELECT,
   WEIGHED_NOTE_SELECT,
   reportNote,
+  REPORT_WORK_ORDER_SELECT,
   reportWorkOrder,
   strictestWeighing,
   WEIGHING_SELECT,
   weighedText,
   weighingKey,
+  WORK_ORDER_ORDER,
   weighingsByText,
 } from "./issue-access-weighing";
 import { ExportSlots } from "./export-slots";
@@ -759,20 +761,17 @@ export class DataSubjectReportService {
             },
           },
         },
-        // Whom the issue was sent to (art. 15(1)(c)); never the text, which is
-        // the handler's and may name others (see `ReportIssueWorkOrder`).
+        // Whom the issue was sent to (art. 15(1)(c)), and the text, which is
+        // the handler's and may name others, with the board's weighing of it
+        // for the reporter's report (ADR 0057, question 7).
         workOrders: {
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          orderBy: WORK_ORDER_ORDER,
           select: {
-            recipientName: true,
-            createdAt: true,
-            deliveryStatus: true,
-            deliveryFailure: true,
-            // Whether the contractor was given a link, and how many of the
-            // issue's photographs it showed them (ADR 0055): from the record
-            // the handler's acts leave, which a changed choice or a removed
-            // file does not shorten.
-            _count: { select: { links: true, exposures: true } },
+            ...REPORT_WORK_ORDER_SELECT,
+            accessWeighings: {
+              where: { concernedPersonId: null },
+              select: WEIGHING_SELECT,
+            },
           },
         },
       },
@@ -840,14 +839,8 @@ export class DataSubjectReportService {
         },
         notes: { orderBy: ISSUE_NOTE_ORDER, select: WEIGHED_NOTE_SELECT },
         workOrders: {
-          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          select: {
-            recipientName: true,
-            createdAt: true,
-            deliveryStatus: true,
-            deliveryFailure: true,
-            _count: { select: { links: true, exposures: true } },
-          },
+          orderBy: WORK_ORDER_ORDER,
+          select: REPORT_WORK_ORDER_SELECT,
         },
       },
     });
@@ -1951,7 +1944,9 @@ export class DataSubjectReportService {
         notes: issue.notes.map((note) =>
           reportNote(note, strictestWeighing(note.accessWeighings)),
         ),
-        workOrders: issue.workOrders.map(reportWorkOrder),
+        workOrders: issue.workOrders.map((order) =>
+          reportWorkOrder(order, strictestWeighing(order.accessWeighings)),
+        ),
       })),
       issuesConcerning: concerning.map((issue) => {
         // One record per person on an issue (the unique key), and the where
@@ -2019,7 +2014,12 @@ export class DataSubjectReportService {
             reportNote(note, weighings.get(weighingKey("NOTE", note.id))),
           ),
           photographs: issue._count.photos,
-          workOrders: issue.workOrders.map(reportWorkOrder),
+          workOrders: issue.workOrders.map((order) =>
+            reportWorkOrder(
+              order,
+              weighings.get(weighingKey("WORK_ORDER", order.id)),
+            ),
+          ),
         };
       }),
       issueAssignments: [

@@ -1,6 +1,7 @@
-import type {
-  IssueAccessPart,
-  IssueAccessWithholdingReason,
+import {
+  type IssueAccessPart,
+  type IssueAccessWithholdingReason,
+  issueAccessPartHasId,
 } from "@openbrf/shared";
 
 import type { Prisma } from "../generated/prisma/client";
@@ -31,12 +32,59 @@ export const WEIGHED_NOTE_SELECT = {
   createdAt: true,
 } as const satisfies Prisma.IssueNoteSelect;
 
+/** Oldest first, as the issue lists them. */
+export const WORK_ORDER_ORDER = [
+  { createdAt: "asc" },
+  { id: "asc" },
+] as const satisfies Prisma.WorkOrderOrderByWithRelationInput[];
+
 /**
- * One text on an issue: the part, and for a message or a note its identifier.
- * The description and the location are one each.
+ * What of a work order a report reads: whom it went to and when (art.
+ * 15(1)(c)), whether it went, and its text, which the report gives as the
+ * board weighed it (ADR 0057, question 7). Never the address it went to, nor
+ * who sent it.
+ */
+export const REPORT_WORK_ORDER_SELECT = {
+  id: true,
+  recipientName: true,
+  body: true,
+  redactedAt: true,
+  createdAt: true,
+  deliveryStatus: true,
+  deliveryFailure: true,
+  // Whether the contractor was given a link, and how many of the issue's
+  // photographs it showed them (ADR 0055): from the record the handler's acts
+  // leave, which a changed choice or a removed file does not shorten.
+  _count: { select: { links: true, exposures: true } },
+} as const satisfies Prisma.WorkOrderSelect;
+
+/**
+ * What of a work order the board reads to weigh it: its text, and whom it went
+ * to so one can be told from another. Never the address, nor who sent it.
+ */
+export const WEIGHED_WORK_ORDER_SELECT = {
+  id: true,
+  recipientName: true,
+  body: true,
+  redactedAt: true,
+  createdAt: true,
+} as const satisfies Prisma.WorkOrderSelect;
+
+/**
+ * One text on an issue: the part, and for a message, a note or a work order
+ * its identifier. The description and the location are one each.
  */
 export function weighingKey(part: IssueAccessPart, id: string | null): string {
-  return part === "MESSAGE" || part === "NOTE" ? `${part}:${id ?? ""}` : part;
+  return issueAccessPartHasId(part) ? `${part}:${id ?? ""}` : part;
+}
+
+/** The identifier a weighing row names its text by, for `weighingKey`. */
+export function weighedTextId(weighing: {
+  messageId: string | null;
+  noteId: string | null;
+  workOrderId: string | null;
+}): string | null {
+  return weighing.messageId ?? weighing.noteId ?? weighing.workOrderId;
 }
 
 /** What of a weighing the report reads: the reason, and a copy given in part. */
@@ -50,6 +98,7 @@ export const KEYED_WEIGHING_SELECT = {
   part: true,
   messageId: true,
   noteId: true,
+  workOrderId: true,
   ...WEIGHING_SELECT,
 } as const satisfies Prisma.IssueAccessWeighingSelect;
 
@@ -64,6 +113,7 @@ export interface KeyedWeighing extends StandingWeighing {
   part: IssueAccessPart;
   messageId: string | null;
   noteId: string | null;
+  workOrderId: string | null;
 }
 
 /** How much of a text a weighing keeps back: whole, in part, or nothing. */
@@ -113,7 +163,7 @@ export function weighingsByText(
 ): Map<string, StandingWeighing> {
   const byText = new Map<string, StandingWeighing[]>();
   for (const row of rows) {
-    const key = weighingKey(row.part, row.messageId ?? row.noteId);
+    const key = weighingKey(row.part, weighedTextId(row));
     byText.set(key, [...(byText.get(key) ?? []), row]);
   }
   return new Map(
@@ -166,16 +216,18 @@ export function reportNote(
 
 /**
  * A work order as both issue sections carry it: whom the issue was sent to
- * (art. 15(1)(c)), never the text, which is the handler's and may name others.
+ * (art. 15(1)(c)), and its text as the board weighed it for this report
+ * (art. 15(3) and (4)): the handler's words to a contractor, which may name
+ * somebody else.
  */
-export function reportWorkOrder(order: {
-  recipientName: string | null;
-  createdAt: Date;
-  deliveryStatus: ReportIssueWorkOrder["deliveryStatus"];
-  deliveryFailure: string | null;
-  _count: { links: number; exposures: number };
-}): ReportIssueWorkOrder {
+export function reportWorkOrder(
+  order: Prisma.WorkOrderGetPayload<{
+    select: typeof REPORT_WORK_ORDER_SELECT;
+  }>,
+  weighing: StandingWeighing | undefined,
+): ReportIssueWorkOrder {
   return {
+    workOrderId: order.id,
     recipientName: order.recipientName,
     writtenAt: order.createdAt.toISOString(),
     deliveryStatus: order.deliveryStatus,
@@ -184,5 +236,10 @@ export function reportWorkOrder(order: {
       workOrderKnownNotSent(order.deliveryFailure),
     linkGiven: order._count.links > 0,
     photosShared: order._count.exposures,
+    redactedAt: order.redactedAt?.toISOString() ?? null,
+    content:
+      order.redactedAt === null && order.body !== null && order.body !== ""
+        ? weighedText(order.body, weighing)
+        : null,
   };
 }

@@ -67,13 +67,69 @@ describe("the weighing that stands of the rows on one text", () => {
 describe("the weighings of one report, by text", () => {
   it("keys each text apart and takes the most restrictive row on each", () => {
     const rows: KeyedWeighing[] = [
-      { part: "DESCRIPTION", messageId: null, noteId: null, ...given },
-      { part: "DESCRIPTION", messageId: null, noteId: null, ...withheld },
-      { part: "LOCATION", messageId: null, noteId: null, ...given },
-      { part: "NOTE", messageId: null, noteId: "n1", ...given },
-      { part: "NOTE", messageId: null, noteId: "n2", ...inPart },
-      { part: "MESSAGE", messageId: "m1", noteId: null, ...given },
-      { part: "MESSAGE", messageId: "m1", noteId: null, ...inPart },
+      {
+        part: "DESCRIPTION",
+        messageId: null,
+        noteId: null,
+        workOrderId: null,
+        ...given,
+      },
+      {
+        part: "DESCRIPTION",
+        messageId: null,
+        noteId: null,
+        workOrderId: null,
+        ...withheld,
+      },
+      {
+        part: "LOCATION",
+        messageId: null,
+        noteId: null,
+        workOrderId: null,
+        ...given,
+      },
+      {
+        part: "NOTE",
+        messageId: null,
+        noteId: "n1",
+        workOrderId: null,
+        ...given,
+      },
+      {
+        part: "NOTE",
+        messageId: null,
+        noteId: "n2",
+        workOrderId: null,
+        ...inPart,
+      },
+      {
+        part: "MESSAGE",
+        messageId: "m1",
+        noteId: null,
+        workOrderId: null,
+        ...given,
+      },
+      {
+        part: "MESSAGE",
+        messageId: "m1",
+        noteId: null,
+        workOrderId: null,
+        ...inPart,
+      },
+      {
+        part: "WORK_ORDER",
+        messageId: null,
+        noteId: null,
+        workOrderId: "w1",
+        ...given,
+      },
+      {
+        part: "WORK_ORDER",
+        messageId: null,
+        noteId: null,
+        workOrderId: "w2",
+        ...withheld,
+      },
     ];
     const byText = weighingsByText(rows);
     expect(byText.get("DESCRIPTION")).toMatchObject(withheld);
@@ -81,6 +137,8 @@ describe("the weighings of one report, by text", () => {
     expect(byText.get("NOTE:n1")).toMatchObject(given);
     expect(byText.get("NOTE:n2")).toMatchObject(inPart);
     expect(byText.get("MESSAGE:m1")).toMatchObject(inPart);
-    expect(byText.size).toBe(5);
+    expect(byText.get("WORK_ORDER:w1")).toMatchObject(given);
+    expect(byText.get("WORK_ORDER:w2")).toMatchObject(withheld);
+    expect(byText.size).toBe(7);
   });
 });

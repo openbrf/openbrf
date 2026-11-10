@@ -5157,6 +5157,11 @@ model WorkOrder {
   notes        WorkOrderNote[]
   files        WorkOrderFile[]
 
+  /// The board's weighing of the text for an access report (ADR 0057,
+  /// question 7). Goes with the row by its cascade, and with the text: the
+  /// work-order text purge and a handler's redaction delete it.
+  accessWeighings IssueAccessWeighing[]
+
   @@index([issueId, createdAt])
   @@index([contractorId])
   /// The sender's own work orders in the last hour, for the sending budget.
@@ -5478,6 +5483,8 @@ enum IssueAccessPart {
   LOCATION
   MESSAGE
   NOTE
+  /// The text of a work order, on its own ten-year clock (question 7).
+  WORK_ORDER
 }
 
 /// Why a text is left out of a person's access report, as GDPR art. 15(4)
@@ -5496,26 +5503,30 @@ enum IssueAccessWithholdingReason {
 ///
 /// Whose report it is: the person a concerned-person record names, where
 /// `concernedPersonId` is set, and the issue's reporter where it is null. The
-/// reporter's report weighs only the internal notes, because their own words
-/// and the conversation are already theirs to read. A concerned person's
-/// weighs the description, the location, every message and every note. A text
+/// reporter's report weighs the internal notes and the work orders' text,
+/// because their own words and the conversation are already theirs to read. A
+/// concerned person's weighs the description, the location, every message,
+/// every note and every work order's text. A text
 /// with no row here is not yet weighed: the report gives none of it, says it
 /// awaits the board, and the board's screen will not print it until it is
 /// weighed.
 ///
 /// One row per text and report: the unique index
 /// `issue_access_weighing_text_key`, written in the migration's SQL because it
-/// is on expressions, holds issue, record, part and message or note unique with
-/// the reporter's report and the description and the location folded in as
-/// nulls. Every reader takes the most restrictive of the rows on one text all
+/// is on expressions, holds issue, record, part and message, note or work
+/// order unique with the reporter's report and the description and the
+/// location folded in as nulls. Every reader takes the most restrictive of the rows on one text all
 /// the same (`strictestWeighing`), so a duplicate could never give what one of
 /// them left out.
 ///
 /// No column names a person: the record and the issue do. Each row goes with
 /// the text it weighs or the record whose report it is (cascade), with a
 /// handler's redaction of that text (`IssueRedactionService`), and every row on
-/// an issue goes with its free-text layer (`IssueFreeTextService`). The board
-/// member who weighed is the actor of `ISSUE_ACCESS_WEIGHED`.
+/// an issue but a work order's goes with its free-text layer
+/// (`IssueFreeTextService`). A work order's text is on its own clock, so its
+/// weighing goes with that text, by the work-order text purge
+/// (`IssuePurgeService`) or a redaction. The board member who weighed is the
+/// actor of `ISSUE_ACCESS_WEIGHED`.
 model IssueAccessWeighing {
   id String @id @default(cuid())
 
@@ -5529,12 +5540,14 @@ model IssueAccessWeighing {
 
   part IssueAccessPart
 
-  /// The message or the note weighed, for those parts; null for the
-  /// description and the location.
-  messageId String?
-  message   IssueMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  noteId    String?
-  note      IssueNote?    @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  /// The message, the note or the work order weighed, for those parts; null
+  /// for the description and the location.
+  messageId   String?
+  message     IssueMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  noteId      String?
+  note        IssueNote?    @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  workOrderId String?
+  workOrder   WorkOrder?    @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
 
   /// Why it is left out, whole or in part; null when it is given whole.
   withheldBecause IssueAccessWithholdingReason?
@@ -5552,6 +5565,7 @@ model IssueAccessWeighing {
   @@index([concernedPersonId])
   @@index([messageId])
   @@index([noteId])
+  @@index([workOrderId])
   @@map("issue_access_weighing")
 }
 
