@@ -27,6 +27,21 @@ const LIFT_CONTRACTOR = {
 } as const;
 
 /**
+ * The firm the resident's laundry report is sent to, for the access report
+ * screens: nobody's firm either, on the reserved .test domain, with no
+ * telephone number.
+ */
+const LAUNDRY_CONTRACTOR = {
+  name: "Tvättservice i Storgatan",
+  trade: "Servicetekniker",
+  email: "order@tvattservice.test",
+} as const;
+
+/** What the administrator writes the laundry firm: the building's, nobody's. */
+const LAUNDRY_WORK_ORDER =
+  "Torktumlare två i tvättstugan i källaren startar inte och visar F12. Nyckeln finns hos styrelsen.";
+
+/**
  * Every screen the capture writes an image of, in the order it walks them.
  *
  * This file is data. A branch that builds a screen adds it here, in the same
@@ -2968,6 +2983,133 @@ export const SCREENS: readonly Screen[] = [
       },
     ],
     waitFor: { text: /Debiteringen görs från ärendet/, first: true },
+    capture: "page",
+  },
+  {
+    /*
+     * The resident's access report with a work order on the issue they
+     * reported (ADR 0057, question 7). The administrator sends the laundry firm
+     * a work order on this walk's report, then takes the resident's report
+     * from the address book: the work order is listed with whom it went to and
+     * when, and its text is not given until the board has weighed it, so the
+     * report cannot be printed yet. The firm goes on the contractor list once,
+     * so a walk against a stack that is already up finds it there. Sending is
+     * what puts a work order's text on the report, so this one is sent, to an
+     * address on the reserved .test domain that mailpit collects.
+     */
+    name: "data-subject-report-work-order-unweighed",
+    as: "administrator",
+    goto: appPath("/board/settings/issues-bookings"),
+    prepare: [
+      { see: { panel: "Entreprenörer" } },
+      { see: { button: `Ta bort ${LIFT_CONTRACTOR.name}` } },
+      {
+        unlessSeen: { button: `Ta bort ${LAUNDRY_CONTRACTOR.name}` },
+        steps: [
+          {
+            fill: { label: "Namn", within: "Entreprenörer" },
+            value: LAUNDRY_CONTRACTOR.name,
+          },
+          {
+            fill: { label: "Yrke", within: "Entreprenörer" },
+            value: LAUNDRY_CONTRACTOR.trade,
+          },
+          {
+            fill: { label: "E-postadress", within: "Entreprenörer" },
+            value: LAUNDRY_CONTRACTOR.email,
+          },
+          {
+            click: { button: "Lägg till entreprenör", within: "Entreprenörer" },
+          },
+          { see: { button: `Ta bort ${LAUNDRY_CONTRACTOR.name}` } },
+        ],
+      },
+      { visit: appPath("/board/issues?view=all") },
+      {
+        click: {
+          text: new RegExp(`^Arbetsorder för ${RESIDENT_REPORT.type}$`),
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+      },
+      {
+        select: {
+          combobox: `${RESIDENT_REPORT.type}: entreprenör`,
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+        option: `${LAUNDRY_CONTRACTOR.name} (${LAUNDRY_CONTRACTOR.trade})`,
+      },
+      {
+        fill: {
+          label: `${RESIDENT_REPORT.type}: arbetsorder`,
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+        value: LAUNDRY_WORK_ORDER,
+      },
+      {
+        click: { button: "Förhandsgranska", inRowWith: RESIDENT_REPORT_ROW },
+      },
+      {
+        click: {
+          button: `Skicka till ${LAUNDRY_CONTRACTOR.name}`,
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+      },
+      {
+        see: {
+          text: new RegExp(
+            `^Arbetsordern till ${LAUNDRY_CONTRACTOR.name} är sparad`,
+          ),
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+      },
+      { visit: appPath("/board/address-book") },
+      { click: { button: `Öppna ${RESIDENT.name}` } },
+      { see: { heading: RESIDENT.name } },
+      { click: { button: "Ta fram registerutdraget" } },
+    ],
+    // The first, for the reason the weighing entry below gives.
+    waitFor: {
+      text: "Inte utlämnat: styrelsen har ännu inte prövat det",
+      first: true,
+    },
+    capture: "page",
+  },
+  {
+    /*
+     * The board weighing the resident's issue for that report: the work order
+     * named by the firm it went to, with its text and the choices for it. A
+     * reporter's own report has no choice that would tell who reported the
+     * issue. The first, because a stack that is already up holds the reports
+     * of earlier walks under the same type, and the report's table has no row
+     * text only this walk wrote; any of them photographs the same panel.
+     */
+    name: "data-subject-report-weighing",
+    prepare: [
+      {
+        click: { button: "Pröva vad som lämnas ut", first: true },
+      },
+      // The legend carries the work order's date after the firm's name.
+      {
+        see: {
+          text: new RegExp(`^Arbetsorder till ${LAUNDRY_CONTRACTOR.name}`),
+          first: true,
+        },
+      },
+      { scrollTo: { heading: /^Pröva ärende .+ för utdraget$/ } },
+    ],
+    waitFor: { label: /^Lämna ut$/ },
+  },
+  {
+    /*
+     * The same report once the board gave the work order's text: the handler's
+     * words to the firm on the report, and Print offered again.
+     */
+    name: "data-subject-report-work-order-given",
+    prepare: [
+      { click: { label: /^Lämna ut$/ } },
+      { click: { button: "Spara prövningen" } },
+    ],
+    waitFor: { text: LAUNDRY_WORK_ORDER, first: true },
     capture: "page",
   },
 

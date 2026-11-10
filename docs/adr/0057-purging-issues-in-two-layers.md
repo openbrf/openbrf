@@ -8,8 +8,9 @@ Accepted, with the questions under [Open questions](#open-questions) left to the
 owner and to the legal review the issue module plan names, except questions 1, 3
 and 4, which the legal review answered on 2026-11-09
 ([The board's weighing under art. 15(4)](#the-boards-weighing-under-art-154),
-[below](#the-legal-reviews-answer-to-question-4)), and question 7, which follows
-from the answers to 1 and 3 (2026-11-10). Amends
+[below](#the-legal-reviews-answer-to-question-4)). Question 7 has a proposed
+answer, drawn from the answers to 1 and 3 and built as proposed, which waits
+for the owner's confirmation. Amends
 [ADR 0019](0019-every-column-that-names-a-person-is-answered-for.md): a column
 naming a person somebody else chose is answered by a section, and this record
 says which. The fourth of four records for the issue module (ADRs 0054 to 0057),
@@ -542,7 +543,8 @@ board weighs every such text before the report gives it (access weighing,
   every other report, and a legal hold that keeps a handler from redacting it
   does not keep the board from giving it in part. A handler's redaction remains
   the way to take words out of the case for everybody.
-- **The text of a work order is weighed like a note** (question 7). It is the
+- **The text of a work order is weighed like a note** (question 7, as proposed
+  and awaiting the owner's confirmation). It is the
   handler's own words to a contractor, about the case and often about the
   person: whose apartment, what is wrong there, when to come. So while it stands
   it is part of the copy under art. 15(3), on the reporter's own issues and on
@@ -665,9 +667,12 @@ review:
    sole trader's name and telephone number in the contractor register, which is
    not a person in the register: on which report, and on which clock. See
    [The contractor register](#the-contractor-register).
-7. **The text of a work order in the access report**: answered on 2026-11-10,
-   from the legal review's answers to questions 1 and 3, which rest on the same
-   sources. A work order is the handlers' words about the case, as a note is
+7. **The text of a work order in the access report** _(proposed 2026-11-10,
+   awaiting the owner's confirmation)_: the proposed answer follows from the
+   legal review's answers to questions 1 and 3, which rest on the same
+   sources. Until the owner confirms it, or puts it to counsel, the question
+   stays open, and the release that carries the issue module needs that
+   confirmation first. A work order is the handlers' words about the case, as a note is
    (EDPB Guidelines 01/2022, Example 15 and paras 96-97), and art. 15(3) gives
    the copy of what is processed for as long as it is: ten years after closing
    is the ordinary clock and not a date after which the text is gone, as a legal
