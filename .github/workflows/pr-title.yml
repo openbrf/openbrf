@@ -79,6 +79,13 @@ jobs:
       # linted by the pull requests that landed them and which no branch can
       # rewrite: a squash commit's header gains " (#123)" on landing, so one
       # that fitted as a title can be too long here.
+      #
+      # The same suffix is why a trailing " (#123)" is taken off a header
+      # before it is linted. A pull request from an integration branch into
+      # main brings the squash commits of the pull requests that landed on
+      # that branch, each one linted as a title without the suffix GitHub then
+      # added, and no branch can rewrite those either. Everything else in the
+      # header is still linted.
       - name: Lint every commit with commitlint
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -92,6 +99,8 @@ jobs:
           while read -r sha; do
             [ -n "$sha" ] || continue
             echo "commit $sha"
-            git log -1 --format=%B "$sha" | pnpm exec commitlint --verbose || status=1
+            git log -1 --format=%B "$sha" \
+              | sed -E '1s/ \(#[0-9]+\)$//' \
+              | pnpm exec commitlint --verbose || status=1
           done <<< "$commits"
           exit "$status"

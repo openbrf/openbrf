@@ -329,6 +329,12 @@ with the preview and the stored recipient, date and contents, and the link is
 switched on afterwards. Neither way is open on a ring-fenced case (above). The
 reporter's link is not behind that gate.
 
+The review was done in November 2026. It found the contractor a recipient and a
+controller of their own for a mailed work order, and left one question for
+counsel: whether asking the contractor for notes and photographs through the
+link makes them a processor for the association. The link stays off until that
+is answered.
+
 The switch is one setting of the instance, `OPENBRF_CONTRACTOR_LINKS_ENABLED`,
 off by default. It is read in the lookup that resolves every contractor's
 token, as a parameter of the same statement, so with it off every address

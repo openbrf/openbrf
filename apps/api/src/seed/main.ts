@@ -2,6 +2,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 
 import { loadEnv } from "../config/env";
 import { loadNearestEnvFile } from "../config/load-env-file";
+import { pinnedSessionConfig } from "../database/session-time-zone";
 import { PrismaClient } from "../generated/prisma/client";
 import { DEMO_ASSOCIATION } from "./demo-data";
 import { demoSeedRefusal, seedDemoData } from "./seed";
@@ -28,9 +29,7 @@ async function main(): Promise<void> {
   }
 
   const prisma = new PrismaClient({
-    adapter: new PrismaPg({
-      connectionString: env.DATABASE_URL,
-    }),
+    adapter: new PrismaPg(pinnedSessionConfig(env.DATABASE_URL)),
   });
 
   try {

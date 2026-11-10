@@ -11,8 +11,9 @@ An issue has an assignee, a priority and a target date, and the issue queue
 has the views Mine, Unassigned and Overdue, with a filter and a search. The
 handlers write with residents on the issue, and with a reporter who has no
 account through a private link; they keep internal notes and files of their
-own. A handler sends a work order to a contractor, who answers it through a
-link, and the board makes a charge from an issue. Issues can be marked as
+own. A handler previews a work order and mails it to a contractor, and the
+board makes a charge from an issue. A link through which the contractor answers
+a work order is built and ships switched off. Issues can be marked as
 damage cases, and an issue type can be ring-fenced to the board. A reporter's
 reply reopens a closed issue, and duplicates are merged. An issue's free text
 is kept for a period the board sets while its building record stays.
@@ -62,8 +63,12 @@ Connected apps and the AI package can assign and move issues.
   hold. A row the board has not edited is updated at the next start. A row the
   board has edited keeps the board's words, so a board that edited it should
   add these points itself.
-- **The contractor's link is switched off.** It ships off until its legal
-  review is done. Set `OPENBRF_CONTRACTOR_LINKS_ENABLED=true` to turn it on.
+- **The contractor's link is switched off.** Its legal review is done and left
+  one question open: whether asking a contractor for notes and photographs
+  through the link makes them a processor for the association rather than a
+  recipient. The link stays off until that is answered. An association that sets
+  `OPENBRF_CONTRACTOR_LINKS_ENABLED=true` before then takes that question on
+  itself. Work orders are mailed either way.
 - **The reverse proxy's access log.** The path of a reporter's private link and
   of a contractor's link is the credential. Keep `/arende/` and `/arbetsorder/`
   paths out of the proxy's access log; `docs/deployment.md` says how.
