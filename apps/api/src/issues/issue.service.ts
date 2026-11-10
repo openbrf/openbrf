@@ -911,8 +911,6 @@ export class IssueService {
     const followsIssueId = input.followsIssueId ?? null;
     const data = {
       typeId: type.id,
-      // The type's default NEW status: a report is new until a handler moves it.
-      statusId: type.newStatusId,
       reporterPersonId: principal.personId,
       apartmentId,
       placeId: input.placeId ?? null,
@@ -924,6 +922,16 @@ export class IssueService {
 
     await this.mailer.ensureQueues();
     const issue = await this.prisma.$transaction(async (tx) => {
+      // Whether the reporter may still report the type, and the status a new
+      // report enters, decided again under the type's lock that `file` holds
+      // to the insert: the read above was a refusal before any work, and a
+      // change to the type's settings may have committed since.
+      await lockIssueType(tx, type.id);
+      const { newStatusId } = await this.types.requireReportableLocked(
+        tx,
+        principal,
+        type.id,
+      );
       if (followsIssueId !== null) {
         await requireFollowable(
           tx,
@@ -932,7 +940,8 @@ export class IssueService {
           type.id,
         );
       }
-      const filed = await this.file(tx, data);
+      // The type's default NEW status: a report is new until a handler moves it.
+      const filed = await this.file(tx, { ...data, statusId: newStatusId });
       if (postId !== null) {
         // Read under the type's lock `file` took, which ring-fencing takes too.
         // A post is read by the house, and a ring-fenced report tied to one
@@ -995,9 +1004,18 @@ export class IssueService {
     await this.mailer.ensureQueues();
 
     const issue = await this.prisma.$transaction(async (tx) => {
+      // Decided again under the type's lock, as a signed-in report is: a type
+      // switched off, taken off the form or given another default NEW status
+      // since the read above is answered as it is now.
+      await lockIssueType(tx, type.id);
+      const { newStatusId } = await this.types.requireReportableLocked(
+        tx,
+        null,
+        type.id,
+      );
       const filed = await this.file(tx, {
         typeId: type.id,
-        statusId: type.newStatusId,
+        statusId: newStatusId,
         // No account behind it. The reporter reference stays null and the
         // contact fields carry whatever the person chose to leave.
         reporterPersonId: null,
@@ -1011,10 +1029,12 @@ export class IssueService {
         location: locationOrNull(input.location),
         description: input.description,
       });
-      // A type the board ring-fenced, or took off the form, since the form was
-      // resolved, under the lock `file` took: the website's form offers no
-      // ring-fenced type (`ring-fenced-public`), so it is answered as the type
-      // that is no longer offered.
+      // The check above already refuses a type taken off the form, and the
+      // database keeps a ring-fenced type off it; asked once more of the row
+      // `file` read under the same lock, so the answer cannot rest on the
+      // CHECK alone. The website's form offers no ring-fenced type
+      // (`ring-fenced-public`), so it is answered as the type that is no
+      // longer offered.
       if (filed.ringFenced || !filed.reporters.includes("PUBLIC")) {
         throw new IssueError("No such issue type.", "type-not-found");
       }

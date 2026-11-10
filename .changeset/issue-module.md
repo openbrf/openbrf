@@ -91,6 +91,11 @@ asks for the waiting reason (the reporter, a contractor, parts or a decision),
 and closing one asks for the outcome (fixed, the tenant-owner's
 responsibility, no fault or referred).
 
+A report is checked against its type again when it is filed: a type switched
+off, or no longer offered to the reporter, while the report was being sent is
+refused, and the report enters the default new status the type has at that
+moment.
+
 The queue is ordered by meaning, then by the board's order of the statuses
 within a meaning, then oldest first. The purge of a public report's contact
 details, the reporter's own list, the badge on a post, the overview and the

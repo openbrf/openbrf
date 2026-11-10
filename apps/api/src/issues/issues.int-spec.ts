@@ -21,6 +21,7 @@ import {
   createIssueTypeFixture,
   type IssueTypeFixture,
 } from "../testing/issue-fixtures";
+import { lockIssueType } from "./issue-lock";
 import { IssueTypeService } from "./issue-type.service";
 import { IssueService, MAX_PHOTOS_PER_ISSUE } from "./issue.service";
 
@@ -1691,16 +1692,29 @@ describe("a type removed while somebody writes against it", () => {
 
   let racing = 0;
 
-  async function racingType(): Promise<IssueTypeFixture> {
+  async function racingType(
+    reporters: ("RESIDENTS" | "HANDLERS")[] = ["RESIDENTS"],
+  ): Promise<IssueTypeFixture> {
     racing += 1;
     return createIssueTypeFixture(prisma, {
       id: `is-type-racing-${suffix}-${String(racing)}`,
       name: `is-type-racing-${suffix}`,
-      reporters: ["RESIDENTS"],
+      reporters,
     });
   }
 
   async function sweep(typeId: string): Promise<void> {
+    // The notices a report filed here queued, for this type's issues only.
+    const filed = await prisma.issue.findMany({
+      where: { typeId },
+      select: { id: true },
+    });
+    if (filed.length > 0) {
+      await prisma.$executeRawUnsafe(
+        "DELETE FROM pgboss.job WHERE data->>'issueId' = ANY($1::text[])",
+        filed.map((issue) => issue.id),
+      );
+    }
     await prisma.issue.deleteMany({ where: { typeId } });
     await prisma.issueType.deleteMany({ where: { id: typeId } });
   }
@@ -1773,5 +1787,135 @@ describe("a type removed while somebody writes against it", () => {
     } finally {
       await sweep(typeId);
     }
+  });
+
+  /*
+   * A report checks the type before its transaction, then files it under the
+   * type's lock. Each test holds that lock with a change of the board's, as
+   * every change to a type's settings and statuses does, lets the report
+   * check and queue behind it, then commits: the report must be decided by
+   * the type as it is once the lock is its own.
+   */
+  describe("a report filed while the board changes its type", () => {
+    function changed(
+      typeId: string,
+      change: (tx: Prisma.TransactionClient) => Promise<unknown>,
+    ) {
+      return async (tx: Prisma.TransactionClient) => {
+        await lockIssueType(tx, typeId);
+        await change(tx);
+      };
+    }
+
+    const changes: [string, Prisma.IssueTypeUpdateInput][] = [
+      ["took the residents off it", { reporters: ["HANDLERS"] }],
+      ["switched it off", { active: false }],
+    ];
+    for (const [what, data] of changes) {
+      it(`is refused when the board ${what} meanwhile`, async () => {
+        const { id: typeId } = await racingType();
+        try {
+          const filed = await across(
+            changed(typeId, (tx) =>
+              tx.issueType.update({ where: { id: typeId }, data }),
+            ),
+            () =>
+              report(residentCookie, {
+                typeId,
+                description: "Tvättstugans dörr går inte att låsa.",
+              }),
+          );
+
+          expect(filed.statusCode).toBe(404);
+          expect(filed.reason).toBe("type-not-found");
+          expect(await prisma.issue.count({ where: { typeId } })).toBe(0);
+        } finally {
+          await sweep(typeId);
+        }
+      });
+    }
+
+    it("is refused to a property manager when the board took a handlers' type to itself meanwhile", async () => {
+      const { id: typeId } = await racingType(["HANDLERS"]);
+      // A property manager who lives in the house reports, as a resident does,
+      // and is offered the handlers' types they handle.
+      const residencyId = `is-residency-manager-${suffix}`;
+      await prisma.residency.create({
+        data: {
+          id: residencyId,
+          personId: manager.personId,
+          apartmentId: otherApartmentId,
+          role: "RESIDENT",
+          movedInOn: new Date("2024-01-01"),
+        },
+      });
+      try {
+        expect(
+          (await reportableTypes(managerCookie)).map((type) => type.id),
+        ).toContain(typeId);
+        const filed = await across(
+          changed(typeId, (tx) =>
+            tx.issueType.update({
+              where: { id: typeId },
+              data: { handledBy: "BOARD" },
+            }),
+          ),
+          () =>
+            report(managerCookie, {
+              typeId,
+              description: "Besiktningen hittade en spricka.",
+            }),
+        );
+
+        expect(filed.statusCode).toBe(404);
+        expect(filed.reason).toBe("type-not-found");
+        expect(await prisma.issue.count({ where: { typeId } })).toBe(0);
+      } finally {
+        await prisma.residency.deleteMany({ where: { id: residencyId } });
+        await sweep(typeId);
+      }
+    });
+
+    it("enters the default NEW status the board made meanwhile, not the one it switched off", async () => {
+      const { id: typeId, statusIds } = await racingType();
+      let madeDefault = "";
+      try {
+        const filed = await across(
+          changed(typeId, async (tx) => {
+            await tx.issueStatus.update({
+              where: { id: statusIds.NEW },
+              data: { isDefault: false, active: false },
+            });
+            madeDefault = (
+              await tx.issueStatus.create({
+                data: {
+                  typeId,
+                  meaning: "NEW",
+                  label: "Inkommen",
+                  isDefault: true,
+                  sortOrder: 1,
+                },
+                select: { id: true },
+              })
+            ).id;
+          }),
+          () =>
+            report(residentCookie, {
+              typeId,
+              description: "Lampan i källaren blinkar.",
+            }),
+        );
+
+        expect(filed.statusCode).toBe(201);
+        expect(
+          await prisma.issue.findUniqueOrThrow({
+            where: { id: filed.id ?? "" },
+            select: { statusId: true },
+          }),
+        ).toEqual({ statusId: madeDefault });
+      } finally {
+        await sweep(typeId);
+      }
+    });
   });
 });

@@ -323,13 +323,13 @@ export class IssueTypeService {
    */
   private async reportableWhere(
     principal: Principal | null,
+    db: PrismaService | Prisma.TransactionClient = this.prisma,
   ): Promise<Prisma.IssueTypeWhereInput> {
     const groups = reporterGroupsOf(principal);
     if (
       principal === null ||
       !groups.includes("HANDLERS") ||
-      (await issueReaderScope(this.prisma, principal.personId, new Date())) ===
-        "BOARD"
+      (await issueReaderScope(db, principal.personId, new Date())) === "BOARD"
     ) {
       return { reporters: { hasSome: [...groups] } };
     }
@@ -377,6 +377,57 @@ export class IssueTypeService {
       throw new IssueError("No such issue type.", "type-not-found");
     }
     return { ...type, newStatusId: status.id };
+  }
+
+  /**
+   * The type a report is filed under, and the status it enters, decided again
+   * in the transaction that files it, or the refusal `requireReportable`
+   * gives.
+   *
+   * The caller holds the type's lock (`lockIssueType`), which every change to
+   * a type's settings and statuses takes: a type switched off, a reporter
+   * group taken off it, a type handed to the board that the handler reporting
+   * no longer handles, or another status made the default of NEW, while the
+   * report waited, is decided before the report or after it, never between
+   * the check and the insert. By the same filter as `requireReportable`, read
+   * on the transaction. The public form's switch is read again too, though
+   * nothing orders it against the report.
+   */
+  async requireReportableLocked(
+    tx: Prisma.TransactionClient,
+    principal: Principal | null,
+    typeId: string,
+  ): Promise<{ newStatusId: string }> {
+    if (principal === null) {
+      const association = await tx.association.findUnique({
+        where: { id: 1 },
+        select: { issueReportingPublic: true },
+      });
+      if (association?.issueReportingPublic !== true) {
+        throw new IssueError(
+          "This association does not take issue reports from the public.",
+          "public-reporting-disabled",
+        );
+      }
+    }
+    const type = await tx.issueType.findFirst({
+      where: {
+        id: typeId,
+        active: true,
+        ...(await this.reportableWhere(principal, tx)),
+      },
+      select: {
+        statuses: {
+          where: { meaning: "NEW", isDefault: true, active: true },
+          select: { id: true },
+        },
+      },
+    });
+    const status = type?.statuses[0];
+    if (status === undefined) {
+      throw new IssueError("No such issue type.", "type-not-found");
+    }
+    return { newStatusId: status.id };
   }
 
   /** Whether the association takes reports through the public website. */

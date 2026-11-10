@@ -20,6 +20,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { NORMALIZATION_VERSION } from "../crypto/personal-data";
 import { registerMultipart } from "../http/multipart";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { IssueConversationService } from "../issues/issue-conversation.service";
 import { lockIssueType } from "../issues/issue-lock";
 import {
@@ -1904,72 +1905,76 @@ describe("D. rate limits and abuse", () => {
     }
   });
 
-  it("D6: a report waits for the type's lock and is refused when the board took the type off the form meanwhile", async () => {
-    const type = await prisma.issueType.findUniqueOrThrow({
-      where: { id: publicType.id },
-      select: { reporters: true },
-    });
-    const before = await prisma.issue.count({
-      where: { typeId: publicType.id },
-    });
-
-    // Stands in for the board's change of the type, which holds the type's lock
-    // until it commits.
-    let release: () => void = () => undefined;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let locked: () => void = () => undefined;
-    const lockTaken = new Promise<void>((resolve) => {
-      locked = resolve;
-    });
-    const changing = prisma.$transaction(async (tx) => {
-      await lockIssueType(tx, publicType.id);
-      locked();
-      await held;
-      await tx.issueType.update({
+  const typeChanges: [string, Prisma.IssueTypeUpdateInput][] = [
+    ["took the type off the form", { reporters: ["RESIDENTS"] }],
+    ["switched the type off", { active: false }],
+  ];
+  for (const [what, data] of typeChanges) {
+    it(`D6: a report waits for the type's lock and is refused when the board ${what} meanwhile`, async () => {
+      const type = await prisma.issueType.findUniqueOrThrow({
         where: { id: publicType.id },
-        data: { reporters: ["RESIDENTS"] },
+        select: { reporters: true, active: true },
       });
-    });
-    try {
-      await lockTaken;
-      const reporting = issues.reportPublicly({
-        typeId: publicType.id,
-        location: null,
-        description: "Efter att formuläret togs bort",
-        reporterName: null,
-        reporterEmail: null,
+      const before = await prisma.issue.count({
+        where: { typeId: publicType.id },
       });
-      const settled = reporting.then(
-        () => "filed",
-        (error: unknown) => (error instanceof IssueError ? error.reason : "?"),
-      );
-      await waitFor(
-        async () =>
-          (await advisoryLockCount(
-            prisma,
-            `issue-type:${publicType.id}`,
-            false,
-          )) > 0n,
-        10_000,
-      );
-      release();
-      await changing;
 
-      expect(await settled).toBe("type-not-found");
-      expect(
-        await prisma.issue.count({ where: { typeId: publicType.id } }),
-      ).toBe(before);
-    } finally {
-      release();
-      await changing.catch(() => undefined);
-      await prisma.issueType.update({
-        where: { id: publicType.id },
-        data: { reporters: type.reporters },
+      // Stands in for the board's change of the type, which holds the type's lock
+      // until it commits.
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
       });
-    }
-  });
+      let locked: () => void = () => undefined;
+      const lockTaken = new Promise<void>((resolve) => {
+        locked = resolve;
+      });
+      const changing = prisma.$transaction(async (tx) => {
+        await lockIssueType(tx, publicType.id);
+        locked();
+        await held;
+        await tx.issueType.update({ where: { id: publicType.id }, data });
+      });
+      try {
+        await lockTaken;
+        const reporting = issues.reportPublicly({
+          typeId: publicType.id,
+          location: null,
+          description: "Efter att formuläret togs bort",
+          reporterName: null,
+          reporterEmail: null,
+        });
+        const settled = reporting.then(
+          () => "filed",
+          (error: unknown) =>
+            error instanceof IssueError ? error.reason : "?",
+        );
+        await waitFor(
+          async () =>
+            (await advisoryLockCount(
+              prisma,
+              `issue-type:${publicType.id}`,
+              false,
+            )) > 0n,
+          10_000,
+        );
+        release();
+        await changing;
+
+        expect(await settled).toBe("type-not-found");
+        expect(
+          await prisma.issue.count({ where: { typeId: publicType.id } }),
+        ).toBe(before);
+      } finally {
+        release();
+        await changing.catch(() => undefined);
+        await prisma.issueType.update({
+          where: { id: publicType.id },
+          data: { reporters: type.reporters, active: type.active },
+        });
+      }
+    });
+  }
 
   it("D6: a restricted person is found when the report gives their address in other letters' case", async () => {
     const email = `rl-restricted-case-${suffix}@exempel.se`;
