@@ -532,9 +532,12 @@ board weighs every such text before the report gives it (access weighing,
   text, made for this one report, and the report gives the copy. Each place
   words were left out is marked `[…]`, so the reader sees that something is
   missing, and where. The copy can only take words out: the server stores it
-  only if what is left is the text's own words, in their order, with at least
-  one place marked, and something both kept and left out (`isGivenInPartOf`).
-  The text itself stays as written, for the issue, for its reporter and for
+  only if it is the whole text, in its order, except where a mark stands, so
+  that words left out at the start or the end are marked as well as words
+  left out in between, and something is both kept and left out
+  (`isGivenInPartOf`). Only how the lines are laid out may differ: a run of
+  spaces and line breaks reads as one space, and away from a mark no word may
+  be joined to another or split. The text itself stays as written, for the issue, for its reporter and for
   every other report, and a legal hold that keeps a handler from redacting it
   does not keep the board from giving it in part. A handler's redaction remains
   the way to take words out of the case for everybody.
@@ -542,10 +545,12 @@ board weighs every such text before the report gives it (access weighing,
   part, as not yet weighed, and gives none of it. The board's screen counts
   those and does not print the report until each is weighed, so a report is not
   handed over with something left out for no stated reason. Not the button
-  alone: while a text is unweighed, or the report is being produced again after
-  a weighing, the document is kept off the page for the browser's own print as
-  well, and a sentence saying why it cannot be printed is printed instead. A
-  note written after a weighing has not been weighed.
+  alone: while a text is unweighed, a weighing is being saved, or the report is
+  being produced again after one, the document is kept off the page for the
+  browser's own print as well, and a sentence saying why it cannot be printed
+  is printed instead. The save counts from the moment it is sent, since the
+  server may commit it before the answer arrives. A note written after a
+  weighing has not been weighed.
 - **Who weighs.** Whoever may produce the report (`addressBook:read` and
   `protectedData:reveal`), on the report's own screen, because the weighing is
   part of producing it. The producer reads every text the report would carry

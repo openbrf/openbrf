@@ -1078,11 +1078,14 @@ export function DataSubjectReport({
 
   /*
    * Whether the document may go on paper: produced, every text on it weighed,
-   * and no weighing saved since. Not only the button: while it may not, the
-   * document is kept off the page for the browser's own print as well, and a
-   * sentence saying why is printed instead.
+   * no weighing being saved, and none saved since. A save in flight counts
+   * from the moment it is sent: the server may commit it, withholding words
+   * the document on screen still gives, before the answer comes back. Not only
+   * the button: while it may not, the document is kept off the page for the
+   * browser's own print as well, and a sentence saying why is printed instead.
    */
-  const printable = report !== null && unweighed === 0 && !stale;
+  const printable =
+    report !== null && unweighed === 0 && !weighingSaving && !stale;
 
   function openWeighing(issueId: string): void {
     openings.current += 1;

@@ -2887,6 +2887,130 @@ describe("what the board weighed under art. 15(4)", () => {
       ).disabled,
     ).toBe(false);
   });
+
+  it("will not print a text the board is withdrawing while its save is in flight", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    const given: Report = {
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          notes: [
+            {
+              noteId: "note-1",
+              writtenAt: "2026-01-06T08:00:00.000Z",
+              redactedAt: null,
+              content: {
+                state: "given",
+                text: "Grannen i 1202 har klagat förut.",
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const withheld: Report = {
+      ...given,
+      issues: [
+        {
+          ...issue,
+          notes: [
+            {
+              noteId: "note-1",
+              writtenAt: "2026-01-06T08:00:00.000Z",
+              redactedAt: null,
+              content: { state: "withheld", because: "ABOUT_ANOTHER_PERSON" },
+            },
+          ],
+        },
+      ],
+    };
+    fetchIssueAccessWeighing.mockResolvedValue({
+      issueId: issue.issueId,
+      number: issue.number,
+      typeName: issue.typeName,
+      report: "reporter",
+      texts: [
+        {
+          part: "NOTE",
+          id: "note-1",
+          writtenAt: "2026-01-06T08:00:00.000Z",
+          side: null,
+          text: "Grannen i 1202 har klagat förut.",
+          decision: "given",
+          givenText: null,
+        },
+      ],
+    });
+    let landSave: (value: unknown) => void = () => undefined;
+    saveIssueAccessWeighing.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          landSave = resolve;
+        }),
+    );
+    let produceAgain: (value: Report) => void = () => undefined;
+    fetchDataSubjectReport.mockResolvedValueOnce(given).mockImplementationOnce(
+      () =>
+        new Promise<Report>((resolve) => {
+          produceAgain = resolve;
+        }),
+    );
+    render(
+      <DataSubjectReport personId={given.person.personId} onClose={noop} />,
+    );
+    await screen.findByText("Brf Eksemplet");
+    const printButton = () =>
+      screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement;
+    const section = () => sectionOf(inSwedish(SECTION_TITLE.issues));
+    // Weighed throughout, the note given whole: it prints.
+    expect(
+      within(section()).getByText("Grannen i 1202 har klagat förut."),
+    ).toBeTruthy();
+    expect(printButton().disabled).toBe(false);
+    expect(printedDocument().classList.contains("print:hidden")).toBe(false);
+
+    fireEvent.click(
+      within(section()).getByRole("button", {
+        name: "Pröva vad som lämnas ut",
+      }),
+    );
+    await screen.findByRole("heading", { name: /Pröva ärende/ });
+    fireEvent.click(
+      screen.getByRole("radio", {
+        name: "Utelämna: det handlar om någon annan",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Spara prövningen" }));
+    expect(saveIssueAccessWeighing).toHaveBeenCalledTimes(1);
+
+    // The save is sent and not yet answered, and the server may already have
+    // committed it: the words still on screen must not reach paper, from the
+    // button or the browser's own print.
+    await waitFor(() => {
+      expect(printButton().disabled).toBe(true);
+    });
+    expect(printedDocument().classList.contains("print:hidden")).toBe(true);
+    expect(screen.getByText(NOT_PRINTABLE)).toBeTruthy();
+
+    // Answered, and still not printable until the report comes back with it.
+    landSave({});
+    await waitFor(() => {
+      expect(fetchDataSubjectReport).toHaveBeenCalledTimes(2);
+    });
+    expect(printButton().disabled).toBe(true);
+    expect(printedDocument().classList.contains("print:hidden")).toBe(true);
+
+    produceAgain(withheld);
+    await waitFor(() => {
+      expect(printButton().disabled).toBe(false);
+    });
+    expect(printedDocument().classList.contains("print:hidden")).toBe(false);
+    expect(
+      within(section()).queryByText("Grannen i 1202 har klagat förut."),
+    ).toBeNull();
+  });
 });
 
 /** The sentence the browser's own print gives while the report may not print. */

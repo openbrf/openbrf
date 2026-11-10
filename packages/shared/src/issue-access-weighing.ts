@@ -53,9 +53,16 @@ export const ISSUE_ACCESS_LEFT_OUT_MARK = "[…]";
 /** The mark, or the same with three full stops as a keyboard writes it. */
 const LEFT_OUT_MARKS = /\[(?:…|\.\.\.)\]/u;
 
-/** A textarea answers `\n` for every line break, whatever the text was written with. */
-function lines(text: string): string {
-  return text.replace(/\r\n?/gu, "\n");
+/**
+ * The text as the comparison reads it: every run of spaces, tabs and line
+ * breaks as one space, and none at either end. A copy may lay its lines out
+ * differently from the text (a textarea answers `\n` for every line break, and
+ * the board may join two lines where it left words out between them), but away
+ * from a mark it can never join two words or split one, which would change
+ * what they say.
+ */
+function words(text: string): string {
+  return text.replace(/\s+/gu, " ").trim();
 }
 
 function visibleLength(text: string): number {
@@ -63,36 +70,51 @@ function visibleLength(text: string): number {
 }
 
 /**
- * Whether `copy` is `text` given in part: the text's own words, in its order,
- * with at least one place where words were left out marked
- * `ISSUE_ACCESS_LEFT_OUT_MARK`, and something of it both kept and left out.
- * The copy can take words out and never put one in, so what the report gives
- * as the case's words is always the case's words.
+ * Whether `copy` is `text` given in part: the whole text, in its order, except
+ * where words were left out, and each such place marked
+ * `ISSUE_ACCESS_LEFT_OUT_MARK`. Something of it is both kept and left out. The
+ * copy can take words out and never put one in, and every word it takes out,
+ * at the start and the end too, is where a mark is, so what the report gives
+ * as the case's words is always the case's words, and the reader sees each
+ * place something is missing.
  *
  * Both applications hold a copy to this: the screen before it offers to save,
  * the server before it stores one.
  */
 export function isGivenInPartOf(copy: string, text: string): boolean {
-  const original = lines(text);
-  const given = lines(copy);
-  if (!LEFT_OUT_MARKS.test(given) || given === original) {
+  const original = words(text);
+  if (!LEFT_OUT_MARKS.test(copy) || words(copy) === original) {
     return false;
   }
-  const kept = given
-    .split(LEFT_OUT_MARKS)
-    .map((piece) => piece.trim())
-    .filter((piece) => piece !== "");
-  if (kept.length === 0) {
+  // The pieces kept between the marks. Words may be left out only between
+  // two of them, so the first piece starts the text and the last ends it,
+  // unless the copy opens or closes with a mark.
+  const pieces = copy.split(LEFT_OUT_MARKS).map(words);
+  if (pieces.every((piece) => piece === "")) {
     // Nothing of it kept: that is leaving it out, which says so plainly.
     return false;
   }
-  let from = 0;
-  for (const piece of kept) {
+  const first = pieces[0] ?? "";
+  const last = pieces[pieces.length - 1] ?? "";
+  if (!original.startsWith(first) || !original.endsWith(last)) {
+    return false;
+  }
+  // Each piece in between at its earliest place after the one before, which
+  // leaves the most of the text for the pieces after it.
+  let from = first.length;
+  for (const piece of pieces.slice(1, -1)) {
+    if (piece === "") {
+      continue;
+    }
     const at = original.indexOf(piece, from);
     if (at === -1) {
       return false;
     }
     from = at + piece.length;
   }
-  return visibleLength(kept.join("")) < visibleLength(original);
+  if (original.length - last.length < from) {
+    // The last piece would overlap what the copy kept before it.
+    return false;
+  }
+  return visibleLength(pieces.join("")) < visibleLength(original);
 }

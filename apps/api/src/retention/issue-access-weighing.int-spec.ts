@@ -715,6 +715,11 @@ describe("a text given in part", () => {
         withheldBecause: "IDENTIFIES_REPORTER",
         givenText: `Grannen röker på balkongen ${suffix}`,
       },
+      // Words gone from the end, where the copy has no mark.
+      {
+        withheldBecause: "IDENTIFIES_REPORTER",
+        givenText: "Grannen […] röker på balkongen",
+      },
       // Nothing of it kept: that is leaving it out.
       { withheldBecause: "IDENTIFIES_REPORTER", givenText: "[…]" },
       // A copy with no reason for what it leaves out.
