@@ -59,8 +59,9 @@ const NO_PICK: ResidentPick = { apartmentId: "", residencyId: "" };
 
 /**
  * Whom an issue concerns (berörd person, ADR 0057): the residents a handler
- * records as the ones it is about when they did not report it, such as the
- * neighbour a report of a disturbance names. On an issue of any type.
+ * records as the ones it is about when they are not recorded as its reporter,
+ * such as the neighbour a report of a disturbance names. On an issue of any
+ * type.
  *
  * A resident is picked as on an issue a handler opens, the apartment first and
  * then who lives there today (`IssueResidentPicker`), so the property manager

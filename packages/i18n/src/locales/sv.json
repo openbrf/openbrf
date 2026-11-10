@@ -4767,7 +4767,7 @@
     },
     "concerned": {
       "title": "Vem ärendet gäller",
-      "intro": "Anteckna de boende som ärendet handlar om när de inte själva anmälde det, till exempel grannen som en störningsanmälan nämner. Bara de som handlägger ärendet ser listan; anmälaren visas den aldrig. Den hör till ärendets fritext: den gallras med texten, och ett rättsligt bevarandekrav behåller den som det behåller texten. En person på listan får ärendet i sitt registerutdrag, och dess text så långt styrelsen efter prövning bedömer att den kan lämnas ut, aldrig vem som anmälde det.",
+      "intro": "Anteckna de boende som ärendet handlar om när de inte är antecknade som anmälare av det, till exempel grannen som en störningsanmälan nämner. Bara de som handlägger ärendet ser listan; anmälaren visas den aldrig. Den hör till ärendets fritext: den gallras med texten, och ett rättsligt bevarandekrav behåller den som det behåller texten. En person på listan får ärendet i sitt registerutdrag, och dess text så långt styrelsen efter prövning bedömer att den kan lämnas ut, aldrig vem som anmälde det.",
       "loading": "Läser vem ärendet gäller...",
       "readFailed": "Det gick inte att läsa vem ärendet gäller just nu.",
       "none": "Ingen är antecknad.",

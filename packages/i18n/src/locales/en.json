@@ -4767,7 +4767,7 @@
     },
     "concerned": {
       "title": "Who the issue concerns",
-      "intro": "Record the residents the issue is about when they did not report it themselves, such as the neighbour a report of a disturbance names. Only those who handle the issue see the list; the reporter is never shown it. It is part of the issue's free text: it is removed with the text, and a legal hold keeps it as it keeps the text. A person on the list gets the issue in their access report, and its text as far as the board weighs that it can be given, never who reported it.",
+      "intro": "Record the residents the issue is about when they are not recorded as its reporter, such as the neighbour a report of a disturbance names. Only those who handle the issue see the list; the reporter is never shown it. It is part of the issue's free text: it is removed with the text, and a legal hold keeps it as it keeps the text. A person on the list gets the issue in their access report, and its text as far as the board weighs that it can be given, never who reported it.",
       "loading": "Reading who the issue concerns...",
       "readFailed": "Who the issue concerns could not be read just now.",
       "none": "Nobody is recorded as concerned.",
