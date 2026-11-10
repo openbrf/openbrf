@@ -100,15 +100,17 @@ import { dueOn } from "../data-protection/data-subject-request";
 import { connectedAppHost } from "../connected-apps/client-host";
 import {
   ISSUE_NOTE_ORDER,
+  KEYED_WEIGHING_SELECT,
   WEIGHED_NOTE_SELECT,
   reportNote,
   REPORT_WORK_ORDER_SELECT,
   reportWorkOrder,
+  strictestWeighing,
   WEIGHING_SELECT,
   weighedText,
-  weighedTextId,
   weighingKey,
   WORK_ORDER_ORDER,
+  weighingsByText,
 } from "./issue-access-weighing";
 import { ExportSlots } from "./export-slots";
 import { computePurgeDate } from "./purge-date";
@@ -821,15 +823,7 @@ export class DataSubjectReportService {
           where: { personId },
           select: {
             createdAt: true,
-            accessWeighings: {
-              select: {
-                part: true,
-                messageId: true,
-                noteId: true,
-                workOrderId: true,
-                ...WEIGHING_SELECT,
-              },
-            },
+            accessWeighings: { select: KEYED_WEIGHING_SELECT },
           },
         },
         messages: {
@@ -1948,22 +1942,17 @@ export class DataSubjectReportService {
         photographs: issue._count.photos,
         messages: issue.messages.map(toReporterView),
         notes: issue.notes.map((note) =>
-          reportNote(note, note.accessWeighings[0]),
+          reportNote(note, strictestWeighing(note.accessWeighings)),
         ),
         workOrders: issue.workOrders.map((order) =>
-          reportWorkOrder(order, order.accessWeighings[0]),
+          reportWorkOrder(order, strictestWeighing(order.accessWeighings)),
         ),
       })),
       issuesConcerning: concerning.map((issue) => {
         // One record per person on an issue (the unique key), and the where
         // found the issue through it.
         const record = issue.concernedPersons[0];
-        const weighings = new Map(
-          (record?.accessWeighings ?? []).map((weighing) => [
-            weighingKey(weighing.part, weighedTextId(weighing)),
-            weighing,
-          ]),
-        );
+        const weighings = weighingsByText(record?.accessWeighings ?? []);
         const weighed = (
           part: IssueAccessPart,
           text: string | null,

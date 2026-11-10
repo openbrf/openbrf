@@ -377,8 +377,11 @@ locally the application runs from source beside the PostgreSQL that
       adds photographs and marks it done there without an account. The link
       ends after 30 days, at a decline or done, when a handler withdraws it,
       and when anything it opens stops being one a contractor may see. It is
-      behind `OPENBRF_CONTRACTOR_LINKS_ENABLED`, off by default, until the legal
-      review of a contractor as a recipient clears it (ADR 0055, decision 25)
+      behind `OPENBRF_CONTRACTOR_LINKS_ENABLED`, off by default. The legal
+      review of a contractor as a recipient is done and left one question
+      open, whether asking for notes and photographs through the link makes
+      the contractor a processor, and the link stays off until it is answered
+      (ADR 0055)
 - [ ] Switch the contractor's link on once its legal review clears it
 - [x] Damage cases and ring-fenced issue types: a handler marks an issue as an
       insurance damage with the insurer, the claim number, the day and the

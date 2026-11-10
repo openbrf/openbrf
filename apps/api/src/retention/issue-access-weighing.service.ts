@@ -15,13 +15,15 @@ import { lockIssue } from "../issues/issue-lock";
 import { ISSUE_MESSAGE_ORDER } from "../issues/issue-message-view";
 import {
   ISSUE_NOTE_ORDER,
+  KEYED_WEIGHING_SELECT,
   type StandingWeighing,
+  strictestWeighing,
   WEIGHED_NOTE_SELECT,
   WEIGHED_WORK_ORDER_SELECT,
   WEIGHING_SELECT,
-  weighedTextId,
   weighingKey,
   WORK_ORDER_ORDER,
+  weighingsByText,
 } from "./issue-access-weighing";
 
 /**
@@ -135,7 +137,8 @@ type Db = Prisma.TransactionClient;
  * Held by whoever may produce the report: the weighing is part of producing
  * it, and the producer reads every text the report would carry. The words are
  * read here for the board to weigh, and never written to the log; the report
- * gives only what the board gave. A text given in part is given as the board's
+ * gives only what the board gave. A read is logged against the person whose
+ * report it is, as a weighing is, and never the issue or a text. A text given in part is given as the board's
  * copy of it, which can only take words out (`isGivenInPartOf`), so the text
  * itself stays as written for the issue and for every other report.
  *
@@ -151,12 +154,33 @@ export class IssueAccessWeighingService {
     private readonly audit: AuditLogService,
   ) {}
 
-  async read(
-    personId: string,
-    issueId: string,
-  ): Promise<IssueAccessWeighingView> {
+  async read(input: {
+    personId: string;
+    issueId: string;
+    actorPersonId: string;
+  }): Promise<IssueAccessWeighingView> {
     return this.prisma.$transaction(
-      async (tx) => this.viewIn(tx, personId, issueId),
+      async (tx) => {
+        const view = await this.viewIn(tx, input.personId, input.issueId);
+        /*
+         * The words of the case go to the board member here, so the read is
+         * logged, in the transaction that reads, before any of them leave.
+         * Against the person whose report it is and never the issue, for the
+         * reason the weighing's own entry gives below; nor any text. An issue
+         * not on the report is refused before anything is read or logged.
+         */
+        await this.audit.record(
+          {
+            action: "ISSUE_ACCESS_WEIGHING_READ",
+            channel: "WEB",
+            actorPersonId: input.actorPersonId,
+            targetPersonId: input.personId,
+            context: { texts: view.texts.length },
+          },
+          tx,
+        );
+        return view;
+      },
       { isolationLevel: "RepeatableRead" },
     );
   }
@@ -321,13 +345,13 @@ export class IssueAccessWeighingService {
                     side: null,
                     recipientName: null,
                     text: note.body,
-                    ...decisionOf(note.accessWeighings[0]),
+                    ...decisionOf(strictestWeighing(note.accessWeighings)),
                   },
                 ]
               : [],
           ),
           ...reported.workOrders.flatMap((order) =>
-            workOrderText(order, order.accessWeighings[0]),
+            workOrderText(order, strictestWeighing(order.accessWeighings)),
           ),
         ],
       };
@@ -347,15 +371,7 @@ export class IssueAccessWeighingService {
         concernedPersons: {
           where: { personId },
           select: {
-            accessWeighings: {
-              select: {
-                part: true,
-                messageId: true,
-                noteId: true,
-                workOrderId: true,
-                ...WEIGHING_SELECT,
-              },
-            },
+            accessWeighings: { select: KEYED_WEIGHING_SELECT },
           },
         },
         messages: {
@@ -381,13 +397,8 @@ export class IssueAccessWeighingService {
         "The issue is not on this person's access report.",
       );
     }
-    const weighings = new Map(
-      (concerning.concernedPersons[0]?.accessWeighings ?? []).map(
-        (weighing) => [
-          weighingKey(weighing.part, weighedTextId(weighing)),
-          weighing,
-        ],
-      ),
+    const weighings = weighingsByText(
+      concerning.concernedPersons[0]?.accessWeighings ?? [],
     );
     const decided = (part: IssueAccessPart, id: string | null) =>
       decisionOf(weighings.get(weighingKey(part, id)));

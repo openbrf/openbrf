@@ -111,18 +111,23 @@ export class DataSubjectReportController {
    * handler recorded as concerning them. Never part of the report itself, which carries only
    * what the board gave.
    *
-   * A read without an audit entry of its own: it is a step in producing the
-   * report, whose own entry records that, and the weighing it leads to is
-   * recorded when saved.
+   * The read is logged (`ISSUE_ACCESS_WEIGHING_READ`), because it gives the
+   * words of the case, not only what the report would: against the person
+   * whose report it is, never the issue or a text.
    */
   @Get("persons/:personId/issues/:issueId/weighing")
   // The words of the case, which no browser cache may keep.
   @Header("Cache-Control", "no-store")
   async weighing(
+    @Req() request: RequestWithPrincipal,
     @Param("personId") personId: string,
     @Param("issueId") issueId: string,
   ): Promise<IssueAccessWeighingView> {
-    return this.weighings.read(personId, issueId);
+    return this.weighings.read({
+      personId,
+      issueId,
+      actorPersonId: actingPersonId(request),
+    });
   }
 
   /**
