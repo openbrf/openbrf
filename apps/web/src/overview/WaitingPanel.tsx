@@ -166,7 +166,7 @@ function WaitingName({ item }: { item: WaitingItem }): ReactElement {
 function WaitingStatus({ item }: { item: WaitingItem }): ReactElement {
   switch (item.kind) {
     case "issue":
-      return <IssueStatusChip status={item.issue.status} />;
+      return <IssueStatusChip meaning={item.issue.meaning} />;
     case "motion":
       return <MotionStatusChip status={item.motion.status} />;
     case "sublet":

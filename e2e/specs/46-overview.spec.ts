@@ -134,7 +134,7 @@ function queueRow(page: Page, name: string): Locator {
 
 /** The queues a board seat works, by the names their rows carry. */
 const BOARD_QUEUES = [
-  "Nya ärenden",
+  "Ärenden",
   "Obesvarade trådar i styrelsens brevlåda",
   "Motioner som inte är mottagna",
   "Ansökningar om andrahandsupplåtelse att besluta om",
@@ -312,7 +312,11 @@ test("a board member gets one line, and a row per queue on the board's front pag
     expect(response.ok(), `GET ${path}`).toBe(true);
     return response.json();
   };
-  const issues = (await read("/api/issue-queue?status=NEW")) as unknown[];
+  const issues = (await read("/api/issue-queue/counts?meaning=OPEN")) as {
+    all: number;
+    overdue: number;
+    unassigned: number;
+  };
   const keyOrders = (
     (await read("/api/key-order-queue?status=SUBMITTED")) as {
       orders: unknown[];
@@ -336,9 +340,18 @@ test("a board member gets one line, and a row per queue on the board's front pag
     next: string | null;
   };
 
-  expect(await countOn(queueRow(page, "Nya ärenden"))).toEqual(
-    all(issues.length),
-  );
+  // The issue queue's row gives three numbers, each the server's count of the
+  // view it leads to.
+  const issueRow = queueRow(page, "Ärenden");
+  for (const name of [
+    `Öppna ${String(issues.all)}`,
+    `Försenade ${String(issues.overdue)}`,
+    `Ej tilldelade ${String(issues.unassigned)}`,
+  ]) {
+    await expect(
+      issueRow.getByRole("link", { name, exact: true }),
+    ).toBeVisible();
+  }
   expect(
     await countOn(queueRow(page, "Nyckelbeställningar att besvara")),
   ).toEqual(all(keyOrders.length));
@@ -372,7 +385,12 @@ test("a board member gets one line, and a row per queue on the board's front pag
   // The overview's line is the sum of the same reads, so the two agree.
   const rows: Shown[] = [];
   for (const name of BOARD_QUEUES) {
-    rows.push(await countOn(queueRow(page, name)));
+    // The issue queue adds the open issues nobody is assigned to the line.
+    rows.push(
+      name === "Ärenden"
+        ? all(issues.unassigned)
+        : await countOn(queueRow(page, name)),
+    );
   }
   expect(total).toEqual({
     count: rows.reduce((sum, row) => sum + row.count, 0),

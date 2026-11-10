@@ -56,6 +56,9 @@ While writing a spec:
   `uniquePersonalIdentityNumber` for it: `06-protected-personal-data` and
   `09-statutory-registers` still write a fixed one, so each reused run stores
   another person holding the same number.
+- `OPENBRF_E2E_PROJECT=<name>` runs the stack under that compose project
+  instead of `openbrf-e2e` (or `openbrf-shots`), for a machine where somebody
+  else may have a stack of that name up. The ports stay those of the env file.
 - `OPENBRF_E2E_KEEP_STACK=true` leaves the stack running afterwards, so a
   failing instance can be looked at.
 
@@ -139,7 +142,14 @@ on the account the later specs sign in as.
   test's attempts on another's and throttle itself. A test where two people act
   asks it for a second address as well, for the same reason: an applicant
   activating an account really is somewhere else from the board member who
-  approved their request.
+  approved their request. The application reads that header only from a proxy
+  named in `TRUSTED_PROXIES`, and the suite's requests arrive from the gateway
+  of the stack's Docker network, so `stack.env` names all three private ranges:
+  where that network lies is the Docker daemon's choice, and one configured with
+  address pools of its own usually picks `10.0.0.0/8`. The tests' own addresses
+  come from `100.64.0.0/10`, outside all three. `startStack` checks the gateway
+  against the list and stops the run when it is outside it, rather than letting
+  every test share one sign-in budget until a sign-in is refused with 429.
 
 Specs run serially, in file-name order. `01-first-boot` needs an unclaimed
 instance, which an instance is exactly once, and the rest share the instance it
@@ -763,7 +773,9 @@ The pieces:
   meeting held on the day the board arranged it for, written straight into the database because
   nothing in the stack proposes a change (the selection is `src/agenda-proposal.ts`, covered by
   its `.test.ts`); `pending-changes-agenda` photographs
-  the card that shows it. `{ installPlugin }` installs a plugin from the stack's catalog as the
+  the card that shows it. `{ proposeUrgentIssue }` holds a proposal to raise
+  the issue the website's form filed from an address to urgent, the same way,
+  for `pending-changes-issue`. `{ installPlugin }` installs a plugin from the stack's catalog as the
   board does and waits for the restart that ends the install; the entries that
   need the plugin come last. A screen needing a kind that is not there adds it
   to the `Action` union and to `perform` in `capture.spec.ts`, once, and every

@@ -8,9 +8,34 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import {
+  eraseRecipientsLeft,
+  retireContractor,
+  WORK_ORDER_RECIPIENT_LEFT,
+} from "./contractor.service";
+import { lockIssue } from "./issue-lock";
 import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
 import { withheldAddressIndexes } from "../retention/withheld-addresses";
-import { ISSUE_RETENTION_DAYS, issuePurgeCutoff } from "./issue-retention";
+import {
+  isAnyPersonWithheld,
+  isPersonWithheld,
+  withheldPersonIds,
+} from "../retention/withheld-persons";
+import {
+  CONCERNS_NO_WITHHELD_PERSON,
+  concernedPersonIdsOf,
+  releaseConcernedSelectors,
+} from "./issue-concerned-persons";
+import {
+  CONTRACTOR_RETENTION_DAYS,
+  detachErasedReporter,
+  ISSUE_RETENTION_DAYS,
+  issuePurgeCutoff,
+  WORK_ORDER_BODY_RETENTION_DAYS,
+  WORK_ORDER_TEXT_STANDING,
+} from "./issue-retention";
+import { WORK_ORDER_DELIVERY_FAILURES } from "./work-order-delivery";
+import { revokeWorkOrderLinks } from "./work-order-link";
 
 /** Queue the nightly public-form issue purge runs on. */
 export const ISSUE_PURGE_QUEUE = "issue-purge";
@@ -47,6 +72,10 @@ export interface IssuePurgeRunSummary {
    * database refuses must not stop every later report for good.
    */
   failed: number;
+  /** The same three counts for the issues whose work-order text was erased. */
+  workOrderTexts: { considered: number; purged: number; failed: number };
+  /** And for the contractors removed from the list on their clock. */
+  contractors: { considered: number; purged: number; failed: number };
 }
 
 /**
@@ -62,18 +91,20 @@ export interface IssuePurgeRunSummary {
  *
  * ## What it detaches, and what it keeps
  *
- * The three reporter columns and nothing else. The issue, its description and
- * its photographs stay: they are the association's own record of a problem with
- * its building, and the person who reported it having gone does not make the
- * damp patch less real. This is the same detachment the residency purge
- * performs, reached from the other end.
+ * The three reporter columns and nothing else, the address index excepted on a
+ * report a work order's text still stands on (see Work-order text, below). The
+ * issue stays, and so does its free text until the issue's own clock removes it
+ * (`issue-text-purge.service.ts`, ADR 0057): the description, the conversation
+ * and the photographs are the association's record of a problem with its
+ * building for as many years as the board set. This is the same detachment the
+ * residency purge performs, reached from the other end, and on a shorter clock:
+ * a stranger's address is not kept for as long as the words about the damp
+ * patch.
  *
  * What is left is still personal data, and the word for it is a detachment
  * rather than anything stronger: the description is free text somebody wrote
  * and may name a neighbour, so Recital 26 has nothing to say about a row that
- * still identifies somebody. A person named in one makes an art. 17 request,
- * which the board decides; a job rewriting prose on a schedule would be the
- * association quietly editing its own history.
+ * still identifies somebody.
  *
  * ## The clock
  *
@@ -126,6 +157,66 @@ export interface IssuePurgeRunSummary {
  * There is no person to name - that is the whole point of this job - so the
  * record it names is the issue, which survives the purge and stays readable for
  * as long as the entry does.
+ *
+ * ## Work-order text
+ *
+ * The same run erases the text of the work orders sent about any closed issue,
+ * whoever reported it, once `WORK_ORDER_BODY_RETENTION_DAYS`, ten years, have
+ * passed since it was closed (see `issue-retention.ts`). Unlike the description, that text
+ * is not the association's record of its building but a copy of a mail it sent
+ * a firm, in a handler's words that may name the reporter or a neighbour; the
+ * row stays with when it went, which is the record of the disclosure, and with
+ * whom it went to while that contractor stays on the list. A work order whose
+ * contractor the list's clock has already taken off it (below) kept its copy
+ * of their name and address for this text's sake, and loses it with the text. A
+ * legal hold or a restriction against the issue's reporter, or against a person
+ * the issue concerns (`IssueConcernedPerson`, ADR 0057), keeps the text, as it
+ * keeps the reporter's details and the issue's own free text, read again under
+ * the registry key inside the transaction that erases it. The record of whom the
+ * issue concerns goes with the free-text layer, but its row stays as a bare
+ * selector while any work order's text stands, so a hold or a restriction placed
+ * after that still reaches the text; the transaction that erases the last text
+ * deletes it.
+ *
+ * On a public-form report the reporter is reached only through the address
+ * index, so that index has to outlive the contact details for as long as a
+ * work order's text stands: a hold or a restriction placed in year three on
+ * the person who wrote in would otherwise match nothing, and the text would go
+ * at year ten regardless (ADR 0057: no case whose text stands may lose its
+ * selector). The year's purge therefore detaches the name and the address and
+ * keeps the index while any work order on the report still has its text, and
+ * the transaction that erases the last text clears it. The index is a keyed
+ * hash of the address, which tells nobody anything without the address and
+ * the key, and only the hold and restriction match ever reads it. A separate
+ * person-to-case record, which ADR 0057 also allows, would be a second store
+ * of the same thing.
+ *
+ * A report keyed to a person keeps its selector the same way: the person purge
+ * leaves `reporterPersonId` on an issue a work order's text stands on
+ * (`retention/purge.service.ts`), and detaches it on a later run once the text
+ * is gone. A person whose erasure request was carried out is not selected
+ * again, so for them the transaction that erases the last text clears it.
+ *
+ * ## The contractor list
+ *
+ * The same run takes a contractor off the association's list ten years after
+ * the last work order sent them, or after the board added them if none was
+ * (`CONTRACTOR_RETENTION_DAYS`, ADR 0057 question 6): the row goes, with the
+ * name, the trade, the telephone number and the address the list held. A sole
+ * trader's name and number are personal data, and no list keeps them for ever.
+ *
+ * On that clock alone. The list is the association's means of hiring, and a
+ * work order is a record with a clock of its own, which runs from its issue's
+ * closing and which a legal hold holds back; the list's details do not wait
+ * for it. A work order written to them, sent or not, that still holds its
+ * text, or is on an issue under a legal hold, keeps its own copy of whom it
+ * went to, the name and the address it was written to, for as long as it keeps
+ * what it said. The copy
+ * goes with the text, whether this purge erases it or a handler redacts it, and
+ * on a work order whose text is already gone, with the release of the hold
+ * (`eraseRecipientsLeft`). The other work orders lose the copy when the
+ * contractor goes (`retireContractor`). A work order whose mail is known never
+ * to have left does not count as sent them (`contractorPastWindow`).
  */
 @Injectable()
 export class IssuePurgeService implements OnModuleInit {
@@ -166,6 +257,8 @@ export class IssuePurgeService implements OnModuleInit {
   async run(
     now: Date = new Date(),
     retentionDays: number = ISSUE_RETENTION_DAYS,
+    workOrderRetentionDays: number = WORK_ORDER_BODY_RETENTION_DAYS,
+    contractorRetentionDays: number = CONTRACTOR_RETENTION_DAYS,
   ): Promise<IssuePurgeRunSummary> {
     const issueIds = await this.eligible(now, retentionDays);
 
@@ -204,7 +297,394 @@ export class IssuePurgeService implements OnModuleInit {
       );
     }
 
+    const workOrderTexts = await this.runWorkOrderTexts(
+      now,
+      workOrderRetentionDays,
+    );
+    return {
+      considered: issueIds.length,
+      purged,
+      failed,
+      workOrderTexts,
+      // After the texts, so a work order whose text goes tonight loses its
+      // copy of whom it went to with its contractor tonight too.
+      contractors: await this.runContractors(now, contractorRetentionDays),
+    };
+  }
+
+  /** Removes every contractor past their window from the list. */
+  private async runContractors(
+    now: Date,
+    retentionDays: number,
+  ): Promise<IssuePurgeRunSummary["contractors"]> {
+    const contractorIds = await this.eligibleContractors(now, retentionDays);
+
+    let purged = 0;
+    let failed = 0;
+    for (const contractorId of contractorIds) {
+      try {
+        if (await this.purgeContractor(contractorId, now, retentionDays)) {
+          purged += 1;
+        }
+      } catch (error) {
+        // The contractor's id and the class of the failure, never what it
+        // was holding: see `run`.
+        failed += 1;
+        this.logger.error(
+          `Contractor purge failed for contractor ${contractorId}: ${failureName(error)}`,
+        );
+      }
+    }
+
+    if (purged > 0 || failed > 0) {
+      this.logger.log(
+        `Removed ${String(purged)} of ${String(
+          contractorIds.length,
+        )} eligible contractors from the list`,
+      );
+    }
+    if (contractorIds.length === MAX_ISSUES_PER_RUN) {
+      this.logger.log(
+        `Contractor purge stopped at its per-run bound of ${String(
+          MAX_ISSUES_PER_RUN,
+        )}; the rest are removed by the next run.`,
+      );
+    }
+
+    return { considered: contractorIds.length, purged, failed };
+  }
+
+  /**
+   * The contractors on the list past their window, the longest-standing
+   * first: added before the cutoff, and sent no work order since it.
+   */
+  async eligibleContractors(
+    now: Date,
+    retentionDays: number,
+  ): Promise<string[]> {
+    const rows = await this.prisma.contractor.findMany({
+      where: contractorPastWindow(issuePurgeCutoff(now, retentionDays)),
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: MAX_ISSUES_PER_RUN,
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * Removes one contractor past their window from the list, and answers
+   * whether it did.
+   *
+   * The window is read again under the locks a sending takes, in its order:
+   * the lock of every issue a work order went to them on, which a handler
+   * placing a legal hold takes too, and then the contractor's row, which a
+   * sending holds while it writes a work order to them. A work order written
+   * while the run is in flight therefore keeps the contractor, and a hold
+   * placed while it is in flight keeps that work order's copy of whom it went
+   * to. The entry names the contractor by id, with how many work orders lost
+   * their copy of the name and the address and how many keep it, and the
+   * window, never a name.
+   */
+  async purgeContractor(
+    contractorId: string,
+    now: Date = new Date(),
+    retentionDays: number = CONTRACTOR_RETENTION_DAYS,
+  ): Promise<boolean> {
+    const cutoff = issuePurgeCutoff(now, retentionDays);
+
+    return this.prisma.$transaction(async (tx) => {
+      const issues = await tx.workOrder.findMany({
+        where: { contractorId },
+        distinct: ["issueId"],
+        orderBy: { issueId: "asc" },
+        select: { issueId: true },
+      });
+      for (const { issueId } of issues) {
+        await lockIssue(tx, issueId);
+      }
+      await tx.$queryRaw`SELECT "id" FROM "contractor" WHERE "id" = ${contractorId} FOR UPDATE`;
+      const still = await tx.contractor.findFirst({
+        where: { id: contractorId, ...contractorPastWindow(cutoff) },
+        select: { id: true },
+      });
+      if (still === null) {
+        return false;
+      }
+
+      const { removed, workOrdersErased, workOrdersKept } =
+        await retireContractor(tx, contractorId);
+      if (!removed) {
+        return false;
+      }
+      await this.audit.record(
+        {
+          action: "SERVICE_DATA_PURGED",
+          channel: "SYSTEM",
+          actorPersonId: null,
+          targetPersonId: null,
+          targetKind: "contractor",
+          targetId: contractorId,
+          context: {
+            workOrdersErased,
+            workOrdersKept,
+            retentionDaysAfterLastWorkOrder: retentionDays,
+          },
+        },
+        tx,
+      );
+      return true;
+    });
+  }
+
+  /** Erases the text of the work orders on every closed issue past its window. */
+  private async runWorkOrderTexts(
+    now: Date,
+    retentionDays: number,
+  ): Promise<IssuePurgeRunSummary["workOrderTexts"]> {
+    const issueIds = await this.eligibleWorkOrderTexts(now, retentionDays);
+
+    let purged = 0;
+    let failed = 0;
+    for (const issueId of issueIds) {
+      try {
+        if (await this.purgeWorkOrderTexts(issueId, now, retentionDays)) {
+          purged += 1;
+        }
+      } catch (error) {
+        // The issue id and the class of the failure, never what it was
+        // holding: see `run`.
+        failed += 1;
+        this.logger.error(
+          `Work-order text purge failed for issue ${issueId}: ${failureName(error)}`,
+        );
+      }
+    }
+
+    if (purged > 0 || failed > 0) {
+      this.logger.log(
+        `Erased the work-order text of ${String(purged)} of ${String(
+          issueIds.length,
+        )} eligible closed issues`,
+      );
+    }
+    if (issueIds.length === MAX_ISSUES_PER_RUN) {
+      this.logger.log(
+        `Work-order text purge stopped at its per-run bound of ${String(
+          MAX_ISSUES_PER_RUN,
+        )}; the rest are erased by the next run.`,
+      );
+    }
+
     return { considered: issueIds.length, purged, failed };
+  }
+
+  /**
+   * The closed issues with a work order whose text is still kept past its
+   * window, by the oldest closing first.
+   *
+   * An issue under a legal hold of its own (`legalHoldAt`, ADR 0057), whose
+   * reporter is withheld - a person under a legal hold or a restriction, or a
+   * public-form address that is theirs - or that concerns a person under
+   * either, is excluded by the query rather than dropped from its answer, for
+   * the reason `eligible` gives about its bound.
+   */
+  async eligibleWorkOrderTexts(
+    now: Date,
+    retentionDays: number,
+  ): Promise<string[]> {
+    const cutoff = issuePurgeCutoff(now, retentionDays);
+    const persons = await withheldPersonIds(this.prisma);
+    const addresses = [...(await this.withheldAddresses(this.prisma)).keys()];
+
+    const issues = await this.prisma.issue.findMany({
+      where: {
+        status: { meaning: "DONE" },
+        closedAt: { not: null, lte: cutoff },
+        legalHoldAt: null,
+        AND: [
+          // A text to erase, or the copy of whom a work order went to that a
+          // contractor taken off the list left behind on a work order whose
+          // text was redacted, and which goes on the same clock.
+          {
+            OR: [
+              WORK_ORDER_TEXT_STANDING,
+              { workOrders: { some: WORK_ORDER_RECIPIENT_LEFT } },
+            ],
+          },
+          // Conditional, with the null branch beside it, for the reason
+          // `eligible` gives: `NOT IN` answers null for a null column.
+          ...(persons.length > 0
+            ? [
+                {
+                  OR: [
+                    { reporterPersonId: { notIn: persons } },
+                    { reporterPersonId: null },
+                  ],
+                },
+              ]
+            : []),
+          ...(addresses.length > 0
+            ? [
+                {
+                  OR: [
+                    { reporterEmailIndex: { notIn: addresses } },
+                    { reporterEmailIndex: null },
+                  ],
+                },
+              ]
+            : []),
+          CONCERNS_NO_WITHHELD_PERSON,
+        ],
+      },
+      orderBy: [{ closedAt: "asc" }, { id: "asc" }],
+      take: MAX_ISSUES_PER_RUN,
+      select: { id: true },
+    });
+
+    return issues.map((issue) => issue.id);
+  }
+
+  /**
+   * Erases the text of one closed issue's work orders, and answers whether any
+   * went. The date and the delivery record stay, and so does whom each went to
+   * while that contractor is on the list; a work order whose contractor the
+   * list's clock took off it loses its copy of their name and address with the
+   * text (see the class comment).
+   *
+   * The closing and the issue's own legal hold are read again under the issue
+   * lock, which a reopen and a hold placed on the issue take too
+   * (`lockIssueForHandling`), so an issue reopened or held since the scan
+   * keeps its texts; and the hold or restriction of the reporter and of every
+   * person the issue concerns is read again under the legal hold registry key,
+   * which a hold placement and a restriction grant take too, so one committed
+   * while the run is in flight wins. The people it concerns are read under the
+   * issue lock, which recording one takes, so nobody is added between the read
+   * and the erasure. The entry records how many texts went and the window,
+   * never a word of them.
+   */
+  async purgeWorkOrderTexts(
+    issueId: string,
+    now: Date = new Date(),
+    retentionDays: number = WORK_ORDER_BODY_RETENTION_DAYS,
+  ): Promise<boolean> {
+    const cutoff = issuePurgeCutoff(now, retentionDays);
+
+    return this.prisma.$transaction(async (tx) => {
+      await lockLegalHoldRegistry(tx);
+      // The issue's own lock, which a reopen takes before it clears
+      // `closedAt` and a handler takes before placing a legal hold on the
+      // issue (`issue-lock.ts`): the closing and the hold read below then hold
+      // until the texts are erased.
+      await lockIssue(tx, issueId);
+      const issue = await tx.issue.findFirst({
+        where: {
+          id: issueId,
+          status: { meaning: "DONE" },
+          closedAt: { not: null, lte: cutoff },
+          legalHoldAt: null,
+        },
+        select: { reporterPersonId: true, reporterEmailIndex: true },
+      });
+      if (issue === null) {
+        return false;
+      }
+      if (
+        issue.reporterPersonId !== null &&
+        (await isPersonWithheld(tx, issue.reporterPersonId))
+      ) {
+        return false;
+      }
+      if (
+        issue.reporterEmailIndex !== null &&
+        (await this.withheldAddresses(tx)).has(issue.reporterEmailIndex)
+      ) {
+        return false;
+      }
+      if (
+        await isAnyPersonWithheld(tx, await concernedPersonIdsOf(tx, issueId))
+      ) {
+        return false;
+      }
+
+      const { count } = await tx.workOrder.updateMany({
+        where: { issueId, body: { not: null } },
+        data: { body: null },
+      });
+      const recipientsErased = await eraseRecipientsLeft(tx, { issueId });
+      if (count === 0 && recipientsErased === 0) {
+        return false;
+      }
+      // The board's weighing of the texts for an access report, and a copy
+      // given in part with it, has nothing left to give and holds some of the
+      // words (ADR 0057, question 7).
+      await tx.issueAccessWeighing.deleteMany({
+        where: { issueId, part: "WORK_ORDER" },
+      });
+      // A link to a work order with no text has nothing to show, and ends
+      // with it (ADR 0055, control B5). On a closed issue it opened nothing
+      // already; the revocation makes the end a fact on the row.
+      await revokeWorkOrderLinks(tx, { issueId });
+      // The selector kept for these texts, once the free-text layer's record
+      // of whom the issue concerns is gone (`endConcernedPersonRecords`), goes
+      // with the last of them.
+      await releaseConcernedSelectors(tx, issueId);
+
+      /*
+       * The address index a public-form report kept past its contact details
+       * for these texts' sake (see `purgeIssue`) goes with the last of them.
+       * Only once the name and the address themselves are gone: while they
+       * stand the index is theirs, and `purgeIssue` clears all three together.
+       */
+      const { count: addressIndexCleared } = await tx.issue.updateMany({
+        where: {
+          id: issueId,
+          reporterPersonId: null,
+          reporterNameCipher: null,
+          reporterEmailCipher: null,
+          reporterEmailIndex: { not: null },
+        },
+        data: { reporterEmailIndex: null },
+      });
+
+      /*
+       * The reporter column the person purge kept for these texts' sake goes
+       * with them once that person's erasure request has been carried out: no
+       * job selects the person after that, so nothing else would clear it. Not
+       * while the issue's free text still stands, which keeps the column for
+       * its own sake, and whose removal clears it instead. A reporter whose
+       * own window ran out is detached by the person purge on its next run,
+       * which selects them again now that no text stands. The issue's lock,
+       * which that purge takes on every issue it detaches, orders the two.
+       */
+      const reporterDetached = await detachErasedReporter(
+        tx,
+        issueId,
+        issue.reporterPersonId,
+      );
+
+      await this.audit.record(
+        {
+          action: "SERVICE_DATA_PURGED",
+          channel: "SYSTEM",
+          actorPersonId: null,
+          targetPersonId: null,
+          targetKind: "issue",
+          targetId: issueId,
+          context: {
+            workOrderTexts: count,
+            ...(recipientsErased > 0
+              ? { workOrderRecipients: recipientsErased }
+              : {}),
+            retentionDaysAfterClosing: retentionDays,
+            ...(addressIndexCleared > 0 ? { addressIndexCleared: true } : {}),
+            ...(reporterDetached ? { reporterDetached: true } : {}),
+          },
+        },
+        tx,
+      );
+
+      return true;
+    });
   }
 
   /**
@@ -217,7 +697,9 @@ export class IssuePurgeService implements OnModuleInit {
    *
    * A report with all three columns already null is not selected. It has
    * nothing left to detach, and selecting it would spend the run's bound and
-   * write an entry a night for ever in a table nobody can tidy.
+   * write an entry a night for ever in a table nobody can tidy. Nor, for the
+   * same reason, is one left with only the address index while a work order's
+   * text stands: that index is kept on purpose (see the class comment).
    *
    * Nor is a report whose address is a withheld person's, and it is excluded by
    * the query rather than dropped from its answer: the bound is applied by the
@@ -232,14 +714,21 @@ export class IssuePurgeService implements OnModuleInit {
     const issues = await this.prisma.issue.findMany({
       where: {
         reporterPersonId: null,
-        status: "DONE",
+        // The DONE meaning, whatever the board named the status: a status it
+        // added under DONE closes an issue as the default one does (ADR 0057).
+        status: { meaning: "DONE" },
         closedAt: { not: null, lte: cutoff },
         AND: [
           {
             OR: [
               { reporterNameCipher: { not: null } },
               { reporterEmailCipher: { not: null } },
-              { reporterEmailIndex: { not: null } },
+              // An index alone only once no work order's text stands: until
+              // then it is kept, and `purgeWorkOrderTexts` clears it.
+              {
+                reporterEmailIndex: { not: null },
+                NOT: WORK_ORDER_TEXT_STANDING,
+              },
             ],
           },
           /*
@@ -302,8 +791,11 @@ export class IssuePurgeService implements OnModuleInit {
       }
       // A report that left no address matches nobody, whatever holds stand, so
       // there is nothing to order against a placement. The address is written
-      // when the report is filed and cleared only here, so it cannot appear
-      // between this read and the update.
+      // when the report is filed and never again, so it cannot appear between
+      // this read and the update. It can go, if `purgeWorkOrderTexts` clears an
+      // index this job kept, but only once the name and the address are gone,
+      // and the update below then finds nothing to detach.
+      let keepsAddressIndex = false;
       if (issue.reporterEmailIndex !== null) {
         // Before anything is read about holds, and taken whether or not this
         // report turns out to be withheld: in the ordinary case the address is
@@ -312,24 +804,47 @@ export class IssuePurgeService implements OnModuleInit {
         if ((await this.withheldAddresses(tx)).has(issue.reporterEmailIndex)) {
           return false;
         }
+        // The issue's own lock, which sending a work order takes
+        // (`work-order.service.ts`), so the texts counted here are all there
+        // are until this transaction ends. Taken after the registry key, in
+        // the order `purgeWorkOrderTexts` takes them.
+        await lockIssue(tx, issueId);
+        keepsAddressIndex =
+          (await tx.workOrder.count({
+            where: { issueId, body: { not: null } },
+          })) > 0;
       }
 
       const { count } = await tx.issue.updateMany({
         where: {
           id: issueId,
           reporterPersonId: null,
-          status: "DONE",
+          status: { meaning: "DONE" },
           closedAt: { not: null, lte: cutoff },
+          // Something left to detach, so a report kept only by its index
+          // writes no entry for detaching nothing.
+          OR: [
+            { reporterNameCipher: { not: null } },
+            { reporterEmailCipher: { not: null } },
+            ...(keepsAddressIndex
+              ? []
+              : [{ reporterEmailIndex: { not: null } }]),
+          ],
         },
         data: {
           reporterNameCipher: null,
           reporterEmailCipher: null,
-          reporterEmailIndex: null,
+          ...(keepsAddressIndex ? {} : { reporterEmailIndex: null }),
         },
       });
       if (count === 0) {
         return false;
       }
+
+      // The reporter's private link goes with the address it was mailed to
+      // (ADR 0055). It opened nothing once the address was cleared; the row is
+      // removed so nothing is left pointing at a reporter who is gone.
+      await tx.issueReporterLink.deleteMany({ where: { issueId } });
 
       await this.audit.record(
         {
@@ -353,7 +868,10 @@ export class IssuePurgeService implements OnModuleInit {
            * would be a permanent copy of exactly what the entry says was
            * removed.
            */
-          context: { retentionDaysAfterClosing: retentionDays },
+          context: {
+            retentionDaysAfterClosing: retentionDays,
+            ...(keepsAddressIndex ? { addressIndexKept: true } : {}),
+          },
         },
         tx,
       );
@@ -371,4 +889,30 @@ export class IssuePurgeService implements OnModuleInit {
       "issue.reporterEmail",
     );
   }
+}
+
+/**
+ * A contractor whose window has run out: added before the cutoff, and sent no
+ * work order after it. What their work orders still hold is theirs to keep,
+ * and does not keep the contractor on the list (see the class comment).
+ *
+ * A work order counts as sent them unless its mail is known never to have
+ * left this instance: one still waiting, one the mail server accepted, and one
+ * nobody can tell about (`unconfirmed`) count; one that failed before any mail
+ * server held it does not, since no claim about the work can rest on a mail
+ * the firm never got, and a handler who still hires them writes another.
+ */
+function contractorPastWindow(cutoff: Date): Prisma.ContractorWhereInput {
+  return {
+    createdAt: { lte: cutoff },
+    workOrders: {
+      none: {
+        createdAt: { gt: cutoff },
+        OR: [
+          { deliveryStatus: { in: ["PENDING", "SENT"] } },
+          { deliveryFailure: WORK_ORDER_DELIVERY_FAILURES.unconfirmed },
+        ],
+      },
+    },
+  };
 }

@@ -25,6 +25,7 @@ import {
   BUSY_RETRY_AFTER_SECONDS,
   MAX_CONCURRENT_EXPORTS,
 } from "./export-slots";
+import { createIssueTypeFixture } from "../testing/issue-fixtures";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15) over HTTP.
@@ -63,6 +64,7 @@ const PHONE = runPhone(suffix);
 const addressId = `dsar-address-${suffix}`;
 const apartmentId = `dsar-apartment-${suffix}`;
 const issueTypeId = `dsar-issue-type-${suffix}`;
+const issuePlaceId = `dsar-issue-place-${suffix}`;
 const mediaFileId = `dsar-media-${suffix}`;
 const binderFileId = `dsar-binder-media-${suffix}`;
 const bookableResourceId = `dsar-resource-${suffix}`;
@@ -663,21 +665,126 @@ beforeAll(async () => {
     },
   });
 
-  await prisma.issueType.create({
-    data: {
-      id: issueTypeId,
-      name: `Vattenskada ${suffix}`,
-      audience: "MEMBER",
-    },
+  const issueType = await createIssueTypeFixture(prisma, {
+    id: issueTypeId,
+    name: `Vattenskada ${suffix}`,
+    reporters: ["RESIDENTS"],
   });
+  await prisma.issuePlace.create({
+    data: { id: issuePlaceId, name: `Tvattstuga ${suffix}` },
+  });
+  // The open one carries an answer about entering the apartment, and the
+  // waiting one names a common area, so the copy is read from rows that hold
+  // each. An issue about an apartment names no common area.
   await prisma.issue.create({
     data: {
       typeId: issueTypeId,
+      statusId: issueType.statusIds.NEW,
       reporterPersonId: subject.personId,
       apartmentId,
       location: "Badrummet",
       description: "Vatten pa golvet under handfatet",
+      entryAnswer: "YES",
+      entryNote: "Ring pa forst",
+      entryPets: true,
+      entryMasterKey: false,
+      entryUntil: new Date("2099-02-28"),
     },
+  });
+  // One waiting and one closed, so the report's reason and outcome are read
+  // from rows that hold them rather than passing on a field that is always
+  // empty.
+  await prisma.issue.createMany({
+    data: [
+      {
+        typeId: issueTypeId,
+        statusId: issueType.statusIds.WAITING,
+        waitingReason: "CONTRACTOR",
+        reporterPersonId: subject.personId,
+        placeId: issuePlaceId,
+        location: "Vid torktumlaren",
+        description: "Droppar fran taket i koket",
+      },
+      {
+        typeId: issueTypeId,
+        statusId: issueType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date("2026-03-01"),
+        reporterPersonId: subject.personId,
+        apartmentId,
+        location: "Badrummet",
+        description: "Lampan i hallen blinkar",
+      },
+    ],
+  });
+  // Two work orders on the waiting issue: one to a contractor still on the
+  // list, and one to a contractor since removed, whose name the removal erased.
+  const waitingIssue = await prisma.issue.findFirstOrThrow({
+    where: { typeId: issueTypeId, description: "Droppar fran taket i koket" },
+    select: { id: true },
+  });
+  await prisma.workOrder.createMany({
+    data: [
+      {
+        issueId: waitingIssue.id,
+        recipientName: `Rormokare ${suffix}`,
+        // Never read by the report, which carries no address.
+        recipientEmailCipher: "not-a-cipher",
+        body: "Laga laeckan i koket",
+        sentByPersonId: board.personId,
+        deliveryStatus: "SENT",
+        createdAt: new Date("2026-02-20T09:00:00.000Z"),
+      },
+      {
+        issueId: waitingIssue.id,
+        recipientName: null,
+        recipientEmailCipher: null,
+        body: "Titta pa taket igen",
+        sentByPersonId: board.personId,
+        deliveryStatus: "FAILED",
+        deliveryFailure: "delivery-unconfirmed",
+        createdAt: new Date("2026-02-22T09:00:00.000Z"),
+      },
+      {
+        issueId: waitingIssue.id,
+        recipientName: `Elektriker ${suffix}`,
+        recipientEmailCipher: "not-a-cipher",
+        body: "Byt proppen",
+        sentByPersonId: board.personId,
+        deliveryStatus: "FAILED",
+        deliveryFailure: "mail-not-configured",
+        createdAt: new Date("2026-02-24T09:00:00.000Z"),
+      },
+    ],
+  });
+
+  // A work order the contractor was given a link to, which showed two
+  // photographs since removed from the issue: the count outlives the files.
+  const linked = await prisma.workOrder.create({
+    data: {
+      issueId: waitingIssue.id,
+      recipientName: `Platslagare ${suffix}`,
+      recipientEmailCipher: "not-a-cipher",
+      body: "Byt kakel",
+      sentByPersonId: board.personId,
+      deliveryStatus: "SENT",
+      createdAt: new Date("2026-02-26T09:00:00.000Z"),
+    },
+    select: { id: true },
+  });
+  await prisma.workOrderLink.create({
+    data: {
+      workOrderId: linked.id,
+      tokenDigest: `${"A".repeat(43)}${suffix}`.slice(-43),
+      expiresAt: new Date("2026-03-28T09:00:00.000Z"),
+      revokedAt: new Date("2026-02-27T09:00:00.000Z"),
+    },
+  });
+  await prisma.workOrderPhotoExposure.createMany({
+    data: [
+      { workOrderId: linked.id, fileId: null },
+      { workOrderId: linked.id, fileId: null },
+    ],
   });
 
   await prisma.mediaFile.create({
@@ -1222,6 +1329,7 @@ afterAll(async () => {
           }),
         () => prisma.issue.deleteMany({ where: { typeId: issueTypeId } }),
         () => prisma.issueType.deleteMany({ where: { id: issueTypeId } }),
+        () => prisma.issuePlace.deleteMany({ where: { id: issuePlaceId } }),
         () =>
           prisma.publicationConsent.deleteMany({
             where: { personId: { in: personIds } },
@@ -1712,10 +1820,97 @@ describe("what the report contains", () => {
     // Listed although this train does not purge either: a report that omitted
     // rows because their retention story was unfinished would be an incomplete
     // answer to an access request.
-    expect(report.issues).toHaveLength(1);
-    expect(report.issues[0]?.description).toBe(
-      "Vatten pa golvet under handfatet",
-    );
+    expect(report.issues).toHaveLength(3);
+    const byDescription = (description: string) =>
+      report.issues.find((issue) => issue.description === description);
+
+    const open = byDescription("Vatten pa golvet under handfatet");
+    // Where it stands, as the meaning: the board's label for the status is
+    // its own text for its handlers, and never leaves the issue module.
+    expect(open?.meaning).toBe("NEW");
+    // Open and not waiting, so neither the outcome nor a reason is set.
+    expect(open?.outcome).toBeNull();
+    expect(open?.waitingReason).toBeNull();
+    // The answer about entering, each part as it was recorded. About the
+    // apartment, so no common area.
+    expect(open?.entry).toEqual({
+      answer: "YES",
+      note: "Ring pa forst",
+      pets: true,
+      masterKey: false,
+      until: "2099-02-28",
+    });
+    expect(open?.place).toBeNull();
+
+    const waiting = byDescription("Droppar fran taket i koket");
+    expect(waiting?.meaning).toBe("WAITING");
+    expect(waiting?.waitingReason).toBe("CONTRACTOR");
+    expect(waiting?.outcome).toBeNull();
+    // Whom the issue was sent to and when (art. 15(1)(c)), oldest first; a
+    // removed contractor is named by nobody, and no address is copied. The
+    // text is given only once the board has weighed it (ADR 0057, question 7),
+    // which nobody has here, so none of it is.
+    expect(waiting?.workOrders).toMatchObject([
+      {
+        recipientName: `Rormokare ${suffix}`,
+        writtenAt: "2026-02-20T09:00:00.000Z",
+        deliveryStatus: "SENT",
+        notSent: false,
+        linkGiven: false,
+        photosShared: 0,
+        redactedAt: null,
+        content: { state: "unweighed" },
+      },
+      {
+        recipientName: null,
+        writtenAt: "2026-02-22T09:00:00.000Z",
+        deliveryStatus: "FAILED",
+        // The connection broke after the message was on its way, so the
+        // server may have taken it.
+        notSent: false,
+        linkGiven: false,
+        photosShared: 0,
+        redactedAt: null,
+        content: { state: "unweighed" },
+      },
+      {
+        recipientName: `Elektriker ${suffix}`,
+        writtenAt: "2026-02-24T09:00:00.000Z",
+        deliveryStatus: "FAILED",
+        // No mail server: nothing left this instance.
+        notSent: true,
+        linkGiven: false,
+        photosShared: 0,
+        redactedAt: null,
+        content: { state: "unweighed" },
+      },
+      {
+        recipientName: `Platslagare ${suffix}`,
+        writtenAt: "2026-02-26T09:00:00.000Z",
+        deliveryStatus: "SENT",
+        notSent: false,
+        // A link that was withdrawn was still given, and what it showed was
+        // disclosed: both stay on the report.
+        linkGiven: true,
+        photosShared: 2,
+        redactedAt: null,
+        content: { state: "unweighed" },
+      },
+    ]);
+    // Never answered, and the common area by its name.
+    expect(waiting?.entry).toBeNull();
+    expect(waiting?.place).toBe(`Tvattstuga ${suffix}`);
+    expect(JSON.stringify(report.issues)).not.toContain("Laga laeckan");
+    expect(JSON.stringify(report.issues)).not.toContain("not-a-cipher");
+    expect(open?.workOrders).toEqual([]);
+
+    const closed = byDescription("Lampan i hallen blinkar");
+    expect(closed?.meaning).toBe("DONE");
+    expect(closed?.outcome).toBe("FIXED");
+    expect(closed?.waitingReason).toBeNull();
+    expect(closed?.entry).toBeNull();
+
+    expect(JSON.stringify(report.issues)).not.toContain("Ny");
     expect(report.documents).toHaveLength(1);
     expect(report.documents[0]?.title).toBe(`Stadgar ${suffix}`);
   });

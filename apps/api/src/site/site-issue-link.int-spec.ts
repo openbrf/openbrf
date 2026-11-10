@@ -1,0 +1,2916 @@
+import { Logger } from "@nestjs/common";
+import type { NestFastifyApplication } from "@nestjs/platform-fastify";
+import { createHash } from "node:crypto";
+import { Client } from "pg";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
+
+import { AuthService } from "../auth/auth.service";
+import { createApplication, loadPluginsAtBoot } from "../bootstrap";
+import { ENV } from "../config/config.module";
+import { applicationDatabaseUrl, type Env } from "../config/env";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { NORMALIZATION_VERSION } from "../crypto/personal-data";
+import { registerMultipart } from "../http/multipart";
+import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
+import { IssueConversationService } from "../issues/issue-conversation.service";
+import { lockIssueType } from "../issues/issue-lock";
+import {
+  ISSUE_NOTICE_QUEUE,
+  ISSUE_OVERDUE_QUEUE,
+  NOTIFIED_MESSAGES_PER_LINK_PER_HOUR,
+} from "../issues/issue-mailer.service";
+import { lockIssueForHandling } from "../issues/issue-lock";
+import { IssuePurgeService } from "../issues/issue-purge.service";
+import {
+  REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY,
+  REPORTER_LINK_MESSAGES_PER_HOUR,
+  REPORTER_LINK_MESSAGES_PER_ISSUE,
+  REPORTER_LINK_QUEUE,
+  IssueReporterLinkService,
+} from "../issues/issue-reporter-link.service";
+import { IssueError } from "../issues/issue.error";
+import { IssueService } from "../issues/issue.service";
+import type { SendMailInput } from "../mail/mail.service";
+import { MailNotConfiguredError, MailService } from "../mail/mail.service";
+import type { SentMail } from "../mail/mail-driver";
+import {
+  type IssueReporterLinkMailProps,
+  issueReporterLinkMail,
+} from "../mail/templates";
+import { lockLegalHoldRegistry } from "../retention/legal-hold-lock";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
+import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import {
+  createIssueTypeFixture,
+  type IssueTypeFixture,
+} from "../testing/issue-fixtures";
+import { LINK_READS_PER_MINUTE } from "./site-issue-link.controller";
+import { SiteRenderer } from "./site-renderer.service";
+
+/**
+ * The page a reporter's private link opens, through the application as it
+ * boots (`createApplication`, so the header hooks are the real ones), a real
+ * database and the real rate limiter (ADR 0055).
+ *
+ * Each `describe` is one group of the controls the threat review of the link
+ * required (APT-9360, A to J), and each test fails when the control it names
+ * is taken out. The mail server is replaced by a recorder, which is how the
+ * suite learns the token: the same way a reporter does, from the mail.
+ */
+
+const baseEnv = loadEnvForIntegrationTests();
+
+let app: NestFastifyApplication;
+let prisma: PrismaService;
+let encryption: FieldEncryptionService;
+let issues: IssueService;
+let links: IssueReporterLinkService;
+let conversation: IssueConversationService;
+let mail: MailService;
+
+const suffix = process.hrtime.bigint().toString(36);
+const PASSWORD = "a-long-enough-password";
+
+const board = {
+  personId: `rl-board-${suffix}`,
+  email: `rl-board-${suffix}@exempel.se`,
+  firstName: "Berit",
+  lastName: `Kanariestyrelse${suffix}`,
+};
+
+let publicType: IssueTypeFixture;
+
+/** Every mail the application handed to the mail server, in order. */
+const sent: SendMailInput<unknown>[] = [];
+
+/**
+ * A distinct forwarded address per request, inside this suite's own block:
+ * 10.211.0.0/16. The limiter buckets by address, and the tests that spend a
+ * budget on purpose name a fixed address of their own.
+ */
+let ipCounter = 0;
+function nextAddress(): string {
+  ipCounter += 1;
+  return `10.211.${String(Math.floor(ipCounter / 254) % 254)}.${String((ipCounter % 254) + 1)}`;
+}
+
+function inject(options: {
+  method: "GET" | "POST" | "HEAD";
+  url: string;
+  payload?: string | Buffer;
+  headers?: Record<string, string>;
+  address?: string;
+  /** The application to ask: the suite's own, unless a test boots another. */
+  on?: NestFastifyApplication;
+}) {
+  return (options.on ?? app)
+    .getHttpAdapter()
+    .getInstance()
+    .inject({
+      method: options.method,
+      url: options.url,
+      ...(options.payload === undefined ? {} : { payload: options.payload }),
+      headers: {
+        "x-forwarded-for": options.address ?? nextAddress(),
+        "accept-language": "sv-SE,sv;q=0.9",
+        ...options.headers,
+      },
+    });
+}
+
+/** A message, as the page's form posts it. */
+function post(
+  token: string,
+  body: string,
+  options: {
+    headers?: Record<string, string>;
+    address?: string;
+    on?: NestFastifyApplication;
+  } = {},
+) {
+  return inject({
+    method: "POST",
+    url: `/arende/${token}`,
+    payload: new URLSearchParams({ body }).toString(),
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      ...options.headers,
+    },
+    ...(options.address === undefined ? {} : { address: options.address }),
+    ...(options.on === undefined ? {} : { on: options.on }),
+  });
+}
+
+function page(token: string, address?: string, on?: NestFastifyApplication) {
+  return inject({
+    method: "GET",
+    url: `/arende/${token}`,
+    ...(address === undefined ? {} : { address }),
+    ...(on === undefined ? {} : { on }),
+  });
+}
+
+let reportCounter = 0;
+
+/**
+ * A report from the website's form with an address, its link delivered: what
+ * the reporter holds once the mail arrives.
+ */
+async function reported(
+  options: { email?: string; description?: string; name?: string } = {},
+): Promise<{ issueId: string; token: string; email: string }> {
+  reportCounter += 1;
+  const email =
+    options.email ??
+    `rl-reporter-${String(reportCounter)}-${suffix}@exempel.se`;
+  const { id } = await issues.reportPublicly({
+    typeId: publicType.id,
+    location: null,
+    description: options.description ?? `Porten låser inte ${suffix}`,
+    reporterName: options.name ?? null,
+    reporterEmail: email,
+  });
+  const before = sent.length;
+  expect(await links.deliver(id)).toBe(true);
+  const mailed = sent[before];
+  if (mailed === undefined) {
+    throw new Error("The link was not mailed.");
+  }
+  return { issueId: id, token: tokenIn(mailed), email };
+}
+
+function tokenIn(mailed: SendMailInput<unknown>): string {
+  const props = mailed.props as IssueReporterLinkMailProps;
+  const match = /\/arende\/(obrf_rl_[A-Za-z0-9_-]{43})$/.exec(props.linkUrl);
+  if (match?.[1] === undefined) {
+    throw new Error("No token in the link.");
+  }
+  return match[1];
+}
+
+async function signIn(email: string): Promise<string> {
+  const response = await inject({
+    method: "POST",
+    url: "/api/auth/sign-in/email",
+    payload: JSON.stringify({ email, password: PASSWORD }),
+    headers: { "content-type": "application/json" },
+  });
+  const setCookie = response.headers["set-cookie"];
+  const cookies = Array.isArray(setCookie)
+    ? setCookie
+    : setCookie === undefined
+      ? []
+      : [setCookie];
+  return cookies.map((value) => value.split(";")[0]).join("; ");
+}
+
+/** Every header but the ones that vary with the moment. */
+function stableHeaders(
+  headers: Record<string, unknown>,
+): Record<string, unknown> {
+  const { date: _date, ...rest } = headers;
+  return rest;
+}
+
+/** The headers every answer on a link's path carries (F1). */
+function expectLinkHeaders(headers: Record<string, unknown>): void {
+  expect(headers["referrer-policy"]).toBe("no-referrer");
+  expect(headers["cache-control"]).toBe("no-store");
+  expect(headers["x-robots-tag"]).toContain("noindex");
+  expect(headers["x-content-type-options"]).toBe("nosniff");
+  expect(headers["x-frame-options"]).toBe("DENY");
+  const policy = String(headers["content-security-policy"]);
+  expect(policy).toContain("default-src 'none'");
+  expect(policy).toContain("form-action 'self'");
+  expect(policy).toContain("frame-ancestors 'none'");
+  // F4, E3: nothing that lets an answer be cached by a validator, read from
+  // another origin, or tied to a session.
+  expect(headers.etag).toBeUndefined();
+  expect(headers["last-modified"]).toBeUndefined();
+  expect(headers["access-control-allow-origin"]).toBeUndefined();
+  expect(headers["set-cookie"]).toBeUndefined();
+}
+
+async function auditFor(issueId: string) {
+  return prisma.auditLogEntry.findMany({
+    where: { targetKind: "issue", targetId: issueId },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+
+/**
+ * The database's clock, read the way a `TIMESTAMP(3)` column is read. A link's
+ * `expiresAt` is set on that clock, so a check against `Date.now()` would take
+ * the gap between the two clocks for the link's fault. The cast is the one the
+ * column goes through, so the zone cancels, but only in a zone without
+ * daylight saving: a reading taken across a fall-back, or an expiry that
+ * lands in a spring-forward gap, would not bracket. Like the rest of this file
+ * the helper therefore requires a UTC session and says so when it is not one.
+ */
+async function databaseClock(): Promise<Date> {
+  const [row] = await prisma.$queryRaw<{ now: Date; zone: string }[]>`
+    SELECT clock_timestamp()::timestamp(3) AS "now",
+           current_setting('TimeZone') AS "zone"`;
+  if (row === undefined || !["UTC", "Etc/UTC"].includes(row.zone)) {
+    throw new Error(
+      `The year checks read local timestamps as UTC, and the session's time zone is ${row?.zone ?? "unknown"}.`,
+    );
+  }
+  return row.now;
+}
+
+/**
+ * An issue closed two days ago on the database's clock, which is the clock
+ * its reopening is judged on, with the hourly limit's worth of messages from
+ * the link's reporter, each dated `ageMs` before this process's clock: the
+ * clock the hour is judged on and a message's `createdAt` is filled from.
+ */
+async function closedWithReporterMessages(
+  issueId: string,
+  ageMs: number,
+): Promise<void> {
+  await prisma.$executeRaw`
+    UPDATE "issue"
+    SET "statusId" = ${publicType.statusIds.DONE},
+        "outcome" = 'FIXED',
+        "closedAt" = clock_timestamp() - interval '2 days'
+    WHERE "id" = ${issueId}`;
+  await prisma.issueMessage.createMany({
+    data: Array.from({ length: REPORTER_LINK_MESSAGES_PER_HOUR }, () => ({
+      issueId,
+      side: "REPORTER" as const,
+      authorPersonId: null,
+      body: "Ett tidigare svar",
+      createdAt: new Date(Date.now() - ageMs),
+    })),
+  });
+}
+
+/**
+ * What the hour's limit allows, seen the way a reporter sees it: the page
+ * offers the reopening only when the reply would accept it, and the reply
+ * leaves the issue closed when it refuses.
+ */
+async function expectHourlyBudget(
+  token: string,
+  issueId: string,
+  outcome: "sent" | "limited",
+  on?: NestFastifyApplication,
+): Promise<void> {
+  const reading = await page(token, undefined, on);
+  expect(reading.statusCode).toBe(200);
+  if (outcome === "sent") {
+    expect(reading.body).toContain("öppnas det igen");
+  } else {
+    expect(reading.body).not.toContain("öppnas det igen");
+  }
+  const answer = await post(
+    token,
+    "En sak till",
+    on === undefined ? {} : { on },
+  );
+  expect(answer.headers.location).toBe(`/arende/${token}?svar=${outcome}`);
+  expect(
+    (
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: { statusId: true },
+      })
+    ).statusId,
+  ).toBe(
+    outcome === "sent"
+      ? publicType.statusIds.IN_PROGRESS
+      : publicType.statusIds.DONE,
+  );
+}
+
+/** `expiresAt` ends a year after a moment between two readings of the clock. */
+function expectYearAfterBetween(expiresAt: Date, before: Date, after: Date) {
+  expect(expiresAt.getTime()).toBeGreaterThanOrEqual(
+    before.getTime() + YEAR_MS,
+  );
+  expect(expiresAt.getTime()).toBeLessThanOrEqual(after.getTime() + YEAR_MS);
+}
+
+/** Everything a GET could write, for one issue (E1). */
+async function snapshot(issueId: string) {
+  const [issue, link, messages, audit, jobs] = await Promise.all([
+    prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: { updatedAt: true, statusId: true, closedAt: true },
+    }),
+    prisma.issueReporterLink.findUniqueOrThrow({ where: { issueId } }),
+    prisma.issueMessage.count({ where: { issueId } }),
+    prisma.auditLogEntry.count({ where: { targetId: issueId } }),
+    prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT count(*) AS "count" FROM pgboss.job WHERE data->>'issueId' = ${issueId}`,
+  ]);
+  return { issue, link, messages, audit, jobs: Number(jobs[0]?.count ?? 0) };
+}
+
+beforeAll(async () => {
+  const env: Env = { ...baseEnv, OPENBRF_PLUGINS_ENABLED: false };
+  app = await createApplication(await loadPluginsAtBoot(env));
+  // As main.ts does: the parser is global, which is why the link's route has
+  // to refuse a file itself (G13).
+  await registerMultipart(app, env);
+  await app.init();
+  await app.getHttpAdapter().getInstance().ready();
+
+  prisma = app.get(PrismaService);
+  encryption = app.get(FieldEncryptionService);
+  issues = app.get(IssueService);
+  links = app.get(IssueReporterLinkService);
+  conversation = app.get(IssueConversationService);
+  mail = app.get(MailService);
+
+  vi.spyOn(mail, "send").mockImplementation(async (input) => {
+    sent.push(input as SendMailInput<unknown>);
+    return { messageId: `<rl-${String(sent.length)}@exempel.se>` } as SentMail;
+  });
+
+  await prisma.association.upsert({
+    where: { id: 1 },
+    create: {
+      id: 1,
+      name: "Brf Eksemplet",
+      setupCompletedAt: new Date(),
+      issueReportingPublic: true,
+    },
+    update: { setupCompletedAt: new Date(), issueReportingPublic: true },
+  });
+
+  publicType = await createIssueTypeFixture(prisma, {
+    id: `rl-type-${suffix}`,
+    name: `Trasig port ${suffix}`,
+    reporters: ["PUBLIC"],
+    sortOrder: 950,
+  });
+
+  const email = await encryption.encrypt("person.email", board.email);
+  await prisma.person.create({
+    data: {
+      id: board.personId,
+      firstName: board.firstName,
+      lastName: board.lastName,
+      emailCipher: email.cipher,
+      emailIndex: email.index,
+    },
+  });
+  await app.get(AuthService).createAccountForPerson({
+    personId: board.personId,
+    email: board.email,
+    name: `${board.firstName} ${board.lastName}`,
+    password: PASSWORD,
+  });
+  await prisma.boardPosition.create({
+    data: {
+      personId: board.personId,
+      position: "BOARD_MEMBER",
+      electedOn: new Date("2025-05-15"),
+    },
+  });
+}, 180_000);
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.spyOn(mail, "send").mockImplementation(async (input) => {
+    sent.push(input as SendMailInput<unknown>);
+    return { messageId: `<rl-${String(sent.length)}@exempel.se>` } as SentMail;
+  });
+});
+
+afterAll(async () => {
+  const personIds = [
+    board.personId,
+    `rl-restricted-${suffix}`,
+    `rl-restricted-late-${suffix}`,
+    `rl-retry-restricted-${suffix}`,
+  ];
+  // The notices a reopening queued, for this run's issues only.
+  const issueIds = (
+    await prisma.issue.findMany({
+      where: { typeId: publicType.id },
+      select: { id: true },
+    })
+  ).map((issue) => issue.id);
+  if (issueIds.length > 0) {
+    await prisma.$executeRawUnsafe(
+      "DELETE FROM pgboss.job WHERE name IN ($1, $2) AND data->>'issueId' = ANY($3::text[])",
+      ISSUE_NOTICE_QUEUE,
+      ISSUE_OVERDUE_QUEUE,
+      issueIds,
+    );
+  }
+  await prisma.issue.deleteMany({ where: { typeId: publicType.id } });
+  await prisma.issueType.deleteMany({ where: { id: publicType.id } });
+  await prisma.session.deleteMany({
+    where: { user: { personId: { in: personIds } } },
+  });
+  await prisma.account.deleteMany({
+    where: { user: { personId: { in: personIds } } },
+  });
+  await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
+  await prisma.boardPosition.deleteMany({
+    where: { personId: { in: personIds } },
+  });
+  await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+  await app.close();
+});
+
+describe("a reporter without an account", () => {
+  it("is mailed a link, reads the conversation on it and answers there", async () => {
+    const { issueId, token } = await reported();
+
+    await conversation.replyAsHandler(
+      board.personId,
+      issueId,
+      "Vi skickar en låssmed i morgon.",
+    );
+
+    const read = await page(token);
+    expect(read.statusCode).toBe(200);
+    expect(read.body).toContain("Vi skickar en låssmed i morgon.");
+    // Signed by a role, never by the person (decision 19).
+    expect(read.body).toContain("Styrelsen");
+    expect(read.body).not.toContain(board.lastName);
+
+    const answered = await post(token, "Tack, jag är hemma efter tolv.");
+    expect(answered.statusCode).toBe(303);
+    expect(answered.headers.location).toBe(`/arende/${token}?svar=sent`);
+
+    const stored = await prisma.issueMessage.findMany({
+      where: { issueId },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(stored.map((message) => [message.side, message.body])).toEqual([
+      ["HANDLER", "Vi skickar en låssmed i morgon."],
+      ["REPORTER", "Tack, jag är hemma efter tolv."],
+    ]);
+    // No person behind a link.
+    expect(stored[1]?.authorPersonId).toBeNull();
+
+    const after = await inject({
+      method: "GET",
+      url: String(answered.headers.location),
+    });
+    expect(after.body).toContain("Tack, jag är hemma efter tolv.");
+    expect(after.body).toContain("Ditt meddelande har skickats");
+  });
+
+  it("alerts the assignee of an open issue to each message, within the link's hourly budget", async () => {
+    const { issueId, token } = await reported();
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        statusId: publicType.statusIds.IN_PROGRESS,
+        assigneePersonId: board.personId,
+      },
+    });
+
+    const notices = async () =>
+      (
+        await prisma.$queryRawUnsafe<
+          { data: { personId: string; event: string; messageId?: string } }[]
+        >(
+          "SELECT data FROM pgboss.job WHERE name = $1 AND data->>'issueId' = $2 AND data->>'event' = 'message' ORDER BY created_on, id",
+          ISSUE_NOTICE_QUEUE,
+          issueId,
+        )
+      ).map((notice) => notice.data);
+
+    const first = await post(token, "Porten går att öppna nu, men inte låsa.");
+    expect(first.headers.location).toBe(`/arende/${token}?svar=sent`);
+    const message = await prisma.issueMessage.findFirstOrThrow({
+      where: { issueId, side: "REPORTER" },
+      select: { id: true },
+    });
+    // The assignee is told there is a message, naming the stored message and
+    // carrying nothing it says.
+    expect(await notices()).toEqual([
+      {
+        issueId,
+        personId: board.personId,
+        event: "message",
+        messageId: message.id,
+      },
+    ]);
+
+    for (let n = 1; n < NOTIFIED_MESSAGES_PER_LINK_PER_HOUR; n += 1) {
+      expect(
+        (await post(token, `Ett svar till ${String(n)}`)).headers.location,
+      ).toBe(`/arende/${token}?svar=sent`);
+    }
+    expect(await notices()).toHaveLength(NOTIFIED_MESSAGES_PER_LINK_PER_HOUR);
+
+    // Past the link's budget the message is stored, and nobody is mailed.
+    const past = await post(token, "Ett svar för mycket");
+    expect(past.headers.location).toBe(`/arende/${token}?svar=sent`);
+    expect(
+      await prisma.issueMessage.count({ where: { issueId, side: "REPORTER" } }),
+    ).toBe(NOTIFIED_MESSAGES_PER_LINK_PER_HOUR + 1);
+    expect(await notices()).toHaveLength(NOTIFIED_MESSAGES_PER_LINK_PER_HOUR);
+  });
+
+  it("is not mailed, and gets no follow-up, without an address", async () => {
+    const before = sent.length;
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Ingen adress",
+      reporterName: null,
+      reporterEmail: null,
+    });
+
+    expect(await links.deliver(id)).toBe(false);
+    expect(sent.length).toBe(before);
+    expect(
+      await prisma.issueReporterLink.count({ where: { issueId: id } }),
+    ).toBe(0);
+    await expect(
+      conversation.replyAsHandler(board.personId, id, "Hej"),
+    ).rejects.toMatchObject({
+      reason: "no-reporter",
+    });
+    // And nothing was queued to mail anybody.
+    const jobs = await prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT count(*) AS "count" FROM pgboss.job
+      WHERE name = ${REPORTER_LINK_QUEUE} AND data->>'issueId' = ${id}`;
+    expect(Number(jobs[0]?.count)).toBe(0);
+  });
+
+  it("queues the link mail in the transaction that files the report, carrying no token", async () => {
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Kö",
+      reporterName: null,
+      reporterEmail: `rl-queued-${suffix}@exempel.se`,
+    });
+    const jobs = await prisma.$queryRaw<{ data: Record<string, unknown> }[]>`
+      SELECT data FROM pgboss.job
+      WHERE name = ${REPORTER_LINK_QUEUE} AND data->>'issueId' = ${id}`;
+    expect(jobs.map((job) => job.data)).toEqual([
+      { issueId: id, locale: null },
+    ]);
+  });
+
+  it("is mailed in the language the reporter read the form in", async () => {
+    const slug = `rl-form-${suffix}`;
+    await prisma.page.create({
+      data: {
+        slug,
+        title: "Felanmälan",
+        content: { version: 1, blocks: [{ type: "issueReportForm" }] },
+        status: "PUBLIC",
+        publishedAt: new Date(),
+        sortOrder: 950,
+      },
+    });
+    try {
+      const description = `På engelska ${suffix}`;
+      const answer = await inject({
+        method: "POST",
+        url: `/${slug}/felanmalan`,
+        payload: new URLSearchParams({
+          type: publicType.id,
+          description,
+          email: `rl-english-${suffix}@exempel.se`,
+        }).toString(),
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "accept-language": "en-GB,en;q=0.9",
+        },
+      });
+      expect(answer.statusCode).toBe(303);
+      const issue = await prisma.issue.findFirstOrThrow({
+        where: { typeId: publicType.id, description },
+        select: { id: true },
+      });
+      const jobs = await prisma.$queryRaw<{ data: Record<string, unknown> }[]>`
+        SELECT data FROM pgboss.job
+        WHERE name = ${REPORTER_LINK_QUEUE} AND data->>'issueId' = ${issue.id}`;
+      expect(jobs.map((job) => job.data)).toEqual([
+        { issueId: issue.id, locale: "en" },
+      ]);
+
+      const before = sent.length;
+      expect(await links.deliver(issue.id, "en")).toBe(true);
+      expect(sent[before]?.locale).toBe("en");
+      const rendered = await mail.renderMail({
+        locale: "en",
+        template: issueReporterLinkMail,
+        props: sent[before]?.props as IssueReporterLinkMailProps,
+      });
+      expect(rendered.subject).toMatch(/^Your report to /);
+      expect(rendered.html).toContain("Thank you for your report");
+      expect(rendered.html).toContain("you reported an issue to");
+    } finally {
+      await prisma.page.deleteMany({ where: { slug } });
+    }
+  });
+});
+
+describe("A. the token", () => {
+  it("A1: is 32 random bytes in base64url behind the reporter's prefix", async () => {
+    const { token } = await reported();
+    expect(token.startsWith("obrf_rl_")).toBe(true);
+    expect(Buffer.from(token.slice(8), "base64url")).toHaveLength(32);
+  });
+
+  it("A2: is stored as its SHA-256 digest and nowhere as itself", async () => {
+    const logged: string[] = [];
+    for (const level of [
+      "log",
+      "debug",
+      "verbose",
+      "warn",
+      "error",
+      "fatal",
+    ] as const) {
+      vi.spyOn(Logger.prototype, level).mockImplementation(
+        (...parts: unknown[]) => {
+          logged.push(parts.map(String).join(" "));
+        },
+      );
+    }
+    const { issueId, token } = await reported();
+    await post(token, "Ett svar");
+
+    const row = await prisma.issueReporterLink.findUniqueOrThrow({
+      where: { issueId },
+    });
+    expect(row.tokenDigest).toBe(
+      createHash("sha256").update(token, "utf8").digest("base64url"),
+    );
+    expect(JSON.stringify(row)).not.toContain(token);
+
+    const audit = await auditFor(issueId);
+    expect(audit.length).toBeGreaterThan(0);
+    for (const entry of audit) {
+      expect(JSON.stringify(entry)).not.toContain(token);
+      expect(JSON.stringify(entry)).not.toContain(row.tokenDigest);
+    }
+
+    const jobs = await prisma.$queryRaw<{ data: unknown }[]>`
+      SELECT data FROM pgboss.job WHERE data->>'issueId' = ${issueId}`;
+    expect(jobs.length).toBeGreaterThan(0);
+    expect(JSON.stringify(jobs)).not.toContain(token);
+
+    expect(logged.join("\n")).not.toContain(token);
+    expect(logged.join("\n")).not.toContain(token.slice(8));
+  });
+
+  it("A3: is read from the path alone, and a malformed one is refused before the database is asked", async () => {
+    const { token } = await reported();
+    const unknown = await page(`obrf_rl_${"A".repeat(43)}`);
+
+    // Every way this code reaches the database: a transaction, a raw
+    // statement, or the link's own table.
+    const asked = [
+      vi.spyOn(prisma, "$transaction"),
+      vi.spyOn(prisma, "$queryRaw"),
+      vi.spyOn(prisma, "$executeRaw"),
+      vi.spyOn(prisma.issueReporterLink, "findUnique"),
+      vi.spyOn(prisma.issueReporterLink, "findFirst"),
+      vi.spyOn(prisma.issueReporterLink, "findMany"),
+    ];
+    try {
+      for (const malformed of [
+        "obrf_dt_" + token.slice(8),
+        token.slice(0, -1),
+        `${token}A`,
+        token.replace(/.$/, "%"),
+        "x",
+      ]) {
+        const answer = await page(encodeURIComponent(malformed));
+        expect(answer.statusCode).toBe(404);
+        expect(answer.body).toBe(unknown.body);
+      }
+      for (const spy of asked) {
+        expect(spy).not.toHaveBeenCalled();
+      }
+    } finally {
+      for (const spy of asked) {
+        spy.mockRestore();
+      }
+    }
+
+    // A token anywhere but the path opens nothing.
+    const inQuery = await inject({
+      method: "GET",
+      url: `/arende/obrf_rl_${"B".repeat(43)}?token=${token}`,
+    });
+    expect(inQuery.statusCode).toBe(404);
+    const inHeader = await inject({
+      method: "GET",
+      url: `/arende/obrf_rl_${"B".repeat(43)}`,
+      headers: { authorization: `Bearer ${token}`, "x-token": token },
+    });
+    expect(inHeader.statusCode).toBe(404);
+  });
+
+  it("A6: is mailed in one address built from APP_URL, in the body and never the subject", async () => {
+    const before = sent.length;
+    const { token } = await reported();
+    const mailed = sent[before];
+    expect(mailed?.template).toBe(issueReporterLinkMail);
+    const props = mailed?.props as IssueReporterLinkMailProps;
+    expect(props.linkUrl).toBe(
+      `${baseEnv.APP_URL.replace(/\/+$/, "")}/arende/${token}`,
+    );
+
+    const rendered = await mail.renderMail({
+      locale: null,
+      template: issueReporterLinkMail,
+      props,
+    });
+    expect(rendered.subject).not.toContain(token);
+    // The footer says why this mail came, not that the reader is in the
+    // address book: the reporter may be nobody the association knows.
+    expect(rendered.html).toContain("Du får detta eftersom du har anmält");
+    expect(rendered.html).not.toContain("adressboken");
+    const hrefs = [...rendered.html.matchAll(/href="([^"]*)"/g)].map(
+      (match) => match[1],
+    );
+    expect(new Set(hrefs)).toEqual(new Set([props.linkUrl]));
+    const urls = rendered.text.match(/https?:\/\/\S+/g) ?? [];
+    expect(new Set(urls)).toEqual(new Set([props.linkUrl]));
+  });
+});
+
+describe("B. lifetime and revocation", () => {
+  it("B1: a withdrawn link answers 404 on the very next request", async () => {
+    const { issueId, token } = await reported();
+    expect((await page(token)).statusCode).toBe(200);
+    const cookie = await signIn(board.email);
+
+    const withdrawn = await inject({
+      method: "POST",
+      url: `/api/issue-queue/${issueId}/reporter-link/revoke`,
+      headers: { cookie, origin: new URL(baseEnv.APP_URL).origin },
+    });
+    expect(withdrawn.statusCode).toBe(204);
+
+    expect((await page(token)).statusCode).toBe(404);
+    expect((await post(token, "Hallå?")).statusCode).toBe(404);
+    // Nobody was mailed about it.
+    const audit = await auditFor(issueId);
+    expect(audit.at(-1)).toMatchObject({
+      action: "ISSUE_REPORTER_LINK_REVOKED",
+      channel: "WEB",
+      actorPersonId: board.personId,
+    });
+    // And the handler can no longer write to nobody.
+    await expect(
+      conversation.replyAsHandler(board.personId, issueId, "Hej"),
+    ).rejects.toMatchObject({ reason: "no-reporter" });
+  });
+
+  it("B1: an expired link answers 404", async () => {
+    const { issueId, token } = await reported();
+    await prisma.issueReporterLink.update({
+      where: { issueId },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    expect((await page(token)).statusCode).toBe(404);
+  });
+
+  it("B4: a message within 30 days of closing reopens the issue and alerts its assignee, and the link ends after", async () => {
+    const { issueId, token } = await reported();
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(Date.now() - 29 * 24 * 60 * 60 * 1000),
+        assigneePersonId: board.personId,
+      },
+    });
+    const closed = await page(token);
+    expect(closed.statusCode).toBe(200);
+    // The field is offered, and the page says that writing reopens the issue.
+    expect(closed.body).toContain("<textarea");
+    expect(closed.body).toContain("öppnas det igen");
+
+    const sentReply = await post(token, "En sak till");
+    expect(sentReply.headers.location).toBe(`/arende/${token}?svar=sent`);
+
+    const reopened = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueId },
+      select: {
+        statusId: true,
+        outcome: true,
+        closedAt: true,
+        assigneePersonId: true,
+        messages: { select: { body: true, side: true, authorPersonId: true } },
+      },
+    });
+    expect(reopened).toEqual({
+      statusId: publicType.statusIds.IN_PROGRESS,
+      outcome: null,
+      closedAt: null,
+      assigneePersonId: board.personId,
+      messages: [
+        { body: "En sak till", side: "REPORTER", authorPersonId: null },
+      ],
+    });
+    // On the link's channel, naming the link and no person, and never the text.
+    const reopening = (await auditFor(issueId)).find(
+      (entry) => entry.action === "ISSUE_STATUS_CHANGED",
+    );
+    expect(reopening).toMatchObject({
+      channel: "LINK",
+      actorPersonId: null,
+      context: {
+        from: "DONE",
+        to: "IN_PROGRESS",
+        byReporter: true,
+      },
+    });
+    expect(JSON.stringify(reopening?.context)).not.toContain("En sak till");
+    // The assignee is told that it is open again.
+    const notices = await prisma.$queryRawUnsafe<
+      { data: { personId: string; event: string } }[]
+    >(
+      "SELECT data FROM pgboss.job WHERE name = $1 AND data->>'issueId' = $2",
+      ISSUE_NOTICE_QUEUE,
+      issueId,
+    );
+    expect(notices.map((notice) => notice.data)).toContainEqual(
+      expect.objectContaining({
+        personId: board.personId,
+        event: "reopened",
+      }),
+    );
+
+    // Closed again 31 days ago, the link opens nothing.
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
+      },
+    });
+    expect((await page(token)).statusCode).toBe(404);
+    expect((await post(token, "För sent")).statusCode).toBe(404);
+  });
+
+  it("B4: the reopening window is judged on the database's clock, whatever the API process's reads", async () => {
+    const { issueId, token } = await reported();
+    // Closed 29 days ago on the database's clock, the one `closedAt` and the
+    // link's own liveness are judged on.
+    await prisma.$executeRaw`
+      UPDATE "issue"
+      SET "statusId" = ${publicType.statusIds.DONE},
+          "outcome" = 'FIXED',
+          "closedAt" = clock_timestamp() - interval '29 days',
+          "assigneePersonId" = ${board.personId}
+      WHERE "id" = ${issueId}`;
+
+    // The API process's clock two days ahead: read against it the issue closed
+    // 31 days ago, and the page and the reply would call it closed.
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000));
+    try {
+      const reading = await page(token);
+      expect(reading.statusCode).toBe(200);
+      expect(reading.body).toContain("<textarea");
+      expect(reading.body).toContain("öppnas det igen");
+
+      const sentReply = await post(token, "Det läcker igen");
+      expect(sentReply.headers.location).toBe(`/arende/${token}?svar=sent`);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issueId },
+        select: { statusId: true, closedAt: true },
+      }),
+    ).toEqual({ statusId: publicType.statusIds.IN_PROGRESS, closedAt: null });
+  });
+
+  it("B4: the page does not promise a reopening that the hour's limit would refuse", async () => {
+    const { issueId, token } = await reported();
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      },
+    });
+    expect((await page(token)).body).toContain("öppnas det igen");
+
+    await prisma.issueMessage.createMany({
+      data: Array.from({ length: REPORTER_LINK_MESSAGES_PER_HOUR }, () => ({
+        issueId,
+        side: "REPORTER" as const,
+        authorPersonId: null,
+        body: "Ett tidigare svar",
+      })),
+    });
+    const limited = await page(token);
+    expect(limited.statusCode).toBe(200);
+    expect(limited.body).not.toContain("öppnas det igen");
+    // What the page does not promise, the reply does not do.
+    const refused = await post(token, "En sak till");
+    expect(refused.headers.location).toBe(`/arende/${token}?svar=limited`);
+    expect(
+      (
+        await prisma.issue.findUniqueOrThrow({
+          where: { id: issueId },
+          select: { statusId: true },
+        })
+      ).statusId,
+    ).toBe(publicType.statusIds.DONE);
+  });
+
+  it.each([
+    {
+      name: "ahead of the database's",
+      skewMs: 2 * 60 * 60 * 1000,
+      // Ninety minutes old on the API's clock, so outside its hour, yet ahead
+      // of the database's cutoff: a window judged on the database's clock
+      // counts them and refuses.
+      ageMs: 90 * 60 * 1000,
+      outcome: "sent" as const,
+    },
+    {
+      name: "behind the database's",
+      skewMs: -2 * 60 * 60 * 1000,
+      // Thirty minutes old on the API's clock, so inside its hour, yet before
+      // the database's cutoff: a window judged on the database's clock counts
+      // none of them and accepts.
+      ageMs: 30 * 60 * 1000,
+      outcome: "limited" as const,
+    },
+  ])(
+    "B4: the hour's limit is judged on the API's clock when it is $name",
+    async ({ skewMs, ageMs, outcome }) => {
+      const { issueId, token } = await reported();
+      vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+      vi.setSystemTime(new Date(Date.now() + skewMs));
+      try {
+        // Dated on the API's skewed clock, the one a message's `createdAt`
+        // is filled from.
+        await closedWithReporterMessages(issueId, ageMs);
+        await expectHourlyBudget(token, issueId, outcome);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  describe("with a time zone outside UTC in the connection string", () => {
+    // The application pins its sessions to UTC whatever the connection string
+    // asks for (database/session-time-zone.ts), so an operator's zone cannot
+    // move the hour's cutoff. Auckland is 12 or 13 hours ahead of UTC, far
+    // more than the hour the limit counts, so a cutoff read as local
+    // wall-clock time in that zone would land on the wrong side of every
+    // message below.
+    const ZONE = "Pacific/Auckland";
+    const url = new URL(applicationDatabaseUrl(baseEnv));
+    url.searchParams.set("options", `-c TimeZone=${ZONE}`);
+    let zoned: NestFastifyApplication | undefined;
+
+    beforeAll(async () => {
+      const env: Env = {
+        ...baseEnv,
+        DATABASE_URL_RUNTIME: url.toString(),
+        OPENBRF_PLUGINS_ENABLED: false,
+      };
+      // The application reads its connection string from the process
+      // environment, as it boots, so the zone is passed there and the
+      // variable put back as soon as the application is up: its pool keeps
+      // the string it connected with.
+      const runtimeBefore = process.env.DATABASE_URL_RUNTIME;
+      process.env.DATABASE_URL_RUNTIME = url.toString();
+      try {
+        zoned = await createApplication(await loadPluginsAtBoot(env));
+        await registerMultipart(zoned, env);
+        await zoned.init();
+        await zoned.getHttpAdapter().getInstance().ready();
+      } finally {
+        if (runtimeBefore === undefined) {
+          delete process.env.DATABASE_URL_RUNTIME;
+        } else {
+          process.env.DATABASE_URL_RUNTIME = runtimeBefore;
+        }
+      }
+    }, 180_000);
+
+    // The application is closed only when it was created, so a failed boot
+    // reports its own error and not a second one from this hook.
+    afterAll(async () => {
+      await zoned?.close();
+    });
+
+    const zonedApp = (): NestFastifyApplication => {
+      if (!zoned) {
+        throw new Error(
+          "The application with a zone in its connection string did not boot",
+        );
+      }
+      return zoned;
+    };
+
+    it("B4: the zone reaches a connection that does not pin it", async () => {
+      // What makes the next case mean anything: were the option lost on the
+      // way to the server, the application's session would report UTC
+      // without the pin.
+      const plain = new Client({ connectionString: url.toString() });
+      await plain.connect();
+      try {
+        const { rows } = await plain.query<{ zone: string }>(
+          `SELECT current_setting('TimeZone') AS "zone"`,
+        );
+        expect(rows[0]?.zone).toBe(ZONE);
+      } finally {
+        await plain.end();
+      }
+    });
+
+    it("B4: the application's session stays in UTC", async () => {
+      const [session] = await zonedApp().get(PrismaService).$queryRaw<
+        { zone: string }[]
+      >`
+          SELECT current_setting('TimeZone') AS "zone"`;
+      expect(session?.zone).toBe("UTC");
+    });
+
+    it.each([
+      {
+        name: "inside the hour",
+        ageMs: 30 * 60 * 1000,
+        outcome: "limited" as const,
+      },
+      {
+        name: "outside the hour",
+        ageMs: 90 * 60 * 1000,
+        outcome: "sent" as const,
+      },
+    ])(
+      "B4: the hour's limit counts the messages $name on UTC wall-clock time",
+      async ({ ageMs, outcome }) => {
+        const { issueId, token } = await reported();
+        await closedWithReporterMessages(issueId, ageMs);
+        await expectHourlyBudget(token, issueId, outcome, zonedApp());
+      },
+    );
+  });
+
+  it("B4: the hour's limit is counted when the reply decides, not when its transaction began", async () => {
+    const { issueId, token } = await reported();
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+      },
+    });
+    await prisma.issueMessage.createMany({
+      data: Array.from({ length: REPORTER_LINK_MESSAGES_PER_HOUR }, () => ({
+        issueId,
+        side: "REPORTER" as const,
+        authorPersonId: null,
+        body: "Ett tidigare svar",
+      })),
+    });
+    let letGo: () => void = () => undefined;
+    const letGoSignal = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    let held: () => void = () => undefined;
+    const holding = new Promise<void>((resolve) => {
+      held = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await lockIssueForHandling(tx, issueId);
+        held();
+        await letGoSignal;
+      },
+      { timeout: 30_000 },
+    );
+    try {
+      await Promise.race([holding, holder]);
+      const replying = post(token, "En sak till");
+      replying.catch(() => undefined);
+      await waitFor(
+        async () =>
+          (await advisoryLockCount(
+            prisma,
+            `issue-type:${publicType.id}`,
+            false,
+          )) > 0n,
+        10_000,
+      );
+      // The link's ten messages are dated two seconds inside the hour while the
+      // reply waits for the issue's locks, and are out of it once it has
+      // waited. They are dated only now, so a slow setup cannot age them before
+      // the reply starts: the reply reads nothing of them before the locks.
+      // Dated on this process's clock, the one the hour is judged on and a
+      // message's `createdAt` is filled from: the API runs in this process.
+      await prisma.issueMessage.updateMany({
+        where: { issueId },
+        data: { createdAt: new Date(Date.now() - 3598 * 1000) },
+      });
+      // Still waiting once they are dated, so the reply did not count them
+      // before the dating took effect.
+      expect(
+        await advisoryLockCount(prisma, `issue-type:${publicType.id}`, false),
+      ).toBeGreaterThan(0n);
+      await new Promise((resolve) => setTimeout(resolve, 3500));
+      letGo();
+      await holder;
+      const answer = await replying;
+      expect(answer.headers.location).toBe(`/arende/${token}?svar=sent`);
+    } finally {
+      letGo();
+      await holder.catch(() => undefined);
+    }
+    expect(
+      await prisma.issueMessage.count({
+        where: { issueId, side: "REPORTER" },
+      }),
+    ).toBe(REPORTER_LINK_MESSAGES_PER_HOUR + 1);
+  });
+
+  it("B4: a message on an issue merged into another is refused as closed, and the page offers no field", async () => {
+    const duplicate = await reported();
+    const target = await reported();
+    await prisma.issue.update({
+      where: { id: duplicate.issueId },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "DUPLICATE",
+        closedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+        mergedIntoIssueId: target.issueId,
+      },
+    });
+    const closed = await page(duplicate.token);
+    expect(closed.statusCode).toBe(200);
+    expect(closed.body).not.toContain("<textarea");
+    expect(closed.body).toContain("Ärendet är avslutat");
+
+    const refused = await post(duplicate.token, "En sak till");
+    expect(refused.headers.location).toBe(
+      `/arende/${duplicate.token}?svar=closed`,
+    );
+    const still = await prisma.issue.findUniqueOrThrow({
+      where: { id: duplicate.issueId },
+      select: { statusId: true, messages: { select: { id: true } } },
+    });
+    expect(still).toEqual({
+      statusId: publicType.statusIds.DONE,
+      messages: [],
+    });
+  });
+
+  it("B4: an issue that stays open keeps the link a year after its latest message, and no longer", async () => {
+    const beforeIssue = await databaseClock();
+    const { issueId, token } = await reported();
+    const afterIssue = await databaseClock();
+    const issued = await prisma.issueReporterLink.findUniqueOrThrow({
+      where: { issueId },
+    });
+    expectYearAfterBetween(issued.expiresAt, beforeIssue, afterIssue);
+
+    // A minute ahead on the database's clock, which `replyAsHandler` judges
+    // the link on; the process's clock could put it in the past.
+    await prisma.issueReporterLink.update({
+      where: { issueId },
+      data: { expiresAt: new Date((await databaseClock()).getTime() + 60_000) },
+    });
+    const beforeReply = await databaseClock();
+    await conversation.replyAsHandler(
+      board.personId,
+      issueId,
+      "Fortfarande på gång.",
+    );
+    const afterReply = await databaseClock();
+    const extended = await prisma.issueReporterLink.findUniqueOrThrow({
+      where: { issueId },
+    });
+    expectYearAfterBetween(extended.expiresAt, beforeReply, afterReply);
+    expect((await page(token)).statusCode).toBe(200);
+  });
+
+  it("B5: the purge that clears the reporter's address removes the link in its transaction", async () => {
+    const { issueId, token } = await reported();
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(Date.now() - 400 * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    expect(
+      await app.get(IssuePurgeService).purgeIssue(issueId, new Date(), 365),
+    ).toBe(true);
+
+    expect(await prisma.issueReporterLink.count({ where: { issueId } })).toBe(
+      0,
+    );
+    expect((await page(token)).statusCode).toBe(404);
+  });
+
+  it("B1: a link whose report lost its address answers 404 whatever its row says", async () => {
+    const { issueId, token } = await reported();
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: { reporterEmailCipher: null, reporterEmailIndex: null },
+    });
+    expect((await page(token)).statusCode).toBe(404);
+  });
+});
+
+describe("C. no enumeration", () => {
+  it("C1: every link that opens nothing gets the same status, bytes and headers", async () => {
+    const revoked = await reported();
+    await links.revoke(board.personId, revoked.issueId);
+    const expired = await reported();
+    await prisma.issueReporterLink.update({
+      where: { issueId: expired.issueId },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    const closedLongAgo = await reported();
+    await prisma.issue.update({
+      where: { id: closedLongAgo.issueId },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000),
+      },
+    });
+    const purged = await reported();
+    await prisma.issue.update({
+      where: { id: purged.issueId },
+      data: { reporterEmailCipher: null, reporterEmailIndex: null },
+    });
+    const unmailed = await reported();
+    await prisma.issueReporterLink.update({
+      where: { issueId: unmailed.issueId },
+      data: { mailedAt: null },
+    });
+
+    const answers = await Promise.all(
+      [
+        `obrf_rl_${"C".repeat(43)}`,
+        "not-a-token",
+        `obrf_dt_${"C".repeat(43)}`,
+        revoked.token,
+        expired.token,
+        closedLongAgo.token,
+        purged.token,
+        unmailed.token,
+      ].map((token) => page(token)),
+    );
+    const [first, ...rest] = answers;
+    expect(first?.statusCode).toBe(404);
+    for (const answer of rest) {
+      expect(answer.statusCode).toBe(404);
+      expect(answer.body).toBe(first?.body);
+      expect(stableHeaders(answer.headers)).toEqual(
+        stableHeaders(first?.headers ?? {}),
+      );
+    }
+    expect(first?.headers["set-cookie"]).toBeUndefined();
+
+    // A post is refused with the same document.
+    const posted = await post(revoked.token, "Hej");
+    expect(posted.statusCode).toBe(404);
+    expect(posted.body).toBe(first?.body);
+  });
+
+  it("C3: nothing beside the token names an issue", async () => {
+    const mine = await reported();
+    const other = await reported();
+    const answer = await inject({
+      method: "POST",
+      url: `/arende/${mine.token}`,
+      payload: new URLSearchParams({
+        body: "Mitt svar",
+        issueId: other.issueId,
+        id: other.issueId,
+      }).toString(),
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    });
+    expect(answer.statusCode).toBe(303);
+    expect(
+      await prisma.issueMessage.count({ where: { issueId: other.issueId } }),
+    ).toBe(0);
+    expect(
+      await prisma.issueMessage.count({
+        where: { issueId: mine.issueId, body: "Mitt svar" },
+      }),
+    ).toBe(1);
+  });
+});
+
+describe("the link's path, as the router reads it", () => {
+  it("F1: a percent-encoded spelling of the path opens the page and refuses with the link's headers", async () => {
+    const { token } = await reported();
+    const unknown = await page(`obrf_rl_${"P".repeat(43)}`);
+
+    const read = await inject({ method: "GET", url: `/%61rende/${token}` });
+    expect(read.statusCode).toBe(200);
+    expectLinkHeaders(read.headers);
+
+    for (const url of [
+      `/%61rende/obrf_rl_${"P".repeat(43)}`,
+      "/%61rende/not-a-token",
+    ]) {
+      const refused = await inject({ method: "GET", url });
+      expect(refused.statusCode).toBe(404);
+      expect(refused.body).toBe(unknown.body);
+      expectLinkHeaders(refused.headers);
+    }
+  });
+
+  it("carries the link's headers on an escaped slash before a token, and leaves a kept slug's form to the website", async () => {
+    const { token } = await reported();
+
+    // The router reads `arende%2F<token>` as one segment and matches the
+    // website's /:slug route, whose 404 still answers a URL with a live token.
+    for (const url of [`/arende%2F${token}`, `/arende%2f${token}`]) {
+      const refused = await inject({ method: "GET", url });
+      expect(refused.statusCode).toBe(404);
+      expectLinkHeaders(refused.headers);
+    }
+
+    const website = await inject({ method: "GET", url: "/arende%2Fkontakt" });
+    expect(website.statusCode).toBe(404);
+    expect(website.headers["cache-control"]).not.toBe("no-store");
+    expect(website.headers["x-robots-tag"]).not.toBe("noindex, nofollow");
+  });
+
+  it("F1: a post below the path that is not a token's carries the link's headers", async () => {
+    const refused = await post("not-a-token", "Hej");
+    expect(refused.statusCode).toBe(404);
+    expectLinkHeaders(refused.headers);
+  });
+
+  it("leaves the forms of a page that kept the slug arende to the website", async () => {
+    // The slug is claimed for a new page, so the row is written directly, as a
+    // page written before the claim would be.
+    const slug = "arende";
+    await prisma.page.create({
+      data: {
+        slug,
+        title: "Ärenden",
+        content: {
+          version: 1,
+          blocks: [
+            { type: "contactForm", intro: [{ text: "Skriv till oss." }] },
+            { type: "issueReportForm" },
+          ],
+        },
+        status: "PUBLIC",
+        publishedAt: new Date(),
+        sortOrder: 951,
+      },
+    });
+    const message = `Till sidan på arende ${suffix}`;
+    const description = `Från sidan på arende ${suffix}`;
+    try {
+      const shown = await inject({ method: "GET", url: `/${slug}` });
+      expect(shown.statusCode).toBe(200);
+      expect(shown.body).toContain(`action="/${slug}/kontakt"`);
+
+      const contacted = await inject({
+        method: "POST",
+        url: `/${slug}/kontakt`,
+        payload: new URLSearchParams({
+          name: "Bo Ek",
+          email: `rl-contact-${suffix}@exempel.se`,
+          message,
+        }).toString(),
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      });
+      expect(contacted.statusCode).toBe(303);
+      expect(contacted.headers.location).toBe(`/${slug}?skickat=kontakt`);
+      // The website's answer, not the link's.
+      expect(contacted.headers["referrer-policy"]).not.toBe("no-referrer");
+      expect(await prisma.contactSubmission.count({ where: { message } })).toBe(
+        1,
+      );
+
+      const reportedThere = await inject({
+        method: "POST",
+        url: `/${slug}/felanmalan`,
+        payload: new URLSearchParams({
+          type: publicType.id,
+          description,
+        }).toString(),
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      });
+      expect(reportedThere.statusCode).toBe(303);
+      expect(reportedThere.headers.location).toBe(
+        `/${slug}?skickat=felanmalan`,
+      );
+      expect(
+        await prisma.issue.count({
+          where: { typeId: publicType.id, description },
+        }),
+      ).toBe(1);
+    } finally {
+      await prisma.contactSubmission.deleteMany({ where: { message } });
+      await prisma.page.deleteMany({ where: { slug } });
+    }
+  });
+});
+
+describe("D. rate limits and abuse", () => {
+  it("D2, D3: the 31st read from one address is refused, alike for a live token and an unknown one", async () => {
+    const { token } = await reported();
+    const address = "10.211.250.1";
+    for (let n = 0; n < LINK_READS_PER_MINUTE; n += 1) {
+      const answer = await page(
+        `obrf_rl_${String(n).padStart(43, "D")}`,
+        address,
+      );
+      expect(answer.statusCode).toBe(404);
+    }
+
+    const live = await page(token, address);
+    const unknown = await page(`obrf_rl_${"E".repeat(43)}`, address);
+    expect(live.statusCode).toBe(429);
+    expect(unknown.statusCode).toBe(429);
+    expect(live.body).toBe(unknown.body);
+    expectLinkHeaders(live.headers);
+    const { "retry-after": _a, ...liveRest } = stableHeaders(live.headers);
+    const { "retry-after": _b, ...unknownRest } = stableHeaders(
+      unknown.headers,
+    );
+    expect(liveRest).toEqual(unknownRest);
+  });
+
+  it("D2: a link's refusal has no menu, where a website address's has the board's", async () => {
+    // An entry the board pointed at another host: on a page whose address is a
+    // credential it would be the one way off this origin. Last in the menu, so
+    // a suite asserting what the menu starts with is not disturbed by it.
+    const external = `https://grannar-${suffix}.example/`;
+    const highest = await prisma.menuItem.aggregate({
+      where: { parentId: null },
+      _max: { sortOrder: true },
+    });
+    const entry = await prisma.menuItem.create({
+      data: {
+        label: `Grannföreningen ${suffix}`,
+        kind: "EXTERNAL",
+        url: external,
+        sortOrder: (highest._max.sortOrder ?? 0) + 1,
+      },
+    });
+    // Whatever refusal page an earlier test left kept is dropped, so both pages
+    // below are drawn after the entry was written; and the pages drawn here are
+    // dropped after, so no later test is served the entry this one deletes.
+    const renderer = app.get(SiteRenderer);
+    renderer.forgetRefusalPages();
+    try {
+      const websiteAddress = "10.211.250.2";
+      let website: Awaited<ReturnType<typeof inject>> | undefined;
+      for (let n = 0; n < 50 && website === undefined; n += 1) {
+        const answer = await inject({
+          method: "POST",
+          url: `/rl-no-page-${suffix}/kontakt`,
+          payload: new URLSearchParams({ message: "Hej" }).toString(),
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          address: websiteAddress,
+        });
+        if (answer.statusCode === 429) {
+          website = answer;
+        }
+      }
+      expect(website?.statusCode).toBe(429);
+      expect(website?.body).toContain(`href="${external}"`);
+
+      const linkAddress = "10.211.250.3";
+      for (let n = 0; n < LINK_READS_PER_MINUTE; n += 1) {
+        await page(`obrf_rl_${String(n).padStart(43, "M")}`, linkAddress);
+      }
+      const link = await page(`obrf_rl_${"N".repeat(43)}`, linkAddress);
+      expect(link.statusCode).toBe(429);
+      expect(link.body).toContain("För många försök");
+      expect(link.body).not.toContain(external);
+      expect(link.body).not.toContain(`Grannföreningen ${suffix}`);
+      expectLinkHeaders(link.headers);
+    } finally {
+      await prisma.menuItem.deleteMany({ where: { id: entry.id } });
+      renderer.forgetRefusalPages();
+    }
+  });
+
+  it("D4: a link's messages share one budget whatever address they come from", async () => {
+    const { issueId, token } = await reported();
+    const addresses = ["10.211.251.1", "10.211.251.2", "10.211.251.3"];
+    for (let n = 0; n < REPORTER_LINK_MESSAGES_PER_HOUR; n += 1) {
+      const answer = await post(token, `Meddelande ${String(n)}`, {
+        address: addresses[n % 2] ?? "",
+      });
+      expect(answer.headers.location).toBe(`/arende/${token}?svar=sent`);
+    }
+    const over = await post(token, "Ett till", { address: addresses[2] ?? "" });
+    expect(over.headers.location).toBe(`/arende/${token}?svar=limited`);
+    expect(await prisma.issueMessage.count({ where: { issueId } })).toBe(
+      REPORTER_LINK_MESSAGES_PER_HOUR,
+    );
+  });
+
+  it("D4: the hour's budget is judged on the clock that stamps the messages, whatever the database's reads", async () => {
+    const { issueId, token } = await reported();
+    const addresses = ["10.211.252.1", "10.211.252.2", "10.211.252.3"];
+    // The API process's clock two hours behind the database's: it stamps each
+    // reply's `createdAt`, so an hour judged on the database's clock would see
+    // none of them and let an eleventh through.
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(Date.now() - 2 * 60 * 60 * 1000));
+    try {
+      for (let n = 0; n < REPORTER_LINK_MESSAGES_PER_HOUR; n += 1) {
+        const answer = await post(token, `Meddelande ${String(n)}`, {
+          address: addresses[n % 2] ?? "",
+        });
+        expect(answer.headers.location).toBe(`/arende/${token}?svar=sent`);
+      }
+      const over = await post(token, "Ett till", {
+        address: addresses[2] ?? "",
+      });
+      expect(over.headers.location).toBe(`/arende/${token}?svar=limited`);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(await prisma.issueMessage.count({ where: { issueId } })).toBe(
+      REPORTER_LINK_MESSAGES_PER_HOUR,
+    );
+  });
+
+  it("D4: a link that has written all it may is told so, and not to try later", async () => {
+    const { issueId, token } = await reported();
+    // An hour's worth of them in the last hour too, so the link is past both
+    // limits and the answer shows which one is asked first.
+    await prisma.issueMessage.createMany({
+      data: Array.from(
+        { length: REPORTER_LINK_MESSAGES_PER_ISSUE },
+        (_, n) => ({
+          issueId,
+          side: "REPORTER" as const,
+          authorPersonId: null,
+          body: `Meddelande ${String(n)}`,
+          createdAt: new Date(
+            Date.now() -
+              (n < REPORTER_LINK_MESSAGES_PER_HOUR
+                ? 10 * 60 * 1000
+                : 2 * 60 * 60 * 1000),
+          ),
+        }),
+      ),
+    });
+    const over = await post(token, "Ett till");
+    expect(over.headers.location).toBe(`/arende/${token}?svar=full`);
+    // The redirect's target says so in words, not only in its query.
+    const told = await inject({
+      method: "GET",
+      url: String(over.headers.location),
+    });
+    expect(told.statusCode).toBe(200);
+    expect(told.body).toContain(
+      "Fler meddelanden kan inte skickas via länken.",
+    );
+    // ...once: the page does not repeat the notice under the conversation.
+    expect(
+      told.body.split("Fler meddelanden kan inte skickas via länken.").length -
+        1,
+    ).toBe(1);
+    expect(
+      await prisma.issueMessage.count({ where: { issueId, side: "REPORTER" } }),
+    ).toBe(REPORTER_LINK_MESSAGES_PER_ISSUE);
+
+    // The page offers no field, and says why: the issue is open, not closed.
+    const read = await page(token);
+    expect(read.statusCode).toBe(200);
+    expect(read.body).not.toContain("<textarea");
+    expect(read.body).toContain(
+      "Fler meddelanden kan inte skickas via länken.",
+    );
+    expect(read.body).not.toContain("är avslutat");
+  });
+
+  it("D5: strangers' failed guesses never lock a live link", async () => {
+    const { token } = await reported();
+    for (let n = 0; n < 40; n += 1) {
+      await page(`obrf_rl_${String(n).padStart(43, "F")}`);
+    }
+    expect((await page(token)).statusCode).toBe(200);
+  });
+
+  it("D6: one link mail per issue, never again, and three a day to one address", async () => {
+    const email = `rl-capped-${suffix}@exempel.se`;
+    const first = await reported({ email });
+    expect(await links.deliver(first.issueId)).toBe(false);
+
+    for (let n = 1; n < REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY; n += 1) {
+      await reported({ email });
+    }
+    const before = sent.length;
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "En för mycket",
+      reporterName: null,
+      reporterEmail: email,
+    });
+    expect(await links.deliver(id)).toBe(false);
+    expect(sent.length).toBe(before);
+    expect(
+      await prisma.issueReporterLink.count({ where: { issueId: id } }),
+    ).toBe(0);
+  });
+
+  /** Files a report from the form to `email` and delivers its link. */
+  async function reportAndDeliver(
+    email: string,
+  ): Promise<{ id: string; mailed: boolean }> {
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: `Porten låser inte ${suffix}`,
+      reporterName: null,
+      reporterEmail: email,
+    });
+    return { id, mailed: await links.deliver(id) };
+  }
+
+  it("D6: an address with a new tag each time is one address, mailed three links a day", async () => {
+    const outcomes = [];
+    for (let n = 1; n <= 10; n += 1) {
+      outcomes.push(
+        await reportAndDeliver(`rl-tagged-${suffix}+${String(n)}@exempel.se`),
+      );
+    }
+
+    expect(outcomes.map((outcome) => outcome.mailed)).toEqual([
+      ...Array.from(
+        { length: REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY },
+        () => true,
+      ),
+      ...Array.from(
+        { length: 10 - REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY },
+        () => false,
+      ),
+    ]);
+    // The refused reports hold no slot: their links are gone.
+    expect(
+      await prisma.issueReporterLink.count({
+        where: { issueId: { in: outcomes.map((outcome) => outcome.id) } },
+      }),
+    ).toBe(REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY);
+  });
+
+  it("D6: a Google address spelt with dots or the other domain counts with the plain one", async () => {
+    const plain = `rlgoogle${suffix}@gmail.com`;
+    expect((await reportAndDeliver(plain)).mailed).toBe(true);
+    expect(
+      (await reportAndDeliver(`r.l.google${suffix}@googlemail.com`)).mailed,
+    ).toBe(true);
+    expect(
+      (await reportAndDeliver(`RL.google${suffix}+felanmalan@gmail.com`))
+        .mailed,
+    ).toBe(true);
+
+    const before = sent.length;
+    expect(
+      (await reportAndDeliver(`rlgoo.gle${suffix}@gmail.com`)).mailed,
+    ).toBe(false);
+    expect(sent.length).toBe(before);
+    // Another inbox at Google is not held back by it.
+    expect((await reportAndDeliver(`rlother${suffix}@gmail.com`)).mailed).toBe(
+      true,
+    );
+  });
+
+  it("D6: the instance mails no more links in an hour than its ceiling, whatever the addresses", async () => {
+    const env = app.get<Env>(ENV);
+    const ceiling = env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR;
+    // The suites before this one on the worker's database issued links this
+    // hour too, so the ceiling is set a known distance above them.
+    const [issued] = await prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT count(*) AS "count" FROM "issue_reporter_link"
+      WHERE "issuedAt" > now() - interval '1 hour'`;
+    env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR = Number(issued?.count ?? 0) + 2;
+    try {
+      const outcomes = [];
+      for (let n = 1; n <= 5; n += 1) {
+        outcomes.push(
+          await reportAndDeliver(
+            `rl-ceiling-${String(n)}-${suffix}@exempel.se`,
+          ),
+        );
+      }
+
+      expect(outcomes.map((outcome) => outcome.mailed)).toEqual([
+        true,
+        true,
+        false,
+        false,
+        false,
+      ]);
+      expect(
+        await prisma.issueReporterLink.count({
+          where: { issueId: { in: outcomes.map((outcome) => outcome.id) } },
+        }),
+      ).toBe(2);
+    } finally {
+      env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR = ceiling;
+    }
+  });
+
+  it("D6: two deliveries at once for the instance's last slot issue one link between them", async () => {
+    const env = app.get<Env>(ENV);
+    const ceiling = env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR;
+    const [issued] = await prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT count(*) AS "count" FROM "issue_reporter_link"
+      WHERE "issuedAt" > now() - interval '1 hour'`;
+    env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR = Number(issued?.count ?? 0) + 1;
+    try {
+      // Filed first, delivered together: each finds the one slot free when it
+      // counts, unless the count and the issue of the link are one step.
+      const filed = await Promise.all(
+        [1, 2].map((n) =>
+          issues.reportPublicly({
+            typeId: publicType.id,
+            location: null,
+            description: `Porten låser inte ${String(n)} ${suffix}`,
+            reporterName: null,
+            reporterEmail: `rl-last-${String(n)}-${suffix}@exempel.se`,
+          }),
+        ),
+      );
+      // Both deliveries are held at the budget until both are queued behind
+      // it, read from `pg_locks`: started together and left to chance, one
+      // could commit before the other counts, and the test would pass without
+      // the shared lock.
+      const key = "issue-reporter-link-mail-budget";
+      let letGo: () => void = () => undefined;
+      const letGoSignal = new Promise<void>((resolve) => {
+        letGo = resolve;
+      });
+      let held: () => void = () => undefined;
+      const holding = new Promise<void>((resolve) => {
+        held = resolve;
+      });
+      const holder = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+          held();
+          await letGoSignal;
+        },
+        { timeout: 30_000 },
+      );
+      let delivering: Promise<boolean[]> = Promise.resolve([]);
+      try {
+        await Promise.race([holding, holder]);
+        delivering = Promise.all(filed.map(({ id }) => links.deliver(id)));
+        delivering.catch(() => undefined);
+        await waitFor(
+          async () => (await advisoryLockCount(prisma, key, false)) === 2n,
+          10_000,
+        );
+      } finally {
+        letGo();
+        await holder.catch(() => undefined);
+      }
+      const mailed = await delivering;
+
+      expect(mailed.filter(Boolean)).toHaveLength(1);
+      expect(
+        await prisma.issueReporterLink.count({
+          where: { issueId: { in: filed.map(({ id }) => id) } },
+        }),
+      ).toBe(1);
+    } finally {
+      env.OPENBRF_REPORTER_LINK_MAILS_PER_HOUR = ceiling;
+    }
+  });
+
+  it("D6: an address of today's links that cannot be read does not stop another report's link", async () => {
+    const damaged = await reportAndDeliver(`rl-damaged-${suffix}@exempel.se`);
+    expect(damaged.mailed).toBe(true);
+    const before = await prisma.issue.findUniqueOrThrow({
+      where: { id: damaged.id },
+      select: { reporterEmailCipher: true },
+    });
+    await prisma.issue.update({
+      where: { id: damaged.id },
+      data: { reporterEmailCipher: "not-a-sealed-address" },
+    });
+    try {
+      // The damaged address names no recipient, so another one is still mailed.
+      expect(
+        (await reportAndDeliver(`rl-undamaged-${suffix}@exempel.se`)).mailed,
+      ).toBe(true);
+    } finally {
+      await prisma.issue.update({
+        where: { id: damaged.id },
+        data: { reporterEmailCipher: before.reporterEmailCipher },
+      });
+    }
+  });
+
+  it("D6: a person who restricted processing is not mailed", async () => {
+    const email = `rl-restricted-${suffix}@exempel.se`;
+    const sealed = await encryption.encrypt("person.email", email);
+    const personId = `rl-restricted-${suffix}`;
+    await prisma.person.create({
+      data: {
+        id: personId,
+        firstName: "Rita",
+        lastName: `Begränsad${suffix}`,
+        emailCipher: sealed.cipher,
+        emailIndex: sealed.index,
+        processingRestrictedAt: new Date(),
+      },
+    });
+    try {
+      const { id } = await issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Begränsad",
+        reporterName: null,
+        reporterEmail: email,
+      });
+      expect(await links.deliver(id)).toBe(false);
+    } finally {
+      await prisma.person.update({
+        where: { id: personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
+  const typeChanges: [string, Prisma.IssueTypeUpdateInput][] = [
+    ["took the type off the form", { reporters: ["RESIDENTS"] }],
+    ["switched the type off", { active: false }],
+  ];
+  for (const [what, data] of typeChanges) {
+    it(`D6: a report waits for the type's lock and is refused when the board ${what} meanwhile`, async () => {
+      const type = await prisma.issueType.findUniqueOrThrow({
+        where: { id: publicType.id },
+        select: { reporters: true, active: true },
+      });
+      const before = await prisma.issue.count({
+        where: { typeId: publicType.id },
+      });
+
+      // Stands in for the board's change of the type, which holds the type's lock
+      // until it commits.
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let locked: () => void = () => undefined;
+      const lockTaken = new Promise<void>((resolve) => {
+        locked = resolve;
+      });
+      const changing = prisma.$transaction(async (tx) => {
+        await lockIssueType(tx, publicType.id);
+        locked();
+        await held;
+        await tx.issueType.update({ where: { id: publicType.id }, data });
+      });
+      try {
+        await lockTaken;
+        const reporting = issues.reportPublicly({
+          typeId: publicType.id,
+          location: null,
+          description: "Efter att formuläret togs bort",
+          reporterName: null,
+          reporterEmail: null,
+        });
+        const settled = reporting.then(
+          () => "filed",
+          (error: unknown) =>
+            error instanceof IssueError ? error.reason : "?",
+        );
+        await waitFor(
+          async () =>
+            (await advisoryLockCount(
+              prisma,
+              `issue-type:${publicType.id}`,
+              false,
+            )) > 0n,
+          10_000,
+        );
+        release();
+        await changing;
+
+        expect(await settled).toBe("type-not-found");
+        expect(
+          await prisma.issue.count({ where: { typeId: publicType.id } }),
+        ).toBe(before);
+      } finally {
+        release();
+        await changing.catch(() => undefined);
+        await prisma.issueType.update({
+          where: { id: publicType.id },
+          data: { reporters: type.reporters, active: type.active },
+        });
+      }
+    });
+  }
+
+  it("D6: a restricted person is found when the report gives their address in other letters' case", async () => {
+    const email = `rl-restricted-case-${suffix}@exempel.se`;
+    const sealed = await encryption.encrypt("person.email", email);
+    const personId = `rl-restricted-case-${suffix}`;
+    await prisma.person.create({
+      data: {
+        id: personId,
+        firstName: "Rakel",
+        lastName: `Versal${suffix}`,
+        emailCipher: sealed.cipher,
+        emailIndex: sealed.index,
+        processingRestrictedAt: new Date(),
+      },
+    });
+    try {
+      const { id } = await issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Begränsad, med versaler",
+        reporterName: null,
+        reporterEmail: email.toUpperCase(),
+      });
+      const before = sent.length;
+      expect(await links.deliver(id)).toBe(false);
+      expect(sent.length).toBe(before);
+      expect(
+        await prisma.issueReporterLink.count({ where: { issueId: id } }),
+      ).toBe(0);
+    } finally {
+      await prisma.person.delete({ where: { id: personId } });
+    }
+  });
+
+  it("D6: a restricted person whose index predates the normalisation rules is still not mailed", async () => {
+    const email = `rl-restricted-stale-${suffix}@exempel.se`;
+    const sealed = await encryption.encrypt("person.email", email);
+    const personId = `rl-restricted-stale-${suffix}`;
+    // An index that matches no address, as one computed under older rules
+    // would until the reindex rewrites it.
+    await prisma.person.create({
+      data: {
+        id: personId,
+        firstName: "Rut",
+        lastName: `Gammal${suffix}`,
+        emailCipher: sealed.cipher,
+        emailIndex: `stale-${suffix}`,
+        blindIndexVersion: NORMALIZATION_VERSION - 1,
+        processingRestrictedAt: new Date(),
+      },
+    });
+    try {
+      const { id } = await issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Begränsad, gammalt index",
+        reporterName: null,
+        reporterEmail: email,
+      });
+      const before = sent.length;
+      expect(await links.deliver(id)).toBe(false);
+      expect(sent.length).toBe(before);
+      expect(
+        await prisma.issueReporterLink.count({ where: { issueId: id } }),
+      ).toBe(0);
+    } finally {
+      // Deleted rather than lifted: its index matches nothing.
+      await prisma.person.delete({ where: { id: personId } });
+    }
+  });
+
+  it("D6: a restriction granted while the delivery waits for the registry lock is seen, and nothing is mailed", async () => {
+    const email = `rl-restricted-late-${suffix}@exempel.se`;
+    const sealed = await encryption.encrypt("person.email", email);
+    const personId = `rl-restricted-late-${suffix}`;
+    await prisma.person.create({
+      data: {
+        id: personId,
+        firstName: "Rolf",
+        lastName: `Sen${suffix}`,
+        emailCipher: sealed.cipher,
+        emailIndex: sealed.index,
+      },
+    });
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Begränsad senare",
+      reporterName: null,
+      reporterEmail: email,
+    });
+    const before = sent.length;
+
+    // Stands in for a restriction's grant, which holds the registry lock until
+    // it commits: the delivery gets to the lock and waits there.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let locked: () => void = () => undefined;
+    const lockTaken = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const granting = prisma.$transaction(async (tx) => {
+      await lockLegalHoldRegistry(tx);
+      await tx.person.update({
+        where: { id: personId },
+        data: { processingRestrictedAt: new Date() },
+      });
+      locked();
+      await held;
+    });
+    try {
+      await lockTaken;
+      const delivering = links.deliver(id);
+      // Until the delivery has issued its link and waits at the registry
+      // lock; releasing earlier would let it pass before it reaches the lock.
+      await waitFor(
+        async () =>
+          (await advisoryLockCount(prisma, "legal-hold:registry", false)) > 0n,
+        10_000,
+      );
+      release();
+      await granting;
+
+      expect(await delivering).toBe(false);
+      expect(sent.length).toBe(before);
+      // Refused, so the link is given up and no longer counts for its address.
+      expect(
+        await prisma.issueReporterLink.count({ where: { issueId: id } }),
+      ).toBe(0);
+    } finally {
+      release();
+      await granting.catch(() => undefined);
+      await prisma.person.update({
+        where: { id: personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
+  it("D6: an issue closed while the delivery waits for the registry lock is not mailed", async () => {
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Stängd medan länken väntar",
+      reporterName: null,
+      reporterEmail: `rl-closed-late-${suffix}@exempel.se`,
+    });
+    const before = sent.length;
+
+    // Holds the registry lock as a restriction's grant would, so the delivery
+    // has issued its link and waits at the lock of its mail transaction.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let locked: () => void = () => undefined;
+    const lockTaken = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const holding = prisma.$transaction(async (tx) => {
+      await lockLegalHoldRegistry(tx);
+      locked();
+      await held;
+    });
+    try {
+      await lockTaken;
+      const delivering = links.deliver(id);
+      // Wait until the first transaction has committed the link.
+      await waitFor(
+        async () =>
+          (await prisma.issueReporterLink.findUnique({
+            where: { issueId: id },
+            select: { id: true },
+          })) !== null,
+        10_000,
+      );
+      // The link is issued and not yet mailed: the first transaction is done.
+      expect(
+        await prisma.issueReporterLink.findUnique({
+          where: { issueId: id },
+          select: { mailedAt: true },
+        }),
+      ).toEqual({ mailedAt: null });
+      await prisma.issue.update({
+        where: { id },
+        data: {
+          statusId: publicType.statusIds.DONE,
+          outcome: "FIXED",
+          closedAt: new Date(),
+        },
+      });
+      release();
+      await holding;
+
+      expect(await delivering).toBe(false);
+      expect(sent.length).toBe(before);
+      expect(
+        await prisma.issueReporterLink.count({ where: { issueId: id } }),
+      ).toBe(0);
+    } finally {
+      release();
+      await holding.catch(() => undefined);
+    }
+  });
+
+  it("D6: a link that was refused or abandoned gives its slot back; one still being retried keeps it", async () => {
+    const email = `rl-slots-${suffix}@exempel.se`;
+    const report = async () =>
+      (
+        await issues.reportPublicly({
+          typeId: publicType.id,
+          location: null,
+          description: "Plats i dagsgränsen",
+          reporterName: null,
+          reporterEmail: email,
+        })
+      ).id;
+
+    await reported({ email });
+    await reported({ email });
+
+    // The mail server refuses (the job will be retried): the link is issued,
+    // unmailed, and still counts.
+    const retried = await report();
+    vi.spyOn(mail, "send").mockRejectedValueOnce(new Error("connection reset"));
+    await expect(links.deliver(retried)).rejects.toThrow("connection reset");
+    expect(
+      await prisma.issueReporterLink.count({ where: { issueId: retried } }),
+    ).toBe(1);
+    const blocked = await report();
+    expect(await links.deliver(blocked)).toBe(false);
+
+    // Retries spent: the slot goes back and the next report is mailed.
+    await links.abandon(retried);
+    expect(
+      await prisma.issueReporterLink.count({ where: { issueId: retried } }),
+    ).toBe(0);
+    const before = sent.length;
+    expect(await links.deliver(blocked)).toBe(true);
+    expect(sent.length).toBe(before + 1);
+  });
+
+  it("D6: a retry that will not mail gives back the slot the earlier attempt took", async () => {
+    // A report whose first mail failed, so its link is issued and unmailed.
+    const failedOnce = async (email: string) => {
+      const { id } = await issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Första försöket misslyckades",
+        reporterName: null,
+        reporterEmail: email,
+      });
+      vi.spyOn(mail, "send").mockRejectedValueOnce(
+        new Error("connection reset"),
+      );
+      await expect(links.deliver(id)).rejects.toThrow("connection reset");
+      expect(
+        await prisma.issueReporterLink.count({
+          where: { issueId: id, mailedAt: null },
+        }),
+      ).toBe(1);
+      return id;
+    };
+    const before = sent.length;
+
+    // Closed before the retry.
+    const closed = await failedOnce(`rl-retry-closed-${suffix}@exempel.se`);
+    await prisma.issue.update({
+      where: { id: closed },
+      data: {
+        statusId: publicType.statusIds.DONE,
+        outcome: "FIXED",
+        closedAt: new Date(),
+      },
+    });
+    expect(await links.deliver(closed)).toBe(false);
+    expect(
+      await prisma.issueReporterLink.count({ where: { issueId: closed } }),
+    ).toBe(0);
+
+    // Restricted before the retry.
+    const restrictedEmail = `rl-retry-restricted-${suffix}@exempel.se`;
+    const sealed = await encryption.encrypt("person.email", restrictedEmail);
+    const personId = `rl-retry-restricted-${suffix}`;
+    await prisma.person.create({
+      data: {
+        id: personId,
+        firstName: "Rut",
+        lastName: `Omförsök${suffix}`,
+        emailCipher: sealed.cipher,
+        emailIndex: sealed.index,
+      },
+    });
+    try {
+      const restricted = await failedOnce(restrictedEmail);
+      await prisma.person.update({
+        where: { id: personId },
+        data: { processingRestrictedAt: new Date() },
+      });
+      expect(await links.deliver(restricted)).toBe(false);
+      expect(
+        await prisma.issueReporterLink.count({
+          where: { issueId: restricted },
+        }),
+      ).toBe(0);
+    } finally {
+      await prisma.person.update({
+        where: { id: personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+
+    // The address's three a day spent before the retry: the failed link was
+    // issued more than a day ago, so the three after it went.
+    const fullEmail = `rl-retry-full-${suffix}@exempel.se`;
+    const full = await failedOnce(fullEmail);
+    await prisma.$executeRaw`
+      UPDATE "issue_reporter_link" SET "issuedAt" = now() - interval '25 hours'
+      WHERE "issueId" = ${full}`;
+    for (let n = 0; n < REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY; n += 1) {
+      await reported({ email: fullEmail });
+    }
+    const beforeRetry = sent.length;
+    expect(await links.deliver(full)).toBe(false);
+    expect(sent.length).toBe(beforeRetry);
+    expect(
+      await prisma.issueReporterLink.count({ where: { issueId: full } }),
+    ).toBe(0);
+
+    // Nothing went to the closed or the restricted report.
+    expect(sent.length).toBe(before + REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY);
+  });
+
+  it("B1: a retried mail runs the link's year from the mail that went", async () => {
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Mejlet skickas på andra försöket",
+      reporterName: null,
+      reporterEmail: `rl-retried-${suffix}@exempel.se`,
+    });
+    vi.spyOn(mail, "send").mockRejectedValueOnce(new Error("connection reset"));
+    await expect(links.deliver(id)).rejects.toThrow("connection reset");
+
+    // The first attempt set the end; the retry comes later. Make the gap long.
+    const soon = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await prisma.issueReporterLink.update({
+      where: { issueId: id },
+      data: { expiresAt: soon },
+    });
+
+    const before = await databaseClock();
+    expect(await links.deliver(id)).toBe(true);
+    const after = await databaseClock();
+    const link = await prisma.issueReporterLink.findUniqueOrThrow({
+      where: { issueId: id },
+      select: { expiresAt: true },
+    });
+    expectYearAfterBetween(link.expiresAt, before, after);
+  });
+
+  it("D6: an instance without mail settings issues no link that holds a slot", async () => {
+    const email = `rl-unconfigured-${suffix}@exempel.se`;
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Ingen e-post inställd",
+      reporterName: null,
+      reporterEmail: email,
+    });
+    vi.spyOn(mail, "send").mockRejectedValueOnce(new MailNotConfiguredError());
+    expect(await links.deliver(id)).toBe(false);
+    expect(
+      await prisma.issueReporterLink.count({ where: { issueId: id } }),
+    ).toBe(0);
+  });
+
+  it("D6: a report filed under the type while a link mail is being sent does not wait for it", async () => {
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Mejlet dröjer",
+      reporterName: null,
+      reporterEmail: `rl-slow-mail-${suffix}@exempel.se`,
+    });
+    const before = sent.length;
+
+    // The mail server holds the message until released.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const sendEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    vi.spyOn(mail, "send").mockImplementation(async (input) => {
+      entered();
+      await held;
+      sent.push(input as SendMailInput<unknown>);
+      return {
+        messageId: `<rl-${String(sent.length)}@exempel.se>`,
+      } as SentMail;
+    });
+
+    let delivering: Promise<boolean> | undefined;
+    try {
+      delivering = links.deliver(id);
+      // Awaited below; this keeps a failed delivery from surfacing as an
+      // unhandled rejection when an expectation before that throws first.
+      delivering.catch(() => undefined);
+      await sendEntered;
+      // The handoff holds the type's ring-fence, shared, and not its lock.
+      expect(
+        await advisoryLockCount(
+          prisma,
+          `issue-type-ring-fence:${publicType.id}`,
+          true,
+        ),
+      ).toBeGreaterThan(0n);
+
+      // Bounded, so a filing that queues behind the mail server fails here
+      // rather than at the suite's time limit with the send still held.
+      const filing = issues.reportPublicly({
+        typeId: publicType.id,
+        location: null,
+        description: "Anmäld medan mejlet dröjer",
+        reporterName: null,
+        reporterEmail: `rl-slow-mail-other-${suffix}@exempel.se`,
+      });
+      filing.catch(() => undefined);
+      const filed = await Promise.race([
+        filing.then(() => "filed" as const),
+        new Promise<"waiting">((resolve) =>
+          setTimeout(() => resolve("waiting"), 10_000),
+        ),
+      ]);
+      expect(filed).toBe("filed");
+      expect(sent.length).toBe(before);
+    } finally {
+      release();
+    }
+    expect(await delivering).toBe(true);
+    expect(sent.length).toBe(before + 1);
+  });
+
+  it("D6: an issue closed while the mail is being sent waits for the stamp", async () => {
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Stängd medan mejlet skickas",
+      reporterName: null,
+      reporterEmail: `rl-closed-sending-${suffix}@exempel.se`,
+    });
+    const before = sent.length;
+
+    // The mail server holds the message until released.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const sendEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    vi.spyOn(mail, "send").mockImplementation(async (input) => {
+      entered();
+      await held;
+      sent.push(input as SendMailInput<unknown>);
+      return {
+        messageId: `<rl-${String(sent.length)}@exempel.se>`,
+      } as SentMail;
+    });
+
+    try {
+      const delivering = links.deliver(id);
+      await sendEntered;
+
+      let closeSettled = false;
+      const closing = issues
+        .setStatus(
+          id,
+          { statusId: publicType.statusIds.DONE, outcome: "FIXED" },
+          { personId: board.personId, channel: "WEB" },
+          "show",
+        )
+        .finally(() => {
+          closeSettled = true;
+        });
+      // Awaited below; this keeps a failed close from surfacing as an
+      // unhandled rejection when an expectation before that throws first.
+      closing.catch(() => undefined);
+      // Neither of the two awaits the other here: the delivery holds the
+      // issue's lock until the send is released, so awaiting the close first
+      // would never return. The close is seen queued on that lock, which a
+      // delay could not tell from a close that is merely slow. A close takes
+      // the issue's type's lock before the issue's own; the delivery holds the
+      // issue's and not the type's, so the close waits at the issue's.
+      await waitFor(
+        async () =>
+          (await advisoryLockCount(prisma, `issue:${id}`, false)) > 0n,
+        10_000,
+      );
+      expect(closeSettled).toBe(false);
+
+      // A second transaction holds the link's row, so the stamp that follows
+      // the send waits on it: the close must stay behind the stamp, not only
+      // behind the send.
+      let letStampGo: () => void = () => undefined;
+      const stampHeld = new Promise<void>((resolve) => {
+        letStampGo = resolve;
+      });
+      let holderPid = 0;
+      let holderLocked: () => void = () => undefined;
+      const holderHasRow = new Promise<void>((resolve) => {
+        holderLocked = resolve;
+      });
+      const holder = prisma.$transaction(
+        async (tx) => {
+          const [row] = await tx.$queryRaw<{ pid: number }[]>`
+            SELECT pg_backend_pid() AS pid`;
+          holderPid = row?.pid ?? 0;
+          await tx.$queryRaw`
+            SELECT id FROM issue_reporter_link
+            WHERE "issueId" = ${id} FOR UPDATE`;
+          holderLocked();
+          await stampHeld;
+        },
+        { timeout: 30_000 },
+      );
+      try {
+        // A holder that fails before it has the row (an exhausted pool, a
+        // failed lock, a timeout) rejects here with its own error instead of
+        // leaving the test to run into its timeout.
+        await Promise.race([holderHasRow, holder]);
+        release();
+        // The stamp is queued behind the holder.
+        await waitFor(async () => {
+          const [row] = await prisma.$queryRaw<{ blocked: bigint }[]>`
+            SELECT count(*) AS blocked FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND pg_blocking_pids(pid) @> ARRAY[${holderPid}::int]`;
+          return (row?.blocked ?? 0n) > 0n;
+        }, 10_000);
+        expect(closeSettled).toBe(false);
+        expect(
+          await prisma.issueReporterLink.findUnique({
+            where: { issueId: id },
+            select: { mailedAt: true },
+          }),
+        ).toEqual({ mailedAt: null });
+      } finally {
+        letStampGo();
+        // A failure of the holder is raised below; here it must not replace
+        // the error that brought the test to this point.
+        await holder.catch(() => undefined);
+      }
+      await holder;
+
+      expect(await delivering).toBe(true);
+      await closing;
+      // The close went through once the stamp had landed: one mail, a link
+      // that records it, and a closed issue.
+      expect(sent.length).toBe(before + 1);
+      expect(
+        await prisma.issueReporterLink.findUnique({
+          where: { issueId: id },
+          select: { mailedAt: true },
+        }),
+      ).toEqual({ mailedAt: expect.any(Date) });
+      expect(
+        await prisma.issue.findUniqueOrThrow({
+          where: { id },
+          select: { closedAt: true },
+        }),
+      ).toEqual({ closedAt: expect.any(Date) });
+    } finally {
+      release();
+    }
+  });
+
+  it("D7: a message longer than an issue message may be is refused, and a body past the route's limit is refused before it is read", async () => {
+    const { issueId, token } = await reported();
+    const tooLong = await post(token, "x".repeat(4001));
+    expect(tooLong.headers.location).toBe(`/arende/${token}?svar=refused`);
+
+    const huge = await post(token, "x".repeat(70_000));
+    expect(huge.statusCode).toBe(413);
+    expectLinkHeaders(huge.headers);
+    expect(await prisma.issueMessage.count({ where: { issueId } })).toBe(0);
+  });
+
+  it("D7: a message carrying a personal identity number is refused, and says so", async () => {
+    const { issueId, token } = await reported();
+    const answer = await post(token, "Mitt personnummer är 19811218-9876.");
+    expect(answer.headers.location).toBe(`/arende/${token}?svar=identity`);
+    expect(await prisma.issueMessage.count({ where: { issueId } })).toBe(0);
+  });
+});
+
+describe("E. what a request may do", () => {
+  it("E1, E2: a GET and a HEAD with a live token write nothing at all", async () => {
+    const { issueId, token } = await reported();
+    const before = await snapshot(issueId);
+
+    expect((await page(token)).statusCode).toBe(200);
+    expect(
+      (await inject({ method: "HEAD", url: `/arende/${token}` })).statusCode,
+    ).toBe(200);
+    expect(
+      (await inject({ method: "GET", url: `/arende/${token}?svar=sent` }))
+        .statusCode,
+    ).toBe(200);
+
+    expect(await snapshot(issueId)).toEqual(before);
+  });
+
+  it("E3: a session cookie changes nothing, and the act is on the link's channel", async () => {
+    const { issueId, token } = await reported();
+    const cookie = await signIn(board.email);
+    const without = await page(token);
+    const withCookie = await inject({
+      method: "GET",
+      url: `/arende/${token}`,
+      headers: { cookie },
+    });
+    expect(withCookie.body).toBe(without.body);
+    expect(withCookie.headers["set-cookie"]).toBeUndefined();
+
+    await post(token, "Med en kaka", { headers: { cookie } });
+    const entry = (await auditFor(issueId)).at(-1);
+    expect(entry).toMatchObject({
+      action: "ISSUE_MESSAGE_SENT",
+      channel: "LINK",
+      actorPersonId: null,
+    });
+    expect(entry?.context).toMatchObject({
+      linkId: expect.any(String) as string,
+      messageId: expect.any(String) as string,
+    });
+  });
+
+  it("E5, G13: a post from another origin, of another type or with a file is refused and stores nothing", async () => {
+    const { issueId, token } = await reported();
+    const notFound = await page(`obrf_rl_${"G".repeat(43)}`);
+    const fileName = `rl-${suffix}.png`;
+
+    const foreign = await post(token, "Från en annan sajt", {
+      headers: { origin: "https://elak.example" },
+    });
+    const json = await inject({
+      method: "POST",
+      url: `/arende/${token}`,
+      payload: JSON.stringify({ body: "Som JSON" }),
+      headers: { "content-type": "application/json" },
+    });
+    const boundary = "----rlBoundary";
+    const multipart = await inject({
+      method: "POST",
+      url: `/arende/${token}`,
+      payload: Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="body"\r\n\r\nHej\r\n` +
+          `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: image/png\r\n\r\nPNG\r\n` +
+          `--${boundary}--\r\n`,
+      ),
+      headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+    });
+    for (const answer of [foreign, json, multipart]) {
+      expect(answer.statusCode).toBe(404);
+      expect(answer.body).toBe(notFound.body);
+    }
+    expect(await prisma.issueMessage.count({ where: { issueId } })).toBe(0);
+    expect(await prisma.mediaFile.count({ where: { fileName } })).toBe(0);
+
+    // The page's own form, under no-referrer, posts with Origin: null.
+    const own = await post(token, "Från sidan", {
+      headers: { origin: "null" },
+    });
+    expect(own.statusCode).toBe(303);
+    const same = await post(token, "Från samma ursprung", {
+      headers: { origin: new URL(baseEnv.APP_URL).origin },
+    });
+    expect(same.statusCode).toBe(303);
+  });
+});
+
+describe("F. response headers", () => {
+  it("F1, E4: every answer carries the link's headers, the 200, 303, 404 and a 500 included", async () => {
+    const { token } = await reported();
+    expectLinkHeaders((await page(token)).headers);
+    expectLinkHeaders((await post(token, "Hej")).headers);
+    expectLinkHeaders((await page(`obrf_rl_${"H".repeat(43)}`)).headers);
+
+    vi.spyOn(links, "open").mockRejectedValueOnce(new Error("forced"));
+    const failed = await page(token);
+    expect(failed.statusCode).toBe(500);
+    expectLinkHeaders(failed.headers);
+  });
+
+  it("F2, F3: the page loads nothing from another origin, and its title says nothing about the issue", async () => {
+    const { token } = await reported({ description: `Kanarie ${suffix}` });
+    const read = await page(token);
+    expect(read.body).not.toMatch(/(?:href|src|action)="(?:https?:)?\/\//);
+    const title = /<title>([^<]*)<\/title>/.exec(read.body)?.[1];
+    expect(title).toBe("Ditt ärende - Brf Eksemplet");
+  });
+});
+
+describe("H. what the page shows", () => {
+  it("H1, H2: no assignee, note, handler's name, waiting reason or anything the reporter wrote", async () => {
+    const canary = `KANARIE${suffix}`;
+    const { issueId, token } = await reported({
+      description: `${canary}-beskrivning`,
+      name: `${canary}-namn`,
+    });
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        location: `${canary}-plats`,
+        assigneePersonId: board.personId,
+        priority: "URGENT",
+        statusId: publicType.statusIds.WAITING,
+        waitingReason: "CONTRACTOR",
+      },
+    });
+    await conversation.addNote(board.personId, issueId, `${canary}-anteckning`);
+    await conversation.replyAsHandler(board.personId, issueId, "Ett svar.");
+
+    const read = await page(token);
+    expect(read.statusCode).toBe(200);
+    const everything = `${read.body}\n${JSON.stringify(read.headers)}`;
+    for (const secret of [
+      canary,
+      board.firstName,
+      board.lastName,
+      board.personId,
+      issueId,
+      "Akut",
+      "entreprenör",
+    ]) {
+      expect(everything).not.toContain(secret);
+    }
+    expect(read.body).toContain("Väntar");
+    expect(read.body).toContain("Ett svar.");
+  });
+
+  it("H6: what a person wrote is shown as text, with no markup and no link made of it", async () => {
+    const { token } = await reported();
+    await post(
+      token,
+      '<script>alert(1)</script> **fet** https://elak.example/<img src=x onerror="1">',
+    );
+    const read = await page(token);
+    expect(read.body).not.toContain("<script>alert(1)");
+    expect(read.body).not.toContain("<img src=x");
+    expect(read.body).toContain("&lt;script&gt;");
+    expect(read.body).toContain("**fet**");
+    expect(read.body).not.toContain('href="https://elak.example');
+  });
+
+  it("H7: a message a handler redacted is shown as removed, with no text", async () => {
+    const { issueId, token } = await reported();
+    await conversation.replyAsHandler(
+      board.personId,
+      issueId,
+      `Gallrad${suffix}`,
+    );
+    await prisma.issueMessage.updateMany({
+      where: { issueId, side: "HANDLER" },
+      data: { body: "", redactedAt: new Date() },
+    });
+
+    const read = await page(token);
+    expect(read.statusCode).toBe(200);
+    expect(read.body).not.toContain(`Gallrad${suffix}`);
+    expect(read.body).toContain(
+      "Föreningen har tagit bort det här meddelandet.",
+    );
+  });
+});
+
+describe("J. logging and audit", () => {
+  it("J1: a failure on a token route logs no token and no path", async () => {
+    const { token } = await reported();
+    const logged: string[] = [];
+    for (const level of [
+      "log",
+      "debug",
+      "verbose",
+      "warn",
+      "error",
+      "fatal",
+    ] as const) {
+      vi.spyOn(Logger.prototype, level).mockImplementation(
+        (...parts: unknown[]) => {
+          logged.push(parts.map(String).join(" "));
+        },
+      );
+    }
+    vi.spyOn(links, "open").mockRejectedValueOnce(
+      new Error(`failed for ${token}`),
+    );
+
+    expect((await page(token)).statusCode).toBe(500);
+    expect(logged.length).toBeGreaterThan(0);
+    expect(logged.join("\n")).not.toContain(token);
+    expect(logged.join("\n")).not.toContain("/arende/");
+  });
+
+  it("J2, J4: issuing names the link and nothing else; a refused request writes no entry", async () => {
+    const { issueId } = await reported();
+    const issued = (await auditFor(issueId)).find(
+      (entry) => entry.action === "ISSUE_REPORTER_LINK_ISSUED",
+    );
+    const link = await prisma.issueReporterLink.findUniqueOrThrow({
+      where: { issueId },
+    });
+    expect(issued).toMatchObject({
+      channel: "SYSTEM",
+      actorPersonId: null,
+      context: { linkId: link.id },
+    });
+
+    // Selected by what such an entry would be, never by a count of the whole
+    // log, which other suites write to at the same time. The start of the
+    // window is the database's clock, which stamps an entry: the process's
+    // clock can run behind it and let the entry above fall inside the window.
+    //
+    // A request with a token that opens nothing names no issue, so an entry
+    // it wrote would have no target; an entry another suite writes through a
+    // link always names its issue. Two selectors then cover both ways the
+    // guard could fail: an entry with no target, and one on this issue.
+    const [window] = await prisma.$queryRaw<{ now: Date }[]>`
+      SELECT clock_timestamp() AS now
+    `;
+    const since = window?.now ?? new Date();
+    await page(`obrf_rl_${"J".repeat(43)}`);
+    await post(`obrf_rl_${"J".repeat(43)}`, "Gissning");
+    await page("nonsense");
+    const linkEntry = {
+      OR: [
+        { channel: "LINK" as const },
+        {
+          action: {
+            in: [
+              "ISSUE_REPORTER_LINK_ISSUED" as const,
+              "ISSUE_REPORTER_LINK_REVOKED" as const,
+            ],
+          },
+        },
+      ],
+    };
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { createdAt: { gte: since }, targetId: null, ...linkEntry },
+      }),
+    ).toBe(0);
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { createdAt: { gte: since }, targetId: issueId },
+      }),
+    ).toBe(0);
+  });
+});
+
+describe("the board's side of the link", () => {
+  it("shows the handlers where the link stands", async () => {
+    const { issueId } = await reported();
+    const stateOf = async () =>
+      (await issues.queuedIssue(board.personId, issueId, "show")).reporter;
+    expect(await stateOf()).toMatchObject({ kind: "external", link: "live" });
+    await links.revoke(board.personId, issueId);
+    expect(await stateOf()).toMatchObject({ kind: "external", link: "ended" });
+  });
+
+  it("tells a link whose mail is still on its way from one that was never made", async () => {
+    const { issueId } = await reported();
+    const stateOf = async () =>
+      (await issues.queuedIssue(board.personId, issueId, "show")).reporter;
+    // The row exists from the moment the job starts, and `mailedAt` is stamped
+    // when the mail server takes the mail: until then the link is pending, and
+    // not "none", which tells a handler no mail can be sent.
+    await prisma.issueReporterLink.update({
+      where: { issueId },
+      data: { mailedAt: null },
+    });
+    expect(await stateOf()).toMatchObject({
+      kind: "external",
+      link: "pending",
+    });
+    await expect(links.revoke(board.personId, issueId)).rejects.toMatchObject({
+      reason: "no-reporter-link",
+    });
+
+    await prisma.issueReporterLink.delete({ where: { issueId } });
+    expect(await stateOf()).toMatchObject({ kind: "external", link: "none" });
+  });
+
+  it("does not let a person who holds no issues:handle role withdraw a link", async () => {
+    const { issueId } = await reported();
+    // Past the route's guard, as a role withdrawn in between.
+    await expect(
+      links.revoke(`rl-nobody-${suffix}`, issueId),
+    ).rejects.toMatchObject({
+      reason: "issue-not-found",
+    });
+    expect(
+      (
+        await prisma.issueReporterLink.findUniqueOrThrow({
+          where: { issueId },
+          select: { revokedAt: true },
+        })
+      ).revokedAt,
+    ).toBeNull();
+  });
+
+  it("refuses to withdraw a link that was never mailed, and withdraws a link once", async () => {
+    const { id } = await issues.reportPublicly({
+      typeId: publicType.id,
+      location: null,
+      description: "Utan länk",
+      reporterName: null,
+      reporterEmail: null,
+    });
+    await expect(links.revoke(board.personId, id)).rejects.toMatchObject({
+      reason: "no-reporter-link",
+    });
+
+    const { issueId } = await reported();
+    await links.revoke(board.personId, issueId);
+    await links.revoke(board.personId, issueId);
+    const entries = (await auditFor(issueId)).filter(
+      (entry) => entry.action === "ISSUE_REPORTER_LINK_REVOKED",
+    );
+    expect(entries).toHaveLength(1);
+  });
+});

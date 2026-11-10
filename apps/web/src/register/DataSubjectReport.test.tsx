@@ -18,6 +18,7 @@ import {
 import type { DataSubjectReportSection } from "@openbrf/shared";
 
 import i18n from "../i18n";
+import { ISSUE_MEANING_LABEL } from "../issues/issue-labels";
 import { DataSubjectReport, SECTION_TITLE } from "./DataSubjectReport";
 import {
   RegisterRequestError,
@@ -69,13 +70,21 @@ const CHARGE_REASON = [
   "Den gamla tappades bort.",
 ].join("\n");
 
-const { fetchDataSubjectReport } = vi.hoisted(() => ({
+const {
+  fetchDataSubjectReport,
+  fetchIssueAccessWeighing,
+  saveIssueAccessWeighing,
+} = vi.hoisted(() => ({
   fetchDataSubjectReport: vi.fn(),
+  fetchIssueAccessWeighing: vi.fn(),
+  saveIssueAccessWeighing: vi.fn(),
 }));
 
 vi.mock("./register-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./register-api")>()),
   fetchDataSubjectReport,
+  fetchIssueAccessWeighing,
+  saveIssueAccessWeighing,
 }));
 
 const { loadPluginTranslations } = vi.hoisted(() => ({
@@ -122,6 +131,8 @@ const EMPTY_REPORT: Report = {
   publicationConsents: [],
   legalHolds: [],
   issues: [],
+  issuesConcerning: [],
+  issueAssignments: [],
   documents: [],
   apartmentDocuments: [],
   bookings: [],
@@ -366,13 +377,72 @@ const FULL_REPORT: Report = {
   issues: [
     {
       issueId: "issue-1",
+      number: 41,
       typeName: "Porten",
-      status: "IN_PROGRESS",
+      meaning: "IN_PROGRESS",
+      outcome: null,
+      waitingReason: null,
+      costResponsibility: null,
+      place: null,
       location: "Storgatan 12, entren",
       description: ISSUE_DESCRIPTION,
+      entry: null,
+      descriptionRedactedAt: null,
+      locationRedactedAt: null,
+      freeTextRemovedAt: null,
+      freeTextErasableFrom: null,
+      onLegalHold: false,
       reportedAt: "2026-01-05T08:00:00.000Z",
+      closedAt: null,
       photographs: 2,
+      messages: [],
+      notes: [],
+      workOrders: [],
     },
+  ],
+  issuesConcerning: [
+    {
+      issueId: "issue-9",
+      number: 52,
+      typeName: "Störningar",
+      meaning: "DONE",
+      outcome: "FIXED",
+      waitingReason: null,
+      recordedAt: "2026-01-08T09:00:00.000Z",
+      reportedAt: "2026-01-07T21:00:00.000Z",
+      closedAt: "2026-01-20T10:00:00.000Z",
+      freeTextErasableFrom: "2027-01-20",
+      onLegalHold: false,
+      freeTextRemovedAt: null,
+      description: { state: "withheld", because: "IDENTIFIES_REPORTER" },
+      descriptionRedactedAt: null,
+      location: { state: "given", text: "Trapphuset" },
+      locationRedactedAt: null,
+      messages: [
+        {
+          messageId: "message-9",
+          writtenAt: "2026-01-09T08:00:00.000Z",
+          side: "HANDLER",
+          signature: "BOARD",
+          redactedAt: null,
+          content: { state: "given", text: "Vi har pratat med er granne." },
+        },
+      ],
+      notes: [],
+      photographs: 0,
+      workOrders: [],
+    },
+  ],
+  issueAssignments: [
+    {
+      kind: "issue",
+      issueId: "issue-7",
+      typeName: "Hiss",
+      meaning: "IN_PROGRESS",
+      reportedAt: "2026-01-06T08:00:00.000Z",
+      closedAt: null,
+    },
+    { kind: "typeDefault", typeId: "type-1", typeName: "Hiss" },
   ],
   bookings: [
     {
@@ -1138,6 +1208,117 @@ describe("what the document prints", () => {
     expect(screen.queryByText("ASSOCIATION_FACTS_RECORDED")).toBeNull();
   });
 
+  it("puts the acts of an issue's second layer in words rather than as stored codes", async () => {
+    // The detail column prints the context of most entries as stored. These
+    // acts hold codes - a target, a row, a date, a capability - that a person
+    // handed the document cannot read, so each says what it means in the
+    // document's language, and which row or capability stays out of it.
+    const [entry] = FULL_REPORT.auditEntries;
+    if (entry === undefined) {
+      throw new Error("The fixture has no audit entry.");
+    }
+    renderReport({
+      ...FULL_REPORT,
+      auditEntries: [
+        {
+          ...entry,
+          entryId: "r",
+          action: "ISSUE_REDACTED",
+          context: { target: "photo", id: "photo-row-1" },
+        },
+        {
+          ...entry,
+          entryId: "h",
+          action: "ISSUE_LEGAL_HOLD_RELEASED",
+          context: { placedAt: "2026-10-15T08:00:00.000Z" },
+        },
+        {
+          ...entry,
+          entryId: "u",
+          action: "MEDIA_UPLOADED",
+          context: { requiredCapability: "issues:handle", size: 3 },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const details = [
+      ...sectionOf("Granskningsloggen").querySelectorAll("tbody tr"),
+    ].map((row) => row.querySelectorAll("td")[4]?.textContent);
+    expect(details).toEqual([
+      "En bild",
+      "Kravet gällde sedan 2026-10-15",
+      "size: 3",
+    ]);
+  });
+
+  it("says which clock on an issue's free text the board changed", async () => {
+    // One entry for each clock. The ring-fenced one is marked, and an entry
+    // without the mark - written before that clock was the board's too - is
+    // the other types' clock.
+    const [entry] = FULL_REPORT.auditEntries;
+    if (entry === undefined) {
+      throw new Error("The fixture has no audit entry.");
+    }
+    renderReport({
+      ...FULL_REPORT,
+      auditEntries: [
+        {
+          ...entry,
+          entryId: "o",
+          action: "ISSUE_RETENTION_RECORDED",
+          context: { yearsAfterClosingFrom: 2, yearsAfterClosingTo: 5 },
+        },
+        {
+          ...entry,
+          entryId: "f",
+          action: "ISSUE_RETENTION_RECORDED",
+          context: {
+            ringFenced: true,
+            yearsAfterClosingFrom: 1,
+            yearsAfterClosingTo: 3,
+          },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const details = [
+      ...sectionOf("Granskningsloggen").querySelectorAll("tbody tr"),
+    ].map((row) => row.querySelectorAll("td")[4]?.textContent);
+    expect(details).toEqual([
+      "Från 2 till 5 år efter stängning",
+      "Avskärmade ärendetyper: från 1 till 3 år efter stängning",
+    ]);
+  });
+
+  it("labels the redaction of a work order's text and prints no text", async () => {
+    // A work order's text is a target of its own, and an entry for it has to
+    // read as words like the others rather than as "Inget registrerat".
+    const [entry] = FULL_REPORT.auditEntries;
+    if (entry === undefined) {
+      throw new Error("The fixture has no audit entry.");
+    }
+    renderReport({
+      ...FULL_REPORT,
+      auditEntries: [
+        {
+          ...entry,
+          entryId: "w",
+          action: "ISSUE_REDACTED",
+          context: { target: "workOrder", id: "work-order-row-1" },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const details = [
+      ...sectionOf("Granskningsloggen").querySelectorAll("tbody tr"),
+    ].map((row) => row.querySelectorAll("td")[4]?.textContent);
+    expect(details).toEqual(["Texten i en arbetsorder"]);
+    expect(screen.queryByText("work-order-row-1")).toBeNull();
+  });
+
   it("says which way each act reached the records", async () => {
     // The same board member acting in the web interface and acting through a
     // connected app is one person reaching the records two ways, and the
@@ -1736,6 +1917,339 @@ describe("what the document prints", () => {
     }
   });
 
+  it("prints the reason an issue waits and the outcome it closed with", async () => {
+    // Each belongs to a different meaning, so they are two issues: one
+    // waiting on a contractor, one done and fixed. A report that left either
+    // field out would still pass with both null, so these are populated.
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          issueId: "issue-waiting",
+          meaning: "WAITING",
+          waitingReason: "CONTRACTOR",
+          costResponsibility: "TENANT_OWNER",
+          description: "Droppar fran taket",
+        },
+        {
+          ...issue,
+          issueId: "issue-done",
+          meaning: "DONE",
+          outcome: "FIXED",
+          costResponsibility: "TENANT_OWNER",
+          description: "Lampan blinkar",
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const waiting = screen.getByText("Droppar fran taket").closest("tr");
+    const done = screen.getByText("Lampan blinkar").closest("tr");
+    expect(waiting).not.toBeNull();
+    expect(done).not.toBeNull();
+    expect(within(waiting as HTMLElement).getByText("Väntar")).toBeTruthy();
+    expect(
+      within(waiting as HTMLElement).getByText("Entreprenör"),
+    ).toBeTruthy();
+    expect(within(waiting as HTMLElement).queryByText("Åtgärdat")).toBeNull();
+    expect(within(done as HTMLElement).getByText("Åtgärdat")).toBeTruthy();
+    expect(within(done as HTMLElement).queryByText("Entreprenör")).toBeNull();
+    // Who pays, which a handler decided about the reporter's own matter.
+    expect(
+      within(waiting as HTMLElement).getByText(
+        "Vem betalar: Bostadsrättshavaren",
+      ),
+    ).toBeTruthy();
+    // A closed issue keeps the payer it was closed with.
+    expect(
+      within(done as HTMLElement).getByText("Vem betalar: Bostadsrättshavaren"),
+    ).toBeTruthy();
+  });
+
+  it("prints the answer about getting in with what the resident said", async () => {
+    // The fixture's issue has no entry, so the block is not drawn there; this
+    // one has all of it, and the access report is the copy the person keeps.
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          entry: {
+            answer: "YES",
+            pets: true,
+            masterKey: true,
+            note: "Ring på dörren två gånger",
+            until: "2026-12-24",
+          },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const row = screen.getByText(/Tillträde: Ja\./).closest("tr");
+    expect(row).not.toBeNull();
+    const text = (row as HTMLElement).textContent ?? "";
+    expect(text).toContain("husdjur · huvudnyckel · Ring på dörren två gånger");
+    expect(text).toContain("Gäller till och med 2026-12-24");
+  });
+
+  it("prints the answer about getting in as no when the resident said no", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          entry: {
+            answer: "NO",
+            pets: null,
+            masterKey: null,
+            note: null,
+            until: null,
+          },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText(/Tillträde: Nej\./)).toBeTruthy();
+    expect(screen.queryByText(/Tillträde: Ja\./)).toBeNull();
+  });
+
+  it("prints a recorded no about pets and the master key, not only a yes", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          entry: {
+            answer: "YES",
+            pets: false,
+            masterKey: false,
+            note: null,
+            until: null,
+          },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const row = screen.getByText(/Tillträde: Ja\./).closest("tr");
+    expect(row).not.toBeNull();
+    expect((row as HTMLElement).textContent ?? "").toContain(
+      "inga husdjur · huvudnyckel får inte användas",
+    );
+  });
+
+  it("names the common area an issue is about, also once its text is gone", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          place: "Tvättstuga",
+          location: null,
+          description: "",
+          freeTextRemovedAt: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText("Gemensamt utrymme: Tvättstuga")).toBeTruthy();
+  });
+
+  it("names whom an issue was sent to, and a removed contractor as one", async () => {
+    // Art. 15(1)(c): the recipients of the reporter's issue, with the date and
+    // whether the mail went out. A failure is not said to be certain, because
+    // one that was never confirmed may have gone out.
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          workOrders: [
+            {
+              workOrderId: "work-order-1",
+              recipientName: "Rörmokare Ab",
+              writtenAt: "2026-01-06T09:00:00.000Z",
+              deliveryStatus: "SENT",
+              notSent: false,
+              linkGiven: true,
+              photosShared: 2,
+              redactedAt: null,
+              content: null,
+            },
+            {
+              workOrderId: "work-order-2",
+              recipientName: null,
+              writtenAt: "2026-01-07T09:00:00.000Z",
+              deliveryStatus: "FAILED",
+              notSent: false,
+              linkGiven: false,
+              photosShared: 0,
+              redactedAt: null,
+              content: null,
+            },
+            {
+              workOrderId: "work-order-3",
+              recipientName: "Elektriker Ab",
+              writtenAt: "2026-01-08T09:00:00.000Z",
+              deliveryStatus: "FAILED",
+              notSent: true,
+              linkGiven: false,
+              photosShared: 0,
+              redactedAt: null,
+              content: null,
+            },
+          ],
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const row = screen.getByText(/Rörmokare Ab/).closest("tr");
+    expect(row).not.toBeNull();
+    const cell = within(row as HTMLElement);
+    expect(cell.getByText(/Rörmokare Ab · Skickad/)).toBeTruthy();
+    expect(cell.getByText(/2026-01-06/)).toBeTruthy();
+    expect(
+      cell.getByText(
+        /En entreprenör som sedan tagits bort från listan · Inte bekräftad som skickad/,
+      ),
+    ).toBeTruthy();
+    expect(cell.getByText(/2026-01-07/)).toBeTruthy();
+    // A failure known not to have gone out is said to be that.
+    expect(cell.getByText(/Elektriker Ab · Inte skickad/)).toBeTruthy();
+    // A link given to the contractor is said, with how many photographs it
+    // showed, and only where one was given.
+    expect(
+      cell.getByText(
+        /Rörmokare Ab · Skickad · Länk given till entreprenören; 2 foton visas/,
+      ),
+    ).toBeTruthy();
+    expect(cell.getAllByText(/Länk given/)).toHaveLength(1);
+  });
+
+  it("prints the conversation as the reporter reads it, signed by a role", async () => {
+    // Art. 15: the reporter's own messages and the handlers' to them, each
+    // handler's signed with the role it was written in and never a name
+    // (decision 19). A redacted message says so instead of printing blank.
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          meaning: "DONE",
+          outcome: "FIXED",
+          closedAt: "2026-02-01T10:00:00.000Z",
+          freeTextErasableFrom: "2028-02-01",
+          messages: [
+            {
+              id: "m-1",
+              side: "REPORTER",
+              body: "Porten går inte i lås.",
+              redactedAt: null,
+              createdAt: "2026-01-05T09:00:00.000Z",
+            },
+            {
+              id: "m-2",
+              side: "HANDLER",
+              signature: "PROPERTY_MANAGER",
+              body: "En låssmed kommer på torsdag.",
+              redactedAt: null,
+              createdAt: "2026-01-06T09:00:00.000Z",
+            },
+            {
+              id: "m-3",
+              side: "REPORTER",
+              body: "",
+              redactedAt: "2026-01-20T09:00:00.000Z",
+              createdAt: "2026-01-07T09:00:00.000Z",
+            },
+          ],
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const row = screen.getByText("Porten går inte i lås.").closest("tr");
+    expect(row).not.toBeNull();
+    const cell = within(row as HTMLElement);
+    expect(cell.getByText("Ärende 41")).toBeTruthy();
+    expect(cell.getByText("En låssmed kommer på torsdag.")).toBeTruthy();
+    expect(row?.textContent).toContain("2026-01-05 Du");
+    expect(row?.textContent).toContain("2026-01-06 Förvaltaren");
+    expect(row?.textContent).toContain("2026-01-07 DuBorttaget av");
+    expect(row?.textContent).toContain("Avslutat 2026-02-01");
+    expect(row?.textContent).toContain("Fritexten kan gallras från 2028-02-01");
+  });
+
+  it("says a hold on the issue keeps its text, in place of a date", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [{ ...issue, onLegalHold: true }],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const row = screen.getByText("Porten").closest("tr");
+    expect(row?.textContent).toContain(
+      "Fritexten sparas under ett rättsligt bevarandekrav på ärendet",
+    );
+    expect(row?.textContent).not.toContain("kan gallras från");
+  });
+
+  it("says an issue's text was removed instead of printing it blank", async () => {
+    // Removed text is empty on the issue. Printed as stored, the copy would
+    // read as an issue filed with no words and no place.
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          issueId: "issue-redacted",
+          location: null,
+          description: "",
+          descriptionRedactedAt: "2026-10-01T09:00:00.000Z",
+          locationRedactedAt: "2026-10-02T09:00:00.000Z",
+        },
+        {
+          ...issue,
+          issueId: "issue-purged",
+          location: null,
+          description: "",
+          freeTextRemovedAt: "2026-11-03T03:21:00.000Z",
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    expect(screen.getByText("2026-10-01")).toBeTruthy();
+    expect(screen.getByText("2026-10-02")).toBeTruthy();
+    expect(screen.getAllByText(/Borttaget av en handläggare/)).toHaveLength(2);
+    // The location, the description, the conversation and the notes.
+    expect(screen.getAllByText("2026-11-03")).toHaveLength(4);
+    expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(4);
+  });
+
   it("names the capacity somebody was present at a general meeting in", async () => {
     /*
      * "Present" is the smaller half of what this section says. EFL 6 kap. 27 §
@@ -1847,6 +2361,50 @@ describe("what the document prints", () => {
        */
       const document_ = screen.getByText("Personen").closest("article");
       expect(document_?.getAttribute("lang")).toBe("sv");
+    } finally {
+      await i18n.changeLanguage("sv");
+    }
+  });
+
+  it("says an issue's text was removed in the subject's language, not the reader's", async () => {
+    /*
+     * The marks that stand in place of a removed text are written into the
+     * document, so they take the document's translator like every label around
+     * them: the reader is on English and the subject has asked for Swedish.
+     */
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    await i18n.changeLanguage("en");
+    try {
+      renderReport({
+        ...FULL_REPORT,
+        person: { ...FULL_REPORT.person, preferredLocale: "sv" },
+        issues: [
+          {
+            ...issue,
+            issueId: "issue-redacted",
+            location: null,
+            description: "",
+            descriptionRedactedAt: "2026-10-01T09:00:00.000Z",
+            locationRedactedAt: "2026-10-02T09:00:00.000Z",
+          },
+          {
+            ...issue,
+            issueId: "issue-purged",
+            location: null,
+            description: "",
+            freeTextRemovedAt: "2026-11-03T03:21:00.000Z",
+          },
+        ],
+      });
+      await screen.findByText("Brf Eksemplet");
+
+      expect(screen.getAllByText(/Borttaget av en handläggare/)).toHaveLength(
+        2,
+      );
+      expect(screen.getAllByText(/Fritexten togs bort/)).toHaveLength(4);
+      expect(screen.queryByText(/Removed by a handler/)).toBeNull();
+      expect(screen.queryByText(/Free text removed on/)).toBeNull();
     } finally {
       await i18n.changeLanguage("sv");
     }
@@ -2000,6 +2558,620 @@ describe("what the document prints", () => {
     expect(purchaseRow?.textContent).toContain("Överlåtelse");
   });
 });
+
+describe("what the board weighed under art. 15(4)", () => {
+  const inSwedish = i18n.getFixedT("sv");
+
+  it("prints a case somebody else reported with what was given, and the reason for what was left out", async () => {
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const section = sectionOf(inSwedish(SECTION_TITLE.issuesConcerning));
+    const row = within(section).getByText("Trapphuset").closest("tr");
+    expect(row).not.toBeNull();
+    const cells = within(row as HTMLElement);
+    // The case itself, always.
+    expect(cells.getByText("Ärende 52")).toBeTruthy();
+    expect(cells.getByText("Störningar")).toBeTruthy();
+    // A handler's message signed with a role, given whole.
+    expect(cells.getByText("Vi har pratat med er granne.")).toBeTruthy();
+    expect(cells.getByText("Styrelsen")).toBeTruthy();
+    // The description left out, with its reason and none of its words.
+    expect(
+      cells.getByText(
+        "Utelämnat: det skulle avslöja vem som anmälde ärendet (artikel 15.4 i dataskyddsförordningen)",
+      ),
+    ).toBeTruthy();
+    // That something was left out, why, and where to complain.
+    expect(within(section).getByText(/klaga hos IMY, imy\.se/)).toBeTruthy();
+    expect(
+      within(section).getByText(/säger inte vem som anmälde/),
+    ).toBeTruthy();
+    // Weighed throughout, so it prints, from the button and the browser alike.
+    expect(
+      (screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+    expect(printedDocument().classList.contains("print:hidden")).toBe(false);
+    expect(screen.queryByText(NOT_PRINTABLE)).toBeNull();
+  });
+
+  it("gives none of an unweighed note, and will not print until it is weighed", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          notes: [
+            {
+              noteId: "note-1",
+              writtenAt: "2026-01-06T08:00:00.000Z",
+              redactedAt: null,
+              content: { state: "unweighed" },
+            },
+            {
+              noteId: "note-2",
+              writtenAt: "2026-01-07T08:00:00.000Z",
+              redactedAt: null,
+              content: { state: "given", text: "Ringde om porten." },
+            },
+          ],
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const section = sectionOf(inSwedish(SECTION_TITLE.issues));
+    expect(
+      within(section).getByText(
+        "Inte utlämnat: styrelsen har ännu inte prövat det",
+      ),
+    ).toBeTruthy();
+    expect(within(section).getByText("Ringde om porten.")).toBeTruthy();
+    expect(
+      screen.getByText(/En text i ärendena nedan är inte prövad/),
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    // The browser's own print gets no further than the button: the document
+    // stays off the page, and the page says why instead.
+    expect(printedDocument().classList.contains("print:hidden")).toBe(true);
+    const instead = screen.getByText(NOT_PRINTABLE);
+    expect(instead.classList.contains("hidden")).toBe(true);
+    expect(instead.classList.contains("print:block")).toBe(true);
+    // Nothing was left out, so the report says nothing of a complaint.
+    expect(within(section).queryByText(/klaga hos IMY/)).toBeNull();
+  });
+
+  it("gives a work order's text as the board weighed it, and will not print while one is unweighed", async () => {
+    // ADR 0057, question 7: the handler's words to a contractor are part of
+    // the reporter's copy (art. 15(3)), weighed as a note is, on an issue with
+    // no note to weigh as well.
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    const order = {
+      recipientName: "Rörmokare Ab",
+      deliveryStatus: "SENT" as const,
+      notSent: false,
+      linkGiven: false,
+      photosShared: 0,
+      redactedAt: null,
+    };
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          notes: [],
+          workOrders: [
+            {
+              ...order,
+              workOrderId: "work-order-1",
+              writtenAt: "2026-01-06T09:00:00.000Z",
+              content: { state: "given", text: "Byt packningen i köket." },
+            },
+            {
+              ...order,
+              workOrderId: "work-order-2",
+              writtenAt: "2026-01-07T09:00:00.000Z",
+              content: { state: "withheld", because: "ABOUT_ANOTHER_PERSON" },
+            },
+            {
+              ...order,
+              workOrderId: "work-order-3",
+              writtenAt: "2026-01-08T09:00:00.000Z",
+              content: { state: "unweighed" },
+            },
+            {
+              ...order,
+              workOrderId: "work-order-4",
+              writtenAt: "2026-01-09T09:00:00.000Z",
+              redactedAt: "2026-02-01T09:00:00.000Z",
+              content: null,
+            },
+            {
+              ...order,
+              workOrderId: "work-order-5",
+              writtenAt: "2026-01-10T09:00:00.000Z",
+              content: null,
+            },
+          ],
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const section = within(sectionOf(inSwedish(SECTION_TITLE.issues)));
+    expect(section.getByText("Byt packningen i köket.")).toBeTruthy();
+    expect(
+      section.getByText(
+        "Utelämnat: det handlar om någon annan (artikel 15.4 i dataskyddsförordningen)",
+      ),
+    ).toBeTruthy();
+    expect(
+      section.getByText("Inte utlämnat: styrelsen har ännu inte prövat det"),
+    ).toBeTruthy();
+    // A redacted text says when, and an erased one that its time ran out.
+    expect(section.getByText(/Borttaget av en handläggare/)).toBeTruthy();
+    expect(
+      section.getByText("Texten raderades när dess lagringstid gick ut."),
+    ).toBeTruthy();
+    // Something was left out, so the report says why and where to complain.
+    expect(section.getByText(/klaga hos IMY/)).toBeTruthy();
+    // The board can weigh it from the issue, and the report is not printed
+    // until it has.
+    expect(
+      section.getByRole("button", { name: "Pröva vad som lämnas ut" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/En text i ärendena nedan är inte prövad/),
+    ).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("gives a work order's text on a case somebody else reported only as weighed", async () => {
+    const [concerning] = FULL_REPORT.issuesConcerning;
+    if (concerning === undefined) throw new Error("the fixture holds a case");
+    renderReport({
+      ...FULL_REPORT,
+      issuesConcerning: [
+        {
+          ...concerning,
+          description: { state: "given", text: "Musik på natten." },
+          workOrders: [
+            {
+              workOrderId: "work-order-1",
+              recipientName: "Ljudtekniker Ab",
+              writtenAt: "2026-01-06T09:00:00.000Z",
+              deliveryStatus: "SENT",
+              notSent: false,
+              linkGiven: false,
+              photosShared: 0,
+              redactedAt: null,
+              content: {
+                state: "givenInPart",
+                text: "Mät ljudet från 1103 […]",
+                because: "IDENTIFIES_REPORTER",
+              },
+            },
+          ],
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const section = within(
+      sectionOf(inSwedish(SECTION_TITLE.issuesConcerning)),
+    );
+    expect(section.getByText("Mät ljudet från 1103 […]")).toBeTruthy();
+    expect(
+      section.getByText(
+        /^Delvis utlämnat: ord som skulle avslöja vem som anmälde ärendet/,
+      ),
+    ).toBeTruthy();
+    // The work order alone left something out, and the report says so.
+    expect(section.getByText(/klaga hos IMY/)).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  it("prints a text given in part as the board's copy, with the reason and none of the words left out", async () => {
+    const [concerning] = FULL_REPORT.issuesConcerning;
+    if (concerning === undefined) throw new Error("the fixture holds a case");
+    renderReport({
+      ...FULL_REPORT,
+      issuesConcerning: [
+        {
+          ...concerning,
+          description: {
+            state: "givenInPart",
+            text: "Jag […] hör grannen spela musik varje natt.",
+            because: "IDENTIFIES_REPORTER",
+          },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const section = sectionOf(inSwedish(SECTION_TITLE.issuesConcerning));
+    expect(
+      within(section).getByText("Jag […] hör grannen spela musik varje natt."),
+    ).toBeTruthy();
+    expect(
+      within(section).getByText(
+        "Delvis utlämnat: ord som skulle avslöja vem som anmälde ärendet är utelämnade, och varje ställe är markerat […] (artikel 15.4 i dataskyddsförordningen)",
+      ),
+    ).toBeTruthy();
+    // Something was left out, so the report says why and where to complain.
+    expect(within(section).getByText(/klaga hos IMY/)).toBeTruthy();
+  });
+
+  it("opens the board's weighing from the issue, and produces the report again once it is saved", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    fetchIssueAccessWeighing.mockResolvedValue({
+      issueId: issue.issueId,
+      number: issue.number,
+      typeName: issue.typeName,
+      report: "reporter",
+      texts: [
+        {
+          part: "NOTE",
+          id: "note-1",
+          writtenAt: "2026-01-06T08:00:00.000Z",
+          side: null,
+          text: "Grannen i 1202 har klagat förut.",
+          decision: null,
+          givenText: null,
+        },
+      ],
+    });
+    saveIssueAccessWeighing.mockResolvedValue({});
+    renderReport({
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          notes: [
+            {
+              noteId: "note-1",
+              writtenAt: "2026-01-06T08:00:00.000Z",
+              redactedAt: null,
+              content: { state: "unweighed" },
+            },
+          ],
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+    expect(fetchDataSubjectReport).toHaveBeenCalledTimes(1);
+
+    const section = sectionOf(inSwedish(SECTION_TITLE.issues));
+    fireEvent.click(
+      within(section).getByRole("button", { name: "Pröva vad som lämnas ut" }),
+    );
+    // The words are on the board's screen to weigh, never on the report.
+    await screen.findByText("Grannen i 1202 har klagat förut.");
+    fireEvent.click(
+      screen.getByRole("radio", {
+        name: "Utelämna: det handlar om någon annan",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Spara prövningen" }));
+
+    await waitFor(() => {
+      expect(fetchDataSubjectReport).toHaveBeenCalledTimes(2);
+    });
+    expect(saveIssueAccessWeighing).toHaveBeenCalledWith(
+      FULL_REPORT.person.personId,
+      issue.issueId,
+      [
+        {
+          part: "NOTE",
+          id: "note-1",
+          withheldBecause: "ABOUT_ANOTHER_PERSON",
+          givenText: null,
+        },
+      ],
+    );
+  });
+
+  it("keeps a newer panel's choices when a save sent from a closed one completes, and sends one save at a time", async () => {
+    const [issue] = FULL_REPORT.issues;
+    const [concerning] = FULL_REPORT.issuesConcerning;
+    if (issue === undefined || concerning === undefined) {
+      throw new Error("the fixture holds an issue and a case");
+    }
+    const report: Report = {
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          notes: [
+            {
+              noteId: "note-1",
+              writtenAt: "2026-01-06T08:00:00.000Z",
+              redactedAt: null,
+              content: { state: "given", text: "Ringde om porten." },
+            },
+          ],
+        },
+      ],
+    };
+    fetchIssueAccessWeighing.mockImplementation((_person, issueId) =>
+      Promise.resolve(
+        issueId === issue.issueId
+          ? {
+              issueId,
+              number: issue.number,
+              typeName: issue.typeName,
+              report: "reporter",
+              texts: [
+                {
+                  part: "NOTE",
+                  id: "note-1",
+                  writtenAt: "2026-01-06T08:00:00.000Z",
+                  side: null,
+                  text: "Ringde om porten.",
+                  decision: "given",
+                  givenText: null,
+                },
+              ],
+            }
+          : {
+              issueId,
+              number: concerning.number,
+              typeName: concerning.typeName,
+              report: "concerned",
+              texts: [
+                {
+                  part: "LOCATION",
+                  id: null,
+                  writtenAt: "2026-01-07T21:00:00.000Z",
+                  side: null,
+                  text: "Trapphuset",
+                  decision: "given",
+                  givenText: null,
+                },
+              ],
+            },
+      ),
+    );
+    let landFirstSave: (value: unknown) => void = () => undefined;
+    saveIssueAccessWeighing.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          landFirstSave = resolve;
+        }),
+    );
+    let produceAgain: (value: Report) => void = () => undefined;
+    fetchDataSubjectReport.mockResolvedValueOnce(report).mockImplementationOnce(
+      () =>
+        new Promise<Report>((resolve) => {
+          produceAgain = resolve;
+        }),
+    );
+    render(
+      <DataSubjectReport personId={report.person.personId} onClose={noop} />,
+    );
+    await screen.findByText("Brf Eksemplet");
+
+    // A save on the reporter's issue, still in flight when its panel closes.
+    fireEvent.click(
+      within(sectionOf(inSwedish(SECTION_TITLE.issues))).getByRole("button", {
+        name: "Pröva vad som lämnas ut",
+      }),
+    );
+    await screen.findByRole("heading", { name: /Pröva ärende/ });
+    fireEvent.click(
+      screen.getByRole("radio", {
+        name: "Utelämna: det handlar om någon annan",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Spara prövningen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stäng" }));
+
+    // Another panel, and a choice changed on it.
+    fireEvent.click(
+      within(sectionOf(inSwedish(SECTION_TITLE.issuesConcerning))).getByRole(
+        "button",
+        { name: "Pröva vad som lämnas ut" },
+      ),
+    );
+    const leaveOut = await screen.findByRole("radio", {
+      name: "Utelämna: det handlar om någon annan",
+    });
+    fireEvent.click(leaveOut);
+    // The first save is still in flight, so this one does not send beside it.
+    expect(
+      (screen.getByRole("button", { name: "Sparar..." }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(saveIssueAccessWeighing).toHaveBeenCalledTimes(1);
+
+    landFirstSave({});
+    await waitFor(() => {
+      expect(fetchDataSubjectReport).toHaveBeenCalledTimes(2);
+    });
+    // The newer panel is open, with its choice, beside the report on screen.
+    expect(leaveOut.isConnected).toBe(true);
+    expect((leaveOut as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText("Trapphuset", { selector: "p" })).toBeTruthy();
+    // Until the report is produced again, it does not print.
+    expect(
+      (screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(printedDocument().classList.contains("print:hidden")).toBe(true);
+    expect(
+      screen.getByText("Tar fram utdraget på nytt med prövningen..."),
+    ).toBeTruthy();
+
+    produceAgain(report);
+    await waitFor(() => {
+      expect(
+        (screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
+    });
+    expect(leaveOut.isConnected).toBe(true);
+    expect((leaveOut as HTMLInputElement).checked).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Spara prövningen",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
+
+  it("will not print a text the board is withdrawing while its save is in flight", async () => {
+    const [issue] = FULL_REPORT.issues;
+    if (issue === undefined) throw new Error("the fixture holds an issue");
+    const given: Report = {
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          notes: [
+            {
+              noteId: "note-1",
+              writtenAt: "2026-01-06T08:00:00.000Z",
+              redactedAt: null,
+              content: {
+                state: "given",
+                text: "Grannen i 1202 har klagat förut.",
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const withheld: Report = {
+      ...given,
+      issues: [
+        {
+          ...issue,
+          notes: [
+            {
+              noteId: "note-1",
+              writtenAt: "2026-01-06T08:00:00.000Z",
+              redactedAt: null,
+              content: { state: "withheld", because: "ABOUT_ANOTHER_PERSON" },
+            },
+          ],
+        },
+      ],
+    };
+    fetchIssueAccessWeighing.mockResolvedValue({
+      issueId: issue.issueId,
+      number: issue.number,
+      typeName: issue.typeName,
+      report: "reporter",
+      texts: [
+        {
+          part: "NOTE",
+          id: "note-1",
+          writtenAt: "2026-01-06T08:00:00.000Z",
+          side: null,
+          text: "Grannen i 1202 har klagat förut.",
+          decision: "given",
+          givenText: null,
+        },
+      ],
+    });
+    let landSave: (value: unknown) => void = () => undefined;
+    saveIssueAccessWeighing.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          landSave = resolve;
+        }),
+    );
+    let produceAgain: (value: Report) => void = () => undefined;
+    fetchDataSubjectReport.mockResolvedValueOnce(given).mockImplementationOnce(
+      () =>
+        new Promise<Report>((resolve) => {
+          produceAgain = resolve;
+        }),
+    );
+    render(
+      <DataSubjectReport personId={given.person.personId} onClose={noop} />,
+    );
+    await screen.findByText("Brf Eksemplet");
+    const printButton = () =>
+      screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement;
+    const section = () => sectionOf(inSwedish(SECTION_TITLE.issues));
+    // Weighed throughout, the note given whole: it prints.
+    expect(
+      within(section()).getByText("Grannen i 1202 har klagat förut."),
+    ).toBeTruthy();
+    expect(printButton().disabled).toBe(false);
+    expect(printedDocument().classList.contains("print:hidden")).toBe(false);
+
+    fireEvent.click(
+      within(section()).getByRole("button", {
+        name: "Pröva vad som lämnas ut",
+      }),
+    );
+    await screen.findByRole("heading", { name: /Pröva ärende/ });
+    fireEvent.click(
+      screen.getByRole("radio", {
+        name: "Utelämna: det handlar om någon annan",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Spara prövningen" }));
+    expect(saveIssueAccessWeighing).toHaveBeenCalledTimes(1);
+
+    // The save is sent and not yet answered, and the server may already have
+    // committed it: the words still on screen must not reach paper, from the
+    // button or the browser's own print.
+    await waitFor(() => {
+      expect(printButton().disabled).toBe(true);
+    });
+    expect(printedDocument().classList.contains("print:hidden")).toBe(true);
+    expect(screen.getByText(NOT_PRINTABLE)).toBeTruthy();
+
+    // Answered, and still not printable until the report comes back with it.
+    landSave({});
+    await waitFor(() => {
+      expect(fetchDataSubjectReport).toHaveBeenCalledTimes(2);
+    });
+    expect(printButton().disabled).toBe(true);
+    expect(printedDocument().classList.contains("print:hidden")).toBe(true);
+
+    produceAgain(withheld);
+    await waitFor(() => {
+      expect(printButton().disabled).toBe(false);
+    });
+    expect(printedDocument().classList.contains("print:hidden")).toBe(false);
+    expect(
+      within(section()).queryByText("Grannen i 1202 har klagat förut."),
+    ).toBeNull();
+  });
+});
+
+/** The sentence the browser's own print gives while the report may not print. */
+const NOT_PRINTABLE = /^Utdraget är inte klart att skriva ut\./;
+
+/** The document as the print stylesheet finds it. */
+function printedDocument(): HTMLElement {
+  const document_ = document.querySelector<HTMLElement>(
+    '[data-print="document"]',
+  );
+  if (document_ === null) {
+    throw new Error("The report renders no document to print.");
+  }
+  return document_;
+}
 
 describe("what the feed holds about this person", () => {
   it("prints what a post and a comment said before each edit", async () => {
@@ -2358,6 +3530,40 @@ describe("what the document answers for", () => {
     }
   });
 
+  it("prints a row for each issue an assignee holds and each type naming them", async () => {
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const inSwedish = i18n.getFixedT("sv");
+    const assignments = within(
+      sectionOf(inSwedish(SECTION_TITLE.issueAssignments)),
+    );
+    // One row for the issue and one for the type, both of the type Hiss. Each
+    // is found by its label, so swapping the two rows fails here.
+    const rows = assignments.getAllByRole("row");
+    const rowWith = (label: string) =>
+      rows.find((row) => within(row).queryByText(label) !== null);
+    const issueRow = rowWith(
+      inSwedish("register.person.report.issueAssignment.issue"),
+    );
+    const typeRow = rowWith(
+      inSwedish("register.person.report.issueAssignment.typeDefault"),
+    );
+    expect(issueRow).toBeDefined();
+    expect(typeRow).toBeDefined();
+    expect(issueRow).not.toBe(typeRow);
+    expect(within(issueRow!).getByText("Hiss")).toBeTruthy();
+    expect(within(typeRow!).getByText("Hiss")).toBeTruthy();
+    // The status is the issue's alone: the type's row shows the placeholder
+    // in that cell (type, assignment, status, date, closed).
+    expect(
+      within(issueRow!).getByText(inSwedish(ISSUE_MEANING_LABEL.IN_PROGRESS)),
+    ).toBeTruthy();
+    expect(within(typeRow!).getAllByRole("cell")[2]!.textContent).toBe(
+      inSwedish("register.person.report.nothing"),
+    );
+  });
+
   it("prints a session's address and browser as they were recorded", async () => {
     /*
      * Art. 15(3) asks for a copy of the data, and a shortened address or a
@@ -2423,6 +3629,69 @@ describe("what the document answers for", () => {
       expect(sectionOf(section).textContent).not.toMatch(
         /recipient-objected|no-email-address|FAILED|SENT/,
       );
+    }
+  });
+
+  it("says a copy nobody confirmed is unconfirmed, not that it was not sent", async () => {
+    /*
+     * The send ended in an error after which the mail server may hold the
+     * message. The ledger fails the row, as nothing confirmed it, but the
+     * person it is about is not told it did not go out.
+     */
+    renderReport({
+      ...FULL_REPORT,
+      newsDeliveries: [
+        {
+          newsTitle: "Portkoden byts",
+          newsSlug: "portkoden-byts",
+          channel: "EMAIL",
+          status: "FAILED",
+          failure: "delivery-unconfirmed",
+          queuedAt: "2026-01-19T08:00:00.000Z",
+          sentAt: null,
+        },
+      ],
+      meetingNoticeDeliveries: [
+        {
+          meetingHeldOn: "2027-05-12",
+          meetingKind: "ORDINARY",
+          channel: "EMAIL",
+          status: "FAILED",
+          failure: "delivery-unconfirmed",
+          queuedAt: "2027-04-14T09:00:00.000Z",
+          sentAt: null,
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const mailing = within(
+      sectionOf("Nyhetsutskick och smsutskick till dig"),
+    ).getByText("Portkoden byts");
+    const notice = within(
+      sectionOf("Kallelser till föreningsstämma som skickats till dig"),
+    ).getByText("2027-05-12");
+    /*
+     * The column that holds the reason must not be headed as if the copy were
+     * known not to have gone out.
+     */
+    for (const name of [
+      "Nyhetsutskick och smsutskick till dig",
+      "Kallelser till föreningsstämma som skickats till dig",
+    ]) {
+      const headings = within(sectionOf(name))
+        .getAllByRole("columnheader")
+        .map((heading) => heading.textContent);
+      expect(headings).toContain("Varför det inte bekräftades som skickat");
+      expect(headings).not.toContain("Varför det inte skickades");
+    }
+    for (const row of [mailing.closest("tr"), notice.closest("tr")]) {
+      expect(row?.textContent).toContain("Obekräftat");
+      expect(row?.textContent).toContain(
+        "Utskicket avbröts innan e-postservern bekräftade det, så det går inte att veta om det nådde dig",
+      );
+      expect(row?.textContent).not.toContain("Inte skickat");
+      expect(row?.textContent).not.toContain("delivery-unconfirmed");
     }
   });
 

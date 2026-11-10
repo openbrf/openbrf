@@ -162,6 +162,7 @@ const CONTEXT = {
 
 /** Who reads a held agenda's names: somebody holding the meetings' capability. */
 const BOARD_READER = {
+  personId: "person-board",
   capabilities: new Set<Capability>(["meetings:manage"]),
 };
 
@@ -490,6 +491,7 @@ describe("meeting_set_agenda", () => {
 
     expect(
       await inputNames.namesOf("meeting_set_agenda", AGENDA_INPUT, {
+        personId: "person-former",
         capabilities: new Set<Capability>(["self:manage"]),
       }),
     ).toEqual({});

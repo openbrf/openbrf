@@ -174,7 +174,43 @@ const COLUMN_COVERAGE = {
      * hands.
      */
     reporterEmailIndex: { notReported: "addressOnly" },
+    // Chosen by somebody else, so the person named did not act (ADR 0057).
+    assigneePersonId: { sections: ["issueAssignments"] },
+    // The handler who opened the issue is its opening's actor.
+    enteredByPersonId: { actedAs: ["ISSUE_OPENED"] },
   },
+  IssueType: {
+    defaultAssigneePersonId: { sections: ["issueAssignments"] },
+  },
+  /*
+   * A person a handler recorded an issue as concerning: chosen by somebody
+   * else, so they did not act, and the entry recording it names nobody but
+   * the handler. The case reaches them in `issuesConcerning`, without its
+   * reporter and with its words as the board weighed them (ADR 0057,
+   * question 3).
+   */
+  IssueConcernedPerson: { personId: { sections: ["issuesConcerning"] } },
+  /*
+   * The board's weighing of a case's text for the report of a person it
+   * concerns, through their record: what that section gives and leaves out.
+   * Who weighed is the actor of `ISSUE_ACCESS_WEIGHED`.
+   */
+  IssueAccessWeighing: {
+    concernedPersonId: { sections: ["issuesConcerning"] },
+  },
+  // The handler who sent a work order is its sending's actor.
+  WorkOrder: { sentByPersonId: { actedAs: ["ISSUE_WORK_ORDER_SENT"] } },
+  /*
+   * The writer of an issue message, the reporter or a handler, and of an
+   * internal note, is the actor of its entry (ADR 0057), which is what reaches
+   * the writer's report. The words of the conversation reach the reporter's
+   * through the issue, in its `issues` section as the reporter reads them,
+   * signed with a role and never a handler's name. An internal note's reach
+   * it too, in the same section, each as the board weighed it under art.
+   * 15(4) (ADR 0057, question 1), and never with its author.
+   */
+  IssueMessage: { authorPersonId: { actedAs: ["ISSUE_MESSAGE_SENT"] } },
+  IssueNote: { authorPersonId: { actedAs: ["ISSUE_NOTE_ADDED"] } },
   Document: { uploadedByPersonId: { sections: ["documents"] } },
   ApartmentDocument: { filedByPersonId: { sections: ["apartmentDocuments"] } },
   LegalHold: {
@@ -369,6 +405,55 @@ const COLUMN_COVERAGE = {
 };
 
 /**
+ * What the report does with the record of where a person's data went, which
+ * the walk above cannot find: a work order names no person by column, yet it
+ * is the association's record of a disclosure of the issue it was sent about,
+ * and GDPR art. 15(1)(c) has the reporter told of its recipients.
+ *
+ * Kept beside the walk rather than in it, so the walk's rule stays the rule it
+ * states. The `satisfies` makes a column that does not exist a compile error,
+ * and the spec below holds the list to the columns the model declares that
+ * carry personal data, so a new one is answered for in review.
+ */
+type DisclosureCoverage =
+  /** On the report, in these sections. */
+  | { readonly sections: readonly [ReportSection, ...ReportSection[]] }
+  | {
+      readonly withheld:
+        /** The recipient's own data rather than the data subject's. */
+        | "recipientsOwnData"
+        /** Somebody else's free text, which may name other people (art. 15(4)). */
+        | "othersFreeText";
+    };
+
+const DISCLOSURE_COVERAGE = {
+  WorkOrder: {
+    // The contractor as the mail addressed them; null once they were removed.
+    // On a case somebody else reported, the report of a person it concerns
+    // names them too.
+    recipientName: { sections: ["issues", "issuesConcerning"] },
+    // The contractor's address is theirs, not the reporter's.
+    recipientEmailCipher: { withheld: "recipientsOwnData" },
+    // The handler's text: the report names the recipient and the date instead.
+    body: { withheld: "othersFreeText" },
+  },
+} as const satisfies {
+  readonly [M in Prisma.ModelName]?: {
+    readonly [C in ColumnsOf[M]]?: DisclosureCoverage;
+  };
+};
+
+/**
+ * The columns of a work order that carry personal data, as the schema states
+ * them: whom it went to, and what it said.
+ */
+const WORK_ORDER_PERSONAL_COLUMNS: readonly ColumnsOf["WorkOrder"][] = [
+  "recipientName",
+  "recipientEmailCipher",
+  "body",
+];
+
+/**
  * The art. 15 gaps named rather than closed, written out so a new one cannot
  * be declared without editing this list in review - as a new document part
  * cannot be declared without editing `section-processing.spec.ts`.
@@ -439,6 +524,17 @@ describe("what the access report answers for", () => {
       .toSorted();
 
     expect(gaps).toEqual(NAMED_GAPS);
+  });
+
+  it("answers for every column of the record of a disclosure", () => {
+    expect(Object.keys(DISCLOSURE_COVERAGE.WorkOrder).toSorted()).toEqual(
+      [...WORK_ORDER_PERSONAL_COLUMNS].toSorted(),
+    );
+    // A disclosure column the walk also finds would be answered for twice.
+    const both = Object.keys(DISCLOSURE_COVERAGE.WorkOrder)
+      .map((column) => `WorkOrder.${column}`)
+      .filter((column) => walked.includes(column));
+    expect(both).toEqual([]);
   });
 
   it("answers by a mailed extract only where one is built", () => {

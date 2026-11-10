@@ -48,8 +48,10 @@ const removeCharge = vi.fn();
 const recordCharge = vi.fn();
 const correctCharge = vi.fn();
 const loadChargeParties = vi.fn();
+const fetchIssueChargeBasis = vi.fn();
 
 vi.mock("./charges-api", () => ({
+  fetchIssueChargeBasis: (issueId: string) => fetchIssueChargeBasis(issueId),
   VAT_TREATMENTS: ["EXEMPT", "RATE"],
   fetchDebitingList: (from: string, to: string) => fetchDebitingList(from, to),
   exportDebitingList: (from: string, to: string) =>
@@ -110,6 +112,7 @@ const LIST: DebitingList = {
       reason: "Nyckel till cykelrummet",
       handedToManagerOn: null,
       deliveries: [],
+      issueId: null,
     },
     {
       chargeId: "charge-2",
@@ -127,6 +130,7 @@ const LIST: DebitingList = {
       reason: "Andrahandsavgift",
       handedToManagerOn: "2026-04-30",
       deliveries: [],
+      issueId: null,
     },
     {
       chargeId: "charge-3",
@@ -142,6 +146,7 @@ const LIST: DebitingList = {
       reason: "Vidaredebiterad reparation",
       handedToManagerOn: null,
       deliveries: [],
+      issueId: null,
     },
   ],
 };
@@ -818,5 +823,107 @@ describe("removing a charge", () => {
       expect(fetchDebitingList).toHaveBeenCalledTimes(2);
     });
     expect(loadChargeParties).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a charge made from an issue", () => {
+  const BASIS = {
+    issueId: "issue-1",
+    typeName: "Vattenläcka",
+    costResponsibility: "TENANT_OWNER",
+    party: { kind: "apartment", apartmentId: "apartment-1" },
+  } as const;
+
+  it("opens the form filled in from the issue, and links the charge to it", async () => {
+    fetchIssueChargeBasis.mockResolvedValue({ ok: true, value: BASIS });
+    recordCharge.mockResolvedValue({ ok: true, value: LIST.rows[0] });
+    const session = userEvent.setup();
+    render(<ChargesScreen fromIssueId="issue-1" />);
+
+    expect(
+      await screen.findByText(/görs från ärendet Vattenläcka/),
+    ).toBeTruthy();
+    expect(fetchIssueChargeBasis).toHaveBeenCalledWith("issue-1");
+    const reason = screen.getByLabelText(
+      "Vad debiteringen avser",
+    ) as HTMLInputElement;
+    expect(reason.value).toBe("Ärende: Vattenläcka");
+    expect((screen.getByLabelText("Lägenhet") as HTMLSelectElement).value).toBe(
+      "apartment-1",
+    );
+    // The amount is the board's to enter, and lives only on the charge.
+    const amount = screen.getByLabelText("Belopp i kronor") as HTMLInputElement;
+    expect(amount.value).toBe("");
+
+    await session.type(amount, "1250");
+    await session.click(
+      screen.getByRole("button", { name: "Registrera debiteringen" }),
+    );
+
+    await waitFor(() => {
+      expect(recordCharge).toHaveBeenCalledWith(
+        expect.objectContaining({
+          apartmentId: "apartment-1",
+          personId: null,
+          amount: "1250",
+          reason: "Ärende: Vattenläcka",
+          issueId: "issue-1",
+        }),
+      );
+    });
+  });
+
+  it("reads the issue again when the address leaves it and names it again, rather than filling the form from the first visit", async () => {
+    fetchIssueChargeBasis.mockResolvedValueOnce({ ok: true, value: BASIS });
+    const view = render(<ChargesScreen fromIssueId="issue-1" />);
+    expect(
+      await screen.findByText(/görs från ärendet Vattenläcka/),
+    ).toBeTruthy();
+
+    view.rerender(<ChargesScreen fromIssueId={null} />);
+    await waitFor(() => {
+      expect(screen.queryByText(/görs från ärendet/)).toBeNull();
+    });
+
+    // The issue has been given another type since the first read.
+    fetchIssueChargeBasis.mockResolvedValueOnce({
+      ok: true,
+      value: { ...BASIS, typeName: "Fönsterbyte" },
+    });
+    view.rerender(<ChargesScreen fromIssueId="issue-1" />);
+
+    expect(
+      await screen.findByText(/görs från ärendet Fönsterbyte/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/görs från ärendet Vattenläcka/)).toBeNull();
+    expect(fetchIssueChargeBasis).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens the form empty, and says so, when the issue cannot be read", async () => {
+    fetchIssueChargeBasis.mockResolvedValue({
+      ok: false,
+      failure: { status: 404, reason: "issue-not-found" },
+    });
+    render(<ChargesScreen fromIssueId="issue-gone" />);
+
+    expect(await screen.findByText(/Ärendet gick inte att läsa/)).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Vad debiteringen avser") as HTMLInputElement)
+        .value,
+    ).toBe("");
+  });
+
+  it("marks a charge made from an issue on the screen and not on paper", async () => {
+    fetchDebitingList.mockResolvedValue({
+      ok: true,
+      value: {
+        ...LIST,
+        rows: [{ ...LIST.rows[0], issueId: "issue-1" }],
+      },
+    });
+    render(<ChargesScreen />);
+
+    const marker = await screen.findByText("Från ett ärende");
+    expect(marker.className).toContain("print:hidden");
   });
 });

@@ -21,6 +21,7 @@ import type { Prisma } from "../generated/prisma/client";
 import { residencyHeldOn } from "../registers/held-on";
 import type { AuditChannel, MediaEncryption } from "../generated/prisma/enums";
 import { postImageAccess } from "../feed/feed-image";
+import { issueFileAccess } from "../issues/issue-file-access";
 import { DomainError } from "../http/domain-error";
 import { failureName } from "../logging/failure";
 import { generateStorageKey, type StoragePrefix } from "../storage/storage-key";
@@ -31,6 +32,17 @@ import { stripImageMetadata } from "./image-metadata";
 
 export type MediaVisibility =
   "PUBLIC" | "INTERNAL" | "MEMBER" | "TENANT_OWNERS" | "HOUSEHOLD" | "POST";
+
+/**
+ * How long a `bytesFirst` removal may hold its transaction open.
+ *
+ * Prisma's default is five seconds, and the removal of the objects runs inside
+ * the transaction: a bucket that answers slowly would roll the row back and
+ * keep the issue's text and its erasure request open with nothing wrong. Each
+ * of the two objects gets the storage driver's own deadline (30 seconds), and
+ * the rest is left for the writes around them.
+ */
+const BYTES_FIRST_TRANSACTION_TIMEOUT_MS = 90_000;
 
 /**
  * The visibilities decided against a residency on the file's own apartment
@@ -571,27 +583,27 @@ export class MediaService {
         throw new MediaError("No such file.", "not-found");
       }
       /*
-       * The capability, or the one owner path there is: the person who
-       * reported an issue reads the photos on it, which they took. Asked of
-       * the issue rather than of the uploader column, so it reaches issue
-       * photos and nothing else. Not written to the log, since it is the
-       * reporter's own report.
+       * A file on an issue is read by the rule its issue is read by, asked of
+       * the issue module on every request (`issueFileAccess`): by whoever
+       * handles that issue - the board-only rule narrows the capability (ADR
+       * 0054) - and, for a photograph, by the person who reported it, who took
+       * it. A file the handlers attached for each other is theirs alone. Asked
+       * of the issue rather than of the uploader column, so the owner path
+       * reaches issue photos and nothing else, and not written to the log when
+       * it is the reporter's own report.
+       *
+       * Any other INTERNAL file is the capability's.
        */
-      if (!named) {
-        // The reporter's own path, and a support session reported nothing.
-        if (viewer.supportSessionId !== undefined) {
-          throw new MediaError("No such file.", "not-found");
-        }
-        const reported = await this.prisma.issuePhoto.count({
-          where: {
-            fileId: file.id,
-            issue: { reporterPersonId: viewer.personId },
-          },
-        });
-        if (reported === 0) {
-          throw new MediaError("No such file.", "not-found");
-        }
-      } else {
+      const photo = await issueFileAccess(
+        this.prisma,
+        file.id,
+        viewer,
+        new Date(),
+      );
+      if (photo === null || (photo === undefined && !named)) {
+        throw new MediaError("No such file.", "not-found");
+      }
+      if (photo !== "reporter") {
         /*
          * Written before the bytes leave. Every INTERNAL file is one whose
          * reading by capability has to be accountable: the board's papers, its
@@ -646,13 +658,50 @@ export class MediaService {
    * per serve would bury the accesses the log exists for.
    */
   async openForPlugin(id: string): Promise<ServedFile | null> {
+    return this.openWhere({
+      id,
+      visibility: { in: ["PUBLIC", "MEMBER"] },
+      contentType: { in: [...IMAGE_CONTENT_TYPES] },
+      showsIdentifiablePersons: false,
+    });
+  }
+
+  /**
+   * Opens an image on an issue for a contractor's link to a work order, or
+   * answers null (ADR 0055).
+   *
+   * There is no viewer: the link's service has already resolved the token and
+   * decided, in the same request, that this file is one the link's grant
+   * covers - chosen by the board for its work order, or added through it
+   * (`WorkOrderLinkService.photo`). The rule here is only the narrowest a
+   * grant may ever reach: an `INTERNAL` image under `issues:handle`, which is
+   * what every photograph on an issue is held as. Anything else answers null,
+   * as a file that does not exist does.
+   *
+   * Not written to the audit log. A GET through a link writes nothing (control
+   * E1 of the threat review): a mail scanner or a link preview opening it must
+   * not leave a row, and a contractor has no person to name.
+   */
+  async openForWorkOrderLink(id: string): Promise<ServedFile | null> {
+    return this.openWhere({
+      id,
+      visibility: "INTERNAL",
+      requiredCapability: "issues:handle",
+      contentType: { in: [...IMAGE_CONTENT_TYPES] },
+    });
+  }
+
+  /**
+   * The one file a rule with no viewer names, opened, or null: for a caller
+   * whose whole rule is the `where`, so a row outside it is never read. A file
+   * whose bytes cannot be served is null as well, already logged by its id,
+   * so the caller learns nothing from the answer about a file it may not read.
+   */
+  private async openWhere(
+    where: Prisma.MediaFileWhereInput,
+  ): Promise<ServedFile | null> {
     const file = await this.prisma.mediaFile.findFirst({
-      where: {
-        id,
-        visibility: { in: ["PUBLIC", "MEMBER"] },
-        contentType: { in: [...IMAGE_CONTENT_TYPES] },
-        showsIdentifiablePersons: false,
-      },
+      where,
       select: {
         id: true,
         storageKey: true,
@@ -668,26 +717,21 @@ export class MediaService {
     if (file === null) {
       return null;
     }
-
-    let stream: Readable;
     try {
-      stream = await this.openSealed(file);
+      return {
+        stream: await this.openSealed(file),
+        contentType: file.contentType,
+        byteSize: file.byteSize,
+        fileName: file.fileName,
+        checksum: file.checksum,
+        visibility: file.visibility,
+      };
     } catch (error) {
-      // Already logged by the file's id; to the plugin it is a missing file.
       if (error instanceof MediaError) {
         return null;
       }
       throw error;
     }
-
-    return {
-      stream,
-      contentType: file.contentType,
-      byteSize: file.byteSize,
-      fileName: file.fileName,
-      checksum: file.checksum,
-      visibility: file.visibility,
-    };
   }
 
   /**
@@ -798,6 +842,21 @@ export class MediaService {
    * anywhere earlier, a hold committed in between would lose the file it was
    * placed to keep, because the bytes cannot be put back.
    *
+   * `onRemoved` is for a caller whose own record of the act belongs with the
+   * deletion: an issue's handler removing a photograph records it against the
+   * issue (ADR 0057). Called on the deleting transaction once the row is gone,
+   * so the caller's entry stands only if the file went.
+   *
+   * `bytesFirst` is for a caller that carries out an erasure and must not
+   * record it as done while the object stands: the objects are removed on the
+   * deleting transaction, after the row and its entry are written and before
+   * the commit. A storage failure throws and rolls the row back, so the row
+   * stays the one record a later attempt finds the object by, and the locks
+   * `keep` took are held for as long as the removal takes, which the
+   * transaction's timeout allows for. If the commit itself
+   * then fails the row stands without its object, and a retry removes the row
+   * (removing an absent object succeeds).
+   *
    * Answers whether the file was removed: false for one already gone and for
    * one `keep` kept.
    */
@@ -811,6 +870,8 @@ export class MediaService {
         tx: Prisma.TransactionClient,
         file: RemovableFile,
       ) => Promise<boolean>;
+      onRemoved?: (tx: Prisma.TransactionClient) => Promise<void>;
+      bytesFirst?: boolean;
     } = {},
   ): Promise<boolean> {
     const known = await this.prisma.mediaFile.findUnique({
@@ -836,34 +897,58 @@ export class MediaService {
 
     // Read and removed in the transaction, so a deletion running alongside
     // finds nothing left to remove rather than failing on a row already gone.
-    const file = await this.prisma.$transaction(async (tx) => {
-      const held = await tx.mediaFile.findUnique({ where: { id } });
-      if (held === null) {
-        return null;
-      }
-      if (options.keep !== undefined && (await options.keep(tx, held))) {
-        return null;
-      }
-      const { count } = await tx.mediaFile.deleteMany({ where: { id } });
-      if (count === 0) {
-        return null;
-      }
-      await this.audit.record(
-        {
-          action: "MEDIA_DELETED",
-          channel,
-          actorPersonId: actorPersonId ?? null,
-          targetKind: "media",
-          targetId: id,
-          context:
-            (options.recordFileName ?? true) ? { fileName: held.fileName } : {},
-        },
-        tx,
-      );
-      return held;
-    });
+    const file = await this.prisma.$transaction(
+      async (tx) => {
+        const held = await tx.mediaFile.findUnique({ where: { id } });
+        if (held === null) {
+          return null;
+        }
+        if (options.keep !== undefined && (await options.keep(tx, held))) {
+          return null;
+        }
+        const { count } = await tx.mediaFile.deleteMany({ where: { id } });
+        if (count === 0) {
+          return null;
+        }
+        await options.onRemoved?.(tx);
+        await this.audit.record(
+          {
+            action: "MEDIA_DELETED",
+            channel,
+            actorPersonId: actorPersonId ?? null,
+            targetKind: "media",
+            targetId: id,
+            context:
+              (options.recordFileName ?? true)
+                ? { fileName: held.fileName }
+                : {},
+          },
+          tx,
+        );
+        if (options.bytesFirst === true) {
+          // A failure here rolls the row and its entry back: the row is still
+          // the record a retry finds the object by.
+          await this.storage.remove(held.storageKey);
+          if (held.unencryptedStorageKey !== null) {
+            await this.storage.remove(held.unencryptedStorageKey);
+          }
+        }
+        return held;
+      },
+      options.bytesFirst === true
+        ? {
+            timeout: BYTES_FIRST_TRANSACTION_TIMEOUT_MS,
+            maxWait: BYTES_FIRST_TRANSACTION_TIMEOUT_MS,
+          }
+        : undefined,
+    );
     if (file === null) {
       return false;
+    }
+
+    if (options.bytesFirst === true) {
+      // Both objects went on the transaction, from the row it read there.
+      return true;
     }
 
     await this.storage.remove(file.storageKey).catch((cause: unknown) => {

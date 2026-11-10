@@ -12,6 +12,7 @@ import { DomainExceptionFilter } from "../http/domain-exception.filter";
 import { TooManyRequestsError } from "../http/public-rate-limit.guard";
 import { isApiRequest } from "../http/serve-single-page-app";
 import { failureFrames, failureName } from "../logging/failure";
+import { isLinkRequest } from "./site-issue-link-headers";
 import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
 
 /**
@@ -34,7 +35,12 @@ import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
  *
  * The page is the not-found page's sibling: drawn from the chrome alone, with
  * the anonymous menu, so it is the same for every address that keeps a budget.
- * The Retry-After the guard set on the reply is kept.
+ * A link to an issue (`/arende/<token>`, `/arbetsorder/<token>`, ADR 0055)
+ * gets it with the link's chrome instead, which has no menu, so that no entry
+ * the board pointed at another host is on a page whose address is a
+ * credential. The link's own headers are the header hooks' to set
+ * (site-issue-link-headers.ts), over the ones given here. The Retry-After the
+ * guard set on the reply is kept.
  */
 @Catch(TooManyRequestsError)
 @Injectable()
@@ -58,21 +64,25 @@ export class SiteRateLimitFilter implements ExceptionFilter {
     }
 
     const acceptLanguage = request.headers["accept-language"];
+    const place = isLinkRequest(request) ? "link" : "website";
     let html: string;
     try {
       html = await this.renderer.tooManyRequests(
         typeof acceptLanguage === "string" ? acceptLanguage : undefined,
+        place,
       );
     } catch (cause) {
       /*
        * The renderer reads the theme and the association's name, so it can
        * fail as a database read does. The visitor is still owed the refusal
        * and its delay rather than a 500: the status and nothing else, as the
-       * not-found route answers when its own page cannot be drawn. The class
-       * and frames are logged, never the message (ADR 0007).
+       * not-found route answers when its own page cannot be drawn. The place
+       * is named, so that a link's failure can be told from the website's; the
+       * class and frames are logged, never the message (ADR 0007), nor the
+       * address, which on a link is a credential.
        */
       this.logger.error(
-        `The website's rate-limit page could not be rendered: ${failureName(cause)}`,
+        `The rate-limit page for ${place === "link" ? "a link to an issue" : "the website"} could not be rendered: ${failureName(cause)}`,
         failureFrames(cause),
       );
       void reply.code(HttpStatus.TOO_MANY_REQUESTS).send();

@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 
 import { DataProtectionModule } from "../data-protection/data-protection.module";
+import { IssuesModule } from "../issues/issues.module";
 import { PagesModule } from "../site/pages.module";
 import { SetupClaimService } from "./setup-claim.service";
 import { SetupCompletionController, SetupController } from "./setup.controller";
@@ -17,7 +18,10 @@ import { SetupService } from "./setup.service";
   // finishes the wizard and opens the data protection screen should find the
   // record there rather than an empty list that fills itself in on the next
   // restart.
-  imports: [PagesModule, DataProtectionModule],
+  //
+  // And the issue types a new instance starts with, so the form the first page
+  // can carry takes a report the day the instance answers (ADR 0054).
+  imports: [PagesModule, DataProtectionModule, IssuesModule],
   controllers: [SetupController, SetupCompletionController],
   providers: [SetupService, SetupClaimService],
   exports: [SetupService],

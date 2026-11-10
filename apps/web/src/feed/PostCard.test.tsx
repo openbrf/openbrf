@@ -573,13 +573,31 @@ describe("an issue report made from a post", () => {
         id: "post-1",
         issue: {
           id: "issue-1",
-          status: "IN_PROGRESS",
+          meaning: "IN_PROGRESS",
           reportedByReader: true,
         },
       }),
     );
     expect(screen.getByText("Felanmälan:")).toBeTruthy();
     expect(screen.getByText("Pågår")).toBeTruthy();
+  });
+
+  it("shows the known fault on its issue to any reader, without the report", () => {
+    show(
+      post({
+        id: "post-1",
+        issue: null,
+        knownFault: {
+          body: "Hissen står still till torsdag.",
+          signature: "BOARD",
+          publishedAt: "2026-09-18T08:00:00.000Z",
+        },
+      }),
+    );
+    expect(screen.getByText("Känt fel")).toBeTruthy();
+    expect(screen.getByText("Hissen står still till torsdag.")).toBeTruthy();
+    expect(screen.getByText("Styrelsen")).toBeTruthy();
+    expect(screen.queryByText("Felanmälan:")).toBeNull();
   });
 });
 

@@ -89,7 +89,7 @@ export const CAPABILITIES = [
    */
   "issues:report",
   /**
-   * Configure the issue types and the audience each one is offered to.
+   * Configure the issue types: who may report each one, and its statuses.
    *
    * A board decision rather than an administrator's, like the retention policy
    * and the self-signup toggle: which problems residents are asked to sort
@@ -806,6 +806,17 @@ const MEMBER_CAPABILITIES: readonly GrantableCapability[] = [
  * The property manager is an external party with access to issue handling
  * only, and never to the address book (decision 11). The list is short on
  * purpose: widening it would breach that promise.
+ *
+ * What issue handling means is restated by ADR 0054, on the owner's decisions
+ * 13 and 14 of the issue module plan. It covers the issue types the board opens
+ * to every handler and never one it keeps to the board, and it includes opening
+ * an issue, which is filing without being a resident. The people an issue can
+ * be assigned to are named to the property manager by a names-only read of its
+ * own, never by the address book, and so is a resident they name on an issue
+ * they open: the resident picker (`IssueResidentsService`, ADR 0054 question 6)
+ * answers the people living in one chosen apartment today, a protected
+ * resident masked, with no search, under `issues:handle`. Anything beyond that
+ * is still a breach of the promise above.
  */
 const PROPERTY_MANAGER_CAPABILITIES: readonly GrantableCapability[] = [
   "issues:handle",

@@ -1,12 +1,23 @@
 import { ISSUE_REPORT_LIMITS } from "@openbrf/shared";
-import { useRef, useState, type ChangeEvent, type ReactElement } from "react";
+import {
+  useId,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import {
   attachIssuePhoto,
+  fetchReportableTypes,
   type IssueApartment,
+  type KnownFault,
+  type OwnIssue,
+  type IssuePlaceChoice,
   type ReportableIssueType,
   reportIssue,
+  type ResponsibilityGuide,
 } from "../api/issues";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
@@ -22,7 +33,9 @@ import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { KnownFaultsList } from "./KnownFaultNotice";
 import type { PostPrefill } from "./post-prefill";
+import { ResponsibilityGuideTable } from "./ResponsibilityGuideTable";
 
 /**
  * What the file picker offers.
@@ -42,6 +55,12 @@ const REPORT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "post-not-found": "issues.report.errors.postNotFound",
   "post-not-reportable": "issues.report.errors.postNotReportable",
   "post-already-reported": "issues.report.errors.postAlreadyReported",
+  "ring-fenced-post": "issues.report.errors.ringFencedPost",
+  "issue-not-found": "issues.report.errors.followUpNotFound",
+  "follow-up-of-open-issue": "issues.report.errors.followUpOfOpenIssue",
+  "place-not-found": "issues.report.errors.placeNotFound",
+  "place-with-apartment": "issues.report.errors.placeWithApartment",
+  "retention-changed": "issues.report.errors.retentionChanged",
   "invalid-body": "issues.report.errors.unknown",
 };
 
@@ -56,11 +75,39 @@ export interface ReportIssuePanelProps {
   types: readonly ReportableIssueType[];
   apartments: readonly IssueApartment[];
   /**
+   * The association's common-area places (decision 30), offered beside the
+   * free-text location when the problem is not in a home. Empty offers none.
+   */
+  places?: readonly IssuePlaceChoice[];
+  /**
    * What the form opens with when the report is made from a post in the feed
    * ("Gör felanmälan"): the post's text and images, and the post the report is
    * linked to. The caller mounts the form again when this changes.
    */
   prefill?: PostPrefill;
+  /**
+   * One's own closed issue this report follows up, chosen from its reply
+   * field once a reply no longer reopens it (ADR 0054). The form opens on its
+   * type when that is still offered. The caller mounts the form again when
+   * this changes.
+   */
+  followUp?: Pick<OwnIssue, "id" | "typeId" | "typeName">;
+  /**
+   * What the reporter had written as a reply the server then refused as
+   * closed, which the report starts from so they do not retype it, in place
+   * of a post's text when there is one. Read once, when the form is mounted.
+   */
+  followUpDraft?: string;
+  /** Called when the reporter drops the follow-up and writes a plain report. */
+  onFollowUpCancelled?: () => void;
+  /** The known faults the house is told of, shown before the form. */
+  knownFaults?: readonly KnownFault[];
+  /**
+   * The responsibility guide the board has adopted, shown before the fields,
+   * or null where there is none to show. The server hands a reporter only an
+   * adopted guide, never the example.
+   */
+  guide?: ResponsibilityGuide | null;
   /**
    * Called once a report has been filed, so the caller can reload the list,
    * with the post it was made from, or null.
@@ -68,7 +115,13 @@ export interface ReportIssuePanelProps {
   onReported: (fromPostId: string | null) => void;
 }
 
-const EMPTY = { typeId: "", apartmentId: "", location: "", description: "" };
+const EMPTY = {
+  typeId: "",
+  apartmentId: "",
+  placeId: "",
+  location: "",
+  description: "",
+};
 
 /**
  * The report form.
@@ -88,20 +141,44 @@ const EMPTY = { typeId: "", apartmentId: "", location: "", description: "" };
  * of which the reporter can change or take out before sending, and the report
  * is linked to the post as it is filed. The link is sent once: after the report
  * is filed the form is empty again, and a second report is one of its own.
+ *
+ * The association's responsibility guide comes before the fields, where the
+ * board has adopted one (decision 27): what is the tenant-owner's own to put
+ * right is worth knowing before writing it up. Folded, so it never stands
+ * between a resident and a report about a leak, and its sentence says to
+ * report anyway when unsure.
  */
 export function ReportIssuePanel({
   types,
   apartments,
+  places = [],
   prefill,
+  followUp,
+  followUpDraft = "",
+  onFollowUpCancelled,
+  knownFaults = [],
+  guide = null,
   onReported,
 }: ReportIssuePanelProps): ReactElement {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(
-    prefill === undefined
-      ? EMPTY
-      : { ...EMPTY, description: prefill.description },
-  );
+  const [draft, setDraft] = useState({
+    ...EMPTY,
+    // The earlier report's type, while it is still one this account may
+    // report under. A report made from a post may follow one up too.
+    typeId:
+      followUp !== undefined &&
+      types.some((type) => type.id === followUp.typeId)
+        ? followUp.typeId
+        : "",
+    // The reporter's own refused reply before a post's text: it is what they
+    // wrote about this fault.
+    description:
+      followUpDraft !== "" || prefill === undefined
+        ? followUpDraft
+        : prefill.description,
+  });
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const warningId = useId();
   const [photos, setPhotos] = useState<readonly File[]>(
     prefill?.photos.slice(0, MAX_PHOTOS) ?? [],
   );
@@ -110,6 +187,13 @@ export function ReportIssuePanel({
     prefill?.postId ?? null,
   );
   /*
+   * The post the report is sent with. A follow-up is not linked to the post it
+   * was started from: the post may already name the report being followed up,
+   * and the server refuses a second report on a post that names one. The post
+   * keeps its link.
+   */
+  const linkedPostId = followUp === undefined ? fromPostId : null;
+  /*
    * The photographs that did not make it, by name.
    *
    * A name rather than a flag because the reporter has to know which of the
@@ -117,6 +201,17 @@ export function ReportIssuePanel({
    * out: the report is filed, so submitting the form again would file another.
    */
   const [failedPhotos, setFailedPhotos] = useState<readonly string[]>([]);
+  /*
+   * The types as they stood when the reporter pressed send, for the ones whose
+   * notice had changed since the form was drawn (see `submit`). Read in place
+   * of the prop's copy of the same type, so the form shows the notice the
+   * reporter is asked to read again. Kept with the list it was read against:
+   * once the caller hands over a newer list, that one is the later read.
+   */
+  const [reread, setReread] = useState<{
+    against: readonly ReportableIssueType[];
+    byId: ReadonlyMap<string, ReportableIssueType>;
+  }>({ against: types, byId: new Map() });
 
   /**
    * Files the report, then hangs the staged photographs on it.
@@ -129,19 +224,60 @@ export function ReportIssuePanel({
    */
   const submit = useSaveAction(
     async (input: {
+      /** The type as the form showed it: its notice is what was read. */
+      shown: ReportableIssueType;
       typeId: string;
       apartmentId: string | null;
+      placeId: string | null;
       location: string | null;
       description: string;
       photos: readonly File[];
       postId: string | null;
+      followsIssueId: string | null;
     }) => {
+      /*
+       * The notice the reporter read is the one that applies when the report is
+       * filed (GDPR art. 13(2)(a)), and the board may change the clock, or ring-
+       * fence the type, while the form is open. The types are read again first;
+       * a type whose notice has changed is shown as it now stands and the
+       * report is not filed, so the reporter reads the new notice before the
+       * text is kept under it. A read that fails files nothing either: the
+       * form stays as it is and the reporter can send again. A type that is
+       * gone is left for the server's own refusal.
+       */
+      const current = await fetchReportableTypes();
+      if (!current.ok) {
+        return current;
+      }
+      const now = current.value.find((type) => type.id === input.typeId);
+      if (
+        now !== undefined &&
+        (now.ringFenced !== input.shown.ringFenced ||
+          now.textRetentionYears !== input.shown.textRetentionYears)
+      ) {
+        setReread((known) => ({
+          against: types,
+          byId: new Map(known.against === types ? known.byId : []).set(
+            now.id,
+            now,
+          ),
+        }));
+        return {
+          ok: false as const,
+          failure: { status: 409, reason: "retention-changed" },
+        };
+      }
+
       const filed = await reportIssue({
         typeId: input.typeId,
         apartmentId: input.apartmentId,
+        placeId: input.placeId,
         location: input.location,
         description: input.description,
         ...(input.postId === null ? {} : { postId: input.postId }),
+        ...(input.followsIssueId === null
+          ? {}
+          : { followsIssueId: input.followsIssueId }),
       });
       if (!filed.ok) {
         return filed;
@@ -165,19 +301,60 @@ export function ReportIssuePanel({
       setDraft(EMPTY);
       setPhotos([]);
       setFromPostId(null);
-      onReported(fromPostId);
+      // The post the report was sent with: none for a follow-up.
+      onReported(linkedPostId);
     },
   );
 
+  /*
+   * The choices as the form shows them. A draft outlives a re-read of the
+   * lists, and a choice the lists no longer hold (a type or place the board
+   * switched off, a home the reporter moved out of) matches no option, so its
+   * select shows none chosen. It is sent as none, as it is shown, rather than
+   * sent unseen and refused with nothing on the form to correct.
+   */
+  /*
+   * A report linked to a post is offered no ring-fenced type: the server
+   * refuses one (`ring-fenced-post`), because a post is read by the house and
+   * the link would tell it a report was made. A follow-up started from a post
+   * is not linked to it, so it keeps its ring-fenced type.
+   */
+  /*
+   * Which types are offered is decided on the list the form was given; the
+   * re-read only changes what a type shows (its notice, and the warning if it
+   * has become ring-fenced). A type the board ring-fenced while the form was
+   * open stays on the form with the reporter's draft, and a report from a post
+   * is refused by the server with its own message (`ring-fenced-post`), rather
+   * than the form giving way to "nothing to report under" and taking the
+   * text and photographs with it.
+   */
+  const shownAsRead = (type: ReportableIssueType): ReportableIssueType =>
+    reread.against === types ? (reread.byId.get(type.id) ?? type) : type;
+  const typeChoices = (
+    linkedPostId === null ? types : types.filter((type) => !type.ringFenced)
+  ).map(shownAsRead);
+  const typeId = offered(draft.typeId, typeChoices);
+  const chosen = typeChoices.find((type) => type.id === typeId);
+  const apartmentId = offered(draft.apartmentId, apartments);
+  // A place is for what is not in a home: choosing an apartment leaves it out,
+  // so a report never carries both.
+  const placeId = apartmentId === "" ? offered(draft.placeId, places) : "";
+
   const onSend = (): void => {
+    if (chosen === undefined) {
+      return;
+    }
     setFailedPhotos([]);
     void submit.submit({
-      typeId: draft.typeId,
-      apartmentId: draft.apartmentId === "" ? null : draft.apartmentId,
+      shown: chosen,
+      typeId,
+      apartmentId: apartmentId === "" ? null : apartmentId,
+      placeId: placeId === "" ? null : placeId,
       location: draft.location.trim() === "" ? null : draft.location.trim(),
       description: draft.description.trim(),
       photos,
-      postId: fromPostId,
+      postId: linkedPostId,
+      followsIssueId: followUp?.id ?? null,
     });
   };
 
@@ -188,15 +365,21 @@ export function ReportIssuePanel({
     setPhotos((current) => [...current, ...chosen].slice(0, MAX_PHOTOS));
   };
 
-  const ready = draft.typeId !== "" && draft.description.trim() !== "";
+  const ready = chosen !== undefined && draft.description.trim() !== "";
 
-  if (types.length === 0) {
+  if (typeChoices.length === 0) {
     return (
       <Panel
         title={t("issues.report.title")}
         description={t("issues.report.description")}
       >
-        <Notice tone="info">{t("issues.report.noTypes")}</Notice>
+        <Notice tone="info">
+          {t(
+            types.length === 0
+              ? "issues.report.noTypes"
+              : "issues.report.noTypesFromPost",
+          )}
+        </Notice>
       </Panel>
     );
   }
@@ -204,7 +387,12 @@ export function ReportIssuePanel({
   return (
     <Panel
       title={t("issues.report.title")}
-      description={t("issues.report.description")}
+      /* Dropped for a ring-fenced type: the line says the property manager
+         reads the report, and the warning below says never the property
+         manager. */
+      description={
+        chosen?.ringFenced === true ? undefined : t("issues.report.description")
+      }
       notice={
         submit.state.kind === "failed" ? (
           <Notice tone="danger" live>
@@ -235,24 +423,54 @@ export function ReportIssuePanel({
         ) : null
       }
     >
+      <KnownFaultsList faults={knownFaults} />
+
+      {followUp === undefined ? null : (
+        <Notice tone="info">
+          {t("issues.report.followUp", { type: followUp.typeName })}{" "}
+          {onFollowUpCancelled === undefined ? null : (
+            <button
+              type="button"
+              className={QUIET_BUTTON}
+              onClick={onFollowUpCancelled}
+            >
+              {t("issues.report.followUpCancel")}
+            </button>
+          )}
+        </Notice>
+      )}
+
       <LockedForm
         locked={submit.state.kind === "saving"}
         focusFallback={descriptionRef}
         className="flex flex-col gap-4"
         onSend={onSend}
       >
+        {guide === null ? null : (
+          <details className="flex flex-col gap-2">
+            <summary className="min-h-11 cursor-pointer py-2 text-small font-semibold">
+              {t("issues.guide.reporterTitle")}
+            </summary>
+            <p className={HINT}>{t("issues.guide.reporterIntro")}</p>
+            <ResponsibilityGuideTable
+              guide={guide}
+              caption={t("issues.guide.reporterTitle")}
+            />
+          </details>
+        )}
+
         <label className={LABEL}>
           {t("issues.report.type")}
           <select
             name="issueType"
-            value={draft.typeId}
+            value={typeId}
             onChange={(event) => {
               setDraft({ ...draft, typeId: event.target.value });
             }}
             className={FIELD}
           >
             <option value="">{t("issues.report.typePlaceholder")}</option>
-            {types.map((type) => (
+            {typeChoices.map((type) => (
               <option key={type.id} value={type.id}>
                 {type.name}
               </option>
@@ -265,7 +483,7 @@ export function ReportIssuePanel({
             {t("issues.report.apartment")}
             <select
               name="issueApartment"
-              value={draft.apartmentId}
+              value={apartmentId}
               onChange={(event) => {
                 setDraft({ ...draft, apartmentId: event.target.value });
               }}
@@ -278,6 +496,28 @@ export function ReportIssuePanel({
                 </option>
               ))}
             </select>
+          </label>
+        )}
+
+        {places.length === 0 || apartmentId !== "" ? null : (
+          <label className={LABEL}>
+            {t("issues.report.place")}
+            <select
+              name="issuePlace"
+              value={placeId}
+              onChange={(event) => {
+                setDraft({ ...draft, placeId: event.target.value });
+              }}
+              className={FIELD}
+            >
+              <option value="">{t("issues.report.placeNone")}</option>
+              {places.map((place) => (
+                <option key={place.id} value={place.id}>
+                  {place.name}
+                </option>
+              ))}
+            </select>
+            <span className={HINT}>{t("issues.report.placeHint")}</span>
           </label>
         )}
 
@@ -297,11 +537,24 @@ export function ReportIssuePanel({
           <span className={HINT}>{t("issues.report.locationHint")}</span>
         </label>
 
+        {/* Standing, not live, and above the description: it is there before
+            anything is typed, because it is what the reporter needs to know
+            while they write. A ring-fenced type says who reads it instead,
+            what to write and what not to (decision 32). */}
+        <div id={warningId}>
+          <Notice tone="warn">
+            {chosen?.ringFenced === true
+              ? t("issues.ringFence.formWarning")
+              : t("issues.report.sensitiveWarning")}
+          </Notice>
+        </div>
+
         <label className={LABEL}>
           {t("issues.report.descriptionLabel")}
           <textarea
             ref={descriptionRef}
             name="issueDescription"
+            aria-describedby={warningId}
             rows={5}
             maxLength={ISSUE_REPORT_LIMITS.description}
             value={draft.description}
@@ -311,10 +564,6 @@ export function ReportIssuePanel({
             className={`${FIELD_MULTILINE}`}
           />
         </label>
-
-        {/* Standing, not live: it is there before anything is typed, because
-            it is what the reporter needs to know while they write. */}
-        <Notice tone="warn">{t("issues.report.sensitiveWarning")}</Notice>
 
         <section className="flex flex-col gap-2">
           <h3 className="text-label text-ink-muted uppercase">
@@ -380,6 +629,21 @@ export function ReportIssuePanel({
           )}
         </section>
 
+        {/* How long what is written and photographed here is kept (GDPR art.
+            13(2)(a)), on the clock of the type chosen, as the purge keeps it:
+            the board's, or for a ring-fenced type the board's ring-fenced
+            one, whose text names what is removed and what keeps it. */}
+        {chosen === undefined ? null : (
+          <p className={HINT}>
+            {t(
+              chosen.ringFenced
+                ? "issues.ringFence.retention"
+                : "issues.report.retention",
+              { count: chosen.textRetentionYears },
+            )}
+          </p>
+        )}
+
         <div>
           <button
             type="submit"
@@ -394,4 +658,9 @@ export function ReportIssuePanel({
       </LockedForm>
     </Panel>
   );
+}
+
+/** `id` while `choices` still holds it, otherwise none (""). */
+function offered(id: string, choices: readonly { id: string }[]): string {
+  return choices.some((choice) => choice.id === id) ? id : "";
 }

@@ -14,7 +14,7 @@ import type {
 import { proposeAgenda } from "../src/agenda-proposal";
 import * as api from "../src/api";
 import { expect, test } from "../src/fixtures";
-import { deliverToMailbox } from "../src/mailpit";
+import { deliverToMailbox, linkFrom, waitForMessage } from "../src/mailpit";
 import {
   holdPendingChange,
   releasePendingChanges,
@@ -34,6 +34,7 @@ import {
   type Actor,
   type ContactMessage,
   type MovedInResident,
+  type PubliclyReportedIssue,
   type Screen,
   type Target,
 } from "./screens";
@@ -129,12 +130,15 @@ const PERSONAS: Readonly<
  * check every page load makes has a budget of its own, sized for a client
  * rather than for a password guess, so the walk does not pace itself against
  * it - see auth-options.ts.
+ *
+ * From 100.64.0.0/10, as the suite's are (src/fixtures.ts): outside every range
+ * screenshots.env trusts, so no person is ever taken for a proxy.
  */
 const CLIENT_ADDRESS: Readonly<Record<Actor, string>> = {
-  nobody: "10.40.0.1",
-  administrator: "10.40.0.2",
-  resident: "10.40.0.3",
-  member: "10.40.0.4",
+  nobody: "100.64.40.1",
+  administrator: "100.64.40.2",
+  resident: "100.64.40.3",
+  member: "100.64.40.4",
 };
 
 // --- the register the walk photographs ---------------------------------------
@@ -282,14 +286,18 @@ function matching(where: Page | Locator, target: Target): Locator {
  * fails rather than photographing whichever one came first.
  */
 function locate(page: Page, target: Target): Locator {
-  const found = matching(
+  const scope =
     target.inDialog === true
       ? page.getByRole("dialog")
       : target.inNavigation === true
         ? page.getByRole("navigation")
         : target.within === undefined
           ? page
-          : panelOf(page, target.within),
+          : panelOf(page, target.within);
+  const found = matching(
+    target.inRowWith === undefined
+      ? scope
+      : scope.locator("li", { hasText: target.inRowWith }),
     target,
   );
   return target.first === true ? found.first() : found;
@@ -385,6 +393,27 @@ async function perform(
     await page.reload();
     return;
   }
+  if ("reportIssuePublicly" in action) {
+    await reportIssuePublicly(board, action.reportIssuePublicly);
+    await page.reload();
+    return;
+  }
+  if ("openMailedLink" in action) {
+    await page.goto(await mailedLink(action.openMailedLink));
+    return;
+  }
+  if ("openPubliclyReportedIssue" in action) {
+    // The queue row, by the address it shows, then its own handling control.
+    // A click is strict, so a second row with the address fails the walk
+    // rather than handling one of the two.
+    await page
+      .locator("li", {
+        hasText: walkAddress(action.openPubliclyReportedIssue),
+      })
+      .locator("summary", { hasText: /^Hantera / })
+      .click();
+    return;
+  }
   if ("visit" in action) {
     await page.goto(action.visit);
     return;
@@ -435,6 +464,23 @@ async function perform(
       action.proposeAgenda,
       holdPendingChange,
     );
+    await page.reload();
+    return;
+  }
+  if ("proposeUrgentIssue" in action) {
+    const viewer = await api.viewer(page.request, stack.baseUrl);
+    const address = walkAddress(action.proposeUrgentIssue);
+    const issue = (await api.listIssueQueue(page.request, stack.baseUrl)).find(
+      (row) => row.reporter.email === address,
+    );
+    if (issue === undefined) {
+      throw new Error(`no issue in the queue was reported from ${address}`);
+    }
+    await holdPendingChange({
+      actionName: "issue_set_priority",
+      input: { id: issue.id, priority: "URGENT" },
+      proposedByPersonId: viewer.personId,
+    });
     await page.reload();
     return;
   }
@@ -673,6 +719,128 @@ async function postContactMessages(
   } finally {
     await api.deleteSitePage(request, stack.baseUrl, form.id);
   }
+}
+
+/**
+ * What this walk adds to the address a public report leaves.
+ *
+ * An address may be mailed a private link only so many times a day, and a walk
+ * against a stack that is already up would spend those on the walks before it.
+ * The suffix is in the local part, so it stays on the reserved `.test` domain.
+ */
+const WALK_SUFFIX = randomBytes(4).toString("hex");
+
+function walkAddress(email: string): string {
+  const at = email.lastIndexOf("@");
+  return `${email.slice(0, at)}-${WALK_SUFFIX}${email.slice(at)}`;
+}
+
+/**
+ * Reports an issue through the public form, from a page written for it.
+ *
+ * The type is added open to the public if the instance has no active one of
+ * that name the public may report under, and the board's switch for public reports is put back as it was found, so
+ * the screens after this one photograph the settings and the website as the
+ * board left them.
+ */
+async function reportIssuePublicly(
+  board: APIRequestContext,
+  report: PubliclyReportedIssue,
+): Promise<void> {
+  const types = await api.listIssueTypes(board, stack.baseUrl);
+  // Only a type the public form takes: one of that name an earlier run or a
+  // board left switched off, or for residents only, would be refused.
+  const type =
+    types.find(
+      (candidate) =>
+        candidate.name === report.type &&
+        candidate.active &&
+        candidate.reporters.includes("PUBLIC"),
+    ) ??
+    (await api.createIssueType(board, stack.baseUrl, {
+      name: report.type,
+      reporters: ["PUBLIC"],
+      sortOrder: 900,
+    }));
+  const wasOpen = (await api.settings(board, stack.baseUrl)).issueReporting
+    .publicFormEnabled;
+  // What the queue held before, so the new report can be told from an older
+  // one the same words opened on a stack that was already up.
+  const before = new Set(
+    (await api.listIssueQueue(board, stack.baseUrl)).map((row) => row.id),
+  );
+  const slug = "felanmalan-skarmbilder";
+  const form = await api.createSitePage(board, stack.baseUrl, {
+    slug,
+    title: "Felanmälan",
+    blocks: [{ type: "issueReportForm" }],
+  });
+  try {
+    if (!wasOpen) {
+      await api.setPublicIssueReporting(board, stack.baseUrl, true);
+    }
+    await api.publishSitePage(board, stack.baseUrl, form.id);
+    await api.postIssueReportForm(board, stack.baseUrl, slug, {
+      type: type.id,
+      description: report.description,
+      email: walkAddress(report.email),
+    });
+  } finally {
+    await api.deleteSitePage(board, stack.baseUrl, form.id);
+    if (!wasOpen) {
+      await api.setPublicIssueReporting(board, stack.baseUrl, false);
+    }
+  }
+  await waitForReporterLink(board, before, report);
+}
+
+/**
+ * Waits until the report's private link reads as live to the board.
+ *
+ * The link is issued and mailed by a background job after the report is
+ * filed, and the handling reads where it stands once, when the panel opens: a
+ * walk that went straight on would photograph a link that is not there yet.
+ * Only a report that was not in the queue before, and that says what this
+ * walk's report says, counts: another report going live meanwhile must not end
+ * the wait.
+ */
+async function waitForReporterLink(
+  board: APIRequestContext,
+  known: ReadonlySet<string>,
+  report: PubliclyReportedIssue,
+): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    const queue = await api.listIssueQueue(board, stack.baseUrl);
+    if (
+      queue.some(
+        (row) =>
+          !known.has(row.id) &&
+          row.typeName === report.type &&
+          row.description === report.description &&
+          row.reporter.link === "live",
+      )
+    ) {
+      return;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(
+        "the private link of the walk's report was not live within 30 s",
+      );
+    }
+    await new Promise((done) => setTimeout(done, 500));
+  }
+}
+
+/**
+ * The private link in the newest mail to this address, as the path to go to.
+ *
+ * The path rather than the whole address, so the page is opened on the origin
+ * the walk is reading, whatever the instance wrote into the mail.
+ */
+async function mailedLink(email: string): Promise<string> {
+  const { text } = await waitForMessage(walkAddress(email));
+  return new URL(linkFrom(text, "/arende/")).pathname;
 }
 
 // --- reaching a screen --------------------------------------------------------

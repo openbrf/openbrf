@@ -9,6 +9,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
@@ -463,6 +464,17 @@ beforeAll(async () => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+// Held again before each test rather than only once in beforeAll: the row is
+// the worker database's singleton, and a suite that ran beside or before this
+// one may have written it back without the number. A test that wants it absent
+// clears it itself, after this has run.
+beforeEach(async () => {
+  await prisma.association.updateMany({
+    where: { id: 1 },
+    data: { organizationNumber: ORGANIZATION_NUMBER },
+  });
 });
 
 afterAll(async () => {

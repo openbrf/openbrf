@@ -25,9 +25,15 @@ import {
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { HONEYPOT_FIELD } from "../http/honeypot";
+import {
+  IssueReporterLinkService,
+  REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY,
+} from "../issues/issue-reporter-link.service";
+import { ResponsibilityGuideService } from "../issues/responsibility-guide.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import { createIssueTypeFixture } from "../testing/issue-fixtures";
 
 /**
  * The website's two public forms, through the real routing, the real limiter
@@ -199,14 +205,18 @@ beforeAll(async () => {
     update: { setupCompletedAt: new Date(), issueReportingPublic: true },
   });
 
-  const nonMember = await prisma.issueType.create({
-    data: { name: NON_MEMBER_TYPE, audience: "NON_MEMBER", sortOrder: 900 },
-    select: { id: true },
+  const nonMember = await createIssueTypeFixture(prisma, {
+    id: `sf-type-public-${suffix}`,
+    name: NON_MEMBER_TYPE,
+    reporters: ["PUBLIC"],
+    sortOrder: 900,
   });
   nonMemberTypeId = nonMember.id;
-  const member = await prisma.issueType.create({
-    data: { name: MEMBER_TYPE, audience: "MEMBER", sortOrder: 901 },
-    select: { id: true },
+  const member = await createIssueTypeFixture(prisma, {
+    id: `sf-type-residents-${suffix}`,
+    name: MEMBER_TYPE,
+    reporters: ["RESIDENTS"],
+    sortOrder: 901,
   });
   memberTypeId = member.id;
 
@@ -286,6 +296,32 @@ afterAll(async () => {
 });
 
 describe("the forms on a public page", () => {
+  it("never show a known fault, which is for signed-in residents alone", async () => {
+    // A known fault on an open issue of a type the website's form offers:
+    // the house is shown it, the public website never (decision 22).
+    const notice = `Hissen i port 14 står still ${suffix}-known-fault.`;
+    const issue = await prisma.issue.create({
+      data: {
+        typeId: nonMemberTypeId,
+        statusId: `${nonMemberTypeId}-in_progress`,
+        description: "Hissen står still.",
+        knownFault: notice,
+        knownFaultSignature: "BOARD",
+        knownFaultPublishedAt: new Date(),
+      },
+      select: { id: true },
+    });
+    try {
+      const response = await inject({ method: "GET", url: `/${publicSlug}` });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toContain(`action="/${publicSlug}/felanmalan"`);
+      expect(response.body.includes(notice)).toBe(false);
+    } finally {
+      await prisma.issue.delete({ where: { id: issue.id } });
+    }
+  });
+
   it("are rendered with no script and with the board's own sentence", async () => {
     const response = await inject({ method: "GET", url: `/${publicSlug}` });
 
@@ -303,6 +339,84 @@ describe("the forms on a public page", () => {
     expect(response.body.includes(MEMBER_TYPE)).toBe(false);
     expect(response.body.includes("<script")).toBe(false);
     expect(/\son[a-z]+=/i.test(response.body)).toBe(false);
+  });
+
+  it("show the report form the responsibility guide once the board adopts it, and never the example", async () => {
+    /*
+     * Decision 27: the guide is shown to reporters before they file, and the
+     * public form is one way to file. The example is not shown here either,
+     * for the reason it is not shown to a signed-in resident.
+     */
+    const guides = app.get(ResponsibilityGuideService);
+    const found = {
+      guide: await prisma.responsibilityGuide.findUnique({
+        where: { id: 1 },
+        select: { adoptedAt: true },
+      }),
+      items: await prisma.responsibilityGuideItem.findMany({
+        select: {
+          part: true,
+          responsibility: true,
+          note: true,
+          sortOrder: true,
+        },
+      }),
+    };
+    const part = `Golvbrunn ${suffix}`;
+    const page = async () =>
+      (await inject({ method: "GET", url: `/${publicSlug}` })).body;
+    try {
+      await guides.save(
+        {
+          items: [{ part, responsibility: "TENANT_OWNER", note: null }],
+          adopted: false,
+          version: (await guides.read()).version,
+        },
+        boardMember.personId,
+      );
+      const example = await page();
+      expect(example.includes(part)).toBe(false);
+      expect(example.includes('class="site-form-guide"')).toBe(false);
+
+      await guides.save(
+        {
+          items: [{ part, responsibility: "TENANT_OWNER", note: null }],
+          adopted: true,
+          version: (await guides.read()).version,
+        },
+        boardMember.personId,
+      );
+      const adopted = await page();
+      const guide = adopted.indexOf('<details class="site-form-guide">');
+      expect(guide).toBeGreaterThan(-1);
+      expect(guide).toBeLessThan(
+        adopted.indexOf(`<form action="/${publicSlug}/felanmalan"`),
+      );
+      expect(adopted).toContain(`<td>${part}</td>`);
+
+      // Over the confirmation that replaces the form, the guide goes with it.
+      const sent = (
+        await inject({
+          method: "GET",
+          url: `/${publicSlug}?skickat=felanmalan`,
+        })
+      ).body;
+      expect(sent.includes(part)).toBe(false);
+    } finally {
+      await prisma.$transaction(async (tx) => {
+        await tx.responsibilityGuideItem.deleteMany({});
+        await tx.responsibilityGuideItem.createMany({ data: found.items });
+        if (found.guide === null) {
+          await tx.responsibilityGuide.deleteMany({ where: { id: 1 } });
+        } else {
+          await tx.responsibilityGuide.upsert({
+            where: { id: 1 },
+            create: { id: 1, adoptedAt: found.guide.adoptedAt },
+            update: { adoptedAt: found.guide.adoptedAt },
+          });
+        }
+      });
+    }
   });
 
   it("are served under a policy that lets a form reach this instance only", async () => {
@@ -500,9 +614,13 @@ describe("sending the issue report form", () => {
     );
     expect(response.headers["set-cookie"]).toBeUndefined();
 
-    const issue = await prisma.issue.findFirst({ where: { description } });
+    const issue = await prisma.issue.findFirst({
+      where: { description },
+      include: { status: { select: { meaning: true, isDefault: true } } },
+    });
     expect(issue?.typeId).toBe(nonMemberTypeId);
-    expect(issue?.status).toBe("NEW");
+    // The type's default NEW status, as a report from the application enters.
+    expect(issue?.status).toEqual({ meaning: "NEW", isDefault: true });
     // No account behind it, and the contact details encrypted at rest.
     expect(issue?.reporterPersonId).toBeNull();
     expect(issue?.location).toBe("Porten mot gatan");
@@ -593,6 +711,51 @@ describe("sending the issue report form", () => {
     expect(response.statusCode).toBe(303);
     expect(response.headers["location"]).toBe(`/${publicSlug}?fel=felanmalan`);
     expect(await prisma.issue.count({ where: { description } })).toBe(0);
+  });
+
+  it("answers alike whether a private link will be mailed or the address's budget is spent", async () => {
+    const links = app.get(IssueReporterLinkService);
+    const send = vi.spyOn(mail, "send").mockResolvedValue({ messageId: null });
+    try {
+      const reports = REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY + 2;
+      const answers: unknown[] = [];
+      const mailed: boolean[] = [];
+      for (let n = 1; n <= reports; n += 1) {
+        const description = `Anmälan ${String(n)} med tagg ${suffix}.`;
+        // One inbox, spelt with a new tag each time: its budget is spent
+        // after the third, and the form must not say so.
+        const response = await submit(`/${publicSlug}/felanmalan`, {
+          type: nonMemberTypeId,
+          location: "",
+          description,
+          name: "",
+          email: `sf-tagged-${suffix}+${String(n)}@exempel.se`,
+        });
+        const { date: _date, ...headers } = response.headers;
+        answers.push({
+          statusCode: response.statusCode,
+          headers,
+          body: response.body,
+        });
+        const issue = await prisma.issue.findFirstOrThrow({
+          where: { description },
+          select: { id: true },
+        });
+        mailed.push(await links.deliver(issue.id));
+      }
+
+      expect(mailed).toEqual(
+        Array.from(
+          { length: reports },
+          (_, n) => n < REPORTER_LINK_MAILS_PER_ADDRESS_PER_DAY,
+        ),
+      );
+      for (const answer of answers) {
+        expect(answer).toEqual(answers[0]);
+      }
+    } finally {
+      send.mockRestore();
+    }
   });
 });
 
@@ -695,6 +858,22 @@ describe("the board's switch for public reports", () => {
       );
       expect(response.body.includes(NON_MEMBER_TYPE)).toBe(false);
     });
+  });
+
+  it("reads the responsibility guide only while the report form is on the page", async () => {
+    const guides = app.get(ResponsibilityGuideService);
+    const read = vi.spyOn(guides, "readForReporter");
+    try {
+      await withPublicReporting(false, async () => {
+        await inject({ method: "GET", url: `/${publicSlug}` });
+      });
+      expect(read).not.toHaveBeenCalled();
+
+      await inject({ method: "GET", url: `/${publicSlug}` });
+      expect(read).toHaveBeenCalledTimes(1);
+    } finally {
+      read.mockRestore();
+    }
   });
 
   it("answers the endpoint exactly as it answers a page that was never written", async () => {

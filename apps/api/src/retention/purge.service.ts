@@ -7,8 +7,13 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { NO_ENTRY_PERMISSION } from "../issues/issue-fit-views";
+import { ISSUE_FREE_TEXT_STANDING_UNREDACTED } from "../issues/issue-free-text";
+import { lockIssue, lockWorkOrderSender } from "../issues/issue-lock";
+import { WORK_ORDER_TEXT_STANDING } from "../issues/issue-retention";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { associationDefaultLocale } from "../settings/default-locale";
 import {
   sweepConnectedAppTokens,
   type ConnectedAppTokenSweepOutcome,
@@ -211,10 +216,13 @@ export interface PurgeRunSummary {
  * neighbour, so the result still identifies a person within the meaning of
  * GDPR Recital 26 - which is why the operation is named for what it does to
  * the link rather than for what it fails to do to the text. The
- * description is never rewritten by this job: a person named in one has an
- * art. 17 request like anybody else, which the board decides on its merits, and
- * a purge editing prose on a schedule would be the association silently
- * rewriting its own records.
+ * description is never rewritten by this job. An issue's free text - the
+ * description, the location, the conversation, the notes and the photographs -
+ * is removed by jobs of its own: on the board's clock after the issue closes,
+ * and on its reporter's granted erasure request (ADR 0057). A person named in
+ * an issue somebody else reported makes an art. 17 request, which a handler
+ * carries out by redacting the text. This job detaches a reporter only from an
+ * issue whose free text is gone, and runs after both of those jobs.
  *
  * ## Erasure requests and restrictions
  *
@@ -551,7 +559,7 @@ export class PurgeService implements OnModuleInit {
     maxPersons: number = MAX_PERSONS_PER_RUN,
   ): Promise<string[]> {
     const cutoff = purgeCutoff(now, retentionDays);
-    const defaultLocale = await this.defaultLocale();
+    const defaultLocale = await associationDefaultLocale(this.prisma);
 
     /*
      * People whose data is referenced from a row this job detaches. These are
@@ -644,17 +652,60 @@ export class PurgeService implements OnModuleInit {
   /**
    * Everybody named by a row this job detaches rather than erases.
    *
-   * Four distinct scans rather than a join: reporterPersonId,
+   * Distinct scans rather than a join: reporterPersonId, assigneePersonId and
+   * enteredByPersonId on an issue, defaultAssigneePersonId on an issue type,
+   * authorPersonId on an issue message and on an internal note,
    * uploadedByPersonId on a document and the same column on a media file, and
-   * filedByPersonId on an apartment binder entry, are plain columns with an
+   * filedByPersonId on an apartment binder entry, and sentByPersonId on a work
+   * order, are plain columns with an
    * index each, and asking each of them for its distinct values is one index
    * scan apiece.
    */
   private async referencedPersonIds(): Promise<string[]> {
-    const [issues, documents, media, binderEntries] = await Promise.all([
+    const [
+      issues,
+      assignees,
+      enteredBy,
+      typeDefaults,
+      messageAuthors,
+      noteAuthors,
+      documents,
+      media,
+      binderEntries,
+      workOrderSenders,
+    ] = await Promise.all([
+      // Only where neither the free text nor a work order's text stands: an
+      // issue on which either does keeps its reporter, so naming them here
+      // would select somebody this job then leaves as it found them. A
+      // contractor's note a handler redacted is blank and does not count, as it
+      // does not for the detaching of an erased reporter (the clock still takes
+      // its row).
       this.prisma.issue.groupBy({
         by: ["reporterPersonId"],
-        where: { reporterPersonId: { not: null } },
+        where: {
+          reporterPersonId: { not: null },
+          NOT: [ISSUE_FREE_TEXT_STANDING_UNREDACTED, WORK_ORDER_TEXT_STANDING],
+        },
+      }),
+      this.prisma.issue.groupBy({
+        by: ["assigneePersonId"],
+        where: { assigneePersonId: { not: null } },
+      }),
+      this.prisma.issue.groupBy({
+        by: ["enteredByPersonId"],
+        where: { enteredByPersonId: { not: null } },
+      }),
+      this.prisma.issueType.groupBy({
+        by: ["defaultAssigneePersonId"],
+        where: { defaultAssigneePersonId: { not: null } },
+      }),
+      this.prisma.issueMessage.groupBy({
+        by: ["authorPersonId"],
+        where: { authorPersonId: { not: null } },
+      }),
+      this.prisma.issueNote.groupBy({
+        by: ["authorPersonId"],
+        where: { authorPersonId: { not: null } },
       }),
       this.prisma.document.groupBy({
         by: ["uploadedByPersonId"],
@@ -668,12 +719,36 @@ export class PurgeService implements OnModuleInit {
         by: ["filedByPersonId"],
         where: { filedByPersonId: { not: null } },
       }),
+      this.prisma.workOrder.groupBy({
+        by: ["sentByPersonId"],
+        where: { sentByPersonId: { not: null } },
+      }),
     ]);
 
     const ids = new Set<string>();
     for (const row of issues) {
       if (row.reporterPersonId !== null) {
         ids.add(row.reporterPersonId);
+      }
+    }
+    for (const row of assignees) {
+      if (row.assigneePersonId !== null) {
+        ids.add(row.assigneePersonId);
+      }
+    }
+    for (const row of enteredBy) {
+      if (row.enteredByPersonId !== null) {
+        ids.add(row.enteredByPersonId);
+      }
+    }
+    for (const row of typeDefaults) {
+      if (row.defaultAssigneePersonId !== null) {
+        ids.add(row.defaultAssigneePersonId);
+      }
+    }
+    for (const row of [...messageAuthors, ...noteAuthors]) {
+      if (row.authorPersonId !== null) {
+        ids.add(row.authorPersonId);
       }
     }
     for (const row of [...documents, ...media]) {
@@ -684,6 +759,11 @@ export class PurgeService implements OnModuleInit {
     for (const row of binderEntries) {
       if (row.filedByPersonId !== null) {
         ids.add(row.filedByPersonId);
+      }
+    }
+    for (const row of workOrderSenders) {
+      if (row.sentByPersonId !== null) {
+        ids.add(row.sentByPersonId);
       }
     }
     return [...ids];
@@ -706,7 +786,7 @@ export class PurgeService implements OnModuleInit {
     const days =
       retentionDays ?? (await retentionDaysAfterMoveOut(this.prisma));
     const cutoff = purgeCutoff(now, days);
-    const defaultLocale = await this.defaultLocale();
+    const defaultLocale = await associationDefaultLocale(this.prisma);
 
     return this.prisma.$transaction(async (tx) => {
       /*
@@ -877,21 +957,120 @@ export class PurgeService implements OnModuleInit {
        * record of a problem with its building, the document in its archive, and
        * every photograph.
        *
-       * The description is not touched. It is free text somebody wrote about
-       * the building, it is the record of what was wrong, and it may name a
-       * neighbour - which is why this is a detachment and why the result is
-       * not anonymous. A person named in one makes an art. 17 request, which
-       * the board decides; a job rewriting prose on a schedule would be the
-       * association quietly editing its own history.
+       * The description is not touched here. The issue's free text goes on
+       * its own clock or on its reporter's granted request, by the issue jobs
+       * that run before this one (ADR 0057), and a person named in an issue
+       * somebody else reported has it redacted by a handler.
+       */
+      /*
+       * The locks a reporter's reply takes, taken first. A reply reads the
+       * issue's reporter, then inserts a message that names them; without the
+       * lock, one that read the reporter before this purge committed could
+       * insert after the detachments below have run, and the link the erasure
+       * is recorded as having cleared would survive. In identifier order, so
+       * two purges never wait on each other the other way round.
+       */
+      const reportedIssues = await tx.issue.findMany({
+        where: { reporterPersonId: personId },
+        select: { id: true },
+        orderBy: { id: "asc" },
+      });
+      for (const reported of reportedIssues) {
+        await lockIssue(tx, reported.id);
+      }
+
+      /*
+       * Only from an issue whose free-text layer is gone and on which no work
+       * order's text stands (ADR 0057: no case whose text stands may lose its
+       * selector). While the text stands - the issue is open, waits on its clock
+       * or on a hold of its own, the issue erasure job still owes it, or a work
+       * order's words are kept for their ten years - the reporter column is what
+       * ties it to this person: for a request granted later, for the closing
+       * job's count, for the access report, and for a legal hold or a
+       * restriction placed on them later, which the purges read only through it.
+       * Detached tonight, a request granted afterwards would find no issue and
+       * close with the text still there. The clock, the issue erasure job and a
+       * handler's redaction remove the text; this job, on a later night, the
+       * reference.
        */
       const { count: issuesDetachedFromPerson } = await tx.issue.updateMany({
-        where: { reporterPersonId: personId },
+        where: {
+          reporterPersonId: personId,
+          NOT: [ISSUE_FREE_TEXT_STANDING_UNREDACTED, WORK_ORDER_TEXT_STANDING],
+        },
         data: {
           reporterPersonId: null,
           reporterNameCipher: null,
           reporterEmailCipher: null,
           reporterEmailIndex: null,
+          /*
+           * What the person said about getting into their home (decision 29)
+           * goes with them: it is their answer, and it is cleared when the
+           * issue closes in any case, so an open issue is the only one that
+           * can hold it. An open issue whose text still stands is not selected
+           * here and keeps both until it closes; one whose text a handler
+           * redacted is, and loses the answer with the reference.
+           */
+          ...NO_ENTRY_PERMISSION,
         },
+      });
+
+      /*
+       * The handler's part in an issue: as its assignee, as the handler who
+       * entered it, and as a type's default assignee. Each is a reference to
+       * the person and nothing more, so it goes; the issue, and the audit
+       * entries that say who did what to it, stay. An issue so detached is
+       * unassigned, and lands with its type's handlers like any other. That a
+       * handler entered it stays, as the flag `enteredByHandler`: it is not
+       * personal data, and the issue still says how it came to be.
+       */
+      const { count: issuesUnassignedFromPerson } = await tx.issue.updateMany({
+        where: { assigneePersonId: personId },
+        data: { assigneePersonId: null },
+      });
+      const { count: issuesNoLongerEnteredBy } = await tx.issue.updateMany({
+        where: { enteredByPersonId: personId },
+        data: { enteredByPersonId: null },
+      });
+      /*
+       * The handler who sent a work order: the order stays, and so does its
+       * audit entry, but the row stops naming the person. Under the lock a
+       * sending takes before it checks the handler's access and inserts. The
+       * purge removes no role: it refuses a person who holds one
+       * (`lockErasureEligibility`) and then deletes the account. The race is a
+       * sending that read the handler's access, then a role withdrawn, then
+       * this purge starting on a person who holds none: without the lock that
+       * sending would commit its `sentByPersonId` after the detachment below,
+       * and nothing later counts that reference.
+       */
+      await lockWorkOrderSender(tx, personId);
+      const { count: workOrdersNoLongerSentBy } = await tx.workOrder.updateMany(
+        {
+          where: { sentByPersonId: personId },
+          data: { sentByPersonId: null },
+        },
+      );
+      const { count: typesNoLongerDefaulting } = await tx.issueType.updateMany({
+        where: { defaultAssigneePersonId: personId },
+        data: { defaultAssigneePersonId: null },
+      });
+
+      /*
+       * Who wrote an issue message or an internal note. The words stay with
+       * the issue, which purges them with its free text on its own clock (ADR
+       * 0057), and the audit entry for each still names its writer; what goes
+       * is the reference. A handler's message keeps the role it was signed
+       * with, which names nobody, and is shown to the handlers as written by
+       * somebody no longer known.
+       */
+      const { count: messagesDetachedFromPerson } =
+        await tx.issueMessage.updateMany({
+          where: { authorPersonId: personId },
+          data: { authorPersonId: null },
+        });
+      const { count: notesDetachedFromPerson } = await tx.issueNote.updateMany({
+        where: { authorPersonId: personId },
+        data: { authorPersonId: null },
       });
 
       const { count: documentsDetachedFromPerson } =
@@ -915,11 +1094,10 @@ export class PurgeService implements OnModuleInit {
         });
 
       /*
-       * Every file the person uploaded, an issue photograph included. Nothing
-       * is removed from storage: a photograph of a leaking pipe is the record
-       * of the problem, and the flag saying it may show somebody is a default
-       * the upload path writes about every issue photograph rather than a
-       * finding about the picture.
+       * Every file the person uploaded, an issue photograph included. This
+       * job removes nothing from storage: a photograph of a leaking pipe is the
+       * record of the problem until the issue's own clock, or its reporter's
+       * granted request, removes it with the issue's free text (ADR 0057).
        */
       const { count: mediaDetachedFromPerson } = await tx.mediaFile.updateMany({
         where: { uploadedByPersonId: personId },
@@ -928,6 +1106,20 @@ export class PurgeService implements OnModuleInit {
 
       if (issuesDetachedFromPerson > 0) {
         cleared.push("issues");
+      }
+      if (messagesDetachedFromPerson + notesDetachedFromPerson > 0) {
+        cleared.push("issueConversation");
+      }
+      if (
+        issuesUnassignedFromPerson +
+          issuesNoLongerEnteredBy +
+          typesNoLongerDefaulting >
+        0
+      ) {
+        cleared.push("issueAssignments");
+      }
+      if (workOrdersNoLongerSentBy > 0) {
+        cleared.push("workOrders");
       }
       if (documentsDetachedFromPerson > 0) {
         cleared.push("documents");
@@ -1043,15 +1235,6 @@ export class PurgeService implements OnModuleInit {
         erasureRemainder: remainder,
       };
     });
-  }
-
-  /** The association's default language, or the schema's when unset. */
-  private async defaultLocale(): Promise<string> {
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-      select: { defaultLocale: true },
-    });
-    return association?.defaultLocale ?? "sv";
   }
 }
 

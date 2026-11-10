@@ -16,9 +16,19 @@
  */
 
 /** A sign on a row (skylt-chip). The label is an i18n key, never the API's. */
-import type { AuditChannelName } from "@openbrf/shared";
+import type {
+  AuditChannelName,
+  IssueAccessPart,
+  IssueAccessWithholdingReason,
+  IssueCostResponsibility,
+  IssueOutcome,
+  IssueSignature,
+  IssueStatusMeaning,
+  IssueWaitingReason,
+} from "@openbrf/shared";
 
 import type { DataSubjectRequestView } from "../api/data-protection";
+import type { OwnIssueMessage } from "../api/issues";
 
 export type RegisterSign =
   | "CHAIR"
@@ -298,6 +308,7 @@ export type NewsDeliveryFailure =
   | "mail-not-configured"
   | "sms-not-configured"
   | "send-failed"
+  | "delivery-unconfirmed"
   | "recipient-gone"
   | "no-phone-number"
   | "mailing-interrupted"
@@ -307,6 +318,7 @@ export type NewsDeliveryFailure =
 export type MeetingNoticeDeliveryFailure =
   | "mail-not-configured"
   | "send-failed"
+  | "delivery-unconfirmed"
   | "recipient-gone"
   | "no-email-address"
   | "notice-sending-interrupted";
@@ -498,6 +510,46 @@ export type ReportAuditAction =
   | "PLUGIN_NON_RESIDENT_CALLER_WITHDRAWN"
   | "PLUGIN_NON_RESIDENT_CALLER_CONSENTED"
   | "ISSUE_STATUS_CHANGED"
+  | "ISSUE_OPENED"
+  | "ISSUE_ASSIGNED"
+  | "ISSUE_PRIORITY_CHANGED"
+  | "ISSUE_TARGET_DATE_CHANGED"
+  | "ISSUE_ACCESS_CHANGED"
+  | "ISSUE_COST_RESPONSIBILITY_CHANGED"
+  | "ISSUE_MESSAGE_SENT"
+  | "ISSUE_NOTE_ADDED"
+  | "ISSUE_KNOWN_FAULT_CHANGED"
+  | "ISSUE_ENTRY_PERMISSION_SET"
+  | "ISSUE_ENTRY_PERMISSION_REMOVED"
+  | "ISSUE_PLACE_CHANGED"
+  | "ISSUE_FINDING_MARKED"
+  | "ISSUE_FINDING_REMOVED"
+  | "ISSUE_REPORTER_LINK_ISSUED"
+  | "ISSUE_REPORTER_LINK_REVOKED"
+  | "ISSUE_REDACTED"
+  | "ISSUE_LEGAL_HOLD_PLACED"
+  | "ISSUE_LEGAL_HOLD_RELEASED"
+  | "ISSUE_RETENTION_RECORDED"
+  | "ISSUE_DAMAGE_CASE_MARKED"
+  | "ISSUE_DAMAGE_CASE_REMOVED"
+  | "ISSUE_CONCERNED_PERSON_ADDED"
+  | "ISSUE_ACCESS_WEIGHED"
+  | "ISSUE_ACCESS_WEIGHING_READ"
+  | "ISSUE_RESIDENTS_LISTED"
+  | "ISSUE_WORK_ORDER_SENT"
+  | "ISSUE_WORK_ORDER_LINK_ISSUED"
+  | "ISSUE_WORK_ORDER_LINK_REVOKED"
+  | "ISSUE_WORK_ORDER_ANSWERED"
+  | "ISSUE_WORK_ORDER_NOTE_ADDED"
+  | "ISSUE_WORK_ORDER_PHOTO_ADDED"
+  | "ISSUE_WORK_ORDER_PHOTOS_CHOSEN"
+  | "CONTRACTOR_LIST_CHANGED"
+  | "ISSUE_TYPE_RING_FENCE_CHANGED"
+  | "ISSUE_TYPE_CREATED"
+  | "ISSUE_TYPE_CHANGED"
+  | "ISSUE_TYPE_REMOVED"
+  | "ISSUE_STATUS_CONFIGURED"
+  | "ISSUE_RESPONSIBILITY_GUIDE_SAVED"
   | "MOVE_IN_RECORDED"
   | "MOVE_OUT_RECORDED"
   | "PLUGIN_ENABLED"
@@ -781,14 +833,111 @@ export interface DataSubjectReport {
     releasedAt: string | null;
     releaseReason: string | null;
   }[];
+  /**
+   * The issues this person is assigned and the types naming them as default
+   * assignee, which somebody else chose (ADR 0057): never an issue's text or
+   * its reporter.
+   */
+  issueAssignments: (
+    | {
+        kind: "issue";
+        issueId: string;
+        typeName: string;
+        meaning: IssueStatusMeaning;
+        reportedAt: string;
+        closedAt: string | null;
+      }
+    | { kind: "typeDefault"; typeId: string; typeName: string }
+  )[];
   issues: {
     issueId: string;
+    /** The issue's number, as the reporter's own screen names it. */
+    number: number;
     typeName: string;
-    status: "NEW" | "IN_PROGRESS" | "DONE";
+    /** Where it stands, as the meaning of its status (ADR 0054). */
+    meaning: IssueStatusMeaning;
+    /** How the issue ended, once it is DONE (ADR 0054). Null while open. */
+    outcome: IssueOutcome | null;
+    /** Whom the issue awaits, while WAITING (ADR 0054). Null otherwise. */
+    waitingReason: IssueWaitingReason | null;
+    /** Who a handler recorded as paying for it, or null. Never an amount. */
+    costResponsibility: IssueCostResponsibility | null;
+    /** The name of the common area the issue is about, or null. */
+    place: string | null;
     location: string | null;
     description: string;
+    /** The answer about entering their apartment, while the issue is open. */
+    entry: {
+      answer: "YES" | "NO";
+      note: string | null;
+      pets: boolean | null;
+      masterKey: boolean | null;
+      until: string | null;
+    } | null;
+    /** When a handler removed the description or the location (ADR 0057). */
+    descriptionRedactedAt: string | null;
+    locationRedactedAt: string | null;
+    /** When the purge removed the issue's free-text layer (ADR 0057). */
+    freeTextRemovedAt: string | null;
+    /**
+     * "YYYY-MM-DD", the earliest day the purge removes the free-text layer.
+     * Null while open, under a legal hold on the issue, and once removed.
+     */
+    freeTextErasableFrom: string | null;
+    /** A legal hold stands on the issue itself, such as a damage case's. */
+    onLegalHold: boolean;
     reportedAt: string;
+    closedAt: string | null;
     photographs: number;
+    /**
+     * The conversation, oldest first, as the reporter reads it: handlers'
+     * messages signed with a role, never a name. Never an internal note.
+     */
+    messages: OwnIssueMessage[];
+    /**
+     * The internal notes, oldest first, each as the board weighed it for this
+     * report under art. 15(4) (ADR 0057). Never who wrote one.
+     */
+    notes: ReportIssueNote[];
+    workOrders: ReportIssueWorkOrder[];
+  }[];
+  /**
+   * Cases a handler recorded as concerning this person that somebody else
+   * reported (ADR 0057). The case always; its words only as the board weighed
+   * them; never its reporter.
+   */
+  issuesConcerning: {
+    issueId: string;
+    number: number;
+    typeName: string;
+    meaning: IssueStatusMeaning;
+    outcome: IssueOutcome | null;
+    waitingReason: IssueWaitingReason | null;
+    /** When a handler recorded that the case concerns this person. */
+    recordedAt: string;
+    reportedAt: string;
+    closedAt: string | null;
+    freeTextErasableFrom: string | null;
+    onLegalHold: boolean;
+    freeTextRemovedAt: string | null;
+    /** Null once redacted or removed, which the dates beside it say. */
+    description: ReportWeighedText | null;
+    descriptionRedactedAt: string | null;
+    /** Null where none was given, or once redacted or removed. */
+    location: ReportWeighedText | null;
+    locationRedactedAt: string | null;
+    messages: {
+      messageId: string;
+      writtenAt: string;
+      side: "REPORTER" | "HANDLER";
+      /** The role a handler signed it with; null on the reporter's. */
+      signature: IssueSignature | null;
+      redactedAt: string | null;
+      content: ReportWeighedText | null;
+    }[];
+    notes: ReportIssueNote[];
+    photographs: number;
+    workOrders: ReportIssueWorkOrder[];
   }[];
   documents: {
     documentId: string;
@@ -1385,6 +1534,7 @@ export type ErasureDomain =
   | "bookings"
   | "eventSignups"
   | "feed"
+  | "issues"
   | "keyOrders"
   | "motions"
   | "pluginRecords"
@@ -1494,7 +1644,7 @@ export class RegisterRequestError extends Error {
  * passed.
  */
 interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH";
+  method?: "GET" | "POST" | "PATCH" | "PUT";
   /** Already serialised JSON. */
   body?: string;
   signal?: AbortSignal;
@@ -1865,6 +2015,118 @@ export function fetchDataSubjectReport(
     // differently from an empty object.
     { method: "POST", body: "{}", signal },
   );
+}
+
+/**
+ * A text on an issue as the report gives it after the board's art. 15(4)
+ * weighing (ADR 0057): whole, in part as the board's copy with words left out
+ * and why, left out whole and why, or not yet weighed, in which case none of
+ * it is given.
+ */
+export type ReportWeighedText =
+  | { state: "given"; text: string }
+  | {
+      state: "givenInPart";
+      text: string;
+      because: IssueAccessWithholdingReason;
+    }
+  | { state: "withheld"; because: IssueAccessWithholdingReason }
+  | { state: "unweighed" };
+
+/** An internal note on an issue, as an access report carries it. */
+export interface ReportIssueNote {
+  noteId: string;
+  writtenAt: string;
+  /** When a handler redacted it; `content` is then null. */
+  redactedAt: string | null;
+  content: ReportWeighedText | null;
+}
+
+/**
+ * Whom an issue was sent to, oldest first, and what each work order said as
+ * the board weighed it (ADR 0057, question 7). `recipientName` is null once
+ * the contractor was removed from the list. Never an address.
+ */
+export interface ReportIssueWorkOrder {
+  workOrderId: string;
+  recipientName: string | null;
+  /** When it was written and queued; whether it went is `deliveryStatus`. */
+  writtenAt: string;
+  deliveryStatus: "PENDING" | "SENT" | "FAILED";
+  /** A failure known not to have gone out: "not sent", not "not confirmed". */
+  notSent: boolean;
+  /** Whether the contractor was given a link to the work order (ADR 0055). */
+  linkGiven: boolean;
+  /** How many of the issue's photographs the board chose for the link. */
+  photosShared: number;
+  /** When a handler redacted the text; `content` is then null. */
+  redactedAt: string | null;
+  /** Null once redacted, or once the purge erased the text. */
+  content: ReportWeighedText | null;
+}
+
+/**
+ * The texts of one issue that one person's report weighs, with their words,
+ * for the board alone (`IssueAccessWeighingView` on the server). Never part of
+ * the printed report.
+ */
+export interface IssueAccessWeighing {
+  issueId: string;
+  number: number;
+  typeName: string;
+  /** The person reported the issue, or a handler recorded it as concerning them. */
+  report: "reporter" | "concerned";
+  texts: {
+    part: IssueAccessPart;
+    id: string | null;
+    writtenAt: string;
+    side: "REPORTER" | "HANDLER" | null;
+    /** Whom a work order went to; null for every other part, or once removed. */
+    recipientName: string | null;
+    text: string;
+    /**
+     * `given`, the reason it is left out, whole or in part, or null while
+     * unweighed.
+     */
+    decision: "given" | IssueAccessWithholdingReason | null;
+    /** The board's copy where it gave the text in part; null otherwise. */
+    givenText: string | null;
+  }[];
+}
+
+/**
+ * One text's weighing, as the board sends it: no reason to give it whole, a
+ * reason to leave it out whole, or a reason and a copy to give it in part.
+ */
+export interface IssueAccessDecision {
+  part: IssueAccessPart;
+  id: string | null;
+  withheldBecause: IssueAccessWithholdingReason | null;
+  givenText: string | null;
+}
+
+function weighingPath(personId: string, issueId: string): string {
+  return `/api/data-subject-reports/persons/${encodeURIComponent(personId)}/issues/${encodeURIComponent(issueId)}/weighing`;
+}
+
+export function fetchIssueAccessWeighing(
+  personId: string,
+  issueId: string,
+  signal: AbortSignal,
+): Promise<IssueAccessWeighing> {
+  return request(weighingPath(personId, issueId), { signal });
+}
+
+/** Records the weighing, replacing the one before it, and answers it. */
+export function saveIssueAccessWeighing(
+  personId: string,
+  issueId: string,
+  decisions: readonly IssueAccessDecision[],
+): Promise<IssueAccessWeighing> {
+  return request(weighingPath(personId, issueId), {
+    method: "PUT",
+    body: JSON.stringify({ decisions }),
+  });
 }
 
 /** A plugin's own text, in each language its locale files give it. */

@@ -168,13 +168,22 @@ describe("which panels a seat is given", () => {
 
 const issue = (overrides: Partial<OwnIssue>): OwnIssue => ({
   id: "issue",
-  status: "NEW",
+  number: 1,
+  meaning: "NEW",
   typeId: "type",
   typeName: "Tvättstuga",
   location: null,
+  place: null,
   description: "",
   apartment: null,
+  entry: null,
   photos: [],
+  enteredByHandler: false,
+  replyMode: "MESSAGE",
+  mergedIntoMeaning: null,
+  descriptionRedactedAt: null,
+  locationRedactedAt: null,
+  freeTextRemovedAt: null,
   createdAt: "2026-10-01T08:00:00.000Z",
   updatedAt: "2026-10-01T08:00:00.000Z",
   ...overrides,
@@ -225,13 +234,13 @@ describe("what is waiting on the association", () => {
   it("keeps open issues and unanswered submissions, newest first", () => {
     const items = waitingItems({
       issues: [
-        issue({ id: "new", status: "NEW" }),
+        issue({ id: "new", meaning: "NEW" }),
         issue({
           id: "doing",
-          status: "IN_PROGRESS",
+          meaning: "IN_PROGRESS",
           createdAt: "2026-10-05T08:00:00.000Z",
         }),
-        issue({ id: "done", status: "DONE" }),
+        issue({ id: "done", meaning: "DONE" }),
       ],
       motions: [
         motion({ id: "open" }),
@@ -266,7 +275,7 @@ describe("what is waiting on the association", () => {
   it("is empty when everything has been answered", () => {
     expect(
       waitingItems({
-        issues: [issue({ status: "DONE" })],
+        issues: [issue({ meaning: "DONE" })],
         motions: [motion({ status: "ACKNOWLEDGED" })],
       }),
     ).toEqual([]);

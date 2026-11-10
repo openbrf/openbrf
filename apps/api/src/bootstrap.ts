@@ -22,6 +22,7 @@ import {
   registerDeviceRouteHeaders,
   registerRetiredDevicePathRefusal,
 } from "./devices/device-route-headers";
+import { registerLinkHeaders } from "./site/site-issue-link-headers";
 import { resolveDeviceRoutes, setDeviceRoutes } from "./devices/device-routes";
 import { registerSecurityHeaders } from "./http/security-headers";
 import { failureFrames, failureName } from "./logging/failure";
@@ -260,6 +261,7 @@ export async function createApplication(
         app.get<Env>(ENV),
       );
       registerDeviceRouteHeaders(app.getHttpAdapter().getInstance());
+      registerLinkHeaders(app.getHttpAdapter().getInstance());
       const loader = app.get(PluginLoaderService);
       const guard = app.get(AuthorizationGuard);
       registerRetiredDevicePathRefusal(app.getHttpAdapter().getInstance(), {

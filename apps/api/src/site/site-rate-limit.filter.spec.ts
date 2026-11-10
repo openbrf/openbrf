@@ -1,11 +1,19 @@
-import { Controller, Post } from "@nestjs/common";
+import { Controller, Logger, Post } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -13,7 +21,11 @@ import { DomainExceptionFilter } from "../http/domain-exception.filter";
 import { PublicRateLimit } from "../http/public-rate-limit.decorator";
 import { PublicRateLimitGuard } from "../http/public-rate-limit.guard";
 import { SiteRateLimitFilter } from "./site-rate-limit.filter";
-import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
+import {
+  type RefusalPlace,
+  SITE_HTML_HEADERS,
+  SiteRenderer,
+} from "./site-renderer.service";
 
 /**
  * Who answers a spent public budget, and in which language.
@@ -26,12 +38,21 @@ import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
  * asked for and in which language.
  */
 
-/** A website form and an API route, each with room for one request a minute. */
+/**
+ * A website form, a link to an issue and an API route, each with room for one
+ * request a minute.
+ */
 @Controller()
 class LimitedController {
   @Post("en-sida/kontakt")
   @PublicRateLimit({ perMinute: 1 })
   form(this: void): { ok: boolean } {
+    return { ok: true };
+  }
+
+  @Post("arende/:token")
+  @PublicRateLimit({ perMinute: 1 })
+  link(this: void): { ok: boolean } {
     return { ok: true };
   }
 
@@ -42,8 +63,11 @@ class LimitedController {
   }
 }
 
-const tooManyRequests = vi.fn((acceptLanguage: string | undefined) =>
-  Promise.resolve(`<p>refused in ${acceptLanguage ?? "no language"}</p>`),
+const tooManyRequests = vi.fn(
+  (acceptLanguage: string | undefined, place: RefusalPlace) =>
+    Promise.resolve(
+      `<p>refused on the ${place} in ${acceptLanguage ?? "no language"}</p>`,
+    ),
 );
 
 let app: NestFastifyApplication;
@@ -73,9 +97,36 @@ beforeAll(async () => {
   await app.getHttpAdapter().getInstance().ready();
 });
 
+let errorLog: { mockRestore(): void } | undefined;
+
+afterEach(() => {
+  errorLog?.mockRestore();
+  errorLog = undefined;
+});
+
 afterAll(async () => {
   await app.close();
 });
+
+/**
+ * What the filter logged as errors: each call's message, and every argument of
+ * every call, frames included, for checking that nothing private reached the
+ * log at all.
+ */
+function loggedErrors(): { messages(): string[]; everything(): string } {
+  const error = vi
+    .spyOn(Logger.prototype, "error")
+    .mockImplementation(() => undefined);
+  errorLog = error;
+  return {
+    messages: () => error.mock.calls.map(([message]) => String(message)),
+    everything: () =>
+      error.mock.calls.flatMap((args) => args.map(String)).join("\n"),
+  };
+}
+
+/** Marks a failure's message, which is never logged (ADR 0007). */
+const PRIVATE_MESSAGE = "private-message-marker";
 
 /** Spends one address's budget on `url` and returns the refusal after it. */
 async function refusedAt(url: string, headers: Record<string, string> = {}) {
@@ -104,7 +155,9 @@ describe("a spent budget on a website address", () => {
     expect(refused.headers["content-security-policy"]).toBe(
       SITE_HTML_HEADERS["content-security-policy"],
     );
-    expect(refused.body).toBe("<p>refused in en-GB,en;q=0.9</p>");
+    expect(refused.body).toBe(
+      "<p>refused on the website in en-GB,en;q=0.9</p>",
+    );
     // The delay the guard worked out survives the page drawn around it.
     expect(Number(refused.headers["retry-after"])).toBeGreaterThan(0);
   });
@@ -119,7 +172,8 @@ describe("a spent budget on a website address", () => {
   });
 
   it("still answers the refusal and its delay when the page cannot be drawn", async () => {
-    tooManyRequests.mockRejectedValueOnce(new Error("database is down"));
+    tooManyRequests.mockRejectedValueOnce(new Error(PRIVATE_MESSAGE));
+    const logged = loggedErrors();
 
     const refused = await refusedAt("/en-sida/kontakt");
 
@@ -127,6 +181,43 @@ describe("a spent budget on a website address", () => {
     expect(refused.statusCode).toBe(429);
     expect(refused.body).toBe("");
     expect(Number(refused.headers["retry-after"])).toBeGreaterThan(0);
+    expect(logged.messages()).toEqual([
+      "The rate-limit page for the website could not be rendered: Error",
+    ]);
+    expect(logged.everything()).not.toContain(PRIVATE_MESSAGE);
+  });
+});
+
+describe("a spent budget on a link to an issue", () => {
+  it("is answered with the link's page, which has no menu", async () => {
+    const refused = await refusedAt(`/arende/obrf_rl_${"F".repeat(43)}`, {
+      "accept-language": "sv",
+    });
+
+    expect(refused.statusCode).toBe(429);
+    expect(refused.body).toBe("<p>refused on the link in sv</p>");
+    expect(Number(refused.headers["retry-after"])).toBeGreaterThan(0);
+  });
+
+  it("logs a page it cannot draw as the link's, and never the address", async () => {
+    const token = `obrf_rl_${"G".repeat(43)}`;
+    // The token in the failure's message too, as a database error quoting the
+    // statement's parameters would carry it.
+    tooManyRequests.mockRejectedValueOnce(
+      new Error(`${PRIVATE_MESSAGE}: ${token}`),
+    );
+    const logged = loggedErrors();
+
+    const refused = await refusedAt(`/arende/${token}`);
+
+    expect(refused.statusCode).toBe(429);
+    expect(refused.body).toBe("");
+    expect(logged.messages()).toEqual([
+      "The rate-limit page for a link to an issue could not be rendered: Error",
+    ]);
+    // Every argument, frames included, not the message line alone.
+    expect(logged.everything()).not.toContain(token);
+    expect(logged.everything()).not.toContain(PRIVATE_MESSAGE);
   });
 });
 

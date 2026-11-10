@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import {
   ADDRESSES,
   ADMINISTRATOR,
@@ -13,6 +15,31 @@ import {
   OVERSIZED_LIST,
   RESIDENT,
 } from "./people";
+
+/**
+ * The contractor the work order screens use: a firm nobody runs, at an address
+ * on the reserved .test domain, with no telephone number.
+ */
+const LIFT_CONTRACTOR = {
+  name: "Hissfirman i Storgatan",
+  trade: "Hisstekniker",
+  email: "order@hissfirman.test",
+} as const;
+
+/**
+ * The firm the resident's laundry report is sent to, for the access report
+ * screens: nobody's firm either, on the reserved .test domain, with no
+ * telephone number.
+ */
+const LAUNDRY_CONTRACTOR = {
+  name: "Tvättservice i Storgatan",
+  trade: "Servicetekniker",
+  email: "order@tvattservice.test",
+} as const;
+
+/** What the administrator writes the laundry firm: the building's, nobody's. */
+const LAUNDRY_WORK_ORDER =
+  "Torktumlare två i tvättstugan i källaren startar inte och visar F12. Nyckeln finns hos styrelsen.";
 
 /**
  * Every screen the capture writes an image of, in the order it walks them.
@@ -100,6 +127,16 @@ export type Target = Where & {
    * has lost its entry, so this says it is the menu's entry that is meant.
    */
   readonly inNavigation?: true;
+  /**
+   * Look only inside the list row that shows this text.
+   *
+   * A list of reports holds the reports of every earlier walk on a stack that
+   * was already up, and neither the type, which every one of them names, nor
+   * where a row sits can tell this walk's report from theirs: the board's
+   * queue is oldest first inside a status, the resident's own list newest
+   * first. Text only this walk wrote can.
+   */
+  readonly inRowWith?: string;
 };
 
 /**
@@ -187,6 +224,25 @@ export interface ContactMessage {
 }
 
 /**
+ * An issue reported through the website's issue report form by somebody who
+ * has no account (ADR 0055).
+ *
+ * Like everything a capture can photograph, it is published: an address on the
+ * reserved `.test` domain, and nothing that could be about anybody.
+ */
+export interface PubliclyReportedIssue {
+  /** The issue type, by name. The walk adds it, open to the public, if absent. */
+  readonly type: string;
+  readonly description: string;
+  /**
+   * Where the private link is mailed. The walk adds a suffix of its own, so a
+   * walk against a stack that is already up does not spend the address's mails
+   * for the day on the walks before it.
+   */
+  readonly email: string;
+}
+
+/**
  * Somebody put in the register and moved into an apartment over the API.
  *
  * Like everything a capture can photograph, it is published: a name nobody
@@ -226,6 +282,36 @@ export type Action =
    * the screens after it photograph the website as the board left it.
    */
   | { readonly postContactMessages: readonly ContactMessage[] }
+  /**
+   * Report this issue through the public issue report form, then reopen the
+   * screen, which reads the queue when it opens.
+   *
+   * Over HTTP as a visitor would, from a page with the form written for the
+   * purpose and removed again afterwards, and with the board's switch for
+   * public reports put back as it was. The report leaves an address, so the
+   * instance mails it a private link, which `openMailedLink` follows.
+   */
+  | { readonly reportIssuePublicly: PubliclyReportedIssue }
+  /**
+   * Go to the private link the instance mailed to this address, as the
+   * reporter does: the newest message to it, read out of the stack's mailbox.
+   *
+   * The address as `reportIssuePublicly` was given it; the walk adds the same
+   * suffix. No entry could know the link in advance, since its token exists
+   * only in the mail.
+   */
+  | { readonly openMailedLink: string }
+  /**
+   * Open the handling of the issue `reportIssuePublicly` filed from this
+   * address, in the queue on screen.
+   *
+   * The address as `reportIssuePublicly` was given it; the walk adds the same
+   * suffix, and the queue row shows the reporter's address, so the row is this
+   * walk's own. Neither the type, which the handling control names, nor where
+   * the row sits can tell it from older reports earlier walks left on a stack
+   * that was already up: the queue orders by status meaning first.
+   */
+  | { readonly openPubliclyReportedIssue: string }
   /**
    * Install this plugin from the stack's catalog as the board does, and wait
    * until the restart that ends the install has brought its view back.
@@ -304,6 +390,15 @@ export type Action =
         readonly items: readonly string[];
       };
     }
+  /**
+   * Hold a proposal to raise the issue `reportIssuePublicly` filed from this
+   * address to urgent, as whoever is signed in, then reopen the screen.
+   *
+   * For the pending-changes screen with an issue write on it, as the AI
+   * package proposes one (ADR 0056). The address as `reportIssuePublicly` was
+   * given it; the walk adds the same suffix, so the issue is this walk's own.
+   */
+  | { readonly proposeUrgentIssue: string }
   /**
    * Release every pending change whoever is signed in holds, then reopen the
    * screen.
@@ -420,6 +515,7 @@ const BOARD_FEED = (() => {
     erasedAt: null,
     liked: false,
     issue: null,
+    knownFault: null,
     mayReportIssue: false,
     mayEdit: false,
     mayReadHistory: false,
@@ -556,6 +652,13 @@ const MOTION = {
  */
 const MOTION_DEADLINE_CARD = "Sista dag för motioner";
 
+/** The settings card public issue reporting is switched on in, named once. */
+const ISSUE_REPORTING_CARD = "Felanmälan från webbplatsen";
+
+/** What that card says while the public report form is on. */
+const ISSUE_REPORTING_ON =
+  "På: formuläret finns på webbplatsen och erbjuder typerna för icke-medlem.";
+
 /** The settings card the board mailbox is set up in, named once. */
 const BOARD_MAILBOX_CARD = "Styrelsens gemensamma brevlåda";
 
@@ -609,6 +712,69 @@ const LAUNDRY = {
   opensAt: "07:00",
   closesAt: "21:00",
 } as const;
+
+/**
+ * A saved reply the board adds to its own card (decision 17).
+ *
+ * A reply the association might write to a reporter, and nobody's own words:
+ * the screen holds no personal identity number, name or address.
+ */
+const SAVED_REPLY = {
+  title: "Vi har tagit emot din anmälan",
+  body: "Tack för din anmälan. Styrelsen tittar på den och återkommer med besked.",
+} as const;
+
+/** The settings card the saved replies are kept in. */
+const SAVED_REPLIES_CARD = "Sparade svar";
+
+/**
+ * A common area the board adds to its own card (decision 30): a room, never an
+ * apartment, and nobody's own words.
+ */
+const COMMON_AREA = "Bastu";
+
+/** The settings card the common areas are kept in. */
+const COMMON_AREAS_CARD = "Gemensamma utrymmen";
+
+/**
+ * A fault reported from the website by somebody without an account (ADR 0055),
+ * and what the board writes on it: to the reporter, and to itself. About the
+ * building, and nobody's own words.
+ */
+const PUBLIC_REPORT = {
+  type: "Trappbelysning",
+  description: "Lampan i trapphuset på plan tre blinkar och slocknar.",
+  email: "anmalare@eksemplet.test",
+} as const;
+const PUBLIC_REPORT_ANSWER =
+  "Tack, vi har beställt en elektriker. Vi hör av oss när den kommer.";
+const PUBLIC_REPORT_NOTE = "Elektrikern har nyckel till elcentralen.";
+
+/**
+ * What tells this walk's reports from those of earlier walks against a stack
+ * that was already up, fixed once when the file is loaded. Written into a
+ * report's description, so a screen can find its own report by it.
+ */
+const WALK_STAMP = randomBytes(3).toString("hex");
+
+/**
+ * A fault a resident reports on the house's page, under a type a new instance
+ * starts with that only residents report, and the board's answer to it. About
+ * the building, and nobody's own words.
+ */
+const RESIDENT_REPORT = {
+  type: "Tvättstuga",
+  location: "Tvättstugan i källaren",
+  description: `Torktumlare två startar inte, displayen visar F12. Referens ${WALK_STAMP}.`,
+} as const;
+/**
+ * What the screens that open this walk's own report select its row by: the
+ * report's description ends in it, and the board's queue and the resident's
+ * list both show the description.
+ */
+const RESIDENT_REPORT_ROW = `Referens ${WALK_STAMP}.`;
+const RESIDENT_REPORT_ANSWER =
+  "Tack! Serviceteknikern kommer på torsdag. Använd torktumlare ett så länge.";
 
 /**
  * A "YYYY-MM-DD" date some whole days from today.
@@ -2197,6 +2363,137 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Var finns tvättstugan?" },
   },
 
+  {
+    /*
+     * The responsibility guide (ansvarsfördelning), filled in from the example
+     * and adopted.
+     *
+     * The example is the product's own lines from the translations, so the
+     * picture shows nothing anybody typed. Adopted, because that is the state
+     * a reporter is shown it in, and the card then carries the date it was
+     * adopted on. The date proves the save was read back, which is what makes
+     * it the marker for the data rather than for the card. It is also what
+     * tells a rerun the guide is already saved.
+     */
+    name: "settings-responsibility-guide",
+    as: "administrator",
+    goto: appPath("/board/settings/issues-bookings"),
+    prepare: [
+      // The form, which arrives with the read of the guide: the card is there
+      // before it.
+      { see: { button: "Spara ansvarsfördelningen" } },
+      // Skipped where a walk against a stack that is already up saved the
+      // guide with lines. The example is offered only while the table has no
+      // line, so it is loaded only where there is no first line to remove, and
+      // the guide is saved then, also where it was adopted with no lines: the
+      // public form shows a guide only when it has a line. Loading the example
+      // always clears the form's adoption box, also where the guide is adopted
+      // (the date beside it comes from the stored table), so the box is ticked
+      // here unconditionally: saving it unticked would withdraw an adopted
+      // guide.
+      {
+        unlessSeen: { button: "Ta bort rad 1" },
+        steps: [
+          { click: { button: "Fyll i exemplet" } },
+          { click: { label: "Tabellen följer föreningens stadgar" } },
+          { click: { button: "Spara ansvarsfördelningen" } },
+          // Waits for the save to be read back. Without it the check below
+          // runs before the date is there and ticks the box a second time,
+          // which withdraws the guide again. For an adopted guide the date is
+          // there at once, so the capture waits for the saving label to go
+          // (see `waitUntilGone` below).
+          { see: { text: /^Antagen / } },
+        ],
+      },
+      // A saved draft that has lines and is not yet adopted.
+      {
+        unlessSeen: { text: /^Antagen / },
+        steps: [
+          { click: { label: "Tabellen följer föreningens stadgar" } },
+          { click: { button: "Spara ansvarsfördelningen" } },
+        ],
+      },
+    ],
+    waitFor: { text: /^Antagen / },
+    // An adopted guide shows its date from the stored table, so the marker
+    // above is there before a save started by this entry has finished. The
+    // panel's own saving label is gone when it has, and the form is no longer
+    // locked.
+    waitUntilGone: { text: "Sparar..." },
+    capture: { panel: "Ansvarsfördelning" },
+  },
+  {
+    /*
+     * Public reporting switched on, and the report form placed on the
+     * association's contact page, so that the entry below has a form to
+     * photograph. Both steps are skipped where a walk against a stack that is
+     * already up did them, since the switch and the block are kept.
+     *
+     * The contact page rather than the front page: every picture of the front
+     * page is above, and this leaves them as they were.
+     */
+    name: "settings-issue-reporting",
+    as: "administrator",
+    goto: appPath("/board/settings/issues-bookings"),
+    prepare: [
+      // The pages the form can go on, which arrive with their own read.
+      { see: { combobox: "Sida", within: ISSUE_REPORTING_CARD } },
+      {
+        unlessSeen: { text: ISSUE_REPORTING_ON, within: ISSUE_REPORTING_CARD },
+        steps: [
+          {
+            click: {
+              label: "Ta emot felanmälan från webbplatsen",
+              within: ISSUE_REPORTING_CARD,
+            },
+          },
+        ],
+      },
+      {
+        select: { combobox: "Sida", within: ISSUE_REPORTING_CARD },
+        option: "Kontakt",
+      },
+      {
+        unlessSeen: {
+          text: "Sidan har redan ett felanmälningsformulär.",
+          within: ISSUE_REPORTING_CARD,
+        },
+        steps: [
+          {
+            click: { button: "Placera på sidan", within: ISSUE_REPORTING_CARD },
+          },
+          { see: { text: /^Blocket lades sist på Kontakt\./ } },
+        ],
+      },
+    ],
+    waitFor: { text: ISSUE_REPORTING_ON, within: ISSUE_REPORTING_CARD },
+    capture: { panel: ISSUE_REPORTING_CARD },
+  },
+  {
+    /*
+     * The public report form as a visitor with no account reads it, with the
+     * responsibility guide the board adopted two entries up opened above its
+     * fields (decision 27 of the issue module plan). The guide is folded until
+     * a reader opens it, and it is opened here because the table is what the
+     * picture is about.
+     *
+     * The first match for the title, because the table repeats it as a caption
+     * a screen reader announces and nobody sees.
+     */
+    name: "site-issue-report-form",
+    as: "nobody",
+    goto: "/kontakt",
+    prepare: [{ click: { text: "Vem ansvarar för vad?", first: true } }],
+    // The sentence that says the board has adopted the guide. It is on the
+    // page only for an adopted guide with at least one line, and only inside
+    // the folded details element, which the prepare click opens. The setup two
+    // entries up leaves the guide with a line.
+    waitFor: {
+      text: "Enligt föreningens stadgar, som styrelsen läser dem. Stadgarna gäller före tabellen.",
+    },
+    capture: "page",
+  },
+
   // --- bookings ---------------------------------------------------------------
   // Three screens in one order, because each photographs what the one above it
   // did: the board names a laundry room, a resident takes an hour in it, and the
@@ -2236,6 +2533,78 @@ export const SCREENS: readonly Screen[] = [
     // it a marker for the data rather than for the card.
     waitFor: { button: `Ta ${LAUNDRY.name} ur bokning` },
     capture: { panel: "Bokningsbara resurser" },
+  },
+  {
+    /*
+     * The saved replies the handlers insert into a message to a reporter.
+     *
+     * The same route as the bookable resources above, and a card of its own:
+     * that entry crops to the other panel, so it does not show this one. The
+     * board adds a reply, so the marker is the row the save wrote rather than
+     * the card, which renders before its list is read.
+     */
+    name: "settings-issue-saved-replies",
+    as: "administrator",
+    goto: appPath("/board/settings/issues-bookings"),
+    prepare: [
+      { see: { panel: SAVED_REPLIES_CARD } },
+      {
+        fill: { label: "Namn", within: SAVED_REPLIES_CARD },
+        value: SAVED_REPLY.title,
+      },
+      {
+        fill: { label: "Text", within: SAVED_REPLIES_CARD },
+        value: SAVED_REPLY.body,
+      },
+      { click: { button: "Lägg till", within: SAVED_REPLIES_CARD } },
+    ],
+    // The row the save wrote carries its own remove control, which exists only
+    // once the list has been read back with the reply in it.
+    waitFor: { button: `Ta bort ${SAVED_REPLY.title}` },
+    capture: { panel: SAVED_REPLIES_CARD },
+  },
+  {
+    /*
+     * The common areas an issue can name beside its free-text location.
+     *
+     * The same route as the cards above, and a card of its own. The board adds
+     * an area, so the marker is the row the save wrote rather than the card,
+     * which renders before its list is read.
+     *
+     * Added only where it is not there yet: a walk against a stack that is
+     * already up added it before, and adding it again is refused as a name
+     * taken, with the refusal on the card the image shows. So the entry first
+     * waits for the list's read, a row's count or the empty notice.
+     */
+    name: "settings-issue-places",
+    as: "administrator",
+    goto: appPath("/board/settings/issues-bookings"),
+    prepare: [
+      {
+        see: {
+          text: /^(\d+ ärenden?|Inga gemensamma utrymmen\.)$/,
+          within: COMMON_AREAS_CARD,
+          first: true,
+        },
+      },
+      {
+        unlessSeen: { button: `Ta bort ${COMMON_AREA}` },
+        steps: [
+          {
+            fill: {
+              label: "Nytt gemensamt utrymme",
+              within: COMMON_AREAS_CARD,
+            },
+            value: COMMON_AREA,
+          },
+          { click: { button: "Lägg till", within: COMMON_AREAS_CARD } },
+        ],
+      },
+    ],
+    // The row the save wrote carries its own remove control, which exists only
+    // once the list has been read back with the area in it.
+    waitFor: { button: `Ta bort ${COMMON_AREA}` },
+    capture: { panel: COMMON_AREAS_CARD },
   },
   {
     /*
@@ -2334,8 +2703,413 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "board-issues",
     as: "administrator",
-    goto: appPath("/board/issues"),
+    // Alla: the queue opens on Mina, and the administrator is given nothing.
+    goto: appPath("/board/issues?view=all"),
     waitFor: { heading: "Ärendekön" },
+    capture: "page",
+  },
+  {
+    /*
+     * Handling one issue (ADR 0054): the administrator opens an internal issue
+     * under one of the types a new instance starts with, and opens its
+     * handling under the row - the assignee, the priority, the target date,
+     * the board-only switch and the timeline. The text is the building's and
+     * nobody's, as everything a capture photographs is published.
+     */
+    name: "board-issues-handling",
+    as: "administrator",
+    // Alla, where the issue opened below lands: it is given to nobody.
+    goto: appPath("/board/issues?view=all"),
+    prepare: [
+      { see: { heading: "Lägg upp ett ärende" } },
+      { select: { combobox: "Vad gäller det" }, option: "Hiss" },
+      {
+        fill: { label: "Vad har hänt" },
+        value: "Hissen i port B stannar mellan våning två och tre.",
+      },
+      { click: { button: "Lägg upp ärendet" } },
+      { see: { text: "Ärendet är upplagt och ligger i kön." } },
+      // The first: a walk against a stack that is already up has older Hiss
+      // issues the administrator opened the same way, and the queue's label is
+      // the type's alone, so no row can be told from another by it. Any of them
+      // photographs the same panel.
+      { click: { text: /^Hantera Hiss:/, first: true } },
+    ],
+    // The timeline's first step, which is there only once its read is back.
+    waitFor: { text: "Upplagt som internt ärende" },
+    capture: "page",
+  },
+  {
+    /*
+     * The contractor list (decision 23 of the issue module's plan), with the
+     * lift firm the next screen sends a work order to. Added once: a walk
+     * against a stack that is already up finds it on the list. No telephone
+     * number, as nothing a capture photographs may carry one, and the address
+     * is on the reserved .test domain.
+     */
+    name: "settings-contractors",
+    as: "administrator",
+    goto: appPath("/board/settings/issues-bookings"),
+    prepare: [
+      { see: { panel: "Entreprenörer" } },
+      // The list's own read, empty or not, before asking whether the firm is
+      // on it.
+      {
+        see: {
+          text: /^(Det finns inga entreprenörer på listan än\.|Skrivna arbetsorder: \d+)$/,
+          first: true,
+        },
+      },
+      {
+        unlessSeen: { button: `Ta bort ${LIFT_CONTRACTOR.name}` },
+        steps: [
+          {
+            fill: { label: "Namn", within: "Entreprenörer" },
+            value: LIFT_CONTRACTOR.name,
+          },
+          {
+            fill: { label: "Yrke", within: "Entreprenörer" },
+            value: LIFT_CONTRACTOR.trade,
+          },
+          {
+            fill: { label: "E-postadress", within: "Entreprenörer" },
+            value: LIFT_CONTRACTOR.email,
+          },
+          {
+            click: { button: "Lägg till entreprenör", within: "Entreprenörer" },
+          },
+        ],
+      },
+    ],
+    waitFor: { button: `Ta bort ${LIFT_CONTRACTOR.name}` },
+    capture: { panel: "Entreprenörer" },
+  },
+  {
+    /*
+     * A work order on the lift issue the handling screen opened, previewed
+     * before it is sent: the mail as the contractor will receive it, carrying
+     * the handler's text and nothing of the issue. Not sent, so the walk
+     * leaves no mail behind.
+     */
+    name: "board-issues-work-order",
+    // Alla, where the lift issue the handling screen opened lands: it is given
+    // to nobody, and the queue opens on Mina.
+    goto: appPath("/board/issues?view=all"),
+    prepare: [
+      // The first, for the reason the handling screen gives.
+      { click: { text: /^Arbetsorder för Hiss$/, first: true } },
+      {
+        select: { combobox: "Hiss: entreprenör" },
+        option: `${LIFT_CONTRACTOR.name} (${LIFT_CONTRACTOR.trade})`,
+      },
+      {
+        fill: { label: "Hiss: arbetsorder" },
+        value:
+          "Hissen i port B stannar mellan våning två och tre. Nyckeln till maskinrummet finns hos styrelsen.",
+      },
+      { click: { button: "Förhandsgranska" } },
+    ],
+    waitFor: { text: "Mejlet som entreprenören kommer att få" },
+    capture: "page",
+  },
+  {
+    /*
+     * A report from the website by somebody without an account, who left an
+     * address and so was mailed a private link (ADR 0055). The handling says
+     * the reporter reads the answers through that link and offers to withdraw
+     * it, and the administrator writes the reporter an answer and the board an
+     * internal note, so the reporter's page below can show the one and not the
+     * other.
+     */
+    name: "board-issues-reporter-link",
+    as: "administrator",
+    goto: appPath("/board/issues?view=all"),
+    prepare: [
+      { reportIssuePublicly: PUBLIC_REPORT },
+      // By the row that carries this walk's address: a stack that was already
+      // up holds the reports of earlier walks, of the same type and words,
+      // which would otherwise take this walk's note and answer.
+      { openPubliclyReportedIssue: PUBLIC_REPORT.email },
+      { see: { text: /^Anmälaren har inget konto och läser svaren/ } },
+      {
+        fill: { label: `${PUBLIC_REPORT.type}: intern anteckning` },
+        value: PUBLIC_REPORT_NOTE,
+      },
+      { click: { button: "Lägg till anteckning" } },
+      { see: { text: PUBLIC_REPORT_NOTE } },
+      {
+        fill: { label: `${PUBLIC_REPORT.type}: meddelande till anmälaren` },
+        value: PUBLIC_REPORT_ANSWER,
+      },
+      { click: { button: "Skicka" } },
+      { see: { text: PUBLIC_REPORT_ANSWER } },
+    ],
+    waitFor: {
+      button: `${PUBLIC_REPORT.type}: dra tillbaka anmälarens privata länk`,
+    },
+    capture: "page",
+  },
+  {
+    /*
+     * The page the private link opens: the issue's type, status and day, and
+     * the conversation, signed as the board and never with a name. The internal
+     * note the entry above added is not on it, and neither is who handles the
+     * issue. Text only, so there is no file field.
+     */
+    name: "site-issue-link",
+    as: "nobody",
+    prepare: [{ openMailedLink: PUBLIC_REPORT.email }],
+    waitFor: { text: PUBLIC_REPORT_ANSWER },
+    capture: "page",
+  },
+  {
+    name: "site-issue-link-sent",
+    prepare: [
+      {
+        fill: { label: "Skriv till föreningen" },
+        value: "Tack, jag är hemma hela onsdagen.",
+      },
+      { click: { button: "Skicka" } },
+    ],
+    waitFor: { text: "Ditt meddelande har skickats till föreningen." },
+    capture: "page",
+  },
+  {
+    /*
+     * What every link that opens nothing gets, whether it never existed, has
+     * expired or was withdrawn: one page, so none of them can be told from
+     * another.
+     */
+    name: "site-issue-link-not-found",
+    goto: `/arende/obrf_rl_${"A".repeat(43)}`,
+    waitFor: { heading: "Länken öppnar inget ärende" },
+  },
+  {
+    /*
+     * A resident reports on the house's page, under one of the types a new
+     * instance starts with that only residents report. The receipt is drawn
+     * once the report is stored, so waiting for it waits for the queue.
+     */
+    name: "issues-resident-report",
+    as: "resident",
+    goto: appPath("/issues"),
+    prepare: [
+      { select: { combobox: "Vad gäller det" }, option: RESIDENT_REPORT.type },
+      { fill: { label: "Var i huset" }, value: RESIDENT_REPORT.location },
+      { fill: { label: "Vad har hänt" }, value: RESIDENT_REPORT.description },
+      { click: { button: "Skicka anmälan" } },
+    ],
+    waitFor: { text: "Anmälan är skickad och ligger nu i kön." },
+    capture: "page",
+  },
+  {
+    /*
+     * The board answers the resident from the handling. The resident is
+     * mailed that there is an answer, never what it says, and reads it on the
+     * screen below.
+     */
+    name: "board-issues-conversation",
+    as: "administrator",
+    // Alla: the type a new instance starts with gives its reports to nobody.
+    goto: appPath("/board/issues?view=all"),
+    prepare: [
+      // This walk's own report: a stack that is already up holds the reports
+      // of earlier walks under the same type.
+      {
+        click: {
+          text: new RegExp(`^Hantera ${RESIDENT_REPORT.type}:`),
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+      },
+      {
+        fill: {
+          label: `${RESIDENT_REPORT.type}: meddelande till anmälaren`,
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+        value: RESIDENT_REPORT_ANSWER,
+      },
+      {
+        click: {
+          button: "Skicka",
+          inRowWith: RESIDENT_REPORT_ROW,
+          // The handling offers the same button to more than one of its forms.
+          first: true,
+        },
+      },
+    ],
+    waitFor: { text: RESIDENT_REPORT_ANSWER, inRowWith: RESIDENT_REPORT_ROW },
+    capture: "page",
+  },
+  {
+    /*
+     * The resident's own report, with the board's answer signed as the board
+     * and never with the name of whoever wrote it, and a field to answer back.
+     */
+    name: "issues-resident-conversation",
+    as: "resident",
+    goto: appPath("/issues"),
+    prepare: [
+      {
+        click: {
+          text: new RegExp(`^Meddelanden om ${RESIDENT_REPORT.type}`),
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+      },
+    ],
+    waitFor: { text: RESIDENT_REPORT_ANSWER, inRowWith: RESIDENT_REPORT_ROW },
+    capture: "page",
+  },
+  {
+    /*
+     * A charge made from the issue (decision 26): the charge form opens tied
+     * to the issue, its reason naming the type and nothing the resident
+     * wrote. Not recorded, so the walk leaves no charge behind.
+     */
+    name: "member-charge-from-issue",
+    as: "administrator",
+    goto: appPath("/board/issues?view=all"),
+    prepare: [
+      {
+        click: {
+          text: new RegExp(`^Hantera ${RESIDENT_REPORT.type}:`),
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+      },
+      {
+        click: {
+          link: `${RESIDENT_REPORT.type}: skapa debitering`,
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+      },
+    ],
+    waitFor: { text: /Debiteringen görs från ärendet/, first: true },
+    capture: "page",
+  },
+  {
+    /*
+     * The resident's access report with a work order on the issue they
+     * reported (ADR 0057, question 7). The administrator sends the laundry firm
+     * a work order on this walk's report, then takes the resident's report
+     * from the address book: the work order is listed with whom it went to and
+     * when, and its text is not given until the board has weighed it, so the
+     * report cannot be printed yet. The firm goes on the contractor list once,
+     * so a walk against a stack that is already up finds it there. Sending is
+     * what puts a work order's text on the report, so this one is sent, to an
+     * address on the reserved .test domain that mailpit collects.
+     */
+    name: "data-subject-report-work-order-unweighed",
+    as: "administrator",
+    goto: appPath("/board/settings/issues-bookings"),
+    prepare: [
+      { see: { panel: "Entreprenörer" } },
+      { see: { button: `Ta bort ${LIFT_CONTRACTOR.name}` } },
+      {
+        unlessSeen: { button: `Ta bort ${LAUNDRY_CONTRACTOR.name}` },
+        steps: [
+          {
+            fill: { label: "Namn", within: "Entreprenörer" },
+            value: LAUNDRY_CONTRACTOR.name,
+          },
+          {
+            fill: { label: "Yrke", within: "Entreprenörer" },
+            value: LAUNDRY_CONTRACTOR.trade,
+          },
+          {
+            fill: { label: "E-postadress", within: "Entreprenörer" },
+            value: LAUNDRY_CONTRACTOR.email,
+          },
+          {
+            click: { button: "Lägg till entreprenör", within: "Entreprenörer" },
+          },
+          { see: { button: `Ta bort ${LAUNDRY_CONTRACTOR.name}` } },
+        ],
+      },
+      { visit: appPath("/board/issues?view=all") },
+      {
+        click: {
+          text: new RegExp(`^Arbetsorder för ${RESIDENT_REPORT.type}$`),
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+      },
+      {
+        select: {
+          combobox: `${RESIDENT_REPORT.type}: entreprenör`,
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+        option: `${LAUNDRY_CONTRACTOR.name} (${LAUNDRY_CONTRACTOR.trade})`,
+      },
+      {
+        fill: {
+          label: `${RESIDENT_REPORT.type}: arbetsorder`,
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+        value: LAUNDRY_WORK_ORDER,
+      },
+      {
+        click: { button: "Förhandsgranska", inRowWith: RESIDENT_REPORT_ROW },
+      },
+      {
+        click: {
+          button: `Skicka till ${LAUNDRY_CONTRACTOR.name}`,
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+      },
+      {
+        see: {
+          text: new RegExp(
+            `^Arbetsordern till ${LAUNDRY_CONTRACTOR.name} är sparad`,
+          ),
+          inRowWith: RESIDENT_REPORT_ROW,
+        },
+      },
+      { visit: appPath("/board/address-book") },
+      { click: { button: `Öppna ${RESIDENT.name}` } },
+      { see: { heading: RESIDENT.name } },
+      { click: { button: "Ta fram registerutdraget" } },
+    ],
+    // The first, for the reason the weighing entry below gives.
+    waitFor: {
+      text: "Inte utlämnat: styrelsen har ännu inte prövat det",
+      first: true,
+    },
+    capture: "page",
+  },
+  {
+    /*
+     * The board weighing the resident's issue for that report: the work order
+     * named by the firm it went to, with its text and the choices for it. A
+     * reporter's own report has no choice that would tell who reported the
+     * issue. The first, because a stack that is already up holds the reports
+     * of earlier walks under the same type, and the report's table has no row
+     * text only this walk wrote; any of them photographs the same panel.
+     */
+    name: "data-subject-report-weighing",
+    prepare: [
+      {
+        click: { button: "Pröva vad som lämnas ut", first: true },
+      },
+      // The legend carries the work order's date after the firm's name.
+      {
+        see: {
+          text: new RegExp(`^Arbetsorder till ${LAUNDRY_CONTRACTOR.name}`),
+          first: true,
+        },
+      },
+      { scrollTo: { heading: /^Pröva ärende .+ för utdraget$/, first: true } },
+    ],
+    waitFor: { label: /^Lämna ut$/ },
+  },
+  {
+    /*
+     * The same report once the board gave the work order's text: the handler's
+     * words to the firm on the report, and Print offered again.
+     */
+    name: "data-subject-report-work-order-given",
+    prepare: [
+      { click: { label: /^Lämna ut$/ } },
+      { click: { button: "Spara prövningen" } },
+    ],
+    waitFor: { text: LAUNDRY_WORK_ORDER, first: true },
     capture: "page",
   },
 
@@ -3525,6 +4299,28 @@ export const SCREENS: readonly Screen[] = [
     ],
     // The proposed agenda's heading exists only once the meeting has been read.
     waitFor: { text: "Den föreslagna dagordningen" },
+    capture: "page",
+  },
+  {
+    /*
+     * A proposal to raise an issue to urgent, as the person who asked for it
+     * reads it before confirming (ADR 0056): the issue's number, type, status,
+     * priority and target date as they stand now, the priority with what
+     * confirming sets beside it.
+     *
+     * The issue is the one the website's form filed above, so the walk holds
+     * the change for it by its reporter's address; the agenda's proposal is
+     * released first, so the card is the only one on the screen.
+     */
+    name: "pending-changes-issue",
+    as: "administrator",
+    goto: appPath("/pending-changes"),
+    prepare: [
+      { releasePendingChanges: true },
+      { proposeUrgentIssue: PUBLIC_REPORT.email },
+    ],
+    // The issue's facts exist only once the target has been read.
+    waitFor: { text: "Ärendenummer" },
     capture: "page",
   },
   // --- the apartment binder ------------------------------------------------

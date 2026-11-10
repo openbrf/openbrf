@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import type { Capability, Principal } from "../authorization/capabilities";
-import { reportableAudiences } from "./issue-audience";
+import { reporterGroupsOf } from "./issue-reporter-groups";
 
 /**
- * The audience rule, which decides what a person is even offered.
+ * The reporter rule, which decides what a person is even offered.
  *
  * It is asserted here rather than only through HTTP because it is the whole of
- * the promise the module makes: a member picks from the member types, a
- * non-member from the non-member ones, and the board's internal categories are
- * shown to nobody who does not handle issues.
+ * the promise the module makes: a resident picks from the types residents may
+ * report, everybody else from the ones the public may, and the board's internal
+ * categories are shown to nobody who does not handle issues.
  */
 
 function principal(input: {
@@ -28,39 +28,39 @@ function principal(input: {
   };
 }
 
-describe("reportableAudiences", () => {
-  it("offers a caller with no session the non-member types only", () => {
-    expect(reportableAudiences(null)).toEqual(["NON_MEMBER"]);
+describe("reporterGroupsOf", () => {
+  it("offers a caller with no session the public types only", () => {
+    expect(reporterGroupsOf(null)).toEqual(["PUBLIC"]);
   });
 
-  it("offers a resident the member types, and not the board's", () => {
+  it("offers a resident the residents' types, and not the board's", () => {
     expect(
-      reportableAudiences(
+      reporterGroupsOf(
         principal({ isResident: true, capabilities: ["issues:report"] }),
       ),
-    ).toEqual(["MEMBER"]);
+    ).toEqual(["RESIDENTS"]);
   });
 
   it("treats a tenant the same as a tenant-owner", () => {
-    // The audience names who is reporting, not who holds the apartment: a
+    // The group names who is reporting, not who holds the apartment: a
     // partner reports the same broken lift.
     expect(
-      reportableAudiences(principal({ isResident: true, isMember: false })),
+      reporterGroupsOf(principal({ isResident: true, isMember: false })),
     ).toEqual(
-      reportableAudiences(principal({ isResident: true, isMember: true })),
+      reporterGroupsOf(principal({ isResident: true, isMember: true })),
     );
   });
 
-  it("treats a signed-in person who does not live here as a non-member", () => {
-    expect(reportableAudiences(principal({}))).toEqual(["NON_MEMBER"]);
+  it("treats a signed-in person who does not live here as the public", () => {
+    expect(reporterGroupsOf(principal({}))).toEqual(["PUBLIC"]);
   });
 
   it("adds the internal types for whoever handles issues", () => {
     expect(
-      reportableAudiences(
+      reporterGroupsOf(
         principal({ isResident: true, capabilities: ["issues:handle"] }),
       ),
-    ).toEqual(["MEMBER", "BOARD"]);
+    ).toEqual(["RESIDENTS", "HANDLERS"]);
   });
 
   it("never offers the internal types to a reporter who cannot handle them", () => {
@@ -69,7 +69,7 @@ describe("reportableAudiences", () => {
       principal({ isResident: true, capabilities: ["issues:report"] }),
       principal({ capabilities: ["issues:configure"] }),
     ]) {
-      expect(reportableAudiences(viewer)).not.toContain("BOARD");
+      expect(reporterGroupsOf(viewer)).not.toContain("HANDLERS");
     }
   });
 });

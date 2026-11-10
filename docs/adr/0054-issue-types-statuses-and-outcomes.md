@@ -1,0 +1,577 @@
+# ADR 0054: Issue types, statuses and outcomes
+
+Date: 2026-11-02
+
+## Status
+
+Accepted. The questions under [Open questions](#open-questions) are left to the
+owner, except questions 4 and 6, which the owner has decided, and question 5,
+which has an interim answer the owner may change (see
+[The interim answer to question 5](#the-interim-answer-to-question-5)). The first of four
+records for the issue module (ADRs 0054 to 0057). It replaces the rule the schema
+states over `IssueStatus`, "Deliberately three states", and the audience on
+`IssueType`. Changes the glossary rows _issue_ (ärende) and _issue type_
+(ärendetyp), and adds the terms the module names (see
+[The glossary](#the-glossary)).
+
+The decisions it records were made by the owner on 2026-11-02 in the issue
+module plan, and are cited here by that plan's numbers: "decision 6" is the
+plan's sixth. Nothing here reaches a release before the whole module does
+(decision 3): the module is built on `integration/issue-module` and lands on
+`main` in one pull request.
+
+## Context
+
+An issue today is a type, a location, a description, photos and three
+statuses. `IssueStatus` is `NEW`, `IN_PROGRESS` and `DONE`, and the schema says
+why there are no more: "a status a board cannot act on is a status that goes
+stale, and three is what the triage queue can actually keep true." Pull request
+#42, which introduced it, put comments, assignment and contractors in a later
+module. This is that module, and the rule it inherits is the one #42 stated:
+**every status needs an act that keeps it true.**
+
+An `IssueType` carries one audience, `NON_MEMBER`, `MEMBER` or `BOARD`, so a
+board that wants "Vattenläcka" offered on the website and in the application
+keeps two types with the same name. The status is spelled by hand in about
+twelve places: the schema, `IssueService`, the controller's validation, the
+action registrar, the data subject access report and its browser mirror, the
+feed's issue badge, the queue panel, the overview and the English strings. The
+queue is ordered by the enum's declaration order, and the public-form purge in
+`issue-purge.service.ts` reads `status: "DONE"` literally.
+
+The owner decided (decision 2) that all house matters share one queue, told
+apart by type: faults, questions, complaints, and cases internal to the board
+such as insurance. Subletting, motions, key orders, the contact form and the
+board mailbox keep their own flows, because sublets and motions carry statutory
+rules and GLOSSARY.md separates correspondence from an issue.
+
+## Decision
+
+### One type, with settings
+
+A type is one row (decision 5). Besides its name, whether it is active and its
+place in the order, it carries:
+
+- **Who may report it**: any of the public website's form, signed-in residents,
+  and handlers alone. A set rather than a level, so the migration below can
+  merge two types without offering either to anybody it was not offered to.
+- **Who handles it** (decision 13): the board only, or every handler. A case can
+  be tightened to the board only on its own; it cannot be loosened past its
+  type.
+- **Its statuses** (below).
+- **A default assignee** and **a default priority** (decisions 11 and 12).
+
+The name stays monolingual, stored as written (decision 59 of the product
+decision log). A new instance starts with a Swedish set that works without
+setup, so the website's form takes reports from the first day. A type that has
+been used is switched off rather than deleted, as today. The seeded set includes Störningar and an insurance type, both handled by the board
+only (decision 13).
+
+"A handler" in these records is a person holding `issues:handle` whom the type,
+and the case, let in: a board member with a seat today, an administrator, and
+the property manager where the type is handled by every handler. "The board
+only" lets in an administrator without a seat as well as a board member with
+one (the owner's answer to question 4, below). "The board
+only" is enforced inside `IssueService`, on every read and every write, by the
+same function for the screen, the actions, the counts, search and the mail and
+reminder recipients. That is where the masking of a protected reporter already
+happens, and for the same reason: a filter applied higher up is one a later
+route can step past. The two reads of a case outside `IssueService`, a
+photograph on it through the media route and its status on a post in the feed,
+ask the same function on every request, so an address a handler kept stops
+working when the board keeps the case to itself.
+
+### Four meanings, and the board's own labels
+
+Every status belongs to one of four fixed meanings (decision 6):
+
+| Meaning       | Default label | What keeps it true                                                   |
+| ------------- | ------------- | -------------------------------------------------------------------- |
+| `NEW`         | Ny            | Reported and not yet taken up. The queue shows these first.          |
+| `IN_PROGRESS` | Pågår         | Somebody is working it. The assignee is reminded when it is overdue. |
+| `WAITING`     | Väntar        | It waits on a named party, with a reason (below).                    |
+| `DONE`        | Klar          | It is closed, with an outcome (below).                               |
+
+`NEW`, `IN_PROGRESS` and `DONE` are the values of today's enum, and `DONE` keeps
+its name rather than becoming `CLOSED`, so an audit entry written before this
+change still reads as a meaning.
+
+The default set is the four labels in the table, one status of each meaning, and
+a type works with no setup at all. A board may rename a status and add more to a
+type, and each status it adds belongs to one meaning. Every type keeps at least
+one status of each meaning, so a case can always be closed and always be put to
+wait. One status of each meaning is the one a case enters when it moves into
+that meaning without a status being named: a new report, a reopening, a reply
+that ends a wait. A status that a case has stood in is switched off rather than
+deleted, as a type is, so the timeline keeps saying what it was.
+
+**Everything that decides reads the meaning and never the label.** Reminders,
+the queue's order, the views (Mine, Unassigned, Overdue, All), the counts on the
+board's front page, the purge and the data subject access report each ask which
+meaning a case is in. The queue sorts by the meaning's order and then by the
+board's order of the statuses within it, never by an enum's declaration order.
+Every one of the places that spells a status today moves to read the meaning or
+the status row, in the change that makes statuses data; none is left spelling a
+label.
+
+A label is the board's own text, as a type's name is. So the audit entry for a
+status change carries the two meanings and the two status identifiers and never
+a label, under the rule that an entry's context holds facts and never free text
+(`audit-log.service.ts`).
+
+### Waiting carries a reason
+
+Moving a case into a `WAITING` status requires one of four reasons (decision 6):
+the **reporter**, a **contractor**, **parts**, or a **decision** (`REPORTER`,
+`CONTRACTOR`, `PARTS`, `DECISION`). The reason is
+stored on the case while it waits and cleared when it leaves. A reason is a
+fact, so the audit entry carries it.
+
+The reason is what keeps the status true: it names who the case waits on, so a
+handler reading the queue knows whom to chase, and a case waiting past its
+target date is reminded like any other open case. A wait on a contractor is
+also shown with the state of its work order. A case leaves a wait by a
+handler's act; whether a reporter's reply ends a wait on the reporter by itself
+is open (question 3).
+
+### Closing carries an outcome
+
+Moving a case into a `DONE` status requires an outcome (decision 7), one of a
+fixed list:
+
+| Outcome                       | Swedish                     |
+| ----------------------------- | --------------------------- |
+| `FIXED`                       | Åtgärdat                    |
+| `TENANT_OWNER_RESPONSIBILITY` | Bostadsrättshavarens ansvar |
+| `NO_FAULT`                    | Inget fel                   |
+| `REFERRED`                    | Hänvisat                    |
+| `DUPLICATE`                   | Dublett                     |
+
+Fixed, and translated rather than written by the board, because reporting reads
+it and because the second is a statement about BRL 7 kap. that a board should
+not be able to reword into something else. `DUPLICATE` is what merging a case
+into another that is still being handled writes (decision 22); an issue that
+is done already may be merged, and keeps its closing date.
+
+`closedAt` is written when a case moves into the `DONE` meaning from another
+meaning, under `lockIssue`, as it is today, because the wrong value moves the
+purge earlier. A move between two `DONE` statuses does not touch it. Leaving
+`DONE` clears it and the outcome; the timeline keeps both.
+
+A case closed before this change has no outcome, and the migration gives it
+none. The outcome is null on those rows and on no other, and nothing derives one
+for them, on the precedent of a transfer's report basis (GLOSSARY.md,
+_övergång_): writing `FIXED` on every old closed case would be the platform
+stating something nobody decided.
+
+### Reopening
+
+A reply from the reporter within 30 days of `closedAt` reopens the case and
+alerts its assignee (decision 8). After that, the reply field offers a new
+report instead, linked to the old one by a plain, nullable reference that
+survives the old case being purged. A handler can reopen a case at any time by
+moving it out of `DONE`.
+
+### Priority, target date and assignee
+
+Three fields every case carries, set by handlers and never by a reporter
+(decisions 9 to 11): an **assignee**, one person holding `issues:handle` whom the
+case lets in, or none; a **priority**, `URGENT`, `NORMAL` or `LOW` (Akut, Normal,
+Låg); and an optional **target date**. A case is overdue when its target date
+has passed and it is not `DONE`. There are no timers: the law asks for repair
+"så snart det kan ske", and a clock on a volunteer could be read as a standard
+the association set itself. The assignee is internal, and a reporter never sees
+who it is.
+
+### The views, the filter and the front page
+
+The queue has four views (decision 15): **Mine**, the issues whose assignee is
+the reader; **Unassigned**, the issues with no assignee; **Overdue**, the open
+issues whose target date is before today on the association's calendar; and
+**All**. Overdue never holds a closed issue, because a closed issue is not
+overdue. A status filter narrows every view alike, by meaning and never by a
+label: every open meaning, one meaning, or closed issues as well. The screen
+opens it on the open issues, so each view starts as the work still to do. A
+filter by type and by priority, and a search, narrow the same way. Each view's
+count is taken under the same conditions as its list, and the screen reads a
+view's list and all four counts in one snapshot, so a count always matches its
+list. The board's front page shows three of those counts under the open filter:
+open, overdue and unassigned. It shows no charts.
+
+The search matches each of its words somewhere in the issue's description, its
+place, its type's name, its apartment's designation, its reporter's name, a
+message in its conversation with the reporter, an internal note on it or the
+name one of its work orders was written to ([ADR 0057](0057-purging-issues-in-two-layers.md#the-contractor-register)). It
+reads the first six different words and ignores any after them. Case does not
+matter, and each word is matched in both Unicode forms, composed and decomposed,
+because text is stored as it was sent. A word that mixes the two forms within
+itself is found in neither. Invisible format characters are dropped from the
+search words but not from stored text, so a description with a zero-width space
+inside a word is not found by that word; the search does not clean stored text,
+and it is not changed on write. A percent sign, an underscore or a backslash matches
+itself and nothing else. It searches only
+the issues the reader handles. It never matches what the reader is not shown: a
+protected reporter's name and apartment match nothing, so a search cannot reveal
+one by trial and error. Who is protected is read in the same transaction as the
+issues, and the rows' reporters are read there too, so a row a name matched is
+masked by the protection the match used. The name and email address of a reporter
+who used the website's form are stored encrypted, so the search does not match them. Messages and internal
+notes are text added to an issue later, and are searched under the same rule:
+only where the reader may read them. Every handler an issue lets in reads its
+whole conversation and every note on it, so the issues the reader handles are
+that boundary too. Any other text added to an issue later follows the same
+rule.
+
+A word is found anywhere in a text, not only at its start, which an ordinary
+index cannot answer. Messages and notes are the texts that grow with every
+issue, so each is read through a trigram index (the `pg_trgm` extension): a
+search no longer reads every message and note in the database for each word.
+The index finds the rows that may hold the word, and the database checks each
+against the word itself, so what a search matches is the same with the index
+as without it. A word shorter than three characters has no trigram, and for it
+the database still reads every message and note.
+
+Each word asks whether an issue has a message or a note that holds it, and the
+database chooses how to answer. With many issues left to ask about it reads the
+trigram index once and looks each issue up in what it found; with few, it reads
+each issue's messages and notes through the index on the issue instead. With
+20,000 issues, 100,000 messages and 40,000 notes on PostgreSQL 18, the plans of
+the statements a search of the whole queue sends showed the first for every
+list and count that had issues to ask about (a one-word list in 111 ms, a
+six-word one in 286 ms), and the second only where the other conditions had left
+no issue. A test holds the statements to a shape the indexes can answer
+(`issue-board-views.int-spec.ts`).
+
+The views and the search are the board's screen alone. No action reads a view or
+searches the queue, because a new read on `mcp` or `ai` needs a decision of its
+own (ADR 0040).
+
+### Cases a handler opens
+
+Any handler, the property manager included, can open a case for a named resident
+or as an internal case with no reporter (decision 14). The case records that a
+handler entered it and which handler, and shows it. Erasing that handler clears
+who it was and keeps the fact that one entered it. For a named resident, that
+resident is the reporter, and every rule about a reporter applies to them,
+masking included.
+
+The resident is named from a picker of its own, not from the address book (the
+owner's answer to question 6). The handler chooses an apartment, by its
+designation, and then one of the people living there today. There is no
+free-text search, and nobody who has moved out or has not yet moved in is
+listed. A resident with protected personal data is listed as protected, with
+neither name nor identifier. The picker answers each resident by residency
+rather than by person, and the case is opened with that residency: its person
+becomes the reporter and its apartment the case's, and no person identifier
+reaches the handler through the picker. Its routes need `issues:handle`, never
+`addressBook:read`, and each read asks the database again whether the person
+asking handles issues today, as every read of a case does. Each list of an
+apartment's residents writes an audit entry, `ISSUE_RESIDENTS_LISTED`, naming
+the apartment and how many residents were listed, never who. The list of
+apartments names nobody and is not audited, as the apartment binder's chooser
+is not.
+
+The same picker names the people a case concerns, on a case already open
+([ADR 0057](0057-purging-issues-in-two-layers.md#the-people-an-issue-concerns)):
+the handler picks a residency in the same two reads, and the person behind it is
+recorded on the case. It discloses nothing the threat review below does not
+already weigh: the same names by apartment, to the same handlers. The person
+recorded gets the case in their access report, its words as the board weighed
+them under art. 15(4) and never its reporter
+([ADR 0057](0057-purging-issues-in-two-layers.md#the-boards-weighing-under-art-154)).
+
+#### Threat review: residents' names by apartment
+
+What it discloses. A handler who does not read the address book, which today
+means the property manager, learns who lives in an apartment they choose: the
+names on the door, and that a protected resident lives there without who. It is
+the read decision 11 of the product decision log otherwise keeps from them, cut
+down to the one question opening a case needs.
+
+What it does not. No contact details, personal identity number, role in the
+apartment, move dates, former residents, residents still to move in, or
+residents of other apartments. It cannot be asked where a named person lives:
+the only way in is an apartment. A protected resident's name and person
+identifier are never in the answer. Opening a case for them is still possible,
+and they are then masked as every protected reporter is.
+
+The threat. A property manager, or somebody with their account, walks every
+apartment and assembles a list of residents by apartment, a copy of part of the
+register outside the association's control. The controls are that every walk is
+on the audit log by apartment, actor and time, so a walk of the whole house
+stands out and is on the actor's own access report. The association's processor
+agreement (personuppgiftsbiträdesavtal) binds the property manager's staff to
+confidentiality and to the association's purpose. And the grant is one an
+administrator can take back, effective on the next read. Rate limiting is not
+added: one apartment at a time is what a handler on the telephone needs, and a
+limit low enough to stop a walk would stop a busy day.
+
+Residual risk, which follows from decision 14 and the owner's answer to
+question 6: a property manager learns the names of the residents of each
+apartment they choose, as a caretaker reading the doors would. If an association does not want that, it keeps the
+property manager off the instance, or the board opens such cases itself.
+
+### Who pays, and the charge made from an issue
+
+An issue records who pays for it (decision 26): `ASSOCIATION`, `TENANT_OWNER` or
+`UNCLEAR` (Föreningen, Bostadsrättshavaren, Oklart), or nothing while nobody has
+said. Any handler records it, the property manager included, with an audit
+entry, `ISSUE_COST_RESPONSIBILITY_CHANGED`, carrying the value either side, and
+a step on the timeline. It is internal, as the assignee is.
+
+An issue carries no amount. The schema already refuses one on a key order as "a
+second answer to what the member owes", and the owner kept that rule here.
+"Skapa debitering" opens the charges screen with the form filled in from the
+issue: its apartment as the charged party where the queue shows one, otherwise
+the resident who reported it, and a reason naming the issue's type, never words
+the reporter wrote, because the reason goes into the file handed to the
+bookkeeper. The board enters the amount there. The charge records the issue in
+`MemberCharge.issueId`, a plain column with no foreign key, so the link runs from
+the charge to the issue: removing the charge leaves the issue as it was, and an
+issue purged or merged away leaves the charge, which is on a seven-year clock of
+its own. The issue's charges, with their amounts, are read from the charges
+module under `memberCharges:manage` and `issues:handle` together, through the
+queue's own rule, so an issue the reader does not handle is answered as one that
+does not exist. The property manager holds no `memberCharges:manage`, and
+nothing they read about an issue carries an amount.
+
+While the person who reported an issue has protected personal data, the link is
+withheld in both directions, by their protection as it stands when it is read
+rather than when the charge was made: the issue's charges are answered as
+withheld rather than listed, and the debiting list states the charge without
+the issue. A charge names a person or an apartment, often the reporter's own,
+and the queue withholds who is behind such a report from every handler, the
+board included. Withholding only the charged party on the issue would not do,
+because the same charge stands named on the list and its date, amount and
+reason find it there. The stored link is kept.
+
+### The responsibility guide
+
+BRL 7 kap. 12 § puts the upkeep of the apartment on the tenant-owner "om inte
+något annat bestämts i stadgarna", so where the line between the association and
+the tenant-owner runs is each association's own (decision 27). The association's
+responsibility guide (ansvarsfördelning) is a table the board edits: a part of
+the home or the building, who maintains it, and a note. The product ships an
+example the board loads into the form and changes, never a stored default, and
+the guide stays labelled as an example until the board adopts it by saying it
+follows its bylaws. Handlers see it when they decide who pays, labelled either
+way. A reporter is shown it before filing only once it is adopted, a resident
+on the report form in the application and anybody on the public website's issue
+report form: an example shown to a reporter as the association's answer is the
+legal fact this record refuses to state. The guide is association records, not
+personal data, and every line is scanned for a personal identity number,
+because once adopted it is published wherever the association takes issue
+reports, the public website included. A save replaces the whole table and
+names the version the editor read, which is when the guide was last saved; a
+save made from an older version is refused, so a board member's draft never
+replaces a colleague's correction unseen.
+
+Where a handler records that the cost is the tenant-owner's, and where an issue is
+closed as the tenant-owner's responsibility, the screen says that a message on
+the issue is not a notice to remedy (rättelseanmaning) under BRL 7 kap. 12 a §.
+If the association requires the tenant-owner to put something right, that is
+done outside Open BRF, for example by registered letter to the tenant-owner's
+usual address. The notice then counts as given even if the letter is not
+collected (7 kap. 32 §). If it is sent in another way, the association needs to
+be able to show that it arrived.
+
+### The migration
+
+`NEW`, `IN_PROGRESS` and `DONE` move onto the three default statuses of those
+meanings on each case's type. Types with the same name, compared after trimming
+and as written otherwise, merge into one whose reporters are the union of their
+audiences: `NON_MEMBER` becomes the website's form, `MEMBER` signed-in
+residents, `BOARD` handlers alone. Every merged type is handled by every handler,
+which is what every type is today, except a type for disturbances or insurance,
+which a later migration hands to the board (see
+[The interim answer to question 5](#the-interim-answer-to-question-5)). A type
+has one `active` setting where today each audience's row has its own, so a
+merge must not let one audience's setting decide another's: only duplicates that
+agree on `active` merge. The active duplicates of a name merge into one active
+type and the inactive duplicates into one inactive type, so an audience the
+board had closed stays closed, and the inactive type is still there for the
+cases filed under it. The merged type takes the earliest place in the order of
+the duplicates it replaces.
+
+### The glossary
+
+Added before any code, as the plan requires: ansvarig (assignee), arbetsorder
+(work order), entreprenör (contractor), intern anteckning (internal note), känt
+fel (known fault), prioritet (priority), senast klart (target date), skadeärende
+(damage case), svar (issue message) and tillträde (entry permission), and the
+terms below. _issue_
+and _issue type_ change to match this record, and _overview_ no longer says that
+nothing in the model assigns work to anybody.
+
+The plan proposed _due date_ for senast klart. GLOSSARY.md already gives _due
+date_ to förfallodag, the day a fee notice is to be paid, which by its own row
+is "read by nothing". A target date is read by reminders and the Overdue view,
+so one English word for both would put two opposite rules behind one
+identifier. _target date_ is proposed instead; see
+[Open questions](#open-questions).
+
+The concepts this record defines get their rows in the same change, so the
+pull requests that build them share one name for each: handläggare (handler),
+status (status), statusbetydelse (status meaning, with `NEW`, `IN_PROGRESS`,
+`WAITING` and `DONE`), utfall (outcome, with the five values above), vänteorsak
+(waiting reason, with `REPORTER`, `CONTRACTOR`, `PARTS` and `DECISION`) and
+återöppning (reopening). The rows leave open what this record leaves open: which
+status a reopened case enters and whether a reply ends a wait (questions 2 and
+3). The _handler_ row states the owner's answer to question 4: an administrator
+without a seat handles a type the board handles alone.
+
+Who pays and the responsibility guide add kostnadsansvar (cost responsibility),
+ansvarsfördelning (responsibility guide), underhållsansvar (maintenance
+responsibility) and rättelseanmaning (notice to remedy), and the _charge_ row
+says a charge may name the issue it was made from.
+
+## Open questions
+
+Calls the plan does not make, left to the owner and listed on the task that
+wrote this record:
+
+1. **What a reporter sees of a status.** The board's label, which may be written
+   for handlers ("Väntar på styrelsebeslut") and is monolingual, or the meaning
+   in the reporter's own language. And whether a reporter sees that a case waits
+   on them.
+2. **Which status a reopened case enters**: the default `IN_PROGRESS` status, or
+   the default `NEW` one, which puts it back among the unassigned. Until the
+   owner decides, a reporter's reply reopens a case into the default
+   `IN_PROGRESS` status, where it stays with its assignee; the change that
+   built reopening took that as its interim answer. A handler reopening a case
+   names the status as for any other move.
+3. **Whether a reporter's reply ends a wait on the reporter** by itself, or only
+   alerts the assignee.
+4. **An administrator without a board seat and a type handled by the board
+   only.** Decided; see below.
+5. **What marks Störningar as ring-fenced** (decision 32): a setting any type may
+   carry, and who may set it, or the seeded type alone.
+6. **How the property manager names a resident** on a case they open (decision 14) without a register read. Decided; see below.
+7. **_target date_ for senast klart**, in place of the plan's _due date_, for the
+   reason above.
+
+### The owner's answers to questions 4 and 6
+
+Decided by the owner on 2026-11-03. Both replace the interim answers the
+handling change had taken.
+
+- **Question 4.** An administrator without a seat handles a type the board
+  handles alone, and a case closed to all but the board. "The board only" keeps
+  out the property manager and nobody else. Leaving the administrator out would
+  protect nothing: they hold `issues:configure`, and could open the type to
+  every handler and read it. `issueHandlersWhere` in the issues module states
+  the rule, and its spec holds it to the capabilities of every combination of
+  roles.
+- **Question 6.** Any handler, the property manager included, names a resident
+  from the picker described under [Cases a handler opens](#cases-a-handler-opens):
+  the apartment first, then who lives there today, with protected residents
+  masked and no search. The address book stays closed to the property manager.
+
+### The interim answer to question 5
+
+Taken on 2026-11-04 by the change that built the ring-fence, as a default the
+plan allows ("the CTO may change a default and must say so"); the owner may
+change it.
+
+- **A setting any type may carry**, `IssueType.ringFenced`, rather than the
+  seeded type alone. A board that calls its complaints about neighbours
+  something else, or keeps two such types, holds them to the same rules. The
+  Swedish set a new instance starts with has Störningar ring-fenced, offered to
+  residents and handled by the board only. An instance seeded before it has no
+  Störningar type, and the board adds one and ring-fences it.
+- **An upgraded instance's type for disturbances or insurance goes to the
+  board, and is not ring-fenced.** Taken on 2026-11-08, also as a default the
+  owner may change. Before the module a type was a name the board typed, and
+  nothing said what it was for, so
+  `20261108120000_issue_disturbance_and_insurance_types_board_only` matches
+  exact names: Störningar or Störning, and Försäkringsärende, Försäkringsärenden
+  or Försäkring. It trims spaces, tabs and line breaks around the name, ignores
+  case, and on a UTF-8 database treats a composed and a decomposed ö as the
+  same. A matching type is handled by the board only, the setting decision 13
+  starts both kinds of type with, and whoever that shuts out is unassigned from
+  its issues and cleared as its default assignee. No prefix is matched:
+  "Driftstörningar" and "Störningar i TV/bredband" are outages. Nothing is
+  ring-fenced. A ring-fence on a type with issues cannot be lifted, the nightly
+  purge then removes the free text of each of its issues closed longer ago than
+  the board's ring-fenced clock (one year unless the board changed it) that no
+  legal hold keeps, and nothing about them is mailed from
+  then on, their reporter included. A guess by name would take all of that
+  on for the board, which may need those texts as evidence. Board-only keeps
+  the property manager out from the first day, and the board can reverse it.
+  The release note asks the board to ring-fence the type itself and says what
+  that removes.
+- **Set by the board**, under `issues:configure` - a board member with a seat
+  or an administrator, never the property manager - through a request of its
+  own, audited as `ISSUE_TYPE_RING_FENCE_CHANGED`. The entry also carries the
+  handling the type moved from, and that the default assignee was cleared, when
+  ring-fencing did either; never who the assignee was.
+- **Ring-fencing hands the type to the board.** `handledBy` becomes `BOARD`, and
+  whoever that shuts out is unassigned as when the board keeps any type to
+  itself. A CHECK holds a ring-fenced type to `BOARD`, so the property manager
+  is kept out by the board-only rule every read and write already asks, and no
+  second rule had to be threaded through them.
+- **Never on the website's form.** A type the form offers is not ring-fenced
+  until the board takes the form off it, and a ring-fenced type cannot be put on
+  the form, held by a second CHECK. The form's reporter is answered by mail
+  alone, and nothing about a ring-fenced issue is mailed.
+- **Never lifted once anything was reported under the type.** Lifting would hand
+  the earlier reports to the property manager, the AI package and connected
+  apps, and move them off the ring-fenced clock onto the other types'. A type
+  ring-fenced by mistake is switched off and replaced.
+- **Held for what is filed after it, on a type that already has issues.** The
+  switch may be set on a type that has issues, and it takes hold of their reads,
+  mails and clock from then on. A post an earlier issue was filed from keeps its
+  link, though, so the feed still answers that post as already reported, and the
+  house can see that a report was made. Only a report made after the ring-fence
+  is kept off the post (`ring-fenced-post`). The owner may ask for earlier links
+  to be hidden as well.
+- **Not set while a merge crosses it.** A type is not ring-fenced while one of
+  its issues is merged with an issue of a type that is not ring-fenced, either
+  way round (`ring-fence-merged`): the duplicate's reporter would go on
+  following the other report, and a handler's message to the duplicates would
+  go on reaching them, across the fence. The board reopens the duplicate
+  first, which undoes the merge. A merge takes the locks of both issues'
+  types, as ring-fencing takes the type's, so none lands between the check and
+  the change. A merge between two issues of the type itself is kept.
+- **The board sets the ring-fenced clock, and a legal hold stands over it.**
+  The free text of a ring-fenced case is removed the number of years after
+  closing the board sets for ring-fenced types, from 1 to 10 and 1 by default,
+  apart from the other types' clock: the legal review's answer of 2026-11-09,
+  which replaced the fixed year the board could not change
+  ([ADR 0057, question 4](0057-purging-issues-in-two-layers.md#the-legal-reviews-answer-to-question-4)).
+  The clock applies to a ring-fenced case that no legal hold stands on, and
+  whose reporter has neither a legal hold nor a restriction on them. A damage
+  case places a hold, and a handler may place one, so such a case keeps its
+  text until the hold is released, which the legal review confirmed
+  ([ADR 0057](0057-purging-issues-in-two-layers.md#the-clock)).
+- **The form's warning asks for what happened.** A reporter who chooses a
+  ring-fenced type is asked to describe what happened, what they saw and heard,
+  and when, and not to accuse anyone of a crime or give the details of a
+  police report: an allegation of a concrete crime is offence data under GDPR
+  art. 10 whether or not it was reported.
+
+What else the ring-fence does is in the glossary's row _ring-fenced issue type_
+(avskärmad ärendetyp): no mail about one to anybody, no report under it from a
+post, nothing on `mcp` or `ai` ([ADR 0056](0056-issue-handling-on-mcp-and-ai.md)),
+no work order ([ADR 0055](0055-links-for-reporters-and-contractors-without-an-account.md)),
+and its own clock ([ADR 0057](0057-purging-issues-in-two-layers.md)).
+
+## Consequences
+
+- `IssueStatus` and `IssueAudience` give way to status rows with a meaning, and
+  to the type's settings. Each of the places that spells a status today moves in
+  the same change, and the public-form purge reads the `DONE` meaning
+  ([ADR 0057](0057-purging-issues-in-two-layers.md)).
+- The property manager's role widens: they may open cases, naming a resident
+  from the picker, and a board-only type is closed to them. `PRODUCT.md` and the comment over
+  `PROPERTY_MANAGER_CAPABILITIES` say so.
+- A reporter's form offers the types whose reporters include them, as today; the
+  board's internal categories are still shown to nobody who does not handle
+  issues.
+- The AI package's triage moves from four priorities to three (decision 35), in
+  its own repository.
+- The database server has to offer `pg_trgm`, for the search's indexes. It
+  ships with PostgreSQL's contrib modules, in the image the bundled database
+  runs and on the common managed servers, and it is a trusted extension, so the
+  schema owner creates it without being a superuser
+  ([docs/deployment.md](../deployment.md#the-searchs-extension)).

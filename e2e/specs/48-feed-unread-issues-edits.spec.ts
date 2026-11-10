@@ -139,7 +139,7 @@ test.describe("the feed's additions", () => {
     });
     await createIssueType(request, stack.baseUrl, {
       name: ISSUE_TYPE,
-      audience: "MEMBER",
+      reporters: ["RESIDENTS"],
     });
 
     // The neighbour reads the feed to the end, which is their last visit.

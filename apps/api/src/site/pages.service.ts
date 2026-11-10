@@ -136,6 +136,30 @@ const RESERVED_SLUGS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Names a new page is not given, though a page that already has one still
+ * opens.
+ *
+ * The page a reporter's private link opens sits under /arende (ADR 0055). A
+ * page written at /arende before keeps its address and its forms: the page is
+ * reached because the link's route has a segment more, and its forms post to
+ * /arende/kontakt and /arende/felanmalan, which the link's routes leave to the
+ * website because they match only a segment shaped like a token. Every other
+ * read below /arende is the link's, so the name is not offered to a page
+ * written from now on. The English spelling is held on the news index's
+ * argument.
+ *
+ * A contractor's link to a work order sits under /arbetsorder in the same way,
+ * whether or not the switch that opens it is on: every read below it answers
+ * as the link's, so a page written there would have no sub-address of its own.
+ */
+const CLAIMED_BELOW: ReadonlySet<string> = new Set([
+  "arende",
+  "case",
+  "arbetsorder",
+  "work-order",
+]);
+
+/**
  * The shape a slug must have.
  *
  * Lowercase, digits and single-position hyphens, starting on an alphanumeric.
@@ -160,6 +184,11 @@ export function isSlugShaped(slug: string): boolean {
 
 export function isUsableSlug(slug: string): boolean {
   return isSlugShaped(slug) && !RESERVED_SLUGS.has(slug);
+}
+
+/** Whether a page may be given this address now: usable, and not claimed. */
+export function isWritableSlug(slug: string): boolean {
+  return isUsableSlug(slug) && !CLAIMED_BELOW.has(slug);
 }
 
 /**
@@ -573,15 +602,32 @@ export class PagesService {
    * footer is on every page including the ones an anonymous visitor reads: a
    * link printed there for a page they would be answered 404 for is both a
    * broken link and a hint that the page exists.
+   *
+   * Read on the caller's client, so a transaction that asks does not wait for
+   * a second connection while it holds its own. With `share`, under a share
+   * lock on the page's row: a change to its status still in flight is waited
+   * for and read as it commits, and none can commit until the caller's
+   * transaction ends. A work order's sending asks so while it claims the work
+   * order (`WorkOrderMailerService`).
    */
-  async privacyNoticePath(): Promise<string | null> {
-    const row = await this.prisma.page.findUnique({
-      where: { slug: PRIVACY_NOTICE_SLUG },
-      select: { status: true },
-    });
-    return row !== null && row.status === "PUBLIC"
-      ? `/${PRIVACY_NOTICE_SLUG}`
-      : null;
+  async privacyNoticePath(
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+    options: { share?: boolean } = {},
+  ): Promise<string | null> {
+    let status: PageStatus | undefined;
+    if (options.share === true) {
+      const [row] = await db.$queryRaw<{ status: PageStatus }[]>`
+        SELECT "status" FROM "page" WHERE "slug" = ${PRIVACY_NOTICE_SLUG} FOR SHARE
+      `;
+      status = row?.status;
+    } else {
+      const row = await db.page.findUnique({
+        where: { slug: PRIVACY_NOTICE_SLUG },
+        select: { status: true },
+      });
+      status = row?.status;
+    }
+    return status === "PUBLIC" ? `/${PRIVACY_NOTICE_SLUG}` : null;
   }
 
   private static toSitePage(row: {

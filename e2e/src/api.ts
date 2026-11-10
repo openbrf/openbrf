@@ -671,12 +671,22 @@ export async function moveOut(
   return (await response.json()) as MoveOutResult;
 }
 
+/** Who may report an issue of a type (ADR 0054). */
+export type IssueReporterGroup = "PUBLIC" | "RESIDENTS" | "HANDLERS";
+
 export type IssueTypeRow = {
   readonly id: string;
   readonly name: string;
-  readonly audience: "NON_MEMBER" | "MEMBER" | "BOARD";
+  readonly reporters: readonly IssueReporterGroup[];
   readonly active: boolean;
   readonly reportCount: number;
+  readonly statuses: readonly {
+    readonly id: string;
+    readonly meaning: "NEW" | "IN_PROGRESS" | "WAITING" | "DONE";
+    readonly label: string;
+    readonly isDefault: boolean;
+    readonly active: boolean;
+  }[];
 };
 
 export async function listIssueTypes(
@@ -701,8 +711,12 @@ export async function createIssueType(
   baseUrl: string,
   input: {
     name: string;
-    audience: "NON_MEMBER" | "MEMBER" | "BOARD";
+    reporters: readonly IssueReporterGroup[];
     sortOrder?: number;
+    /** Every handler by default; `BOARD` keeps the type's issues to the board. */
+    handledBy?: "EVERY_HANDLER" | "BOARD";
+    /** Who a new report of the type is given to, and mailed (decision 12). */
+    defaultAssigneePersonId?: string | null;
   },
 ): Promise<IssueTypeRow> {
   const response = await request.post(`${baseUrl}/api/issue-types`, {
@@ -710,6 +724,92 @@ export async function createIssueType(
   });
   await expectOk(response, "POST /api/issue-types");
   return (await response.json()) as IssueTypeRow;
+}
+
+/**
+ * Ring-fences an issue type (decision 32): its issues are the board's alone,
+ * and never reach a property manager, a contractor, a notice, MCP or AI.
+ */
+export async function ringFenceIssueType(
+  request: APIRequestContext,
+  baseUrl: string,
+  typeId: string,
+): Promise<void> {
+  const response = await request.put(
+    `${baseUrl}/api/issue-types/${encodeURIComponent(typeId)}/ring-fence`,
+    { data: { ringFenced: true } },
+  );
+  await expectOk(response, "PUT /api/issue-types/:id/ring-fence");
+}
+
+/** Adds a contractor to the board's list (decision 23). */
+export async function createContractor(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: { name: string; trade: string; email: string },
+): Promise<{ id: string }> {
+  const response = await request.post(`${baseUrl}/api/contractors`, {
+    data: input,
+  });
+  await expectOk(response, "POST /api/contractors");
+  return (await response.json()) as { id: string };
+}
+
+/**
+ * The status an issue's timeline answers with for whoever this context is
+ * signed in as: 200 to a handler of the issue, 404 to anybody it is kept from.
+ */
+export async function issueTimelineStatus(
+  request: APIRequestContext,
+  baseUrl: string,
+  issueId: string,
+): Promise<number> {
+  const response = await request.get(
+    `${baseUrl}/api/issue-queue/${encodeURIComponent(issueId)}/timeline`,
+  );
+  return response.status();
+}
+
+/** One pending change as its proposer's own list answers it (ADR 0039). */
+export type PendingChangeRow = {
+  readonly id: string;
+  readonly actionName: string;
+  readonly target: {
+    readonly kind: string;
+    readonly id: string;
+    readonly state: string;
+  } | null;
+};
+
+/** The pending changes this context's person proposed or was proposed. */
+export async function listPendingChanges(
+  request: APIRequestContext,
+  baseUrl: string,
+): Promise<readonly PendingChangeRow[]> {
+  const response = await request.get(`${baseUrl}/api/pending-changes/mine`);
+  await expectOk(response, "GET /api/pending-changes/mine");
+  return (
+    (await response.json()) as { pendingChanges: readonly PendingChangeRow[] }
+  ).pendingChanges;
+}
+
+/**
+ * Confirms a pending change, answering the status and refusal reason rather
+ * than throwing: a refusal is what a caller of this asserts.
+ */
+export async function confirmPendingChange(
+  request: APIRequestContext,
+  baseUrl: string,
+  id: string,
+): Promise<{ status: number; reason: string | null }> {
+  const response = await request.post(
+    `${baseUrl}/api/pending-changes/mine/${encodeURIComponent(id)}/confirm`,
+  );
+  const body = jsonBodyOrNothing(await response.text());
+  return {
+    status: response.status(),
+    reason: typeof body.reason === "string" ? body.reason : null,
+  };
 }
 
 /** Whether the association's website carries an issue report form. */
@@ -729,11 +829,19 @@ export async function setPublicIssueReporting(
 
 export type QueuedIssueRow = {
   readonly id: string;
-  readonly status: "NEW" | "IN_PROGRESS" | "DONE";
+  readonly meaning: "NEW" | "IN_PROGRESS" | "WAITING" | "DONE";
+  readonly status: { readonly id: string; readonly label: string };
   readonly typeName: string;
   readonly description: string;
   readonly photos: readonly { readonly url: string }[];
-  readonly reporter: { readonly kind: string; readonly name?: string };
+  readonly reporter: {
+    readonly kind: string;
+    readonly name?: string;
+    /** For an external reporter: the address they left, or null. */
+    readonly email?: string | null;
+    /** For an external reporter: where their private link stands. */
+    readonly link?: "live" | "ended" | "none";
+  };
 };
 
 export async function listIssueQueue(
@@ -743,6 +851,72 @@ export async function listIssueQueue(
   const response = await request.get(`${baseUrl}/api/issue-queue`);
   await expectOk(response, "GET /api/issue-queue");
   return (await response.json()) as readonly QueuedIssueRow[];
+}
+
+/** How many issues each view of the queue holds, as the server counts them. */
+export type IssueQueueCountsRow = Readonly<
+  Record<"mine" | "unassigned" | "overdue" | "all", number>
+>;
+
+/** The counts of the queue's views under a filter, as the screens read them. */
+export async function issueQueueCounts(
+  request: APIRequestContext,
+  baseUrl: string,
+  filter: Readonly<Record<string, string>> = {},
+): Promise<IssueQueueCountsRow> {
+  const query = new URLSearchParams(filter).toString();
+  const response = await request.get(
+    `${baseUrl}/api/issue-queue/counts${query === "" ? "" : `?${query}`}`,
+  );
+  await expectOk(response, "GET /api/issue-queue/counts");
+  return (await response.json()) as IssueQueueCountsRow;
+}
+
+/**
+ * Opens an internal issue, with no reporter, as a handler does (decision 14).
+ *
+ * Here rather than through the screen for the specs that need issues in a
+ * given state before the screen under test is opened; opening one has its own
+ * coverage.
+ */
+export async function openInternalIssue(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: { typeId: string; description: string },
+): Promise<QueuedIssueRow> {
+  const response = await request.post(`${baseUrl}/api/issue-queue`, {
+    data: input,
+  });
+  await expectOk(response, "POST /api/issue-queue");
+  return (await response.json()) as QueuedIssueRow;
+}
+
+/** Gives an issue to a handler, or to nobody. */
+export async function assignIssue(
+  request: APIRequestContext,
+  baseUrl: string,
+  issueId: string,
+  assigneePersonId: string | null,
+): Promise<void> {
+  const response = await request.post(
+    `${baseUrl}/api/issue-queue/${encodeURIComponent(issueId)}/assignee`,
+    { data: { assigneePersonId } },
+  );
+  await expectOk(response, "POST /api/issue-queue/:id/assignee");
+}
+
+/** Sets the day an issue is meant to be done by, `YYYY-MM-DD`. */
+export async function setIssueTargetDate(
+  request: APIRequestContext,
+  baseUrl: string,
+  issueId: string,
+  targetDate: string | null,
+): Promise<void> {
+  const response = await request.post(
+    `${baseUrl}/api/issue-queue/${encodeURIComponent(issueId)}/target-date`,
+    { data: { targetDate } },
+  );
+  await expectOk(response, "POST /api/issue-queue/:id/target-date");
 }
 
 /**
@@ -981,6 +1155,36 @@ export async function postContactForm(
   if (response.status() !== 303) {
     throw new Error(
       `POST /${slug}/kontakt answered ${String(response.status())}, not the redirect a stored message gets`,
+    );
+  }
+}
+
+/**
+ * Reports an issue through the issue report form on a published page, as a
+ * visitor would: a plain form post, answered with a redirect back to the page.
+ * `type` is the issue type's id, which is what the form's select posts.
+ *
+ * A report the form could not read is redirected too, to the page with `fel`
+ * rather than `skickat`, so the address is what tells the two apart.
+ */
+export async function postIssueReportForm(
+  request: APIRequestContext,
+  baseUrl: string,
+  slug: string,
+  input: { type: string; description: string; email?: string },
+): Promise<void> {
+  const response = await request.post(`${baseUrl}/${slug}/felanmalan`, {
+    form: {
+      type: input.type,
+      description: input.description,
+      ...(input.email === undefined ? {} : { email: input.email }),
+    },
+    maxRedirects: 0,
+  });
+  const location = response.headers()["location"] ?? "";
+  if (response.status() !== 303 || !location.includes("skickat=")) {
+    throw new Error(
+      `POST /${slug}/felanmalan answered ${String(response.status())} to ${location || "nowhere"}, not the redirect a stored report gets`,
     );
   }
 }

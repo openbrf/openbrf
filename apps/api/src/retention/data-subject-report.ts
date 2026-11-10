@@ -19,8 +19,18 @@
  * checklist a reviewer reads.
  */
 
-import type { AuditChannelName } from "@openbrf/shared";
+import type {
+  AuditChannelName,
+  IssueAccessWithholdingReason,
+  IssueEntryAnswer,
+  IssueCostResponsibility,
+  IssueOutcome,
+  IssueSignature,
+  IssueStatusMeaning,
+  IssueWaitingReason,
+} from "@openbrf/shared";
 
+import type { ReporterIssueMessageView } from "../issues/issue-message-view";
 import type { MeetingNoticeDeliveryFailure } from "../meetings/meeting-notice-delivery";
 import type { NewsDeliveryFailure } from "../news/news-delivery";
 import type { ReportAuditAction } from "./report-audit-actions";
@@ -543,13 +553,280 @@ export interface ReportPublicationConsent {
  */
 export interface ReportIssue {
   issueId: string;
+  /** The issue's number, as the reporter's own screen and every mail name it. */
+  number: number;
   typeName: string;
-  status: "NEW" | "IN_PROGRESS" | "DONE";
+  /** Where it stands, as the meaning of its status (ADR 0054). */
+  meaning: IssueStatusMeaning;
+  /** How the issue ended, once it is DONE (ADR 0054). Null while open. */
+  outcome: IssueOutcome | null;
+  /** Whom the issue awaits, while WAITING (ADR 0054). Null otherwise. */
+  waitingReason: IssueWaitingReason | null;
+  /**
+   * Who a handler recorded as paying for it, or null while nobody has said
+   * (ADR 0054). Never an amount: a charge made from it is in `charges`.
+   */
+  costResponsibility: IssueCostResponsibility | null;
+  /**
+   * The name of the common area the issue is about (decision 30), or null.
+   * A building record rather than free text, so the purge leaves it.
+   */
+  place: string | null;
   location: string | null;
   description: string;
+  /**
+   * What the person answered about entering their apartment (decision 29),
+   * while the issue is open: it is cleared when the issue closes. Null when
+   * they have not answered, and after closing.
+   */
+  entry: {
+    answer: IssueEntryAnswer;
+    note: string | null;
+    pets: boolean | null;
+    masterKey: boolean | null;
+    until: string | null;
+  } | null;
+  /**
+   * When a handler redacted the description or the location, and when the
+   * purge removed the whole free-text layer (ADR 0057). Removed text is empty
+   * on the issue, so without these the copy would read as an issue filed with
+   * no words.
+   */
+  descriptionRedactedAt: string | null;
+  locationRedactedAt: string | null;
+  freeTextRemovedAt: string | null;
+  /**
+   * "YYYY-MM-DD": the earliest day the nightly purge removes the free-text
+   * layer, on the clock of the issue's type (`issueTextClockYears`). Null while
+   * the issue is open, while a legal hold stands on it (`onLegalHold`), and once
+   * nothing of the layer is left. The earliest, as for a booking: a legal hold
+   * or a restriction of the person stops the purge as well, and `retention` on
+   * this report says whether one stands; a granted erasure request takes the
+   * text sooner.
+   */
+  freeTextErasableFrom: string | null;
+  /**
+   * A legal hold stands on the issue itself, such as the one a damage case
+   * places (ADR 0057): its free text outlasts the clock until a handler
+   * releases it.
+   */
+  onLegalHold: boolean;
   reportedAt: string;
+  /** When it was closed, while it is in the `DONE` meaning. */
+  closedAt: string | null;
   photographs: number;
+  /**
+   * The conversation on the issue, oldest first, as its reporter reads it on
+   * their own screen (`IssueConversationService.reporterThread`): their own
+   * messages, and the handlers' signed with the role they wrote in, never a
+   * person (decision 19). A redacted message keeps its date and says when it
+   * was removed. Each duplicate merged into another issue has its own
+   * conversation, which its own reporter alone reads, so no other reporter's
+   * words are here.
+   *
+   * Never an internal note: those are in `notes`, weighed as the screen
+   * never shows them.
+   */
+  messages: ReporterIssueMessageView[];
+  /**
+   * The internal notes the handlers wrote on it, oldest first (EDPB Guidelines
+   * 01/2022, Example 15, paras 96-97; ADR 0057, question 1). The reporter
+   * never reads one on their own screen (decision 18), and a note may hold
+   * words about somebody else, so each is given only as the board weighed it
+   * under art. 15(4) for this report: whole, in part, or left out, for a
+   * stated reason. Never who wrote it.
+   */
+  notes: ReportIssueNote[];
+  /**
+   * The work orders a handler sent a contractor about it, oldest first: the
+   * recipients this issue was disclosed to, which GDPR art. 15(1)(c) has the
+   * report name, and each one's text as the board weighed it for this report
+   * (ADR 0057, question 7).
+   */
+  workOrders: ReportIssueWorkOrder[];
 }
+
+/**
+ * A text on an issue as this person's report gives it, after the board's
+ * weighing under art. 15(4) (access weighing, ADR 0057).
+ *
+ * - `given`: the text whole, as it stands.
+ * - `givenInPart`: the board's copy of the text, with the words it left out
+ *   taken out and each place marked, and why they were left out. Never the
+ *   words left out.
+ * - `withheld`: left out whole, and why. Never any of the words.
+ * - `unweighed`: nobody has weighed it for this report yet, so none of it is
+ *   given. The board's screen says so and does not print the report until it
+ *   is weighed.
+ */
+export type ReportWeighedText =
+  | { state: "given"; text: string }
+  | {
+      state: "givenInPart";
+      text: string;
+      because: IssueAccessWithholdingReason;
+    }
+  | { state: "withheld"; because: IssueAccessWithholdingReason }
+  | { state: "unweighed" };
+
+/**
+ * An internal note on an issue, as an access report carries it: when it was
+ * written, and its text as the board weighed it. Never who wrote it, whom the
+ * reporter is never told (decision 19).
+ */
+export interface ReportIssueNote {
+  noteId: string;
+  writtenAt: string;
+  /** When a handler redacted it (ADR 0057); `content` is then null. */
+  redactedAt: string | null;
+  content: ReportWeighedText | null;
+}
+
+/**
+ * A message in the conversation on a case somebody else reported, as the
+ * report of a person it concerns carries it. The reporter's own are marked as
+ * the reporter's and never named; a handler's carries the role it was signed
+ * with, never a person (decision 19).
+ */
+export interface ReportConcerningIssueMessage {
+  messageId: string;
+  writtenAt: string;
+  side: "REPORTER" | "HANDLER";
+  /** The role a handler signed it with; null on the reporter's. */
+  signature: IssueSignature | null;
+  /** When a handler redacted it (ADR 0057); `content` is then null. */
+  redactedAt: string | null;
+  content: ReportWeighedText | null;
+}
+
+/**
+ * A case a handler recorded as concerning this person, which somebody else
+ * reported (EDPB Guidelines 01/2022, paras 96 and 104-105; ADR 0057, question
+ * 3). `issuesConcerningPerson` is what finds them.
+ *
+ * The case itself is always here: its number, its type, its dates, where it
+ * stands and how it ended. Withholding a case whole is not what art. 15(4)
+ * allows (EDPB, para 168). What it holds in words, the description, the
+ * location, the conversation, the internal notes and the text of each work
+ * order, is given only as the board weighed it for this report, because it is the reporter's words and the
+ * handlers' and may tell who reported it (paras 172-173).
+ *
+ * Never the reporter: no name, no apartment, no address, no link. Nor its
+ * source in any other form: whether the reporter may be withheld as the source
+ * under art. 15(1)(g) is open for counsel, so the report names none.
+ */
+export interface ReportIssueConcerning {
+  issueId: string;
+  /** The issue's number, as the association's letters name it. */
+  number: number;
+  typeName: string;
+  meaning: IssueStatusMeaning;
+  outcome: IssueOutcome | null;
+  waitingReason: IssueWaitingReason | null;
+  /** When a handler recorded that the case concerns this person. */
+  recordedAt: string;
+  reportedAt: string;
+  closedAt: string | null;
+  /**
+   * "YYYY-MM-DD": the earliest day the purge removes the free-text layer, and
+   * the record of whom it concerns with it, on the clock of the issue's type,
+   * as on `ReportIssue`. Null while the issue is open, under a legal hold on
+   * it, and once nothing of the layer is left.
+   */
+  freeTextErasableFrom: string | null;
+  onLegalHold: boolean;
+  /** When the purge removed the free-text layer (ADR 0057). */
+  freeTextRemovedAt: string | null;
+  /** Null once redacted or removed, which the dates beside it say. */
+  description: ReportWeighedText | null;
+  descriptionRedactedAt: string | null;
+  /** Null where none was given, or once redacted or removed. */
+  location: ReportWeighedText | null;
+  locationRedactedAt: string | null;
+  messages: ReportConcerningIssueMessage[];
+  notes: ReportIssueNote[];
+  /** A number, as on `ReportIssue`, never the files. */
+  photographs: number;
+  /**
+   * The contractors the case was sent to (art. 15(1)(c)), as on `ReportIssue`:
+   * whom, when and whether it went out, and the text as the board weighed it.
+   */
+  workOrders: ReportIssueWorkOrder[];
+}
+
+/**
+ * One work order sent about an issue on this person's report: whom it went
+ * to, when, whether the mail went out, and what it said.
+ *
+ * The text is the handler's own words to a firm, and part of the copy art.
+ * 15(3) gives while it stands (ADR 0057, question 7). It may name other people
+ * - a neighbour, another household - or tell who reported a case, so it is
+ * given only as the board weighed it under art. 15(4), as an internal note is.
+ * Never the contractor's address, which is the contractor's personal data
+ * rather than this person's, nor who sent it.
+ */
+export interface ReportIssueWorkOrder {
+  workOrderId: string;
+  /**
+   * The contractor as the mail addressed them. Null once the contractor was
+   * removed from the association's list, which erases their name from the
+   * work orders sent them too: the report then says a removed contractor.
+   */
+  recipientName: string | null;
+  /**
+   * When the handler wrote it and it was queued for the mail: the date of the
+   * disclosure. Not a claim that the mail went out, which `deliveryStatus`
+   * says, and which a failed sending never did.
+   */
+  writtenAt: string;
+  deliveryStatus: "PENDING" | "SENT" | "FAILED";
+  /**
+   * A failed sending that is known not to have gone out (no mail server, a
+   * contractor removed, a text erased), as against one nobody can vouch for.
+   */
+  notSent: boolean;
+  /**
+   * Whether the contractor was given a link to the work order (ADR 0055),
+   * through which they saw its text and the photographs below.
+   */
+  linkGiven: boolean;
+  /**
+   * How many of the issue's photographs the link showed the contractor: a
+   * disclosure art. 15(1)(c) has the report name, by number and never by file.
+   * Counted once each from when a handler exposed them, and kept when the
+   * choice is changed or a file is removed.
+   */
+  photosShared: number;
+  /** When a handler redacted the text (ADR 0057); `content` is then null. */
+  redactedAt: string | null;
+  /**
+   * The text as the board weighed it for this report. Null once a handler
+   * redacted it, which `redactedAt` says, or once its retention window ran
+   * out and the purge erased it.
+   */
+  content: ReportWeighedText | null;
+}
+
+/**
+ * An issue this person is assigned, or an issue type that names them as its
+ * default assignee (ADR 0057).
+ *
+ * Somebody else chose them, so the audit log, which answers for what a person
+ * did, does not answer for this: the section does. The case number, its type,
+ * the meaning it stands in and its dates, and never its description, location,
+ * reporter or conversation - the case is somebody else's report, and art.
+ * 15(4) keeps another person's data out of this one's copy.
+ */
+export type ReportIssueAssignment =
+  | {
+      kind: "issue";
+      issueId: string;
+      typeName: string;
+      meaning: IssueStatusMeaning;
+      reportedAt: string;
+      closedAt: string | null;
+    }
+  | { kind: "typeDefault"; typeId: string; typeName: string };
 
 /** A document this person put into the association's archive. */
 export interface ReportDocument {
@@ -1717,6 +1994,8 @@ export interface DataSubjectReport {
     releaseReason: string | null;
   }[];
   issues: ReportIssue[];
+  issuesConcerning: ReportIssueConcerning[];
+  issueAssignments: ReportIssueAssignment[];
   documents: ReportDocument[];
   apartmentDocuments: ReportApartmentDocument[];
   bookings: ReportBooking[];

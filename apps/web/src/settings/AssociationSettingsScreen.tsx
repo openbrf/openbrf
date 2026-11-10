@@ -28,7 +28,12 @@ import { BrokerUpdateRequestsPanel } from "./BrokerUpdateRequestsPanel";
 import { ContactInboxPanel } from "./ContactInboxPanel";
 import { HousingCooperativePanel } from "./HousingCooperativePanel";
 import { IssueReportingPanel } from "./IssueReportingPanel";
+import { IssuePlacesPanel } from "./IssuePlacesPanel";
+import { ContractorsPanel } from "./ContractorsPanel";
+import { IssueRetentionPanel } from "./IssueRetentionPanel";
+import { IssueSavedRepliesPanel } from "./IssueSavedRepliesPanel";
 import { IssueTypesPanel } from "./IssueTypesPanel";
+import { ResponsibilityGuidePanel } from "./ResponsibilityGuidePanel";
 import { MeetingBylawsPanel } from "./MeetingBylawsPanel";
 import { MotionDeadlinePanel } from "./MotionDeadlinePanel";
 import { DataProtectionContactsPanel } from "./DataProtectionContactsPanel";
@@ -422,6 +427,28 @@ export function AssociationSettingsScreen({
            board configures the catalogue; an administrator decides whether
            the public one exists. */
         return <IssueTypesPanel />;
+      case "contractors":
+        /* The firms a work order goes to, beside the types whose issues
+           need them, kept under the same capability. */
+        return <ContractorsPanel />;
+      case "responsibilityGuide":
+        /* Beside the types it is read with: the board's reading of its own
+           bylaws on who maintains what, shown to the handlers deciding who
+           pays and, once adopted, to residents before they report. */
+        return <ResponsibilityGuidePanel />;
+      case "issueSavedReplies":
+        /* Beside the catalogue: what a handler answers a reporter with is the
+           board's vocabulary as much as the types are. */
+        return <IssueSavedRepliesPanel />;
+      case "issuePlaces":
+        /* The common areas a report can name beside its free-text location,
+           so a repeat fault in the lift or the laundry room can be counted. */
+        return <IssuePlacesPanel />;
+      case "issueRetention":
+        /* Beside the catalogue: how long what is reported is kept is the
+           board's own decision about its data, as the types are its
+           vocabulary. */
+        return <IssueRetentionPanel />;
       case "bookableResources":
         /* What the house offers and how much of it one household may take.
            The board's own policy for its own building, which is why it shares

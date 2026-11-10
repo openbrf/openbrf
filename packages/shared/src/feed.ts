@@ -10,6 +10,9 @@
  * records what the feed is; the API's `feed` module is where each rule lives.
  */
 
+import type { IssueSignature } from "./issue-conversation.ts";
+import type { IssueStatusMeaning } from "./issue-status.ts";
+
 /**
  * Which kind of audience (målgrupp) something is for, which decides who reads it:
  * Alla, Styrelsen, a group, or Administratörer (the instance's administrators
@@ -138,22 +141,37 @@ export interface PostImageView {
   height: number | null;
 }
 
-/** Where an issue report stands: the issue module's three states. */
-export type PostIssueStatus = "NEW" | "IN_PROGRESS" | "DONE";
-
 /**
  * The issue report (felanmälan) made from a post, as somebody who may read the
  * report is shown it: whoever made it, and whoever handles issues.
  */
 export interface PostIssueView {
   id: string;
-  status: PostIssueStatus;
+  /**
+   * Where the report stands, as the meaning of its status and never the
+   * board's label for it: the label is the board's own text for its handlers,
+   * and a post is read outside the issue module (ADR 0054).
+   */
+  meaning: IssueStatusMeaning;
   /**
    * Whether this reader made the report, rather than being shown it because
    * they handle issues. A resident is shown only their own, so the resident
    * preview keeps a report on a post by this and nothing else (ADR 0049).
    */
   reportedByReader: boolean;
+}
+
+/**
+ * The known fault (känt fel) published on the issue a post was reported from
+ * (decision 22 of the issue module plan): the handler's notice, signed with a
+ * role and never a person, shown to every reader of the post while the issue
+ * is open. Unlike the report itself, which stays its reporter's and its
+ * handlers' (`PostIssueView`), the notice is written for the house.
+ */
+export interface PostKnownFaultView {
+  body: string;
+  signature: IssueSignature;
+  publishedAt: string;
 }
 
 /** One post, as a reader is shown it. */
@@ -226,6 +244,12 @@ export interface PostView {
    * handlers', and a post does not widen that.
    */
   issue: PostIssueView | null;
+  /**
+   * The known fault published on the issue made from it, or null: when none
+   * was made, none is published, the issue is closed, or the board keeps it
+   * to itself. Shown to every reader of the post.
+   */
+  knownFault: PostKnownFaultView | null;
   /**
    * Whether this reader may make an issue report from it ("Gör felanmälan"):
    * they wrote it or hold a board seat, they may report issues, and no report

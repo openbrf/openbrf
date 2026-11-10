@@ -2,7 +2,7 @@ import { fetchBoardMailboxThreads } from "../api/board-mailbox";
 import { fetchBrokerUpdateRequests } from "../api/broker-update-requests";
 import { fetchReports } from "../api/feed";
 import type { ApiResult } from "../api/client";
-import { fetchIssueQueue } from "../api/issues";
+import { fetchIssueQueueCounts } from "../api/issues";
 import { fetchKeyOrderQueue } from "../api/key-orders";
 import { fetchMotionQueue } from "../api/motions";
 import { fetchSignupRequests } from "../api/signup";
@@ -47,9 +47,14 @@ function counted<T>(
 export const QUEUE_COUNTS: Readonly<
   Record<QueueId, () => Promise<ApiResult<QueueCount | null>>>
 > = {
+  /*
+   * The open issues nobody is assigned: the ones nobody has taken up, and one
+   * of the three numbers the front page shows for the queue. Counted by the
+   * server, exactly.
+   */
   issues: async () =>
-    counted(await fetchIssueQueue({ status: "NEW" }), (issues) => ({
-      count: issues.length,
+    counted(await fetchIssueQueueCounts({ meaning: "OPEN" }), (counts) => ({
+      count: counts.unassigned,
       more: false,
     })),
 

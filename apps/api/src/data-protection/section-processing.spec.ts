@@ -83,6 +83,8 @@ const REPORTED_IN_ORDER = [
   "publicationConsents",
   "legalHolds",
   "issues",
+  "issuesConcerning",
+  "issueAssignments",
   "documents",
   "apartmentDocuments",
   "bookings",

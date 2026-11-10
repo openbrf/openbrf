@@ -125,6 +125,8 @@ const REPORT = {
   ],
   legalHolds: [{ holdId: "hold-1", reason: "Tvist" }],
   issues: [{ issueId: "issue-1" }],
+  issuesConcerning: [{ issueId: "issue-2" }],
+  issueAssignments: [{ kind: "typeDefault", typeId: "type-1" }],
   documents: [{ documentId: "document-1" }],
   apartmentDocuments: [{ apartmentDocumentId: "apartment-document-1" }],
   bookings: [
@@ -516,6 +518,8 @@ describe("what the export leaves on the access report", () => {
       "invitations",
       "newsDeliveries",
       "issues",
+      "issuesConcerning",
+      "issueAssignments",
       "documents",
       "apartmentDocuments",
       "feed",

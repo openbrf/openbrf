@@ -34,6 +34,8 @@ import {
   type DebitingList,
   exportDebitingList,
   fetchDebitingList,
+  fetchIssueChargeBasis,
+  type IssueChargeBasis,
   removeCharge,
 } from "./charges-api";
 import { RecordChargePanel } from "./RecordChargePanel";
@@ -57,6 +59,14 @@ import { RecordChargePanel } from "./RecordChargePanel";
  * as bytes already in the page: producing it writes the audit entry that records
  * the disclosure, and a link a browser could follow on its own would be an
  * unaudited one. That is the register supply screen's own reasoning.
+ *
+ * ## A charge made from an issue
+ *
+ * Opened from an issue ("Skapa debitering"), the screen reads the issue from
+ * the API on the issue queue's terms and opens the form filled in from it. An
+ * issue the board member does not handle, or one that is gone, is answered as
+ * one that does not exist: the form opens empty with a sentence, and the
+ * address has told them nothing.
  *
  * ## What is not here
  *
@@ -92,9 +102,72 @@ function defaultPeriod(): { from: string; to: string } {
   return { from: `${year}-01-01`, to: `${year}-12-31` };
 }
 
-export function ChargesScreen(): ReactElement {
+/** The issue the screen was opened from, as it is read. */
+type FromIssue =
+  | { state: "none" }
+  | { state: "loading"; issueId: string }
+  | { state: "read"; basis: IssueChargeBasis }
+  | { state: "failed"; issueId: string };
+
+/**
+ * Reads the issue the screen was opened from, and answers only for the one
+ * the address names now: an answer for an issue the address has since moved
+ * away from is dropped.
+ */
+function useFromIssue(issueId: string | null): FromIssue {
+  const [read, setRead] = useState<FromIssue>({ state: "none" });
+  /*
+   * The issue the stored read was made for. When the address names another
+   * issue, or none, the read is dropped in the same render: an issue left and
+   * entered again in this mounted screen is read again, and its form is not
+   * filled in from what the first visit found.
+   */
+  const [readFor, setReadFor] = useState(issueId);
+  if (readFor !== issueId) {
+    setReadFor(issueId);
+    setRead({ state: "none" });
+  }
+  useEffect(() => {
+    if (issueId === null) {
+      return;
+    }
+    let active = true;
+    void fetchIssueChargeBasis(issueId).then((answer) => {
+      if (active) {
+        setRead(
+          answer.ok
+            ? { state: "read", basis: answer.value }
+            : { state: "failed", issueId },
+        );
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [issueId]);
+
+  if (issueId === null) {
+    return { state: "none" };
+  }
+  // Decided against the address rather than trusted from the last answer.
+  if (read.state === "read" && read.basis.issueId === issueId) {
+    return read;
+  }
+  if (read.state === "failed" && read.issueId === issueId) {
+    return read;
+  }
+  return { state: "loading", issueId };
+}
+
+export function ChargesScreen({
+  fromIssueId = null,
+}: {
+  /** The issue "Skapa debitering" was pressed on, from the address. */
+  fromIssueId?: string | null;
+} = {}): ReactElement {
   const { t } = useTranslation();
   const initial = defaultPeriod();
+  const fromIssue = useFromIssue(fromIssueId);
 
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
@@ -392,12 +465,31 @@ export function ChargesScreen(): ReactElement {
         lost to it; the parties it offers are the last ones read. Hidden rather
         than unmounted while a charge is corrected, for the same reason.
       */}
-      {parties === null || forbidden ? null : (
+      {fromIssue.state === "loading" && !forbidden ? (
+        <p role="status" className="text-body text-ink-muted print:hidden">
+          {t("charges.record.fromIssueLoading")}
+        </p>
+      ) : null}
+      {fromIssue.state === "failed" && !forbidden ? (
+        <Notice tone="warn">{t("charges.record.fromIssueFailed")}</Notice>
+      ) : null}
+
+      {/*
+        Keyed by the issue it starts from, so the form opens again filled in
+        from it once the issue has been read, rather than keeping the empty
+        fields it was first drawn with. Not drawn while the issue is read, so
+        a board member does not start typing into a form about to be replaced.
+      */}
+      {parties === null || forbidden || fromIssue.state === "loading" ? null : (
         <div hidden={correcting !== null}>
           <RecordChargePanel
+            key={fromIssue.state === "read" ? fromIssue.basis.issueId : ""}
             parties={parties}
             today={today()}
             onRecorded={onRecorded}
+            {...(fromIssue.state === "read"
+              ? { fromIssue: fromIssue.basis }
+              : {})}
           />
         </div>
       )}
@@ -575,6 +667,16 @@ export function ChargesScreen(): ReactElement {
                       </td>
                       <td className={`${CELL} text-body text-ink`}>
                         {row.reason}
+                        {/*
+                          Not printed: the printed list is the file's twin, and
+                          the file carries no issue - the bookkeeper has none to
+                          look up.
+                        */}
+                        {row.issueId === null ? null : (
+                          <span className="block text-small text-ink-muted print:hidden">
+                            {t("charges.fromIssue")}
+                          </span>
+                        )}
                       </td>
                       <td className={DATA_CELL}>
                         {row.vatTreatment === "EXEMPT"

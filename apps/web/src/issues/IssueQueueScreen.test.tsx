@@ -1,14 +1,11 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
-import type {
-  IssueAudience,
-  IssueReporter,
-  OwnIssue,
-  QueuedIssue,
-} from "../api/issues";
+import type { IssueReporter, QueuedIssue } from "../api/issues";
 import { IssueQueueScreen } from "./IssueQueueScreen";
 
 /**
@@ -26,15 +23,47 @@ import { IssueQueueScreen } from "./IssueQueueScreen";
  * nowhere to put it. So this file asserts the request as well as the panel.
  */
 
-const fetchIssueQueue = vi.fn();
+const fetchIssueQueueSnapshot = vi.fn();
+const fetchHandlerIssueTypes = vi.fn();
 const fetchOwnIssues = vi.fn();
 const setIssueStatus = vi.fn();
+const fetchIssuePlaceCounts = vi.fn();
 
 vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
-  fetchIssueQueue: (input?: unknown) => fetchIssueQueue(input),
+  fetchIssueQueueSnapshot: (input: unknown) => fetchIssueQueueSnapshot(input),
+  fetchHandlerIssueTypes: () => fetchHandlerIssueTypes(),
   fetchOwnIssues: () => fetchOwnIssues(),
+  fetchIssuePlaceCounts: () => fetchIssuePlaceCounts(),
   setIssueStatus: (input: unknown) => setIssueStatus(input),
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    to,
+    search,
+    children,
+    className,
+    "aria-current": current,
+  }: {
+    to: string;
+    search?: Record<string, string>;
+    children: ReactNode;
+    className?: string;
+    "aria-current"?: "page";
+  }): ReactElement => (
+    <a
+      href={
+        search === undefined
+          ? to
+          : `${to}?${new URLSearchParams(search).toString()}`
+      }
+      aria-current={current}
+      className={className}
+    >
+      {children}
+    </a>
+  ),
 }));
 
 function viewer(capabilities: readonly string[]): Viewer {
@@ -51,34 +80,105 @@ function viewer(capabilities: readonly string[]): Viewer {
 // The overrides are loose so a test can pair any reporter with any apartment;
 // the server only ever sends the pairings `QueuedIssue` allows.
 function issue(
-  overrides: Partial<OwnIssue> & {
-    audience?: IssueAudience;
+  overrides: Partial<Omit<QueuedIssue, "reporter">> & {
     reporter?: IssueReporter;
   } = {},
 ): QueuedIssue {
   return {
     id: "issue-1",
-    status: "NEW",
-    audience: "MEMBER",
+    meaning: "NEW",
+    status: { id: "s-new", label: "Ny" },
+    waitingReason: null,
+    outcome: null,
+    typeReporters: ["RESIDENTS"],
+    closedAt: null,
+    number: 7,
     typeId: "type-water",
     typeName: "Vatten",
     location: null,
+    place: null,
     description: "Det droppar i taket.",
     apartment: { id: "a-1", number: "1401", address: "Storgatan 12" },
+    entry: null,
+    finding: null,
     photos: [],
     reporter: { kind: "resident", personId: "p-1", name: "Rune Boende" },
     createdAt: "2026-08-20T08:00:00.000Z",
     updatedAt: "2026-08-20T08:00:00.000Z",
+    enteredByHandler: false,
+    descriptionRedactedAt: null,
+    locationRedactedAt: null,
+    freeTextRemovedAt: null,
+    typeHandledBy: "EVERY_HANDLER",
+    priority: "NORMAL",
+    targetDate: null,
+    overdue: false,
+    assignee: null,
+    enteredBy: null,
+    boardOnly: false,
+    legalHoldAt: null,
     ...overrides,
   } as QueuedIssue;
 }
 
+/** The counts the queue is answered with unless a test says otherwise. */
+const COUNTS = { mine: 1, unassigned: 2, overdue: 0, all: 5 };
+
+/** A snapshot of the queue: one view's issues and every view's count. */
+function answer(
+  issues: readonly QueuedIssue[],
+  counts: Record<keyof typeof COUNTS, number> = COUNTS,
+) {
+  return { ok: true, value: { issues: [...issues], counts } };
+}
+
+/**
+ * How long a test waits for the screen to settle after a held read is answered.
+ * A loaded CI runner can take longer than waitFor's default second to re-render
+ * the screen after the read.
+ */
+const AFTER_READ = { timeout: 5000 };
+
 /** The external property manager: the queue, and nothing else of the board's. */
 const PROPERTY_MANAGER = ["issues:handle", "self:manage"];
 
+/** The one type the queue's issues are of, with a status to move to. */
+const typeWater = {
+  id: "type-water",
+  name: "Vatten",
+  reporters: ["RESIDENTS"],
+  active: true,
+  sortOrder: 0,
+  reportCount: 1,
+  statuses: [
+    {
+      id: "s-new",
+      meaning: "NEW",
+      label: "Ny",
+      isDefault: true,
+      active: true,
+      sortOrder: 0,
+      issueCount: 1,
+    },
+    {
+      id: "s-doing",
+      meaning: "IN_PROGRESS",
+      label: "Pågår",
+      isDefault: false,
+      active: true,
+      sortOrder: 1,
+      issueCount: 0,
+    },
+  ],
+};
+
 beforeEach(() => {
-  fetchIssueQueue.mockReset().mockResolvedValue({ ok: true, value: [issue()] });
+  fetchIssueQueueSnapshot.mockReset().mockResolvedValue(answer([issue()]));
+  fetchHandlerIssueTypes
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: [typeWater] });
   fetchOwnIssues.mockReset().mockResolvedValue({ ok: true, value: [] });
+  fetchIssuePlaceCounts.mockReset().mockResolvedValue({ ok: true, value: [] });
   setIssueStatus.mockReset().mockResolvedValue({ ok: true, value: issue() });
 });
 
@@ -107,7 +207,18 @@ describe("the property manager", () => {
     });
     expect(screen.getByText("Det droppar i taket.")).toBeTruthy();
     expect(screen.getByText("Rune Boende")).toBeTruthy();
-    expect(fetchIssueQueue).toHaveBeenCalledTimes(1);
+    expect(fetchIssueQueueSnapshot).toHaveBeenCalledTimes(1);
+    // Mina, of the open issues: the handler's own work, first.
+    expect(fetchIssueQueueSnapshot).toHaveBeenCalledWith({
+      view: "MINE",
+      meaning: "OPEN",
+    });
+    // The statuses an issue is moved between, under the queue's own
+    // capability: the property manager does not configure types.
+    expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByLabelText("Vatten anmält 2026-08-20: status"),
+    ).toBeTruthy();
     // A property manager reports nothing here and has no issues of their own
     // to follow; that is the house's page, and not asked for on this one.
     expect(fetchOwnIssues).not.toHaveBeenCalled();
@@ -128,7 +239,8 @@ describe("a resident", () => {
     expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
     expect(screen.queryByText("Styrelse och förvaltare")).toBeNull();
     expect(screen.queryByText("Ärendekön")).toBeNull();
-    expect(fetchIssueQueue).not.toHaveBeenCalled();
+    expect(fetchIssueQueueSnapshot).not.toHaveBeenCalled();
+    expect(fetchHandlerIssueTypes).not.toHaveBeenCalled();
   });
 });
 
@@ -141,7 +253,7 @@ describe("a read that fails", () => {
      * tell the people who handle the house's faults there are none, and the
      * notice above it would not undo the sentence.
      */
-    fetchIssueQueue.mockResolvedValue({
+    fetchIssueQueueSnapshot.mockResolvedValue({
       ok: false,
       failure: { status: 500, reason: "unexpected" },
     });
@@ -155,5 +267,889 @@ describe("a read that fails", () => {
     });
     expect(screen.queryByText("Ingenting har anmälts.")).toBeNull();
     expect(screen.queryByText("Ärendekön")).toBeNull();
+    // Opening an issue needs the types, not the queue.
+    expect(screen.getByText("Lägg upp ett ärende")).toBeTruthy();
+  });
+
+  it("does not hold the list and its numbers behind a slow read of the types", async () => {
+    fetchHandlerIssueTypes.mockReset().mockReturnValue(new Promise(() => {}));
+
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+    expect(
+      within(screen.getByRole("navigation", { name: "Vyer" }))
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Mina 1", "Ej tilldelade 2", "Försenade 0", "Alla 5"]);
+    expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
+    // Nothing to move an issue between yet, and nothing said to have failed.
+    expect(
+      screen.queryByLabelText("Vatten anmält 2026-08-20: status"),
+    ).toBeNull();
+    expect(screen.queryByText("Lägg upp ett ärende")).toBeNull();
+  });
+
+  it("reads the types alone on their retry, and keeps the list on screen", async () => {
+    fetchHandlerIssueTypes.mockReset().mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    expect(
+      await screen.findByText(
+        "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.",
+      ),
+    ).toBeTruthy();
+    expect(fetchIssueQueueSnapshot).toHaveBeenCalledTimes(1);
+
+    // The queue would fail now, were it read again.
+    fetchIssueQueueSnapshot.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    fetchHandlerIssueTypes.mockResolvedValue({ ok: true, value: [typeWater] });
+
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    await waitFor(() => {
+      expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(2);
+    });
+    expect(fetchIssueQueueSnapshot).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Det droppar i taket.")).toBeTruthy();
+    expect(screen.queryByText("Ärendena kunde inte läsas just nu.")).toBeNull();
+    // The types the retry read are the ones on screen: the issue can be moved
+    // to a status of its type, and nothing says the statuses are unavailable.
+    const status = await screen.findByLabelText(
+      "Vatten anmält 2026-08-20: status",
+    );
+    expect(within(status).getByRole("option", { name: "Pågår" })).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.",
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps a first read's failure of the types quiet, and announces a retry's", async () => {
+    fetchHandlerIssueTypes.mockReset().mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    const unavailable =
+      "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.";
+
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    // There as the reader arrives, so not reported to them as an event.
+    expect(
+      (await screen.findByText(unavailable)).closest("[role='alert']"),
+    ).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    await waitFor(() => {
+      expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(2);
+    });
+    // The retry the reader asked for failed as well: that is news.
+    await waitFor(() => {
+      expect(
+        screen.getByText(unavailable).closest("[role='alert']"),
+      ).not.toBeNull();
+    });
+  });
+
+  it("gives the focus to the new retry when a retry of the types pressed from the keyboard fails again", async () => {
+    fetchHandlerIssueTypes.mockReset().mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    const unavailable =
+      "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.";
+
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText(unavailable);
+    screen.getByRole("button", { name: "Försök igen" }).focus();
+
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByText(unavailable).closest("[role='alert']"),
+      ).not.toBeNull();
+    });
+    // The notice, and the button pressed with it, went while the retry was
+    // out; the reader is on the new one's retry, not at the top of the page.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Försök igen" }),
+    );
+  });
+
+  it("leaves the focus alone when the notice of the types is drawn again after the queue's own retry", async () => {
+    fetchHandlerIssueTypes.mockReset().mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    const unavailable =
+      "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.";
+
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText(unavailable);
+    screen.getByRole("button", { name: "Försök igen" }).focus();
+    await userEvent.keyboard("{Enter}");
+    await waitFor(() => {
+      expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByText(unavailable).closest("[role='alert']"),
+      ).not.toBeNull();
+    });
+    // The failed retry took the focus, as it should.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Försök igen" }),
+    );
+
+    // A later read of the queue fails, which takes the panel and its notice
+    // off the page, and the queue's own retry brings them back.
+    fetchIssueQueueSnapshot.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await userEvent.selectOptions(field("Prioritet"), "URGENT");
+    await screen.findByText("Ärendena kunde inte läsas just nu.");
+    expect(screen.queryByText(unavailable)).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(3);
+    });
+    await screen.findByText(unavailable);
+
+    // The queue's retry went with its notice and left the focus on the page.
+    // The types' retry was not pressed, so it does not take it.
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("does not announce a standing failure of the types that a later read finds again", async () => {
+    fetchIssueQueueSnapshot.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    fetchHandlerIssueTypes.mockReset().mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    const unavailable =
+      "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.";
+
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Ärendena kunde inte läsas just nu.");
+    await waitFor(() => {
+      expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(1);
+    });
+
+    // The queue's own retry reads the types again, and they fail as before.
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchHandlerIssueTypes).toHaveBeenCalledTimes(2);
+    });
+    expect(await screen.findByText(unavailable)).toBeTruthy();
+    expect(screen.getByText(unavailable).closest("[role='alert']")).toBeNull();
+  });
+});
+
+/** The views' navigation. */
+const views = () => screen.getByRole("navigation", { name: "Vyer" });
+
+/** The views' links as they read, numbers and all. */
+const viewNames = () =>
+  within(views())
+    .getAllByRole("link")
+    .map((link) => link.textContent);
+
+/** One of the filter's fields, by its label. */
+const field = (label: string) =>
+  within(
+    screen.getByRole("search", { name: "Sök och filtrera ärenden" }),
+  ).getByLabelText(label);
+
+describe("the four views", () => {
+  it("opens on Mina, with how many issues each view holds under the same filter", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    const mine = await within(views()).findByRole("link", { name: "Mina 1" });
+    expect(mine.getAttribute("aria-current")).toBe("page");
+    expect(mine.getAttribute("href")).toBe("/board/issues?view=mine");
+    for (const [name, href] of [
+      ["Ej tilldelade 2", "/board/issues?view=unassigned"],
+      ["Försenade 0", "/board/issues?view=overdue"],
+      ["Alla 5", "/board/issues?view=all"],
+    ] as const) {
+      const link = within(views()).getByRole("link", { name });
+      expect(link.getAttribute("href")).toBe(href);
+      expect(link.getAttribute("aria-current")).toBeNull();
+    }
+    // Counted in the read of the list, under the filter it is read by.
+    expect(fetchIssueQueueSnapshot).toHaveBeenCalledWith({
+      view: "MINE",
+      meaning: "OPEN",
+    });
+  });
+
+  it("reads the view the address names", async () => {
+    render(
+      <IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} view="OVERDUE" />,
+    );
+
+    const overdue = await within(views()).findByRole("link", {
+      name: "Försenade 0",
+    });
+    expect(overdue.getAttribute("aria-current")).toBe("page");
+    expect(fetchIssueQueueSnapshot).toHaveBeenCalledWith({
+      view: "OVERDUE",
+      meaning: "OPEN",
+    });
+  });
+
+  it("makes the overdue count stand out while there are overdue issues", async () => {
+    fetchIssueQueueSnapshot.mockResolvedValue(
+      answer([issue()], { mine: 0, unassigned: 0, overdue: 3, all: 3 }),
+    );
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    const overdue = await within(views()).findByRole("link", {
+      name: "Försenade 3",
+    });
+    expect(overdue.querySelector(".text-danger")?.textContent).toBe("3");
+  });
+
+  it("draws the views without numbers when the queue could not be read", async () => {
+    fetchIssueQueueSnapshot.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    await screen.findByText("Ärendena kunde inte läsas just nu.");
+    expect(
+      within(views())
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Mina", "Ej tilldelade", "Försenade", "Alla"]);
+  });
+
+  it("says which view is empty, and says nothing matches once the filter narrows it", async () => {
+    fetchIssueQueueSnapshot.mockResolvedValue(answer([]));
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    expect(
+      await screen.findByText("Inga öppna ärenden har dig som ansvarig."),
+    ).toBeTruthy();
+
+    await userEvent.selectOptions(field("Prioritet"), "URGENT");
+    expect(
+      await screen.findByText("Inga ärenden stämmer med filtren just nu."),
+    ).toBeTruthy();
+  });
+});
+
+describe("the filter and the search", () => {
+  it("narrows the list and the counts alike by status, type and priority", async () => {
+    // The filtered request is answered with counts of its own, so counts kept
+    // from the filter before it would show.
+    fetchIssueQueueSnapshot.mockImplementation(async (input) =>
+      (input as { priority?: string }).priority === "LOW"
+        ? answer([issue()], { mine: 0, unassigned: 0, overdue: 0, all: 1 })
+        : answer([issue()]),
+    );
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} view="ALL" />);
+    await screen.findByText("Det droppar i taket.");
+
+    await userEvent.selectOptions(field("Status"), "DONE");
+    await userEvent.selectOptions(field("Typ"), "type-water");
+    await userEvent.selectOptions(field("Prioritet"), "LOW");
+
+    await waitFor(() => {
+      expect(fetchIssueQueueSnapshot).toHaveBeenLastCalledWith({
+        view: "ALL",
+        meaning: "DONE",
+        typeId: "type-water",
+        priority: "LOW",
+      });
+    });
+    await waitFor(() => {
+      expect(viewNames()).toEqual([
+        "Mina 0",
+        "Ej tilldelade 0",
+        "Försenade 0",
+        "Alla 1",
+      ]);
+    });
+  });
+
+  it("asks for closed issues too only when the status filter says so", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} view="ALL" />);
+    await screen.findByText("Det droppar i taket.");
+
+    await userEvent.selectOptions(field("Status"), "Alla, även klara");
+
+    await waitFor(() => {
+      expect(fetchIssueQueueSnapshot).toHaveBeenLastCalledWith({ view: "ALL" });
+    });
+  });
+
+  it("searches once the handler stops typing, trimmed, and clears with the filter", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+
+    await userEvent.type(field("Sök"), "  läcka  ");
+    await waitFor(() => {
+      expect(fetchIssueQueueSnapshot).toHaveBeenLastCalledWith({
+        view: "MINE",
+        meaning: "OPEN",
+        search: "läcka",
+      });
+    });
+    // Asked for the word, never once per letter on the way to it.
+    expect(
+      fetchIssueQueueSnapshot.mock.calls.filter(
+        ([input]) => (input as { search?: string }).search !== undefined,
+      ),
+    ).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole("button", { name: "Rensa filter" }));
+    await waitFor(() => {
+      expect(fetchIssueQueueSnapshot).toHaveBeenLastCalledWith({
+        view: "MINE",
+        meaning: "OPEN",
+      });
+    });
+    expect((field("Sök") as HTMLInputElement).value).toBe("");
+  });
+
+  it("never draws an earlier filter's answer over a later one's", async () => {
+    let answerFirst: (value: unknown) => void = () => undefined;
+    fetchIssueQueueSnapshot
+      .mockReset()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            answerFirst = resolve;
+          }),
+      )
+      .mockResolvedValue(
+        answer([issue({ id: "issue-urgent", description: "Akut läcka." })]),
+      );
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    await userEvent.selectOptions(field("Prioritet"), "URGENT");
+    expect(await screen.findByText("Akut läcka.")).toBeTruthy();
+
+    answerFirst(answer([issue()]));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText("Akut läcka.")).toBeTruthy();
+    expect(screen.queryByText("Det droppar i taket.")).toBeNull();
+  });
+});
+
+describe("a save that finishes under another view or filter", () => {
+  /** Holds the next save open until the test answers it. */
+  function deferSave(): (value: unknown) => void {
+    let finish: (value: unknown) => void = () => undefined;
+    setIssueStatus.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    return (value) => {
+      finish(value);
+    };
+  }
+
+  async function startSave(): Promise<(value: unknown) => void> {
+    const finish = deferSave();
+    await userEvent.selectOptions(
+      screen.getByLabelText("Vatten anmält 2026-08-20: status"),
+      "s-doing",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Spara status" }));
+    await waitFor(() => {
+      expect(setIssueStatus).toHaveBeenCalledTimes(1);
+    });
+    return finish;
+  }
+
+  it("marks the list busy while the read after a save is out", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+    const finish = await startSave();
+
+    let answerReread: (value: unknown) => void = () => undefined;
+    fetchIssueQueueSnapshot.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answerReread = resolve;
+        }),
+    );
+    finish({ ok: true, value: issue() });
+
+    expect(await screen.findByText("Hämtar ärendena...")).toBeTruthy();
+    const list = screen
+      .getByText("Det droppar i taket.")
+      .closest("[aria-busy]");
+    expect(list?.getAttribute("aria-busy")).toBe("true");
+
+    answerReread(answer([issue()]));
+    await waitFor(() => {
+      expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
+    }, AFTER_READ);
+    expect(list?.getAttribute("aria-busy")).toBe("false");
+  });
+
+  it("turns the status form and the handling off while the read after a save is out", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+    await userEvent.click(screen.getByText(/^Hantera Vatten:/));
+    const finish = await startSave();
+
+    let answerReread: (value: unknown) => void = () => undefined;
+    fetchIssueQueueSnapshot.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answerReread = resolve;
+        }),
+    );
+    finish({ ok: true, value: issue() });
+    await screen.findByText("Hämtar ärendena...");
+
+    const status = screen.getByLabelText(
+      "Vatten anmält 2026-08-20: status",
+    ) as HTMLSelectElement;
+    expect(status.disabled).toBe(true);
+    // The handling under the row sits in a disabled fieldset, so every control
+    // in it is off with it.
+    const fieldset = document.querySelector("details fieldset");
+    expect(fieldset?.hasAttribute("disabled")).toBe(true);
+
+    answerReread(answer([issue()]));
+    await waitFor(() => {
+      expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
+    }, AFTER_READ);
+    expect(
+      (
+        screen.getByLabelText(
+          "Vatten anmält 2026-08-20: status",
+        ) as HTMLSelectElement
+      ).disabled,
+    ).toBe(false);
+    expect(
+      document.querySelector("details fieldset")?.hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
+  it("leaves the status form on and the handling off while a change of filter is read", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+    await userEvent.click(screen.getByText(/^Hantera Vatten:/));
+
+    let answerFiltered: (value: unknown) => void = () => undefined;
+    fetchIssueQueueSnapshot.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answerFiltered = resolve;
+        }),
+    );
+    const status = screen.getByLabelText(
+      "Vatten anmält 2026-08-20: status",
+    ) as HTMLSelectElement;
+    await userEvent.selectOptions(field("Prioritet"), "URGENT");
+    await screen.findByText("Hämtar ärendena...");
+
+    // The status form is as current as when the row was read, so it is not
+    // turned off under a control the handler may have focused. The handling
+    // is: a refusal of one of its actions is shown inside it, and the
+    // filtered answer may take the row, and the refusal, away.
+    expect(status.disabled).toBe(false);
+    expect(
+      document.querySelector("details fieldset")?.hasAttribute("disabled"),
+    ).toBe(true);
+
+    // A save made while the filter is read goes through, not only the form's
+    // look: a submit handler that refused it would leave the form enabled.
+    await userEvent.selectOptions(status, "s-doing");
+    await userEvent.click(screen.getByRole("button", { name: "Spara status" }));
+    await waitFor(() => {
+      expect(setIssueStatus).toHaveBeenCalledTimes(1);
+    });
+
+    answerFiltered(answer([issue()]));
+    await waitFor(() => {
+      expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
+    }, AFTER_READ);
+    expect(
+      document.querySelector("details fieldset")?.hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
+  it("keeps the refusal of a status saved during a filter read after the filter takes the row away", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+
+    let answerFiltered: (value: unknown) => void = () => undefined;
+    fetchIssueQueueSnapshot.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answerFiltered = resolve;
+        }),
+    );
+    setIssueStatus.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await userEvent.selectOptions(field("Prioritet"), "URGENT");
+    await screen.findByText("Hämtar ärendena...");
+    await userEvent.selectOptions(
+      screen.getByLabelText("Vatten anmält 2026-08-20: status"),
+      "s-doing",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Spara status" }));
+    await waitFor(() => {
+      expect(setIssueStatus).toHaveBeenCalledTimes(1);
+    });
+
+    // The filtered answer holds no issue, so the row goes.
+    answerFiltered(answer([]));
+    await waitFor(() => {
+      expect(screen.queryByText("Det droppar i taket.")).toBeNull();
+    });
+    expect(
+      screen.getByText("Ärendet kunde inte ändras just nu. Försök igen."),
+    ).toBeTruthy();
+  });
+
+  it("keeps the refusal of a status saved during a filter read when that read fails", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+
+    let answerFiltered: (value: unknown) => void = () => undefined;
+    fetchIssueQueueSnapshot.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answerFiltered = resolve;
+        }),
+    );
+    let refuseStatus: (value: unknown) => void = () => undefined;
+    setIssueStatus.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          refuseStatus = resolve;
+        }),
+    );
+    await userEvent.selectOptions(field("Prioritet"), "URGENT");
+    await screen.findByText("Hämtar ärendena...");
+    await userEvent.selectOptions(
+      screen.getByLabelText("Vatten anmält 2026-08-20: status"),
+      "s-doing",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Spara status" }));
+    await waitFor(() => {
+      expect(setIssueStatus).toHaveBeenCalledTimes(1);
+    });
+
+    // The read fails, which takes the list off the screen, and the save is
+    // refused after it: the refusal is not lost with the list.
+    answerFiltered({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await screen.findByText("Ärendena kunde inte läsas just nu.");
+    expect(screen.queryByText("Det droppar i taket.")).toBeNull();
+    refuseStatus({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    expect(
+      await screen.findByText(
+        "Ärendet kunde inte ändras just nu. Försök igen.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Det droppar i taket.")).toBeNull();
+  });
+
+  it("keeps the types' retry beside the notice of a save that failed", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+
+    // The save is refused as out of date; the types read after it fail.
+    fetchHandlerIssueTypes.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    setIssueStatus.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 404, reason: "status-not-found" },
+    });
+    await userEvent.selectOptions(
+      screen.getByLabelText("Vatten anmält 2026-08-20: status"),
+      "s-doing",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Spara status" }));
+
+    expect(
+      await screen.findByText(
+        "Den statusen erbjuds inte längre för den här typen. Kön har lästs om.",
+      ),
+    ).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Försök igen" })).toBeTruthy();
+    // It appears over a screen the reader is already on, so it is announced.
+    expect(
+      screen
+        .getByText(
+          "Statusarna kunde inte läsas just nu, så ärenden kan inte flyttas.",
+        )
+        .closest("[role='alert']"),
+    ).not.toBeNull();
+  });
+
+  it("reads the view the handler moved to, not the one the save began in", async () => {
+    const { rerender } = render(
+      <IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} view="MINE" />,
+    );
+    await screen.findByText("Det droppar i taket.");
+    const finish = await startSave();
+
+    fetchIssueQueueSnapshot.mockResolvedValue(
+      answer([issue({ id: "issue-all", description: "Hela kön." })], {
+        mine: 0,
+        unassigned: 4,
+        overdue: 0,
+        all: 4,
+      }),
+    );
+    rerender(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} view="ALL" />);
+    expect(await screen.findByText("Hela kön.")).toBeTruthy();
+
+    finish({ ok: true, value: issue({ id: "issue-all" }) });
+    await waitFor(() => {
+      expect(fetchIssueQueueSnapshot).toHaveBeenCalledTimes(3);
+    });
+    expect(
+      fetchIssueQueueSnapshot.mock.calls.map(
+        ([input]) => (input as { view: string }).view,
+      ),
+    ).toEqual(["MINE", "ALL", "ALL"]);
+    await waitFor(() => {
+      expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
+    }, AFTER_READ);
+    expect(screen.getByText("Hela kön.")).toBeTruthy();
+    expect(screen.queryByText("Det droppar i taket.")).toBeNull();
+    expect(viewNames()).toEqual([
+      "Mina 0",
+      "Ej tilldelade 4",
+      "Försenade 0",
+      "Alla 4",
+    ]);
+  });
+
+  it("reads under the filter the handler set while it was saving", async () => {
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    await screen.findByText("Det droppar i taket.");
+    const finish = await startSave();
+
+    fetchIssueQueueSnapshot.mockResolvedValue(
+      answer([issue({ id: "issue-urgent", description: "Akut läcka." })]),
+    );
+    await userEvent.selectOptions(field("Prioritet"), "URGENT");
+    expect(await screen.findByText("Akut läcka.")).toBeTruthy();
+
+    finish({ ok: true, value: issue() });
+    await waitFor(() => {
+      expect(fetchIssueQueueSnapshot).toHaveBeenCalledTimes(3);
+    });
+    expect(fetchIssueQueueSnapshot).toHaveBeenLastCalledWith({
+      view: "MINE",
+      meaning: "OPEN",
+      priority: "URGENT",
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Hämtar ärendena...")).toBeNull();
+    }, AFTER_READ);
+    expect(screen.getByText("Akut läcka.")).toBeTruthy();
+    expect(screen.queryByText("Det droppar i taket.")).toBeNull();
+  });
+});
+
+describe("the place filter", () => {
+  /** The whole queue holds a water leak; narrowed to the lift, a stuck lift. */
+  function queueByPlace(): void {
+    fetchIssueQueueSnapshot.mockImplementation((input: { placeId?: string }) =>
+      Promise.resolve(
+        input.placeId === "p-lift"
+          ? answer([
+              issue({ id: "issue-lift", description: "Hissen står still." }),
+            ])
+          : answer([
+              issue({ id: "issue-water", description: "Det droppar i taket." }),
+            ]),
+      ),
+    );
+  }
+
+  /** The place each read of the queue asked for, in order. */
+  function placesAsked(): (string | undefined)[] {
+    return fetchIssueQueueSnapshot.mock.calls.map(
+      ([input]) => (input as { placeId?: string }).placeId,
+    );
+  }
+
+  const LIFT = { id: "p-lift", name: "Hiss", active: true, issues: 1, open: 1 };
+
+  it("narrows the view to the place chosen, and the filter's clear leaves it", async () => {
+    const session = userEvent.setup();
+    queueByPlace();
+    fetchIssuePlaceCounts.mockResolvedValue({ ok: true, value: [LIFT] });
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Visa bara Hiss" }),
+    );
+
+    expect(await screen.findByText("Hissen står still.")).toBeTruthy();
+    expect(screen.queryByText("Det droppar i taket.")).toBeNull();
+    // The place narrows the view the screen opened on, with its filter.
+    expect(fetchIssueQueueSnapshot).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        view: "MINE",
+        meaning: "OPEN",
+        placeId: "p-lift",
+      }),
+    );
+
+    await session.click(screen.getByRole("button", { name: "Rensa filter" }));
+
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+    expect(placesAsked().at(-1)).toBeUndefined();
+  });
+
+  it("never draws a place's answer that a later choice superseded", async () => {
+    const session = userEvent.setup();
+    const LAUNDRY = {
+      id: "p-laundry",
+      name: "Tvättstuga",
+      active: true,
+      issues: 1,
+      open: 1,
+    };
+    fetchIssuePlaceCounts.mockResolvedValue({
+      ok: true,
+      value: [LIFT, LAUNDRY],
+    });
+    // The lift's read is held open; every other read answers at once.
+    let answerLift: (value: unknown) => void = () => undefined;
+    fetchIssueQueueSnapshot.mockImplementation((input: { placeId?: string }) =>
+      input.placeId === "p-lift"
+        ? new Promise((resolve) => {
+            answerLift = resolve;
+          })
+        : Promise.resolve(
+            input.placeId === "p-laundry"
+              ? answer([
+                  issue({
+                    id: "issue-laundry",
+                    description: "Torktumlaren är trasig.",
+                  }),
+                ])
+              : answer([
+                  issue({
+                    id: "issue-water",
+                    description: "Det droppar i taket.",
+                  }),
+                ]),
+          ),
+    );
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+
+    await session.click(
+      await screen.findByRole("button", { name: "Visa bara Hiss" }),
+    );
+    await waitFor(() => {
+      expect(placesAsked()).toContain("p-lift");
+    });
+    await session.click(
+      await screen.findByRole("button", { name: "Visa bara Tvättstuga" }),
+    );
+    expect(await screen.findByText("Torktumlaren är trasig.")).toBeTruthy();
+
+    // The lift's answer arrives last, and is not the one drawn.
+    answerLift(
+      answer([issue({ id: "issue-lift", description: "Hissen står still." })]),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByText("Torktumlaren är trasig.")).toBeTruthy();
+    expect(screen.queryByText("Hissen står still.")).toBeNull();
+  });
+
+  it("is dropped when the counts cannot be read, so the whole queue is back", async () => {
+    const session = userEvent.setup();
+    queueByPlace();
+    fetchIssuePlaceCounts.mockResolvedValue({ ok: true, value: [LIFT] });
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    const only = await screen.findByRole("button", { name: "Visa bara Hiss" });
+
+    // The read the choice causes cannot give the counts: with no panel to
+    // leave the place from, the queue is read again without it.
+    fetchIssuePlaceCounts.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await session.click(only);
+
+    await waitFor(() => {
+      expect(placesAsked()).toContain("p-lift");
+    });
+    await waitFor(() => {
+      expect(placesAsked().at(-1)).toBeUndefined();
+    });
+    // The unnarrowed answer is the one drawn, not the lift's.
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+    expect(screen.queryByText("Hissen står still.")).toBeNull();
+  });
+
+  it("is dropped when the counts no longer list the place", async () => {
+    const session = userEvent.setup();
+    queueByPlace();
+    fetchIssuePlaceCounts.mockResolvedValue({ ok: true, value: [LIFT] });
+    render(<IssueQueueScreen viewer={viewer(PROPERTY_MANAGER)} />);
+    const only = await screen.findByRole("button", { name: "Visa bara Hiss" });
+
+    // Switched off with nothing left on it, the lift drops out of the counts,
+    // and with it the row that holds the way back to the whole queue.
+    fetchIssuePlaceCounts.mockResolvedValue({ ok: true, value: [] });
+    await session.click(only);
+
+    await waitFor(() => {
+      expect(placesAsked()).toContain("p-lift");
+    });
+    await waitFor(() => {
+      expect(placesAsked().at(-1)).toBeUndefined();
+    });
+    expect(await screen.findByText("Det droppar i taket.")).toBeTruthy();
+    expect(screen.queryByText("Hissen står still.")).toBeNull();
   });
 });

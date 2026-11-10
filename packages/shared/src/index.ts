@@ -31,8 +31,8 @@ export type {
   PostCommentUpdate,
   PostCommentView,
   PostImageView,
-  PostIssueStatus,
   PostIssueView,
+  PostKnownFaultView,
   PostNewsView,
   PostReadView,
   PostReportQueueView,
@@ -86,6 +86,94 @@ export { MAX_REPLY_CHARACTERS } from "./board-mailbox-limits.ts";
 export { MAX_ADDRESS_BOOK_SEARCH_LENGTH } from "./address-book-limits.ts";
 export { MAX_WITHHELD_IDS } from "./withheld-from-devices-limits.ts";
 export { ISSUE_REPORT_LIMITS } from "./issue-report-limits.ts";
+export { CONTRACTOR_LIMITS, WORK_ORDER_LIMITS } from "./work-order-limits.ts";
+export {
+  ISSUE_OPEN_MEANINGS,
+  ISSUE_QUEUE_VIEWS,
+  ISSUE_SEARCH_LIMITS,
+  isIssueQueueView,
+  type IssueMeaningFilter,
+  type IssueQueueView,
+} from "./issue-queue-views.ts";
+export {
+  ISSUE_CONVERSATION_LIMITS,
+  ISSUE_MESSAGE_SIDES,
+  ISSUE_SIGNATURES,
+} from "./issue-conversation.ts";
+export type { IssueMessageSide, IssueSignature } from "./issue-conversation.ts";
+export {
+  ISSUE_KNOWN_FAULT_LIMITS,
+  ISSUE_LINK_LIMITS,
+  ISSUE_REOPEN_WINDOW_DAYS,
+  ISSUE_REPLY_MODES,
+  replyReopensIssue,
+} from "./issue-lifecycle.ts";
+export type { IssueReplyMode } from "./issue-lifecycle.ts";
+export {
+  ISSUE_REDACTION_TARGETS,
+  ISSUE_TEXT_RETENTION_YEARS,
+  RING_FENCED_ISSUE_TEXT_RETENTION_YEARS,
+} from "./issue-retention.ts";
+export { ISSUE_CONCERNED_PERSON_LIMIT } from "./issue-concerned-persons.ts";
+export {
+  ISSUE_ACCESS_LEFT_OUT_MARK,
+  ISSUE_ACCESS_PARTS,
+  ISSUE_ACCESS_WITHHOLDING_REASONS,
+  isGivenInPartOf,
+  issueAccessPartHasId,
+} from "./issue-access-weighing.ts";
+export type {
+  IssueAccessPart,
+  IssueAccessWithholdingReason,
+} from "./issue-access-weighing.ts";
+export {
+  ISSUE_DAMAGE_CASE_LIMITS,
+  ISSUE_DAMAGE_CAUSES,
+} from "./issue-damage-case.ts";
+export type { IssueDamageCause } from "./issue-damage-case.ts";
+export type { IssueRedactionTarget } from "./issue-retention.ts";
+export {
+  ISSUE_CLOSING_OUTCOMES,
+  ISSUE_HANDLED_BY,
+  ISSUE_OUTCOMES,
+  ISSUE_PRIORITIES,
+  ISSUE_REPORTER_GROUPS,
+  ISSUE_STATUS_LIMITS,
+  ISSUE_STATUS_MEANINGS,
+  ISSUE_WAITING_REASONS,
+  isIssueStatusMeaning,
+} from "./issue-status.ts";
+export type {
+  IssueClosingOutcome,
+  IssueHandledBy,
+  IssueOutcome,
+  IssuePriority,
+  IssueReporterGroup,
+  IssueStatusMeaning,
+  IssueWaitingReason,
+} from "./issue-status.ts";
+export {
+  findDoorCode,
+  ISSUE_ENTRY_ANSWERS,
+  ISSUE_FINDING_KINDS,
+  ISSUE_FIT_LIMITS,
+  latestFindingTargetDate,
+  LIFT_FINDING_MONTHS,
+} from "./issue-fit.ts";
+export type {
+  DoorCodeMatch,
+  IssueEntryAnswer,
+  IssueFindingKind,
+} from "./issue-fit.ts";
+export {
+  ISSUE_COST_RESPONSIBILITIES,
+  MAINTENANCE_RESPONSIBILITIES,
+  RESPONSIBILITY_GUIDE_LIMITS,
+} from "./issue-responsibility.ts";
+export type {
+  IssueCostResponsibility,
+  MaintenanceResponsibility,
+} from "./issue-responsibility.ts";
 export { DATA_PROTECTION_LIMITS } from "./data-protection-limits.ts";
 export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";
 export {

@@ -14,12 +14,16 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { DomainError } from "../http/domain-error";
+import { failureFrames, failureName } from "../logging/failure";
 import {
   DEFAULT_LOCALE,
   I18nService,
   SUPPORTED_LOCALES,
 } from "../i18n/i18n.service";
 import { DataProtectionSeedService } from "../data-protection/data-protection-seed.service";
+import { IssuePlaceService } from "../issues/issue-place.service";
+import { IssueSavedReplyService } from "../issues/issue-saved-reply.service";
+import { IssueTypeService } from "../issues/issue-type.service";
 import { lockSystemRole } from "../roles/role-lock";
 import { PagesService } from "../site/pages.service";
 import { SetupClaimService } from "./setup-claim.service";
@@ -112,6 +116,9 @@ export class SetupService implements OnModuleInit {
     // the instance only knows what it processes once it knows who it is.
     private readonly dataProtection: DataProtectionSeedService,
     private readonly claims: SetupClaimService,
+    private readonly issueTypes: IssueTypeService,
+    private readonly issueSavedReplies: IssueSavedReplyService,
+    private readonly issuePlaces: IssuePlaceService,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -353,6 +360,67 @@ export class SetupService implements OnModuleInit {
           "is created.",
         cause instanceof Error ? cause.stack : undefined,
       );
+    }
+
+    /*
+     * The issue types a new instance starts with, in the language the wizard
+     * was finished in (ADR 0054), so the website's form takes a report from
+     * the first day. Only on the first completion: re-running the wizard
+     * cannot bring back a type the board removed, even if it removed them
+     * all. Its own try, for the reason the pages above have one.
+     */
+    if (association.setupCompletedAt === null) {
+      try {
+        await this.issueTypes.seedDefaultTypes(
+          this.i18n.translatorFor(association.defaultLocale),
+        );
+      } catch (cause) {
+        this.logger.error(
+          "Setup finished, but the starting issue types could not be written. " +
+            "The board adds its own under Settings: " +
+            failureName(cause),
+          failureFrames(cause),
+        );
+      }
+    }
+
+    /*
+     * The saved replies a new instance starts with (decision 17), beside the
+     * issue types and for their reason, in their own try so one failing does
+     * not keep the other from being written.
+     */
+    if (association.setupCompletedAt === null) {
+      try {
+        await this.issueSavedReplies.seedDefaults(
+          this.i18n.translatorFor(association.defaultLocale),
+        );
+      } catch (cause) {
+        this.logger.error(
+          "Setup finished, but the starting saved replies could not be " +
+            "written. The board adds its own under Settings: " +
+            failureName(cause),
+          failureFrames(cause),
+        );
+      }
+    }
+
+    /*
+     * The common-area places a new instance starts with (decision 30), beside
+     * the issue types and for their reason, in their own try.
+     */
+    if (association.setupCompletedAt === null) {
+      try {
+        await this.issuePlaces.seedDefaults(
+          this.i18n.translatorFor(association.defaultLocale),
+        );
+      } catch (cause) {
+        this.logger.error(
+          "Setup finished, but the starting places could not be written. " +
+            "The board adds its own under Settings: " +
+            failureName(cause),
+          failureFrames(cause),
+        );
+      }
     }
 
     /*

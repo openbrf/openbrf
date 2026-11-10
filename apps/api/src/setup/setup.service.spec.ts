@@ -15,6 +15,9 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
 import type { DataProtectionSeedService } from "../data-protection/data-protection-seed.service";
+import type { IssuePlaceService } from "../issues/issue-place.service";
+import type { IssueSavedReplyService } from "../issues/issue-saved-reply.service";
+import type { IssueTypeService } from "../issues/issue-type.service";
 import type { PagesService } from "../site/pages.service";
 import { SetupClaimService } from "./setup-claim.service";
 import { SetupError, SetupService } from "./setup.service";
@@ -92,6 +95,9 @@ interface Fakes {
     seedPrivacyNotice: ReturnType<typeof vi.fn>;
   };
   dataProtection: { seedIfConfigured: ReturnType<typeof vi.fn> };
+  issueTypes: { seedDefaultTypes: ReturnType<typeof vi.fn> };
+  issueSavedReplies: { seedDefaults: ReturnType<typeof vi.fn> };
+  issuePlaces: { seedDefaults: ReturnType<typeof vi.fn> };
   encryption: FieldEncryptionService;
   claims: SetupClaimService;
 }
@@ -157,6 +163,18 @@ function build(
     seedIfConfigured: vi.fn().mockResolvedValue(undefined),
   };
 
+  const issueTypes = {
+    seedDefaultTypes: vi.fn().mockResolvedValue({ created: 9 }),
+  };
+
+  const issueSavedReplies = {
+    seedDefaults: vi.fn().mockResolvedValue({ created: 2 }),
+  };
+
+  const issuePlaces = {
+    seedDefaults: vi.fn().mockResolvedValue({ created: 9 }),
+  };
+
   const encryption = new FieldEncryptionService(TEST_ENV);
   // The real claim service over the same fake database, so the unclaimed rule
   // it holds is the one these tests turn the knobs of.
@@ -174,6 +192,9 @@ function build(
     i18n,
     dataProtection as unknown as DataProtectionSeedService,
     claims,
+    issueTypes as unknown as IssueTypeService,
+    issueSavedReplies as unknown as IssueSavedReplyService,
+    issuePlaces as unknown as IssuePlaceService,
     TEST_ENV,
   );
 
@@ -185,6 +206,9 @@ function build(
     audit,
     pages,
     dataProtection,
+    issueTypes,
+    issueSavedReplies,
+    issuePlaces,
     encryption,
     claims,
   };
@@ -549,6 +573,107 @@ describe("completing setup", () => {
     await expect(service.complete("person-1")).resolves.toMatchObject({
       completedAt: expect.any(Date) as Date,
     });
+  });
+
+  it("writes the starting issue types, in the association's language", async () => {
+    // So the website's form takes a report from the first day (ADR 0054). The
+    // type service writes nothing to an instance that has any type, which is
+    // what keeps a second completion from bringing back a removed one.
+    const { service, issueTypes } = build();
+
+    await service.complete("person-1");
+
+    expect(issueTypes.seedDefaultTypes).toHaveBeenCalledTimes(1);
+    const [translator] = issueTypes.seedDefaultTypes.mock.calls[0] as [
+      (key: string) => string,
+    ];
+    expect(translator("issues.seededTypes.waterLeak")).toBe("Vattenläcka");
+  });
+
+  it("does not write the starting issue types again on a re-completion", async () => {
+    // A board that removed every type must not get the set back by running the
+    // wizard again from settings.
+    const { service, issueTypes } = build({
+      accounts: 1,
+      setupCompletedAt: new Date("2026-08-01T10:00:00Z"),
+    });
+
+    await service.complete("person-1");
+
+    expect(issueTypes.seedDefaultTypes).not.toHaveBeenCalled();
+  });
+
+  it("writes the starting saved replies, in the association's language", async () => {
+    // Decision 17: one of them says what was reported is the tenant-owner's
+    // under the bylaws. Only on the first completion, as the types.
+    const { service, issueSavedReplies } = build();
+
+    await service.complete("person-1");
+
+    expect(issueSavedReplies.seedDefaults).toHaveBeenCalledTimes(1);
+    const [translator] = issueSavedReplies.seedDefaults.mock.calls[0] as [
+      (key: string) => string,
+    ];
+    expect(translator("issues.seededSavedReplies.bylaws.title")).toBe(
+      "Ditt ansvar enligt stadgarna",
+    );
+  });
+
+  it("does not write the starting saved replies again on a re-completion", async () => {
+    const { service, issueSavedReplies } = build({
+      accounts: 1,
+      setupCompletedAt: new Date("2026-08-01T10:00:00Z"),
+    });
+
+    await service.complete("person-1");
+
+    expect(issueSavedReplies.seedDefaults).not.toHaveBeenCalled();
+  });
+
+  it("writes the starting common-area places, in the association's language", async () => {
+    // Decision 30. None of them is an apartment.
+    const { service, issuePlaces } = build();
+
+    await service.complete("person-1");
+
+    expect(issuePlaces.seedDefaults).toHaveBeenCalledTimes(1);
+    const [translator] = issuePlaces.seedDefaults.mock.calls[0] as [
+      (key: string) => string,
+    ];
+    expect(translator("issues.seededPlaces.laundryRoom")).toBe("Tvättstuga");
+  });
+
+  it("does not write the starting places again on a re-completion", async () => {
+    const { service, issuePlaces } = build({
+      accounts: 1,
+      setupCompletedAt: new Date("2026-08-01T10:00:00Z"),
+    });
+
+    await service.complete("person-1");
+
+    expect(issuePlaces.seedDefaults).not.toHaveBeenCalled();
+  });
+
+  it("still completes when the starting places cannot be written", async () => {
+    const { service, issuePlaces, dataProtection } = build();
+    issuePlaces.seedDefaults.mockRejectedValue(new Error("no database"));
+
+    await expect(service.complete("person-1")).resolves.toMatchObject({
+      completedAt: expect.any(Date) as Date,
+    });
+    // And what comes after it still happens.
+    expect(dataProtection.seedIfConfigured).toHaveBeenCalledTimes(1);
+  });
+
+  it("still completes when the issue types cannot be written", async () => {
+    const { service, issueTypes, dataProtection } = build();
+    issueTypes.seedDefaultTypes.mockRejectedValue(new Error("no database"));
+
+    await expect(service.complete("person-1")).resolves.toMatchObject({
+      completedAt: expect.any(Date) as Date,
+    });
+    // And what comes after it still happens.
+    expect(dataProtection.seedIfConfigured).toHaveBeenCalledTimes(1);
   });
 
   it("writes the record of processing activities", async () => {

@@ -316,6 +316,15 @@ services:
       # association's own LAN. Off by default (docs/deployment.md, "Servers the
       # board enters").
       OPENBRF_ALLOW_PRIVATE_HOSTS: ${OPENBRF_ALLOW_PRIVATE_HOSTS:-false}
+
+      # The contractor's link to a work order (ADR 0055). Off until the legal
+      # review of a contractor as a recipient of the association's data clears
+      # it (docs/deployment.md, "The contractor's link").
+      OPENBRF_CONTRACTOR_LINKS_ENABLED: ${OPENBRF_CONTRACTOR_LINKS_ENABLED:-false}
+
+      # Private links the issue report form may have mailed in an hour, to
+      # every address together (ADR 0055). Empty is 30.
+      OPENBRF_REPORTER_LINK_MAILS_PER_HOUR: ${OPENBRF_REPORTER_LINK_MAILS_PER_HOUR:-}
     # No port on the host. A reverse proxy on the stack's network, as a
     # hosting platform's own is, reaches the application as app:3000 and needs
     # none, and a host port another service already holds would stop the

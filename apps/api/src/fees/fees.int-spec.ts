@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { databaseNow } from "../database/database-clock";
 import { PrismaService } from "../database/prisma.service";
 import type { DataSubjectReport } from "../retention/data-subject-report";
 import {
@@ -26,7 +27,6 @@ import {
   residencyApartmentLockCount,
   waitFor,
 } from "../testing/advisory-locks";
-import { lockedNow } from "./fee-lock";
 
 /**
  * Fees and their notices, against a real database.
@@ -1184,7 +1184,7 @@ describe("rates and the runs that billed them", () => {
               vatTreatment: "EXEMPT",
               financialYearStartMonth: 1,
               recordedByPersonId: board.personId,
-              createdAt: await lockedNow(tx),
+              createdAt: await databaseNow(tx),
             },
             select: { id: true },
           });

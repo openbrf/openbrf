@@ -35,8 +35,9 @@
 # too, and writes mailpit's certificate and the fixture catalog there before it
 # starts the stack.
 #
-# The project name is always openbrf-e2e, so the suite can recreate its own
-# volumes without ever touching a development or production stack.
+# The project name is openbrf-e2e unless OPENBRF_E2E_PROJECT names another
+# (src/stack.ts), and the suite recreates the volumes of that project, so a
+# name that is not a development or production stack's own never touches one.
 
 x-e2e-image: &e2e-image
   build:

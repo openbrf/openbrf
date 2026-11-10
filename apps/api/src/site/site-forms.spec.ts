@@ -67,7 +67,8 @@ function state(overrides: Partial<SiteFormState> = {}): SiteFormState {
     publiclyReadable: true,
     sent: null,
     refused: null,
-    issueTypes: [{ id: "type-1", name: "Trasig port" }],
+    issueTypes: [{ id: "type-1", name: "Trasig port", textRetentionYears: 2 }],
+    responsibilityGuide: null,
     ...overrides,
   };
 }
@@ -160,8 +161,8 @@ describe("the issue report form", () => {
       page([{ type: "issueReportForm" }]),
       state({
         issueTypes: [
-          { id: "type-1", name: "Trasig port" },
-          { id: "type-2", name: "Klotter" },
+          { id: "type-1", name: "Trasig port", textRetentionYears: 2 },
+          { id: "type-2", name: "Klotter", textRetentionYears: 2 },
         ],
       }),
     );
@@ -174,6 +175,44 @@ describe("the issue report form", () => {
     // The warning the law research asks for, beside the field rather than in a
     // policy elsewhere.
     expect(html).toContain("Utelämna uppgifter om hälsa");
+    // How long what it asks for is kept (art. 13(2)(a)), from the type's clock.
+    expect(html).toContain(
+      "Ditt namn och din e-postadress tas bort ett år efter att ärendet har stängts, och det du skrev och svaren du får 2 år efter",
+    );
+    // The board's clock reaches reports already made, and a work order's text
+    // and the address index kept beside it run on a ten-year clock of their own.
+    expect(html).toContain("Styrelsen kan ändra antalet år");
+    expect(html).toContain(
+      "skriver till en entreprenör sparas i tio år efter att ärendet har stängts, och så länge den texten sparas sparas också en kodad form av din e-postadress",
+    );
+    // Without text the address index goes with the address after a year.
+    expect(html).toContain(
+      "finns ingen sådan text tas den bort tillsammans med din e-postadress ett år efter att ärendet har stängts",
+    );
+    // A hold on the issue, or a hold or a restriction on the reporter,
+    // outlasts that ten years.
+    expect(html).toContain(
+      "Ett rättsligt bevarandekrav på ärendet, eller ett rättsligt bevarandekrav eller en begränsning som gäller för dig, gör att den texten och den kodade adressen sparas längre än tio år, tills det upphör",
+    );
+  });
+
+  it("names the longest of the types' clocks, never a fixed period", () => {
+    const html = renderPage(
+      chrome,
+      page([{ type: "issueReportForm" }]),
+      state({
+        issueTypes: [
+          { id: "type-1", name: "Trasig port", textRetentionYears: 5 },
+          { id: "type-2", name: "Klotter", textRetentionYears: 10 },
+        ],
+      }),
+    );
+
+    // The line must not understate how long the text is kept (art. 13(2)(a)):
+    // it follows the board's clock, not the two-year default.
+    expect(html).toContain("det du skrev och svaren du får 10 år efter");
+    expect(html.includes("2 år efter")).toBe(false);
+    expect(html.includes("5 år efter")).toBe(false);
   });
 
   it("takes text and never a file", () => {
@@ -224,6 +263,92 @@ describe("the issue report form", () => {
     // The contact form on the same page is untouched by it.
     expect(html).toContain('action="/kontakta-oss/kontakt"');
     expect(html.includes('action="/kontakta-oss/felanmalan"')).toBe(false);
+  });
+});
+
+describe("the responsibility guide on the issue report form", () => {
+  const GUIDE = [
+    {
+      part: "Golvbrunn, rensning",
+      responsibility: "TENANT_OWNER" as const,
+      note: null,
+    },
+    {
+      part: "Stammar",
+      responsibility: "ASSOCIATION" as const,
+      note: "Tjänar fler än en lägenhet",
+    },
+  ];
+
+  it("comes folded before the fields, with the bylaws first", () => {
+    const html = renderPage(
+      chrome,
+      page([{ type: "issueReportForm" }]),
+      state({ responsibilityGuide: GUIDE }),
+    );
+
+    const guide = html.indexOf('<details class="site-form-guide">');
+    expect(guide).toBeGreaterThan(-1);
+    // Before the form, so it is read before the report is written.
+    expect(guide).toBeLessThan(html.indexOf("<form"));
+    // Folded: no `open`, so it never stands between somebody and the form.
+    expect(html.includes("<details open")).toBe(false);
+    expect(html).toContain("<summary>Vem ansvarar för vad?</summary>");
+    expect(html).toContain("gör en anmälan ändå");
+    expect(html).toContain("Stadgarna gäller före tabellen.");
+    expect(html).toContain(
+      "<tr><td>Golvbrunn, rensning</td><td>Bostadsrättshavaren</td><td></td></tr>",
+    );
+    expect(html).toContain(
+      "<tr><td>Stammar</td><td>Föreningen</td><td>Tjänar fler än en lägenhet</td></tr>",
+    );
+  });
+
+  it("is absent when the service hands it none", () => {
+    // Null is an example the board has not adopted, or a guide with no lines:
+    // the service decides, and the form shows nothing in its place.
+    const html = renderPage(
+      chrome,
+      page([{ type: "issueReportForm" }]),
+      state({ responsibilityGuide: null }),
+    );
+
+    expect(html).toContain("<form");
+    expect(html.includes('class="site-form-guide"')).toBe(false);
+  });
+
+  it("is absent with the form, and over the confirmation that replaces it", () => {
+    for (const forms of [
+      state({ issueTypes: null, responsibilityGuide: GUIDE }),
+      state({ sent: "issue", responsibilityGuide: GUIDE }),
+    ]) {
+      const html = renderPage(
+        chrome,
+        page([{ type: "issueReportForm" }]),
+        forms,
+      );
+      expect(html.includes('class="site-form-guide"')).toBe(false);
+    }
+  });
+
+  it("escapes the board's own words", () => {
+    const html = renderPage(
+      chrome,
+      page([{ type: "issueReportForm" }]),
+      state({
+        responsibilityGuide: [
+          {
+            part: "<script>alert(1)</script>",
+            responsibility: "ASSOCIATION",
+            note: '"><img src=x>',
+          },
+        ],
+      }),
+    );
+
+    expect(html.includes("<script>alert(1)</script>")).toBe(false);
+    expect(html.includes("<img src=x>")).toBe(false);
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
   });
 });
 

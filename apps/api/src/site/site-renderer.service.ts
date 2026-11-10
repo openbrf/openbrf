@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 
 import { PrincipalService } from "../authorization/principal.service";
 import { BoardRosterService } from "../board/board-roster.service";
@@ -12,7 +12,10 @@ import {
   type Locale,
   SUPPORTED_LOCALES,
 } from "../i18n/i18n.service";
+import type { ReporterLinkPageView } from "../issues/issue-reporter-link.service";
+import type { WorkOrderLinkPageView } from "../issues/work-order-link.service";
 import { IssueTypeService } from "../issues/issue-type.service";
+import { ResponsibilityGuideService } from "../issues/responsibility-guide.service";
 import { mediaUrl } from "../media/media.service";
 import { type ThemeRendering, ThemeService } from "../themes/theme.service";
 import { AssociationFactsService } from "./association-facts.service";
@@ -29,7 +32,12 @@ import {
   SiteEventsService,
 } from "./site-events.service";
 import type { BrokerPageInput } from "./site-facts";
-import type { SiteFormKind, SiteFormState, SiteIssueType } from "./site-forms";
+import type {
+  SiteFormKind,
+  SiteFormState,
+  SiteIssueType,
+  SiteResponsibilityGuideLine,
+} from "./site-forms";
 import {
   type NewsTeaser,
   renderNotFound,
@@ -39,8 +47,20 @@ import {
   type SiteControllerContact,
   type SiteDocument,
 } from "./site-html";
+import { failureName } from "../logging/failure";
 import { SiteBlocksService } from "./site-blocks.service";
+import {
+  type IssueLinkNotice,
+  renderIssueLinkNotFound,
+  renderIssueLinkPage,
+} from "./site-issue-link";
 import { renderNewsArticle, renderNewsIndex } from "./site-news";
+import {
+  renderWorkOrderLinkEnded,
+  renderWorkOrderLinkNotFound,
+  renderWorkOrderLinkPage,
+  type WorkOrderLinkNotice,
+} from "./site-work-order-link";
 import {
   type SiteNewsArticle,
   type SiteNewsIndexPage,
@@ -127,10 +147,28 @@ interface ChromeSource {
   menu: SiteMenu;
 }
 
-/** The rate-limit page in every language this instance has. */
+/**
+ * Where a refused request was sent: an address of the website, or a link to an
+ * issue (a reporter's or a contractor's, ADR 0055), whose pages have no menu.
+ */
+export type RefusalPlace = "website" | "link";
+
+/**
+ * The chrome of a link to an issue (ADR 0055): the anonymous visitor's, with
+ * no menu.
+ *
+ * The link's pages and its rate-limit page are both drawn through this, so
+ * that the refusal a link answers has the same chrome as the link's own pages.
+ * Why it has no menu is issueLink()'s to say.
+ */
+function asIssueLinkChrome(chrome: SiteChrome): SiteChrome {
+  return { ...chrome, menu: [] };
+}
+
+/** The rate-limit page in every language this instance has, for each place. */
 interface RefusalPages {
   defaultLocale: string | null;
-  html: ReadonlyMap<Locale, string>;
+  html: ReadonlyMap<RefusalPlace, ReadonlyMap<Locale, string>>;
 }
 
 /** What the visitor has just done on the page being rendered, if anything. */
@@ -168,6 +206,7 @@ export interface SiteVisit extends SiteSubmissionState {
 
 @Injectable()
 export class SiteRenderer {
+  private readonly logger = new Logger(SiteRenderer.name);
   /** The rate-limit page, while it is kept (refusalPages). */
   private refusal: { until: number; pages: Promise<RefusalPages> } | null =
     null;
@@ -179,6 +218,7 @@ export class SiteRenderer {
     private readonly pages: PagesService,
     private readonly menu: MenuService,
     private readonly issueTypes: IssueTypeService,
+    private readonly responsibilityGuide: ResponsibilityGuideService,
     private readonly news: SiteNewsService,
     private readonly events: SiteEventsService,
     private readonly facts: AssociationFactsService,
@@ -234,6 +274,11 @@ export class SiteRenderer {
    * has public reporting switched off, and the block then renders as nothing -
    * the page survives the switch being turned, which is what lets a board close
    * the form without editing the page it sits on.
+   *
+   * The responsibility guide is read only when that form's fields will be
+   * there, not over the confirmation that replaces them, and only as a
+   * reporter is shown it: the guide the board has adopted, never the
+   * example (decision 27).
    */
   private async formState(
     page: SitePage,
@@ -241,23 +286,76 @@ export class SiteRenderer {
   ): Promise<SiteFormState> {
     const offersIssueForm =
       page.publiclyReadable && hasBlock(page.content, "issueReportForm");
+    /*
+     * Whether public reporting is on is asked first and alone: with it off the
+     * form is hidden and the guide is never read. Once it is on, the guide is
+     * asked while the types are, not after them: the two reads do not depend
+     * on one another, and the guide's own read is a transaction, so asked
+     * second it would add its round trips to every page that shows the form.
+     * It is not cached: a board that withdraws its adoption means the guide to
+     * stop appearing on the next page, not on the next but one.
+     *
+     * Whether there is a type to report under is known only with the types, so
+     * a page whose reporting is on but whose types are all closed still reads
+     * the guide for nothing. That page is rare, and what is read is not shown.
+     */
+    const reportingOn =
+      offersIssueForm && (await this.issueTypes.publicReportingEnabled());
+    const reading =
+      reportingOn && submission.sent !== "issue"
+        ? this.publicResponsibilityGuide()
+        : null;
+    const issueTypes = reportingOn ? await this.reportableIssueTypes() : null;
+    const formShown =
+      issueTypes !== null &&
+      issueTypes.length > 0 &&
+      submission.sent !== "issue";
 
     return {
       pagePath: `/${page.slug}`,
       publiclyReadable: page.publiclyReadable,
       sent: submission.sent ?? null,
       refused: submission.refused ?? null,
-      issueTypes: offersIssueForm ? await this.publicIssueTypes() : null,
+      issueTypes,
+      responsibilityGuide: formShown && reading !== null ? await reading : null,
     };
   }
 
-  /** The types a public report may be filed under, or null while it is shut. */
-  private async publicIssueTypes(): Promise<readonly SiteIssueType[] | null> {
-    if (!(await this.issueTypes.publicReportingEnabled())) {
+  /**
+   * The adopted responsibility guide's lines, or null while there is none.
+   *
+   * Also null where the guide cannot be read: it is advice shown above the
+   * form, and the page and the form are not to fail with it.
+   */
+  private async publicResponsibilityGuide(): Promise<
+    readonly SiteResponsibilityGuideLine[] | null
+  > {
+    let guide;
+    try {
+      guide = await this.responsibilityGuide.readForReporter();
+    } catch (error) {
+      this.logger.warn(
+        `The responsibility guide could not be read for the public report form (${failureName(error)})`,
+      );
       return null;
     }
+    return guide === null
+      ? null
+      : guide.items.map((item) => ({
+          part: item.part,
+          responsibility: item.responsibility,
+          note: item.note,
+        }));
+  }
+
+  /** The types a public report may be filed under. */
+  private async reportableIssueTypes(): Promise<readonly SiteIssueType[]> {
     const types = await this.issueTypes.listReportable(null);
-    return types.map((type) => ({ id: type.id, name: type.name }));
+    return types.map((type) => ({
+      id: type.id,
+      name: type.name,
+      textRetentionYears: type.textRetentionYears,
+    }));
   }
 
   /**
@@ -351,19 +449,104 @@ export class SiteRenderer {
   }
 
   /**
-   * The refusal a website address answers when its public budget is spent.
+   * The page a reporter's private link opens (ADR 0055).
+   *
+   * With the anonymous chrome and no menu at all: the page is a reporter's
+   * window onto one issue, not a way into the website, and a menu entry the
+   * board pointed at another host would be the one address on the page that
+   * leaves this origin. Nothing else on it can.
+   */
+  async issueLink(
+    acceptLanguage: string | undefined,
+    view: ReporterLinkPageView,
+    notice: IssueLinkNotice | null,
+    pagePath: string,
+  ): Promise<string> {
+    return renderIssueLinkPage(
+      await this.issueLinkChrome(acceptLanguage),
+      view,
+      notice,
+      pagePath,
+    );
+  }
+
+  /**
+   * What every reporter's link that opens nothing gets, whatever the reason.
+   * Built from the same chrome as the page, and from nothing about the link.
+   */
+  async issueLinkNotFound(acceptLanguage: string | undefined): Promise<string> {
+    return renderIssueLinkNotFound(await this.issueLinkChrome(acceptLanguage));
+  }
+
+  /**
+   * The page a contractor's link opens (ADR 0055), with the reporter's link's
+   * chrome: no menu, so nothing on the page leaves this origin.
+   */
+  async workOrderLink(
+    acceptLanguage: string | undefined,
+    view: WorkOrderLinkPageView,
+    notice: WorkOrderLinkNotice | null,
+    pagePath: string,
+  ): Promise<string> {
+    return renderWorkOrderLinkPage(
+      await this.issueLinkChrome(acceptLanguage),
+      view,
+      notice,
+      pagePath,
+    );
+  }
+
+  /** The page that answers a decline or a done, with no address of the link. */
+  async workOrderLinkEnded(
+    acceptLanguage: string | undefined,
+    ended: "declined" | "done",
+  ): Promise<string> {
+    return renderWorkOrderLinkEnded(
+      await this.issueLinkChrome(acceptLanguage),
+      ended,
+    );
+  }
+
+  /** What every contractor's link that opens nothing gets, whatever the reason. */
+  async workOrderLinkNotFound(
+    acceptLanguage: string | undefined,
+  ): Promise<string> {
+    return renderWorkOrderLinkNotFound(
+      await this.issueLinkChrome(acceptLanguage),
+    );
+  }
+
+  private async issueLinkChrome(
+    acceptLanguage: string | undefined,
+  ): Promise<SiteChrome> {
+    return asIssueLinkChrome(await this.chrome(acceptLanguage, false));
+  }
+
+  /**
+   * The refusal an address outside /api answers when its public budget is
+   * spent.
    *
    * With the anonymous menu, in the visitor's language, for the reasons the
    * not-found document above gives: the limit is checked before anything about
    * the request is read, so the refusal must not vary with the address, the
-   * session or what the association has published. Kept for a minute rather
-   * than drawn per request (REFUSAL_PAGE_TTL_MS), since every request it
+   * session or what the association has published. On a link to an issue it
+   * has the link's chrome instead, with no menu at all, for the reason
+   * issueLink() gives: a menu entry the board pointed at another host would be
+   * the one address on the page that leaves this origin. Kept for a minute
+   * rather than drawn per request (REFUSAL_PAGE_TTL_MS), since every request it
    * answers is one the limit turned away.
+   *
+   * The place carries no default, as hasSession does not: a caller that had
+   * not thought about which chrome it was asking for would silently be given
+   * the website's menu.
    */
-  async tooManyRequests(acceptLanguage: string | undefined): Promise<string> {
+  async tooManyRequests(
+    acceptLanguage: string | undefined,
+    place: RefusalPlace,
+  ): Promise<string> {
     const pages = await this.refusalPages();
     const locale = visitorLocale(acceptLanguage, pages.defaultLocale);
-    const html = pages.html.get(locale);
+    const html = pages.html.get(place)?.get(locale);
     if (html === undefined) {
       // Every supported locale was drawn, and visitorLocale returns only those.
       throw new Error(`No rate-limit page was drawn in ${locale}.`);
@@ -372,11 +555,13 @@ export class SiteRenderer {
   }
 
   /**
-   * The rate-limit page in each language, drawn at most once a TTL.
+   * The rate-limit page in each language and for each place, drawn at most
+   * once a TTL.
    *
-   * One read serves every refusal until it expires, and the requests that
-   * arrive while it is in flight wait on the same one, so a burst of refused
-   * requests asks the database once whatever its size. A failed read is not
+   * One read serves every refusal until it expires, the website's and the
+   * links' alike, and the requests that arrive while it is in flight wait on
+   * the same one, so a burst of refused requests asks the database once
+   * whatever its size or the addresses it was sent to. A failed read is not
    * kept: the requests already waiting on it share its failure, and the next
    * one asks again.
    */
@@ -386,15 +571,24 @@ export class SiteRenderer {
       return this.refusal.pages;
     }
 
-    const pages = this.chromeSource(false).then((source) => ({
-      defaultLocale: source.defaultLocale,
-      html: new Map(
-        SUPPORTED_LOCALES.map((locale) => [
-          locale,
-          renderTooManyRequests(this.chromeIn(source, locale)),
+    const pages = this.chromeSource(false).then((source) => {
+      const drawn = (
+        forPlace: (chrome: SiteChrome) => SiteChrome,
+      ): ReadonlyMap<Locale, string> =>
+        new Map(
+          SUPPORTED_LOCALES.map((locale) => [
+            locale,
+            renderTooManyRequests(forPlace(this.chromeIn(source, locale))),
+          ]),
+        );
+      return {
+        defaultLocale: source.defaultLocale,
+        html: new Map<RefusalPlace, ReadonlyMap<Locale, string>>([
+          ["website", drawn((chrome) => chrome)],
+          ["link", drawn(asIssueLinkChrome)],
         ]),
-      ),
-    }));
+      };
+    });
     const entry = { until: now + REFUSAL_PAGE_TTL_MS, pages };
     this.refusal = entry;
     pages.catch(() => {
@@ -403,6 +597,18 @@ export class SiteRenderer {
       }
     });
     return pages;
+  }
+
+  /**
+   * Drops the rate-limit pages kept, so that the next refusal draws them anew.
+   *
+   * For a suite that changes what the chrome is drawn from and then reads a
+   * refusal: without it the page it reads may have been drawn before the
+   * change, and moving the clock past the TTL instead would leave a page drawn
+   * from the suite's own fixtures kept for the tests after it.
+   */
+  forgetRefusalPages(): void {
+    this.refusal = null;
   }
 
   /**

@@ -14,6 +14,9 @@ deploy and exit, and nothing else to install.
 - A machine reachable at the public https:// address members will use, with TLS
   in front of it. Passkeys need a secure origin, and so does a session cookie
   that is worth anything.
+- The `pg_trgm` extension, where the instance runs on a database server of your
+  own rather than the bundled one
+  ([The search's extension](#the-searchs-extension))
 
 ## Starting an instance
 
@@ -497,6 +500,31 @@ application start that has none of the three, because the alternative is an
 application connecting as the owner - so that refusal, rather than a missing
 value in the env file, is the error an operator will read whose application
 starts without the data volume the password is on.
+
+## The search's extension
+
+The issue queue's search reads messages and internal notes through trigram
+indexes, so the database server has to offer the `pg_trgm` extension. It ships
+with PostgreSQL's contrib modules, which the bundled database's image includes;
+on a server built from packages, install them. `pg_trgm` is a trusted
+extension, so the migrations create it as the schema owner, with no superuser.
+A managed server that allows extensions one by one has to allow `pg_trgm`
+first. Without it the migration that creates it stops the deploy with
+PostgreSQL's own error.
+
+A server may have `pg_trgm` installed in a schema other than `public` already,
+as some managed servers keep every extension in a schema named `extensions`.
+The migrations then leave it there and name that schema in the indexes, so the
+schema owner needs `USAGE` on it. Without that the migration stops the deploy
+with `permission denied for schema extensions`. Whoever owns that schema, the
+server's administrator, grants it:
+
+```sql
+GRANT USAGE ON SCHEMA extensions TO openbrf_owner;  -- or the OWNER_DB_USER role
+```
+
+The runtime role needs nothing on that schema: it writes and searches the
+indexed tables without naming the extension.
 
 ## The database's time zone
 
@@ -1049,6 +1077,10 @@ with a message that names what is wrong:
   connection limit the script sets for the role has to be 1 or more; `-1`
   would mean no limit.
 
+The server also has to offer the `pg_trgm` extension, and where another schema
+holds it already, each instance's owner needs `USAGE` on that schema
+([The search's extension](#the-searchs-extension)).
+
 A new database grants `CONNECT` to every role on the server. Each deploy that
 constrains the runtime role revokes that grant on the instance's own database,
 and checks afterwards that it is gone, so no instance's runtime role can open
@@ -1176,6 +1208,65 @@ subject access reports, and the four plugin and theme installs and uninstalls it
 runs or queues at once, are counted in the memory of the application process, so
 running more than one application container for an instance multiplies every
 one of them by the number of containers.
+
+### Private links in the proxy's access log
+
+A reporter who has no account and left an email address on the website's
+issue report form is mailed a private link to their issue, at
+`/arende/obrf_rl_...` (ADR 0055). The address is the credential: whoever holds
+it reads the issue's conversation and writes in it. The application keeps the
+token out of its own logs and stores only a digest of it, but a reverse proxy
+writes the whole path of every request to its access log, and the application
+cannot stop that.
+
+Leave these paths out of the proxy's access log, or cut the path at
+`/arende/`. In nginx, for example, a `location /arende/ { access_log off; ... }`
+block in front of the usual `proxy_pass` does it; in Caddy, a `log_skip` for
+the same path. A proxy log that keeps the full path holds a working link until
+the link ends, at the first of: 30 days after its issue is closed, a year after
+the issue's latest message (or after the day the link was issued, if no message came),
+and a handler withdrawing it. Keep such a log
+for less time than that and limit who can read it, or treat it as holding
+personal data.
+
+The same budget per client address that guards the forms guards these paths
+too, so `TRUSTED_PROXIES` matters here as well: thirty page reads and five
+messages a minute per address.
+
+The form mails a link to whatever address a visitor types, so the mails are
+bounded twice, in the database: three a day to one inbox however its address
+is spelt, and `OPENBRF_REPORTER_LINK_MAILS_PER_HOUR` (30 unless set) from the
+instance in an hour, to every address together. Past either, the report is
+filed and its link is not mailed; the form answers the same, and the board
+answers that reporter some other way if it must. Raise the ceiling only for an
+association whose public reports more than that in an hour.
+
+### The contractor's link
+
+A handler can give the contractor of a work order a link of their own, at
+`/arbetsorder/obrf_wo_...` (ADR 0055), which opens that work order and the
+photographs the board chose for it, and through which the contractor answers
+it, writes notes and adds photographs without an account. It is switched off.
+The legal review of a contractor as a recipient of the association's data is
+done and left one question open: whether asking a contractor for notes and
+photographs through the link makes them a processor for the association. It
+stays off until that is answered, and an association that switches it on
+before then takes that question on itself.
+`OPENBRF_CONTRACTOR_LINKS_ENABLED=true` in the env file (the production Compose
+file passes it on to the application) switches it on, and
+turning it off again makes every link refuse at once, and a link that has not
+expired or ended opens again if it is switched back on. With it off, every
+address under `/arbetsorder/` answers the same 404 as a link that never
+existed, and a handler can still withdraw such a link from its work order.
+
+Treat these paths as you treat `/arende/`: leave them out of the proxy's access
+log or cut the path at `/arbetsorder/`. A proxy log that keeps the full path
+holds a working link until it ends, at the latest 30 days after it was issued.
+The contractor's photographs are uploaded on these paths, so the proxy's body
+limit must allow `OPENBRF_MAX_UPLOAD_BYTES` here as on the application's own
+upload routes, plus the multipart envelope around the file: the proxy counts
+the whole request body, and a limit of exactly `OPENBRF_MAX_UPLOAD_BYTES`
+refuses a photograph near that size that the application would accept.
 
 ## The data volume
 

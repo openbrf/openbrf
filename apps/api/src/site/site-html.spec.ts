@@ -74,7 +74,8 @@ const FORMS: SiteFormState = {
   publiclyReadable: true,
   sent: null,
   refused: null,
-  issueTypes: [{ id: "type-1", name: "Trasig port" }],
+  issueTypes: [{ id: "type-1", name: "Trasig port", textRetentionYears: 2 }],
+  responsibilityGuide: null,
 };
 
 const PAGE = page([

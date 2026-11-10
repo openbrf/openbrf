@@ -17,8 +17,28 @@ export const NOTICE_DELIVERY_FAILURES = {
    */
   mailNotConfigured: "mail-not-configured",
 
-  /** The mail server refused the message. */
+  /**
+   * The mail send ended in an error the mail driver places before the copy
+   * reached the mail server: the message could not be prepared, or the mail
+   * server could not be reached or refused the sign-in, the address or the
+   * message (`MailHandover`). It did not go out.
+   */
   refused: "send-failed",
+
+  /**
+   * Nobody knows whether the copy went out: the mail send ended in an error
+   * after which the mail server may hold it, such as a connection that broke or
+   * went quiet once the message was on its way.
+   *
+   * Failed rather than sent, so the member stays among those the board is shown
+   * as not reached. A notice is a summons the association owes every member
+   * (EFL 6 kap. 21 §): a member called a second way has lost nothing, and a
+   * member counted as summoned on a copy nobody confirmed may not have been
+   * summoned at all. Its own code rather than `send-failed`, which says the copy
+   * did not go out, so the member's own data-subject report does not say so
+   * either.
+   */
+  unconfirmed: "delivery-unconfirmed",
 
   /** The person the ledger names is no longer on this instance. */
   recipientGone: "recipient-gone",

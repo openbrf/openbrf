@@ -28,6 +28,8 @@ import { SiteBlocksModule } from "./site-blocks.module";
 import { SiteCalendarController } from "./site-calendar.controller";
 import { SiteEventsService } from "./site-events.service";
 import { SiteFormsController } from "./site-forms.controller";
+import { SiteIssueLinkController } from "./site-issue-link.controller";
+import { SiteWorkOrderLinkController } from "./site-work-order-link.controller";
 import { SiteNewsController } from "./site-news.controller";
 import { SiteNewsService } from "./site-news.service";
 import { SiteRenderer } from "./site-renderer.service";
@@ -65,9 +67,10 @@ import { SiteRenderer } from "./site-renderer.service";
     SetupModule,
     ThemesModule,
     MediaModule,
-    // The modules behind the public forms. The website renders and submits
-    // them in process rather than calling its own API over HTTP, which is what
-    // both of those modules' export lists were written for.
+    // The modules behind the public forms and the reporter's private link.
+    // The website renders and submits them in process rather than calling its
+    // own API over HTTP, which is what both of those modules' export lists
+    // were written for.
     IssuesModule,
     ContactModule,
     // The broker page's update request, submitted the same way.
@@ -91,11 +94,15 @@ import { SiteRenderer } from "./site-renderer.service";
     SiteBlocksModule,
   ],
   controllers: [
-    // The four public ones first, then the board's.
+    // The five public ones first, then the board's.
     SiteNewsController,
     SiteCalendarController,
     SiteController,
     SiteFormsController,
+    // The pages a reporter's private link and a contractor's link open
+    // (ADR 0055).
+    SiteIssueLinkController,
+    SiteWorkOrderLinkController,
     PagesAdminController,
     SiteImagesController,
     SiteBlocksAdminController,

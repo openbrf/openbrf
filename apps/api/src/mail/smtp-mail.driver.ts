@@ -1,3 +1,5 @@
+import { connect } from "node:net";
+
 import { HttpStatus } from "@nestjs/common";
 import {
   createTransport,
@@ -11,7 +13,15 @@ import {
   type ResolvedAddress,
   resolvePublicAddresses,
 } from "../network/outbound-address";
-import type { MailDriver, OutgoingMail, SentMail } from "./mail-driver";
+import {
+  type MailDriver,
+  type MailHandover,
+  type MailHandoverFailure,
+  NEVER_CONNECTED_SYSTEM_CODES,
+  type OutgoingMail,
+  type SentMail,
+  withHandover,
+} from "./mail-driver";
 
 /**
  * The port to use when the settings name none.
@@ -61,14 +71,19 @@ const SOCKET_TIMEOUT_MS = 20_000;
  *
  * A certificate the server presents and this process does not trust is not
  * among them. Nodemailer reports it as `ESOCKET`, the code a refused connection
- * has too, having written over the code that told them apart, so it stays the
- * generic failure rather than a guess from the wording of a message.
+ * has too, so it stays the generic failure. The record of the send still reads
+ * it as not handed over, from the code nodemailer keeps under its own
+ * (`NEVER_CONNECTED_SYSTEM_CODES`).
  *
  * A 502: the fault is at the mail server, not in the request.
  */
-export class MailTlsUnavailableError extends DomainError {
+export class MailTlsUnavailableError
+  extends DomainError
+  implements MailHandoverFailure
+{
   readonly status = HttpStatus.BAD_GATEWAY;
   readonly reason = "mail-tls-unavailable";
+  readonly handover = "not-handed-over";
 
   constructor(options?: { cause: unknown }) {
     super(
@@ -94,9 +109,13 @@ export class MailTlsUnavailableError extends DomainError {
  * at all, because which of the two it was is a fact about the network behind
  * this instance. A 502, like the TLS refusal above.
  */
-export class MailServerNotPublicError extends DomainError {
+export class MailServerNotPublicError
+  extends DomainError
+  implements MailHandoverFailure
+{
   readonly status = HttpStatus.BAD_GATEWAY;
   readonly reason = "host-not-public";
+  readonly handover = "not-handed-over";
 
   constructor(options: { cause: unknown }) {
     super(
@@ -104,6 +123,79 @@ export class MailServerNotPublicError extends DomainError {
     );
     this.cause = options.cause;
   }
+}
+
+/**
+ * Nodemailer's codes for a failure before the message was sent, or for the
+ * server refusing it: no address for the name, no encrypted connection, a
+ * sign-in, an envelope or a DATA command refused, and a message refused, by the
+ * server's answer to it or by nodemailer before it was sent.
+ */
+const BEFORE_HANDOVER_CODES: ReadonlySet<string> = new Set([
+  "EDNS",
+  "ETLS",
+  "EREQUIRETLS",
+  "EAUTH",
+  "ENOAUTH",
+  "EENVELOPE",
+  "EMESSAGE",
+]);
+
+/**
+ * Nodemailer's timeouts that can only run out before the message is sent: the
+ * TCP connect, the greeting and the TLS upgrade. Not `SOCKET_TIMEOUT`, which
+ * runs on every exchange, the end of the message's included.
+ */
+const BEFORE_HANDOVER_TIMEOUTS: ReadonlySet<string> = new Set([
+  "CONNECT_TIMEOUT",
+  "GREETING_TIMEOUT",
+  "UPGRADE_TIMEOUT",
+]);
+
+/**
+ * How far a send nodemailer failed had got, from the fields it gives its
+ * errors.
+ *
+ * Nodemailer reports a socket that broke or went quiet with one code and one
+ * command (`CONN`) whatever the conversation had reached, and the end of the
+ * message is one of those points: the server may have taken it and its answer
+ * been lost. So such a failure may have been handed over, unless the field it
+ * carries places it before the connection was made. Nodemailer keeps the
+ * system or TLS code it wrapped under its own (`originalCode`), which is how a
+ * refused connection and an expired certificate, both reported as `ESOCKET`,
+ * are told from a reset.
+ *
+ * A reply code on a `CONN` protocol error places it before the handover as
+ * well: nodemailer raises that for a greeting that is not a 220, and for a
+ * reply nobody awaits, which only arrives once the answer to the message has
+ * been taken and the send has already resolved.
+ */
+function smtpHandover(error: unknown): MailHandover {
+  if (typeof error !== "object" || error === null) {
+    return "may-have-been-handed-over";
+  }
+  const { code, timeoutType, originalCode, command, responseCode } = error as {
+    code?: unknown;
+    timeoutType?: unknown;
+    originalCode?: unknown;
+    command?: unknown;
+    responseCode?: unknown;
+  };
+  const before =
+    (typeof code === "string" && BEFORE_HANDOVER_CODES.has(code)) ||
+    // A server that answers the connection with a refusal (a 554 or 421 where
+    // the 220 greeting belongs) is reported as `EPROTOCOL` on the connection
+    // (`CONN`) with the server's reply code. A connection that broke or went
+    // quiet carries no reply code, and stays ambiguous.
+    (code === "EPROTOCOL" &&
+      command === "CONN" &&
+      typeof responseCode === "number") ||
+    (code === "ETIMEDOUT" &&
+      typeof timeoutType === "string" &&
+      BEFORE_HANDOVER_TIMEOUTS.has(timeoutType)) ||
+    (typeof originalCode === "string" &&
+      NEVER_CONNECTED_SYSTEM_CODES.has(originalCode));
+  return before ? "not-handed-over" : "may-have-been-handed-over";
 }
 
 /** Whether nodemailer failed to set up TLS, which it reports as `ETLS`. */
@@ -156,21 +248,29 @@ export class SmtpMailDriver implements MailDriver {
     private readonly server: SmtpServer,
     /** The resolver, for a suite that cannot depend on somebody's DNS zone. */
     private readonly resolve?: ResolveAddresses,
+    /** The greeting timeout, for a suite that cannot wait ten seconds for it. */
+    private readonly timeouts: { greetingTimeoutMs?: number } = {},
   ) {
     this.transporter = server.allowPrivateHosts
-      ? createTransport(transportOptions(server))
+      ? createTransport(
+          transportOptions(server, undefined, undefined, timeouts),
+        )
       : null;
   }
 
-  async send(mail: OutgoingMail): Promise<SentMail> {
+  async send(mail: OutgoingMail, signal?: AbortSignal): Promise<SentMail> {
     let info: unknown;
     try {
-      info = await this.sendOne(mail);
+      info = await this.sendOne(mail, signal);
     } catch (error) {
+      // The caller's deadline, whatever nodemailer made of the closed socket.
+      if (signal?.aborted === true) {
+        throw signal.reason;
+      }
       if (isTlsFailure(error)) {
         throw new MailTlsUnavailableError({ cause: error });
       }
-      throw error;
+      throw withHandover(error, smtpHandover(error));
     }
 
     // Reported as the one delivered, which holds for a relay that keeps the
@@ -193,42 +293,67 @@ export class SmtpMailDriver implements MailDriver {
    * transport built on the name would connect wherever that resolution said
    * rather than where this one did. The name stays the TLS server name, so a
    * certificate is still checked against the host the board entered.
+   *
+   * A send with a signal gets one of its own too, whose socket the signal
+   * closes (`connectUntil`): the shared transport opens sockets of its own
+   * that nothing here can reach.
    */
-  private async transportFor(): Promise<{
+  private async transportFor(signal: AbortSignal | undefined): Promise<{
     transporter: Transporter;
     own: boolean;
   }> {
-    if (this.transporter !== null) {
+    if (this.transporter !== null && signal === undefined) {
       return { transporter: this.transporter, own: false };
     }
 
-    let addresses: readonly ResolvedAddress[];
-    try {
-      addresses = await resolvePublicAddresses(this.server.host, {
-        allowPrivate: false,
-        ...(this.resolve === undefined ? {} : { resolve: this.resolve }),
-      });
-    } catch (cause) {
-      throw new MailServerNotPublicError({ cause });
+    let address: string | undefined;
+    if (!this.server.allowPrivateHosts) {
+      let addresses: readonly ResolvedAddress[];
+      try {
+        // Raced rather than cancelled, which the system resolver cannot be: a
+        // lookup carries no part of the message, and nothing is connected to
+        // once the signal is aborted.
+        addresses = await untilAborted(
+          resolvePublicAddresses(this.server.host, {
+            allowPrivate: false,
+            ...(this.resolve === undefined ? {} : { resolve: this.resolve }),
+          }),
+          signal,
+        );
+      } catch (cause) {
+        if (signal?.aborted === true) {
+          throw signal.reason;
+        }
+        throw new MailServerNotPublicError({ cause });
+      }
+
+      // IPv4 first where there is one, which is the order nodemailer tries a
+      // name in: a container with no IPv6 route would otherwise fail on a host
+      // that answers on both.
+      address = (
+        addresses.find((answer) => answer.family === 4) ?? addresses[0]
+      )?.address;
     }
 
-    // IPv4 first where there is one, which is the order nodemailer tries a
-    // name in: a container with no IPv6 route would otherwise fail on a host
-    // that answers on both.
-    const address =
-      addresses.find((answer) => answer.family === 4) ?? addresses[0];
+    signal?.throwIfAborted();
     return {
       transporter: createTransport(
-        transportOptions(this.server, address?.address),
+        transportOptions(this.server, address, signal, this.timeouts),
       ),
       own: true,
     };
   }
 
-  private async sendOne(mail: OutgoingMail): Promise<unknown> {
-    const { transporter, own } = await this.transportFor();
+  private async sendOne(
+    mail: OutgoingMail,
+    signal: AbortSignal | undefined,
+  ): Promise<unknown> {
+    const { transporter, own } = await this.transportFor(signal);
     try {
-      return await this.sendThrough(transporter, mail);
+      // Raced as well, so the caller hears of the abort when it comes: the
+      // socket is closed by then, and what nodemailer reports of it later is
+      // left unread.
+      return await untilAborted(this.sendThrough(transporter, mail), signal);
     } finally {
       if (own) {
         transporter.close();
@@ -265,13 +390,17 @@ export class SmtpMailDriver implements MailDriver {
 
 /**
  * What a transport for this server is built with, connecting to `address` when
- * one is given and to the host by name when not.
+ * one is given and to the host by name when not, over a socket `signal` closes
+ * when one is given.
  */
 function transportOptions(
   server: SmtpServer,
   address?: string,
+  signal?: AbortSignal,
+  timeouts: { greetingTimeoutMs?: number } = {},
 ): SMTPTransportOptions {
   return {
+    ...(signal === undefined ? {} : { getSocket: connectUntil(signal) }),
     host: address ?? server.host,
     // The name the certificate is checked against, and the one presented for
     // SNI, when the connection is made to an address.
@@ -280,13 +409,99 @@ function transportOptions(
     secure: server.secure,
     requireTLS: server.requireTls,
     connectionTimeout: CONNECTION_TIMEOUT_MS,
-    greetingTimeout: GREETING_TIMEOUT_MS,
+    greetingTimeout: timeouts.greetingTimeoutMs ?? GREETING_TIMEOUT_MS,
     socketTimeout: SOCKET_TIMEOUT_MS,
     auth:
       server.user === null
         ? undefined
         : { user: server.user, pass: server.password ?? "" },
   };
+}
+
+/**
+ * Opens the connection for nodemailer, on a socket the signal destroys.
+ *
+ * Nodemailer takes no signal, and the socket it opens itself is out of reach,
+ * so the connection is opened here and handed to it as a proxy's would be.
+ * Destroying it is what ends the send where it stands: TLS, which nodemailer
+ * still sets up over it, runs on this socket, and once it is destroyed no
+ * further byte of the conversation leaves this process (the deadline spec runs
+ * both implicit TLS and STARTTLS over it). The connect is bounded
+ * as nodemailer bounds its own.
+ */
+function connectUntil(
+  signal: AbortSignal,
+): NonNullable<SMTPTransportOptions["getSocket"]> {
+  return (options, callback) => {
+    if (signal.aborted) {
+      callback(signal.reason as Error);
+      return;
+    }
+    let settled = false;
+    const socket = connect({
+      host: options.host,
+      port: Number(options.port),
+      signal,
+    });
+    const timedOut = (): void => {
+      // In the shape nodemailer gives its own connect timeout.
+      socket.destroy(
+        Object.assign(new Error("Connection timeout"), {
+          code: "ETIMEDOUT",
+          timeoutType: "CONNECT_TIMEOUT",
+        }),
+      );
+    };
+    socket.setTimeout(CONNECTION_TIMEOUT_MS);
+    socket.once("timeout", timedOut);
+    socket.once("connect", () => {
+      settled = true;
+      // Nodemailer sets its own bounds on the open socket.
+      socket.setTimeout(0);
+      socket.removeListener("timeout", timedOut);
+      callback(null, { connection: socket });
+    });
+    socket.once("error", (error) => {
+      if (!settled) {
+        settled = true;
+        // The connection was never made, so nothing was sent: a refusal and
+        // the connect's bound above alike. Said here, because nodemailer
+        // rejects the send with this error as it stands, without the
+        // `originalCode` its own connection would give a refusal.
+        callback(
+          Object.assign(error, {
+            handover: "not-handed-over",
+          } satisfies MailHandoverFailure),
+        );
+      }
+    });
+  };
+}
+
+/**
+ * `work`, or the signal's reason as soon as it is aborted. What `work` comes
+ * to after that is left unread.
+ */
+function untilAborted<T>(
+  work: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (signal === undefined) {
+    return work;
+  }
+  return new Promise<T>((resolve, reject) => {
+    const abort = (): void => {
+      reject(signal.reason as Error);
+    };
+    if (signal.aborted) {
+      abort();
+    } else {
+      signal.addEventListener("abort", abort, { once: true });
+    }
+    work.then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", abort);
+    });
+  });
 }
 
 /** The identifier nodemailer reports, without its angle brackets. */

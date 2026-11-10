@@ -1,5 +1,6 @@
 import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import {
+  type IssueAccessPart,
   compareLocalDays,
   dateColumnOf,
   formatDateColumn,
@@ -13,6 +14,20 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { pluginProcessorKey } from "../data-protection/processor-key";
+import {
+  ISSUE_FREE_TEXT_STANDING,
+  issueTextClockYears,
+  issueTextClocks,
+  issueTextRetentionDays,
+} from "../issues/issue-free-text";
+import {
+  ISSUE_MESSAGE_ORDER,
+  ISSUE_MESSAGE_SELECT,
+  toReporterView,
+} from "../issues/issue-message-view";
+import { issuesConcerningPerson } from "../issues/issue-concerned-persons";
+import { issuesReportedByProtectedPersons } from "../issues/issue-reporter-protection";
+import { computeIssuePurgeDate } from "../issues/issue-retention";
 import { pluginAccessViews } from "../plugin-access/plugin-access";
 import { consentedPersonRecordsOf } from "../plugins/plugin-registry.service";
 import {
@@ -74,6 +89,7 @@ import type {
   ReportPostalAddress,
   ReportProxyAuthorisation,
   ReportSignInSession,
+  ReportWeighedText,
 } from "./data-subject-report";
 import {
   holdingPeriods,
@@ -82,6 +98,20 @@ import {
 } from "./holding-periods";
 import { dueOn } from "../data-protection/data-subject-request";
 import { connectedAppHost } from "../connected-apps/client-host";
+import {
+  ISSUE_NOTE_ORDER,
+  KEYED_WEIGHING_SELECT,
+  WEIGHED_NOTE_SELECT,
+  reportNote,
+  REPORT_WORK_ORDER_SELECT,
+  reportWorkOrder,
+  strictestWeighing,
+  WEIGHING_SELECT,
+  weighedText,
+  weighingKey,
+  WORK_ORDER_ORDER,
+  weighingsByText,
+} from "./issue-access-weighing";
 import { ExportSlots } from "./export-slots";
 import { computePurgeDate } from "./purge-date";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
@@ -676,18 +706,175 @@ export class DataSubjectReportService {
             },
           });
 
+    // The clocks the free text of the issues is on, the ordinary types' and a
+    // ring-fenced type's, read in this transaction so the dates below agree
+    // with the settings the report names.
+    const issueClocks = await issueTextClocks(tx);
     const issues = await tx.issue.findMany({
       where: { reporterPersonId: personId },
       orderBy: [{ createdAt: "desc" }],
       select: {
         id: true,
-        status: true,
+        number: true,
+        // The meaning, in the reader's language, and never the board's label
+        // for the status: what the issue module shows its reporter (ADR 0054).
+        status: { select: { meaning: true } },
+        // What the board decided or awaits, which describes the person: art.
+        // 15(1)(c) and the outcome ADR 0057 keeps after the purge.
+        outcome: true,
+        waitingReason: true,
+        // Who pays, which a handler decided about the reporter's own matter.
+        costResponsibility: true,
+        // The common area the person named (decision 30). A building record,
+        // not free text, so it stands after the purge and is in the copy.
+        place: { select: { name: true } },
         location: true,
         description: true,
+        entryAnswer: true,
+        entryNote: true,
+        entryPets: true,
+        entryMasterKey: true,
+        entryUntil: true,
+        descriptionRedactedAt: true,
+        locationRedactedAt: true,
+        freeTextRemovedAt: true,
+        legalHoldAt: true,
         createdAt: true,
-        type: { select: { name: true } },
+        closedAt: true,
+        type: { select: { name: true, ringFenced: true } },
         _count: { select: { photos: true } },
+        // The conversation as the reporter reads it on their own screen
+        // (`toReporterView`). The internal notes are read apart, below.
+        messages: {
+          orderBy: ISSUE_MESSAGE_ORDER,
+          select: ISSUE_MESSAGE_SELECT,
+        },
+        // The internal notes, with the board's weighing of each for the
+        // reporter's report (ADR 0057, question 1). Never the author.
+        notes: {
+          orderBy: ISSUE_NOTE_ORDER,
+          select: {
+            ...WEIGHED_NOTE_SELECT,
+            accessWeighings: {
+              where: { concernedPersonId: null },
+              select: WEIGHING_SELECT,
+            },
+          },
+        },
+        // Whom the issue was sent to (art. 15(1)(c)), and the text, which is
+        // the handler's and may name others, with the board's weighing of it
+        // for the reporter's report (ADR 0057, question 7).
+        workOrders: {
+          orderBy: WORK_ORDER_ORDER,
+          select: {
+            ...REPORT_WORK_ORDER_SELECT,
+            accessWeighings: {
+              where: { concernedPersonId: null },
+              select: WEIGHING_SELECT,
+            },
+          },
+        },
       },
+    });
+
+    // Which of them still hold some of the free-text layer, by the rule the
+    // purge selects by, so that a date is stated only where there is something
+    // left for it to remove.
+    const issuesWithFreeText = new Set(
+      (
+        await tx.issue.findMany({
+          where: {
+            reporterPersonId: personId,
+            AND: [ISSUE_FREE_TEXT_STANDING],
+          },
+          select: { id: true },
+        })
+      ).map((issue) => issue.id),
+    );
+
+    /*
+     * The cases a handler recorded as concerning this person that somebody
+     * else reported (ADR 0057, question 3). The case, and its words only as
+     * the board weighed them for this report: never its reporter, their
+     * apartment or their link, which the select does not reach.
+     */
+    const concerning = await tx.issue.findMany({
+      where: issuesConcerningPerson(personId),
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      select: {
+        id: true,
+        number: true,
+        status: { select: { meaning: true } },
+        outcome: true,
+        waitingReason: true,
+        location: true,
+        description: true,
+        descriptionRedactedAt: true,
+        locationRedactedAt: true,
+        freeTextRemovedAt: true,
+        legalHoldAt: true,
+        createdAt: true,
+        closedAt: true,
+        type: { select: { name: true, ringFenced: true } },
+        _count: { select: { photos: true } },
+        // This person's record, one by the unique key, and the board's
+        // weighing of each text for their report through it.
+        concernedPersons: {
+          where: { personId },
+          select: {
+            createdAt: true,
+            accessWeighings: { select: KEYED_WEIGHING_SELECT },
+          },
+        },
+        messages: {
+          orderBy: ISSUE_MESSAGE_ORDER,
+          select: {
+            id: true,
+            side: true,
+            signature: true,
+            body: true,
+            redactedAt: true,
+            createdAt: true,
+          },
+        },
+        notes: { orderBy: ISSUE_NOTE_ORDER, select: WEIGHED_NOTE_SELECT },
+        workOrders: {
+          orderBy: WORK_ORDER_ORDER,
+          select: REPORT_WORK_ORDER_SELECT,
+        },
+      },
+    });
+    const concerningWithFreeText = new Set(
+      concerning.length === 0
+        ? []
+        : (
+            await tx.issue.findMany({
+              where: {
+                id: { in: concerning.map((issue) => issue.id) },
+                AND: [ISSUE_FREE_TEXT_STANDING],
+              },
+              select: { id: true },
+            })
+          ).map((issue) => issue.id),
+    );
+
+    // The issues and types that name this person as their assignee, which
+    // somebody else chose (ADR 0057): never the issue's text or its reporter.
+    const assignedIssues = await tx.issue.findMany({
+      where: { assigneePersonId: personId },
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      select: {
+        id: true,
+        status: { select: { meaning: true } },
+        createdAt: true,
+        closedAt: true,
+        type: { select: { name: true } },
+      },
+    });
+    const defaultForTypes = await tx.issueType.findMany({
+      where: { defaultAssigneePersonId: personId },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: { id: true, name: true },
     });
 
     const documents = await tx.document.findMany({
@@ -1382,6 +1569,24 @@ export class DataSubjectReportService {
     });
 
     /*
+     * A former assignee: the entry of the assignment that took an issue from
+     * them, or of a type's setting that shut them out, names them only as the
+     * previous assignee in its context (ADR 0057). Without it their report
+     * would omit the one record of having held the issue.
+     *
+     * Read apart from the query below, with the expression the partial index
+     * `audit_log_entry_previousAssignee_idx` is built on. Inside that query's
+     * OR the context arm has no index, and the planner scans the whole log,
+     * which only grows. The key is a literal in the SQL, as in the index: a
+     * bound parameter would not match the index's expression. It is
+     * PREVIOUS_ASSIGNEE_KEY.
+     */
+    const previousAssigneeEntries = await tx.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "audit_log_entry"
+      WHERE ("context" ->> 'previousAssigneePersonId') = ${personId}
+    `;
+
+    /*
      * Every entry naming this person, either way round. The log's two person
      * columns are plain columns rather than relations - the audit log has to
      * outlive the people it names - so this is one query with an OR rather
@@ -1389,7 +1594,11 @@ export class DataSubjectReportService {
      */
     const auditEntries = await tx.auditLogEntry.findMany({
       where: {
-        OR: [{ targetPersonId: personId }, { actorPersonId: personId }],
+        OR: [
+          { targetPersonId: personId },
+          { actorPersonId: personId },
+          { id: { in: previousAssigneeEntries.map((entry) => entry.id) } },
+        ],
       },
       orderBy: [{ createdAt: "desc" }],
       select: {
@@ -1405,6 +1614,21 @@ export class DataSubjectReportService {
         context: true,
       },
     });
+
+    /*
+     * The issues among those the entries name by identifier (a charge made from
+     * an issue records which) whose reporter has protected personal data. The
+     * charge list withholds that link, so an entry's context must not hand it
+     * back: see `subjectScopedContext`. Not the issues this person reported
+     * themselves: their own copy states their own report.
+     */
+    const withheldIssueIds = await issuesReportedByProtectedPersons(
+      tx,
+      auditEntries
+        .map((entry) => asContext(entry.context)?.[ISSUE_KEY])
+        .filter((id): id is string => typeof id === "string"),
+      personId,
+    );
 
     /*
      * What this person asked about their own data, and what the board decided.
@@ -1667,13 +1891,152 @@ export class DataSubjectReportService {
       })),
       issues: issues.map((issue) => ({
         issueId: issue.id,
+        number: issue.number,
         typeName: issue.type.name,
-        status: issue.status,
+        meaning: issue.status.meaning,
+        outcome: issue.outcome,
+        waitingReason: issue.waitingReason,
+        costResponsibility: issue.costResponsibility,
+        place: issue.place?.name ?? null,
         location: issue.location,
         description: issue.description,
+        entry:
+          issue.entryAnswer === null
+            ? null
+            : {
+                answer: issue.entryAnswer,
+                note: issue.entryNote,
+                pets: issue.entryPets,
+                masterKey: issue.entryMasterKey,
+                until: formatDateColumn(issue.entryUntil),
+              },
+        descriptionRedactedAt:
+          issue.descriptionRedactedAt?.toISOString() ?? null,
+        locationRedactedAt: issue.locationRedactedAt?.toISOString() ?? null,
+        freeTextRemovedAt: issue.freeTextRemovedAt?.toISOString() ?? null,
+        /*
+         * Derived here rather than stored, as a booking's is: the board's
+         * setting moves every pending date by that act alone, and a type
+         * ring-fenced since moves its issues onto the board's ring-fenced
+         * clock, which is set apart from the other types' clock and may be
+         * the shorter or the longer. Stated as the earliest day for the
+         * reason the booking gives, and read on the
+         * association's calendar as it is.
+         */
+        freeTextErasableFrom:
+          issue.status.meaning !== "DONE" ||
+          issue.legalHoldAt !== null ||
+          !issuesWithFreeText.has(issue.id)
+            ? null
+            : formatDayOfInstant(
+                computeIssuePurgeDate(
+                  issue.closedAt,
+                  issueTextRetentionDays(
+                    issueTextClockYears(issueClocks, issue.type.ringFenced),
+                  ),
+                ),
+              ),
+        onLegalHold: issue.legalHoldAt !== null,
         reportedAt: issue.createdAt.toISOString(),
+        closedAt: issue.closedAt?.toISOString() ?? null,
         photographs: issue._count.photos,
+        messages: issue.messages.map(toReporterView),
+        notes: issue.notes.map((note) =>
+          reportNote(note, strictestWeighing(note.accessWeighings)),
+        ),
+        workOrders: issue.workOrders.map((order) =>
+          reportWorkOrder(order, strictestWeighing(order.accessWeighings)),
+        ),
       })),
+      issuesConcerning: concerning.map((issue) => {
+        // One record per person on an issue (the unique key), and the where
+        // found the issue through it.
+        const record = issue.concernedPersons[0];
+        const weighings = weighingsByText(record?.accessWeighings ?? []);
+        const weighed = (
+          part: IssueAccessPart,
+          text: string | null,
+          id: string | null = null,
+        ): ReportWeighedText | null =>
+          text === null || text === ""
+            ? null
+            : weighedText(text, weighings.get(weighingKey(part, id)));
+        return {
+          issueId: issue.id,
+          number: issue.number,
+          typeName: issue.type.name,
+          meaning: issue.status.meaning,
+          outcome: issue.outcome,
+          waitingReason: issue.waitingReason,
+          recordedAt: (record?.createdAt ?? issue.createdAt).toISOString(),
+          reportedAt: issue.createdAt.toISOString(),
+          closedAt: issue.closedAt?.toISOString() ?? null,
+          // On the reporter's issues' rule (above), so the two sections date
+          // the same layer alike.
+          freeTextErasableFrom:
+            issue.status.meaning !== "DONE" ||
+            issue.legalHoldAt !== null ||
+            !concerningWithFreeText.has(issue.id)
+              ? null
+              : formatDayOfInstant(
+                  computeIssuePurgeDate(
+                    issue.closedAt,
+                    issueTextRetentionDays(
+                      issueTextClockYears(issueClocks, issue.type.ringFenced),
+                    ),
+                  ),
+                ),
+          onLegalHold: issue.legalHoldAt !== null,
+          freeTextRemovedAt: issue.freeTextRemovedAt?.toISOString() ?? null,
+          description:
+            issue.descriptionRedactedAt === null
+              ? weighed("DESCRIPTION", issue.description)
+              : null,
+          descriptionRedactedAt:
+            issue.descriptionRedactedAt?.toISOString() ?? null,
+          location:
+            issue.locationRedactedAt === null
+              ? weighed("LOCATION", issue.location)
+              : null,
+          locationRedactedAt: issue.locationRedactedAt?.toISOString() ?? null,
+          messages: issue.messages.map((message) => ({
+            messageId: message.id,
+            writtenAt: message.createdAt.toISOString(),
+            side: message.side,
+            signature: message.side === "HANDLER" ? message.signature : null,
+            redactedAt: message.redactedAt?.toISOString() ?? null,
+            content:
+              message.redactedAt === null
+                ? weighed("MESSAGE", message.body, message.id)
+                : null,
+          })),
+          notes: issue.notes.map((note) =>
+            reportNote(note, weighings.get(weighingKey("NOTE", note.id))),
+          ),
+          photographs: issue._count.photos,
+          workOrders: issue.workOrders.map((order) =>
+            reportWorkOrder(
+              order,
+              weighings.get(weighingKey("WORK_ORDER", order.id)),
+            ),
+          ),
+        };
+      }),
+      issueAssignments: [
+        ...assignedIssues.map((issue) => ({
+          kind: "issue" as const,
+          issueId: issue.id,
+          typeName: issue.type.name,
+          meaning: issue.status.meaning,
+          reportedAt: issue.createdAt.toISOString(),
+          closedAt: issue.closedAt?.toISOString() ?? null,
+        })),
+        ...defaultForTypes.map((type) => ({
+          kind: "typeDefault" as const,
+          typeId: type.id,
+          typeName: type.name,
+        })),
+      ],
       documents: documents.map((document) => ({
         documentId: document.id,
         title: document.title,
@@ -2139,14 +2502,23 @@ export class DataSubjectReportService {
       ),
       auditEntries: auditEntries.map((entry): ReportAuditEntry => ({
         entryId: entry.id,
-        role: entry.targetPersonId === personId ? "subject" : "actor",
+        // The target, or the previous assignee: the act is about them. Only an
+        // entry that names them as nothing but its actor reads as theirs.
+        role:
+          entry.targetPersonId !== personId && entry.actorPersonId === personId
+            ? "actor"
+            : "subject",
         action: entry.action,
         at: entry.createdAt.toISOString(),
         channel: entry.channel,
         pluginId: entry.pluginId,
         targetKind: entry.targetKind,
         targetId: entry.targetId,
-        context: subjectScopedContext(asContext(entry.context), personId),
+        context: subjectScopedContext(
+          asContext(entry.context),
+          personId,
+          withheldIssueIds,
+        ),
       })),
       dataSubjectRequests: dataSubjectRequests.map(
         (request): ReportDataSubjectRequest => ({
@@ -2619,6 +2991,18 @@ function asContext(
  */
 const CONTEXT_PERSON_LISTS = ["personIds", "protectedPersonIds"] as const;
 
+/**
+ * The context key of an assignment entry that names the assignee an issue was
+ * taken from, one person's identifier rather than a list.
+ */
+const PREVIOUS_ASSIGNEE_KEY = "previousAssigneePersonId";
+
+/**
+ * The context key of an entry that names the issue a charge was made from, one
+ * identifier.
+ */
+const ISSUE_KEY = "issueId";
+
 /** An audience as the feed section joins it: by kind, and a group by name. */
 interface JoinedAudience {
   kind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
@@ -2818,6 +3202,7 @@ function groupFeed(
 function subjectScopedContext(
   context: Record<string, unknown> | null,
   personId: string,
+  withheldIssueIds: ReadonlySet<string>,
 ): Record<string, unknown> | null {
   if (context === null) {
     return null;
@@ -2831,6 +3216,32 @@ function subjectScopedContext(
     }
     scoped[key] = value.includes(personId) ? [personId] : [];
     scoped[`${key}Count`] = value.length;
+  }
+
+  /*
+   * The previous assignee is somebody else's identifier on the entry that
+   * assigned this person, and this person's own on the entry that took the
+   * issue from them. Somebody else's is withheld, and the fact that the issue
+   * had an assignee stays.
+   */
+  const previous = context[PREVIOUS_ASSIGNEE_KEY];
+  if (typeof previous === "string" && previous !== personId) {
+    scoped[PREVIOUS_ASSIGNEE_KEY] = null;
+    scoped.hadPreviousAssignee = true;
+  }
+
+  /*
+   * The issue a charge was made from, while its reporter has protected personal
+   * data, and is somebody else (the caller leaves this person's own reports out
+   * of the set). The charge list withholds the same link, because an issue
+   * identifier beside the charged person or apartment pairs the report with the
+   * identity the queue withholds. The fact that the charge came from an issue
+   * stays.
+   */
+  const issueId = context[ISSUE_KEY];
+  if (typeof issueId === "string" && withheldIssueIds.has(issueId)) {
+    scoped[ISSUE_KEY] = null;
+    scoped.issueWithheld = true;
   }
   return scoped;
 }

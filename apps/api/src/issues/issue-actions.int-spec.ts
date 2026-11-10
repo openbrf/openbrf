@@ -4,6 +4,7 @@ import {
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import type { ActionContext } from "@openbrf/plugin-sdk";
+import { ISSUE_STATUS_LIMITS } from "@openbrf/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import {
@@ -15,13 +16,24 @@ import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
 import { LiveResponse } from "../actions/testing/live-response";
 import { AppModule } from "../app.module";
+import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import { MediaService } from "../media/media.service";
+import {
+  createIssueTypeFixture,
+  type IssueTypeFixture,
+} from "../testing/issue-fixtures";
+import { IssueReporterLinkService } from "./issue-reporter-link.service";
+import { IssueTypeService } from "./issue-type.service";
+import { IssueService } from "./issue.service";
+import { IssueMailer } from "./issue-mailer.service";
 
 /**
  * The reads of the issue queue and the contact form inbox (ADR 0040), against
@@ -111,6 +123,8 @@ const contactId = `ia-contact-${suffix}`;
 const CONTACT_EMAIL = `avsandare-${suffix}@exempel.se`;
 
 let associationCreatedHere = false;
+/** The statuses of the residents' type, which the shielded report is of. */
+let memberStatusIds: IssueTypeFixture["statusIds"];
 let boardCookie = "";
 
 let ipCounter = 0;
@@ -161,6 +175,26 @@ function connectedApp(personId: string): ActionCaller {
   return callers.forRequest(request);
 }
 
+/** A connected app whose token may write as well as read. */
+function writingApp(personId: string): ActionCaller {
+  const token = {
+    clientId: `client-write-${suffix}`,
+    clientHost: "app.example",
+    scopes: ["mcp:read", "mcp:write"],
+  };
+  const request = {
+    id: `request-write-${suffix}`,
+    principal: { personId, capabilities: new Set<string>() },
+    token,
+  } as unknown as RequestWithToken;
+  markAuthenticated(request, new LiveResponse(), {
+    personId,
+    token,
+    requestId: request.id,
+  });
+  return callers.forRequest(request);
+}
+
 /** The same person in the web interface: a session and no token. */
 function webInterface(personId: string): ActionCaller {
   const request = {
@@ -177,7 +211,7 @@ function webInterface(personId: string): ActionCaller {
 
 interface PublishedIssue {
   id: string;
-  type: { id: string; audience: string };
+  type: { id: string; reporters: string[] };
   reporter: Record<string, unknown>;
   apartment: { id: string; number: string } | null;
   photoCount: number;
@@ -208,6 +242,50 @@ async function readWholeQueue(
     after = page.nextCursor;
   } while (after !== null && pages < 500);
   return { issues, text, pages };
+}
+
+/**
+ * The database, with `between` run once, on another connection, as soon as the
+ * first read of issues has answered - inside a transaction or not, so a reader
+ * that stops sharing one moment across its reads is caught either way.
+ */
+function afterFirstIssueRead(
+  database: PrismaService,
+  between: () => Promise<void>,
+): PrismaService {
+  let pending = true;
+  const hooked = <Client extends object>(client: Client): Client =>
+    new Proxy(client, {
+      get(target, key) {
+        const value: unknown = Reflect.get(target, key);
+        if (key === "$transaction") {
+          return (
+            work: (tx: Prisma.TransactionClient) => Promise<unknown>,
+            options?: object,
+          ) => database.$transaction((tx) => work(hooked(tx)), options);
+        }
+        if (key === "issue") {
+          const issues = value as Prisma.TransactionClient["issue"];
+          return new Proxy(issues, {
+            get(delegate, name) {
+              if (name !== "findMany") {
+                return Reflect.get(delegate, name);
+              }
+              return async (args: Prisma.IssueFindManyArgs) => {
+                const rows = await delegate.findMany(args);
+                if (pending) {
+                  pending = false;
+                  await between();
+                }
+                return rows;
+              };
+            },
+          });
+        }
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  return hooked(database);
 }
 
 /** Through the registry, as a connected app arriving on `mcp`. */
@@ -366,21 +444,18 @@ beforeAll(async () => {
     data: { personId: manager.personId, role: "PROPERTY_MANAGER" },
   });
 
-  await prisma.issueType.createMany({
-    data: [
-      {
-        id: typeIds.member,
-        name: `Fel i lagenheten ${suffix}`,
-        audience: "MEMBER",
-        sortOrder: 1,
-      },
-      {
-        id: typeIds.boardInternal,
-        name: `Internt ${suffix}`,
-        audience: "BOARD",
-        sortOrder: 2,
-      },
-    ],
+  const memberType = await createIssueTypeFixture(prisma, {
+    id: typeIds.member,
+    name: `Fel i lagenheten ${suffix}`,
+    reporters: ["RESIDENTS"],
+    sortOrder: 1,
+  });
+  memberStatusIds = memberType.statusIds;
+  const internalType = await createIssueTypeFixture(prisma, {
+    id: typeIds.boardInternal,
+    name: `Internt ${suffix}`,
+    reporters: ["HANDLERS"],
+    sortOrder: 2,
   });
 
   /*
@@ -401,6 +476,7 @@ beforeAll(async () => {
       {
         id: issueIds.first,
         typeId: typeIds.member,
+        statusId: memberType.statusIds.NEW,
         reporterPersonId: resident.personId,
         apartmentId: residentApartmentId,
         description: "Kranen droppar.",
@@ -409,6 +485,7 @@ beforeAll(async () => {
       {
         id: issueIds.shielded,
         typeId: typeIds.member,
+        statusId: memberType.statusIds.NEW,
         reporterPersonId: shielded.personId,
         apartmentId: shieldedApartmentId,
         location: SHIELDED_LOCATION,
@@ -418,6 +495,7 @@ beforeAll(async () => {
       {
         id: issueIds.second,
         typeId: typeIds.member,
+        statusId: memberType.statusIds.NEW,
         reporterPersonId: resident.personId,
         apartmentId: residentApartmentId,
         description: "Elementet ar kallt.",
@@ -426,6 +504,7 @@ beforeAll(async () => {
       {
         id: issueIds.internal,
         typeId: typeIds.boardInternal,
+        statusId: internalType.statusIds.NEW,
         reporterPersonId: board.personId,
         description: "Besiktning av taket.",
         createdAt: new Date("2026-03-04T08:00:00.000Z"),
@@ -433,6 +512,7 @@ beforeAll(async () => {
       {
         id: issueIds.external,
         typeId: typeIds.member,
+        statusId: memberType.statusIds.NEW,
         reporterPersonId: null,
         reporterNameCipher: externalName.cipher,
         reporterEmailCipher: external.cipher,
@@ -545,19 +625,35 @@ describe("who may read the queue and the inbox", () => {
   it("lets the board and the property manager read every issue type", async () => {
     for (const personId of [board.personId, manager.personId]) {
       const { types } = await registry.invoke<{
-        types: { id: string; audience: string; active: boolean }[];
+        types: {
+          id: string;
+          reporters: string[];
+          active: boolean;
+          statuses: { meaning: string; label: string }[];
+        }[];
       }>(connectedApp(personId), "issue_type_list", {});
       const held = new Map(
         types
           .filter((type) => Object.values(typeIds).includes(type.id))
-          .map((type) => [type.id, type.audience]),
+          .map((type) => [type.id, type.reporters]),
       );
       expect(held, personId).toEqual(
         new Map([
-          [typeIds.member, "MEMBER"],
-          [typeIds.boardInternal, "BOARD"],
+          [typeIds.member, ["RESIDENTS"]],
+          [typeIds.boardInternal, ["HANDLERS"]],
         ]),
       );
+      // Each type's statuses, with their meanings and the board's labels.
+      expect(
+        types
+          .find((type) => type.id === typeIds.member)
+          ?.statuses.map((status) => [status.meaning, status.label]),
+      ).toEqual([
+        ["NEW", "Ny"],
+        ["IN_PROGRESS", "Pågår"],
+        ["WAITING", "Väntar"],
+        ["DONE", "Klar"],
+      ]);
     }
   });
 
@@ -575,10 +671,12 @@ describe("who may read the queue and the inbox", () => {
   });
 
   it("is not offered in the web interface, whoever asks", async () => {
+    // The reads. A write is offered there, for confirming a pending change.
     for (const name of [
       "issue_list",
       "issue_get",
       "issue_type_list",
+      "issue_handler_list",
       "contact_message_list",
     ]) {
       await expect(
@@ -591,9 +689,9 @@ describe("who may read the queue and the inbox", () => {
 });
 
 describe("what the queue carries beyond the instance", () => {
-  it("narrows by status, type and audience", async () => {
+  it("narrows by meaning, type and reporter group", async () => {
     const internal = await readWholeQueue(overMcp(board.personId), {
-      audience: "BOARD",
+      reporter: "HANDLERS",
     });
     const ids = internal.issues.map((issue) => issue.id);
     expect(ids).toContain(issueIds.internal);
@@ -601,9 +699,230 @@ describe("what the queue carries beyond the instance", () => {
 
     const done = await overMcp(board.personId)({
       typeId: typeIds.member,
-      status: "DONE",
+      meaning: "DONE",
     });
     expect(done.issues).toEqual([]);
+  });
+
+  it("reads by meaning, then the board's order within it, then oldest, a page at a time", async () => {
+    const type = await createIssueTypeFixture(prisma, {
+      id: `ia-type-order-${suffix}`,
+      name: `Ordning ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    // A second IN_PROGRESS status the board placed after the default, and a
+    // WAITING one: the queue is never the enum's declaration order, so a
+    // WAITING issue reads after IN_PROGRESS and before DONE.
+    const later = await prisma.issueStatus.create({
+      data: {
+        typeId: type.id,
+        meaning: "IN_PROGRESS",
+        label: "Hos entreprenör",
+        sortOrder: 1,
+      },
+    });
+    const at = (day: number): Date =>
+      new Date(`2026-04-${String(day).padStart(2, "0")}T08:00:00.000Z`);
+    const rows = [
+      {
+        key: "done",
+        statusId: type.statusIds.DONE,
+        createdAt: at(1),
+        closed: true,
+      },
+      { key: "laterOld", statusId: later.id, createdAt: at(2) },
+      { key: "waiting", statusId: type.statusIds.WAITING, createdAt: at(3) },
+      { key: "newer", statusId: type.statusIds.NEW, createdAt: at(9) },
+      {
+        key: "inProgress",
+        statusId: type.statusIds.IN_PROGRESS,
+        createdAt: at(8),
+      },
+      { key: "new", statusId: type.statusIds.NEW, createdAt: at(4) },
+    ];
+    await prisma.issue.createMany({
+      data: rows.map((row) => ({
+        id: `ia-order-${row.key}-${suffix}`,
+        typeId: type.id,
+        statusId: row.statusId,
+        reporterPersonId: resident.personId,
+        description: `Ordning ${row.key}`,
+        createdAt: row.createdAt,
+        ...(row.closed === true
+          ? { closedAt: at(5), outcome: "FIXED" as const }
+          : {}),
+        ...(row.statusId === type.statusIds.WAITING
+          ? { waitingReason: "PARTS" as const }
+          : {}),
+      })),
+    });
+    try {
+      const { issues, pages } = await readWholeQueue(overMcp(board.personId), {
+        typeId: type.id,
+        limit: 1,
+      });
+      expect(issues.map((issue) => issue.id)).toEqual(
+        ["new", "newer", "inProgress", "laterOld", "waiting", "done"].map(
+          (key) => `ia-order-${key}-${suffix}`,
+        ),
+      );
+      expect(pages).toBe(6);
+    } finally {
+      await prisma.issue.deleteMany({ where: { typeId: type.id } });
+      await prisma.issueType.delete({ where: { id: type.id } });
+    }
+  });
+
+  it("pages on through a status added behind the highest place a status can have", async () => {
+    const types = app.get(IssueTypeService);
+    const type = await createIssueTypeFixture(prisma, {
+      id: `ia-type-last-place-${suffix}`,
+      name: `Sista plats ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    try {
+      // The highest place the board can give a status, and then one more
+      // status of that meaning, which would otherwise take the place after it
+      // - one a cursor cannot carry.
+      await types.updateStatus(
+        type.id,
+        type.statusIds.NEW,
+        { label: "Ny", sortOrder: ISSUE_STATUS_LIMITS.sortOrder },
+        board.personId,
+      );
+      const view = await types.addStatus(
+        type.id,
+        { meaning: "NEW", label: "Ny, igen" },
+        board.personId,
+      );
+      const added = view.statuses.find((status) => status.label === "Ny, igen");
+      expect(
+        view.statuses
+          .filter((status) => status.meaning === "NEW")
+          .map((status) => [status.label, status.sortOrder]),
+      ).toEqual([
+        ["Ny", 0],
+        ["Ny, igen", 1],
+      ]);
+
+      const at = (day: number): Date =>
+        new Date(`2026-05-${String(day).padStart(2, "0")}T08:00:00.000Z`);
+      const rows = [
+        { key: "first", statusId: type.statusIds.NEW, createdAt: at(3) },
+        { key: "added", statusId: added?.id ?? "", createdAt: at(1) },
+        { key: "addedLater", statusId: added?.id ?? "", createdAt: at(2) },
+      ];
+      await prisma.issue.createMany({
+        data: rows.map((row) => ({
+          id: `ia-last-place-${row.key}-${suffix}`,
+          typeId: type.id,
+          statusId: row.statusId,
+          reporterPersonId: resident.personId,
+          description: `Sista plats ${row.key}`,
+          createdAt: row.createdAt,
+        })),
+      });
+
+      const { issues, pages } = await readWholeQueue(overMcp(board.personId), {
+        typeId: type.id,
+        limit: 1,
+      });
+      expect(issues.map((issue) => issue.id)).toEqual(
+        ["first", "added", "addedLater"].map(
+          (key) => `ia-last-place-${key}-${suffix}`,
+        ),
+      );
+      expect(pages).toBe(3);
+    } finally {
+      await prisma.issue.deleteMany({ where: { typeId: type.id } });
+      await prisma.issueType.delete({ where: { id: type.id } });
+    }
+  });
+
+  it("reads every meaning of one read at one moment", async () => {
+    const type = await createIssueTypeFixture(prisma, {
+      id: `ia-type-moment-${suffix}`,
+      name: `Ögonblick ${suffix}`,
+      reporters: ["RESIDENTS"],
+    });
+    const starting = `ia-moment-starting-${suffix}`;
+    const returning = `ia-moment-returning-${suffix}`;
+    await prisma.issue.createMany({
+      data: [
+        { id: starting, statusId: type.statusIds.NEW },
+        { id: returning, statusId: type.statusIds.IN_PROGRESS },
+      ].map((row) => ({
+        ...row,
+        typeId: type.id,
+        reporterPersonId: resident.personId,
+        description: "Ögonblick",
+      })),
+    });
+    /*
+     * Once the queue's first read - the NEW meaning's - has answered, a
+     * handler starts on one issue and sends another back to new, and both
+     * moves are committed before the IN_PROGRESS meaning is read. Each
+     * statement taking its own snapshot would read the started issue twice
+     * and the returned one not at all. A page of the queue and the board's
+     * whole list each read it so.
+     */
+    const reads: Record<
+      string,
+      (queue: IssueService) => Promise<{ id: string; meaning: string }[]>
+    > = {
+      page: async (queue) =>
+        (await queue.pageOfQueue(board.personId, { typeId: type.id }, "show"))
+          .issues,
+      list: (queue) => queue.listQueue(board.personId),
+    };
+    try {
+      for (const [name, read] of Object.entries(reads)) {
+        await prisma.issue.update({
+          where: { id: starting },
+          data: { statusId: type.statusIds.NEW },
+        });
+        await prisma.issue.update({
+          where: { id: returning },
+          data: { statusId: type.statusIds.IN_PROGRESS },
+        });
+        let moved = false;
+        const queue = new IssueService(
+          afterFirstIssueRead(prisma, async () => {
+            moved = true;
+            await prisma.issue.update({
+              where: { id: starting },
+              data: { statusId: type.statusIds.IN_PROGRESS },
+            });
+            await prisma.issue.update({
+              where: { id: returning },
+              data: { statusId: type.statusIds.NEW },
+            });
+          }),
+          app.get(IssueTypeService),
+          app.get(MediaService),
+          app.get(FieldEncryptionService),
+          app.get(AuditLogService),
+          app.get(IssueReporterLinkService),
+          app.get(IssueMailer),
+        );
+
+        const issues = await read(queue);
+
+        expect(moved, name).toBe(true);
+        expect(
+          issues
+            .filter((issue) => [starting, returning].includes(issue.id))
+            .map((issue) => [issue.id, issue.meaning]),
+          name,
+        ).toEqual([
+          [starting, "NEW"],
+          [returning, "IN_PROGRESS"],
+        ]);
+      }
+    } finally {
+      await prisma.issue.deleteMany({ where: { typeId: type.id } });
+      await prisma.issueType.delete({ where: { id: type.id } });
+    }
   });
 
   it("gives an external reporter's name and never the address they left", async () => {
@@ -667,9 +986,9 @@ describe("an issue a reporter with protected personal data filed", () => {
 
   it.each([
     ["the whole queue", {}],
-    ["its status", { status: "NEW" }],
+    ["its meaning", { meaning: "NEW" }],
     ["its type", { typeId: typeIds.member }],
-    ["its audience", { audience: "MEMBER" }],
+    ["a reporter group", { reporter: "RESIDENTS" }],
   ])(
     "leaves no trace on mcp, read under %s",
     async (_name, filter: Record<string, unknown>) => {
@@ -731,5 +1050,56 @@ describe("an issue a reporter with protected personal data filed", () => {
 
     expect(withheld.reason).toBe("issue-not-found");
     expect(withheld).toEqual(missing);
+  });
+
+  it("is answered as an issue that does not exist by every write and by the list of who may take it", async () => {
+    const handling = {
+      assigneePersonId: true,
+      priority: true,
+      targetDate: true,
+      statusId: true,
+    } as const;
+    const before = await prisma.issue.findUniqueOrThrow({
+      where: { id: issueIds.shielded },
+      select: handling,
+    });
+    const recorded = () =>
+      prisma.auditLogEntry.count({
+        where: { targetKind: "issue", targetId: issueIds.shielded },
+      });
+    const recordedBefore = await recorded();
+
+    for (const [name, input] of [
+      ["issue_handler_list", {}],
+      ["issue_assign", { assigneePersonId: board.personId }],
+      ["issue_set_priority", { priority: "URGENT" }],
+      ["issue_set_target_date", { targetDate: "2031-05-30" }],
+      // A move the issue's status allows: NEW to IN_PROGRESS.
+      ["issue_set_status", { statusId: memberStatusIds.IN_PROGRESS }],
+    ] as const) {
+      const withheld = await refusalOf(
+        registry.invoke(writingApp(board.personId), name, {
+          ...input,
+          id: issueIds.shielded,
+        }),
+      );
+      const missing = await refusalOf(
+        registry.invoke(writingApp(board.personId), name, {
+          ...input,
+          id: `ia-issue-never-${suffix}`,
+        }),
+      );
+      expect(withheld.reason, name).toBe("issue-not-found");
+      expect(withheld, name).toEqual(missing);
+    }
+
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issueIds.shielded },
+        select: handling,
+      }),
+    ).toEqual(before);
+    // Nothing was recorded against it.
+    expect(await recorded()).toBe(recordedBefore);
   });
 });

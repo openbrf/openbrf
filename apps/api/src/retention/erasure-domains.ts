@@ -3,6 +3,11 @@ import { dateColumnOf, localDayOf } from "@openbrf/shared";
 import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import {
+  CONCERNS_A_WITHHELD_PERSON,
+  CONCERNS_NO_WITHHELD_PERSON,
+} from "../issues/issue-concerned-persons";
+import { ISSUE_FREE_TEXT_STANDING } from "../issues/issue-free-text";
 import { withheldAddressIndexes } from "./withheld-addresses";
 
 /**
@@ -10,8 +15,9 @@ import { withheldAddressIndexes } from "./withheld-addresses";
  *
  * A granted request (GDPR art. 17) is carried out by several jobs rather than
  * one. Each of the domain jobs erases a person's rows in the domain they belong
- * to - board mailbox threads, bookings, the feed, event sign-ups, key orders,
- * motions, subletting applications and plugins' records about a person - and
+ * to - board mailbox threads, bookings, the feed, event sign-ups, the free
+ * text of the issues they reported, key orders, motions, subletting
+ * applications and plugins' records about a person - and
  * the last one erases
  * the contact details and the account and then marks the request executed and
  * closed. The last one only ever finds the request while it is open,
@@ -421,12 +427,84 @@ export function pluginRecordsErasedOnRequest(
   return { subjectPersonId: personId };
 }
 
+/**
+ * The issues whose free text a granted erasure request removes: every issue the
+ * person reported that is closed, under no legal hold of its own, concerning
+ * nobody under a legal hold or a restriction, and still has some of its
+ * free-text layer standing (ADR 0057).
+ *
+ * The free-text layer and nothing else. The building record stays, and so does
+ * the reporter column until the person purge, which runs last, finds the text
+ * gone and detaches it. A person named in an issue somebody else reported is
+ * not reached here: that is a request naming the issue, which a handler
+ * carries out by redacting.
+ */
+export function issuesErasedOnRequest(
+  personId: ErasurePersonFilter,
+): Prisma.IssueWhereInput {
+  return {
+    ...issueErasureGrounds(personId),
+    AND: [ISSUE_FREE_TEXT_STANDING],
+  };
+}
+
+/**
+ * What entitles a granted request to an issue's free text, without asking
+ * whether any stands: the person reported it, it is closed, no legal hold of
+ * its own stands on it, and no person it concerns is under a legal hold or a
+ * restriction. The layer is what the case holds about each of them too, and
+ * the record that it concerns them goes with it, so a hold or a restriction
+ * on one of them keeps it from the reporter's request as from the clock.
+ *
+ * What the removal's own re-check asks. The removal takes the files before the
+ * text, so by the time it asks about the text the last file may be gone and
+ * `ISSUE_FREE_TEXT_STANDING` no longer holds, while the entry that records the
+ * layer's removal is still to be written.
+ */
+export function issueErasureGrounds(
+  personId: ErasurePersonFilter,
+): Prisma.IssueWhereInput {
+  return {
+    reporterPersonId: personId,
+    status: { meaning: "DONE" },
+    legalHoldAt: null,
+    ...CONCERNS_NO_WITHHELD_PERSON,
+  };
+}
+
+/**
+ * The issues a granted erasure request leaves standing: one the person
+ * reported that is still open, which the board is still dealing with as it is
+ * an open key order or motion, one under a legal hold of its own, such as a
+ * damage case, and one concerning a person under a legal hold or a
+ * restriction. Each holds the request open until it closes or the hold or the
+ * restriction ends.
+ */
+export function issuesKeptFromErasure(
+  personId: ErasurePersonFilter,
+): Prisma.IssueWhereInput {
+  return {
+    reporterPersonId: personId,
+    AND: [
+      ISSUE_FREE_TEXT_STANDING,
+      {
+        OR: [
+          { status: { meaning: { not: "DONE" } } },
+          { legalHoldAt: { not: null } },
+          CONCERNS_A_WITHHELD_PERSON,
+        ],
+      },
+    ],
+  };
+}
+
 /** The domains {@link ERASURE_DOMAINS} registers, as the board's screen names them. */
 export type ErasureDomainKey =
   | "boardMailboxThreads"
   | "bookings"
   | "eventSignups"
   | "feed"
+  | "issues"
   | "keyOrders"
   | "motions"
   | "pluginRecords"
@@ -540,6 +618,19 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
         (await client.postCommentLike.count({ where: traces.commentLikes })) +
         (await client.postReport.count({ where: traces.reports }))
       );
+    },
+  },
+  {
+    job: "issues/issue-erasure.service.ts",
+    key: "issues",
+    name: "issues",
+    countOwed: async (client, personId) =>
+      client.issue.count({ where: issuesErasedOnRequest(personId) }),
+    kept: {
+      because:
+        "an issue they reported is still open, under a legal hold of its own, or concerns a person under a legal hold or a restriction",
+      count: async (client, personId) =>
+        client.issue.count({ where: issuesKeptFromErasure(personId) }),
     },
   },
   {

@@ -1,11 +1,18 @@
+import { EventEmitter } from "node:events";
+
+import type { SMTPTransportOptions } from "nodemailer";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type {
   ResolveAddresses,
   ResolvedAddress,
 } from "../network/outbound-address";
-import type { OutgoingMail } from "./mail-driver";
-import { MailServerNotPublicError, SmtpMailDriver } from "./smtp-mail.driver";
+import { type OutgoingMail, mayHaveBeenHandedOver } from "./mail-driver";
+import {
+  MailServerNotPublicError,
+  MailTlsUnavailableError,
+  SmtpMailDriver,
+} from "./smtp-mail.driver";
 
 /**
  * What a send is allowed to cost when the far end goes quiet.
@@ -38,6 +45,14 @@ const transport = vi.hoisted(() => {
 
 vi.mock("nodemailer", () => ({
   createTransport: transport.createTransport,
+}));
+
+/** The connect a send with a signal opens its socket with, so a test can hand it one. */
+const net = vi.hoisted(() => ({ connect: vi.fn() }));
+
+vi.mock("node:net", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:net")>()),
+  connect: net.connect,
 }));
 
 const SERVER = {
@@ -107,6 +122,35 @@ describe("the mail transport", () => {
     // The callers that send after committing their work catch this and log it.
     // A send that never settled would never reach them.
     await expect(driver.send(MAIL)).rejects.toThrow("connection timed out");
+  });
+});
+
+describe("a send with the caller's signal", () => {
+  it("gets a transport of its own, which opens the socket the signal closes", async () => {
+    // The shared transport opens its sockets out of reach of any signal.
+    const driver = new SmtpMailDriver(SERVER);
+    transport.createTransport.mockClear();
+
+    await driver.send(MAIL, new AbortController().signal);
+
+    expect(transport.createTransport).toHaveBeenCalledTimes(1);
+    expect(transport.createTransport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: "smtp.exempel.se",
+        getSocket: expect.any(Function),
+      }),
+    );
+    expect(transport.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("builds no transport on a signal that is already aborted", async () => {
+    const driver = new SmtpMailDriver(SERVER);
+    transport.createTransport.mockClear();
+    const aborted = AbortSignal.abort();
+
+    await expect(driver.send(MAIL, aborted)).rejects.toBe(aborted.reason);
+    expect(transport.createTransport).not.toHaveBeenCalled();
+    expect(transport.sendMail).not.toHaveBeenCalled();
   });
 });
 
@@ -238,6 +282,28 @@ describe("a server the board entered", () => {
     expect(transport.close).toHaveBeenCalledTimes(1);
   });
 
+  it("is not connected to once the caller's deadline passed during the lookup", async () => {
+    // A lookup that never answers: the system resolver cannot be cancelled,
+    // so the send is ended beside it and nothing is connected to afterwards.
+    const resolve = vi.fn<ResolveAddresses>(
+      () => new Promise<readonly ResolvedAddress[]>(() => undefined),
+    );
+    const driver = new SmtpMailDriver(
+      { ...SERVER, allowPrivateHosts: false },
+      resolve,
+    );
+    const deadline = AbortSignal.timeout(50);
+
+    const failure = await driver
+      .send(MAIL, deadline)
+      .catch((error: unknown) => error);
+
+    // The caller's own reason, not a host refused.
+    expect(failure).toBe(deadline.reason);
+    expect(transport.createTransport).not.toHaveBeenCalled();
+    expect(transport.sendMail).not.toHaveBeenCalled();
+  });
+
   it("is resolved again at every send", async () => {
     const { driver, resolve } = checked("smtp.exempel.se", {
       address: "1.1.1.1",
@@ -252,5 +318,247 @@ describe("a server the board entered", () => {
       MailServerNotPublicError,
     );
     expect(transport.sendMail).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * How far a failed send had got, as the driver states it on what it throws.
+ *
+ * From the fields nodemailer gives its errors and never their wording. A
+ * failure nodemailer places before the message was sent did not go out; a
+ * socket that broke or went quiet is reported with the same code whatever the
+ * conversation had reached, the end of the message included, so it may have.
+ */
+describe("a failed send", () => {
+  /** An error shaped as nodemailer gives it. */
+  function nodemailerError(fields: Record<string, unknown>): Error {
+    return Object.assign(new Error("Mail command failed"), fields);
+  }
+
+  it.each([
+    ["no address for the name", { code: "EDNS", command: "CONN" }],
+    ["a refused sign-in", { code: "EAUTH", command: "AUTH PLAIN" }],
+    ["a refused recipient", { code: "EENVELOPE", command: "RCPT TO" }],
+    ["a refused DATA command", { code: "EENVELOPE", command: "DATA" }],
+    ["the message refused at its end", { code: "EMESSAGE", command: "DATA" }],
+    ["STARTTLS required and not offered", { code: "EREQUIRETLS" }],
+    [
+      "the connect running out of time",
+      { code: "ETIMEDOUT", timeoutType: "CONNECT_TIMEOUT", command: "CONN" },
+    ],
+    [
+      "no greeting in time",
+      { code: "ETIMEDOUT", timeoutType: "GREETING_TIMEOUT", command: "CONN" },
+    ],
+    [
+      "a greeting that refuses the connection",
+      { code: "EPROTOCOL", command: "CONN", responseCode: 554 },
+    ],
+    [
+      "a connection refused",
+      { code: "ESOCKET", originalCode: "ECONNREFUSED", command: "CONN" },
+    ],
+    [
+      "no route to the server",
+      { code: "ESOCKET", originalCode: "EHOSTUNREACH", command: "CONN" },
+    ],
+    [
+      "an expired certificate",
+      { code: "ESOCKET", originalCode: "CERT_HAS_EXPIRED", command: "CONN" },
+    ],
+    [
+      "a certificate with no chain to a trusted root",
+      {
+        code: "ESOCKET",
+        originalCode: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+        command: "CONN",
+      },
+    ],
+    [
+      "a certificate issued for another name",
+      {
+        code: "ESOCKET",
+        originalCode: "ERR_TLS_CERT_ALTNAME_INVALID",
+        command: "CONN",
+      },
+    ],
+  ])("says %s was not handed over", async (_what, fields) => {
+    transport.sendMail.mockRejectedValue(nodemailerError(fields));
+
+    const failure = await new SmtpMailDriver(SERVER)
+      .send(MAIL)
+      .catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ handover: "not-handed-over", ...fields });
+    expect(mayHaveBeenHandedOver(failure)).toBe(false);
+  });
+
+  it.each([
+    [
+      "a socket gone quiet",
+      { code: "ETIMEDOUT", timeoutType: "SOCKET_TIMEOUT", command: "CONN" },
+    ],
+    [
+      "a connection reset",
+      { code: "ESOCKET", originalCode: "ECONNRESET", command: "CONN" },
+    ],
+    ["a connection closed", { code: "ECONNECTION", command: "CONN" }],
+    ["an unexpected answer", { code: "EPROTOCOL", command: "CONN" }],
+    ["an error without a code", {}],
+  ])("says %s may have been handed over", async (_what, fields) => {
+    transport.sendMail.mockRejectedValue(nodemailerError(fields));
+
+    const failure = await new SmtpMailDriver(SERVER)
+      .send(MAIL)
+      .catch((error: unknown) => error);
+
+    // The same error, so its class and code stay what the log reads.
+    expect(failure).toMatchObject({
+      handover: "may-have-been-handed-over",
+      ...fields,
+    });
+    expect(mayHaveBeenHandedOver(failure)).toBe(true);
+  });
+
+  it("says a refused TLS upgrade and a private server were not handed over", async () => {
+    transport.sendMail.mockRejectedValue(nodemailerError({ code: "ETLS" }));
+    const tls = await new SmtpMailDriver(SERVER)
+      .send(MAIL)
+      .catch((error: unknown) => error);
+    expect(tls).toBeInstanceOf(MailTlsUnavailableError);
+    expect(mayHaveBeenHandedOver(tls)).toBe(false);
+
+    const notPublic = await new SmtpMailDriver(
+      { ...SERVER, allowPrivateHosts: false },
+      () => Promise.resolve([{ address: "10.0.0.5", family: 4 }]),
+    )
+      .send(MAIL)
+      .catch((error: unknown) => error);
+    expect(notPublic).toBeInstanceOf(MailServerNotPublicError);
+    expect(mayHaveBeenHandedOver(notPublic)).toBe(false);
+  });
+});
+
+describe("the connection a send with the caller's signal opens", () => {
+  /**
+   * A socket that does what it is told: a test emits `connect`, `timeout` or
+   * `error` on it, and destroying it with an error emits that error, as a
+   * socket does.
+   */
+  class TestSocket extends EventEmitter {
+    setTimeout(): this {
+      return this;
+    }
+
+    destroy(error?: Error): this {
+      if (error !== undefined) {
+        this.emit("error", error);
+      }
+      return this;
+    }
+  }
+
+  /**
+   * Has the transport ask for its socket through the hook, as nodemailer does,
+   * and fail with the hook's error as it stands, which is what nodemailer does
+   * with it. Once connected, the send fails with `afterConnect`.
+   */
+  function sendThroughHook(socket: TestSocket, afterConnect?: object): void {
+    net.connect.mockReturnValue(socket);
+    transport.sendMail.mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          const options = transport.createTransport.mock.calls.at(-1)?.[0] as
+            SMTPTransportOptions | undefined;
+          options?.getSocket?.(
+            { ...options, host: "192.0.2.10", port: 587 },
+            (error) => {
+              if (error) {
+                reject(error);
+              } else if (afterConnect === undefined) {
+                resolve(undefined);
+              } else {
+                reject(
+                  Object.assign(new Error("Mail command failed"), afterConnect),
+                );
+              }
+            },
+          );
+        }),
+    );
+  }
+
+  async function failureOf(
+    socket: TestSocket,
+    happen: () => void,
+  ): Promise<unknown> {
+    const sending = new SmtpMailDriver(SERVER)
+      .send(MAIL, new AbortController().signal)
+      .catch((error: unknown) => error);
+    await vi.waitFor(() => {
+      expect(socket.listenerCount("error")).toBe(1);
+    });
+    happen();
+    return sending;
+  }
+
+  it("says a connect that ran out of time was not handed over", async () => {
+    // The connect's bound is armed before the connection is made, so when it
+    // runs out not a byte of the message has left.
+    const socket = new TestSocket();
+    sendThroughHook(socket);
+
+    const failure = await failureOf(socket, () => {
+      socket.emit("timeout");
+    });
+
+    expect(failure).toMatchObject({
+      code: "ETIMEDOUT",
+      timeoutType: "CONNECT_TIMEOUT",
+      handover: "not-handed-over",
+    });
+    expect(mayHaveBeenHandedOver(failure)).toBe(false);
+  });
+
+  it("says a refused connection was not handed over", async () => {
+    // Reported with the system's code as the error's own, not under the
+    // `originalCode` nodemailer's own connection gives it.
+    const socket = new TestSocket();
+    sendThroughHook(socket);
+
+    const failure = await failureOf(socket, () => {
+      socket.emit(
+        "error",
+        Object.assign(new Error("connect ECONNREFUSED"), {
+          code: "ECONNREFUSED",
+        }),
+      );
+    });
+
+    expect(failure).toMatchObject({
+      code: "ECONNREFUSED",
+      handover: "not-handed-over",
+    });
+    expect(mayHaveBeenHandedOver(failure)).toBe(false);
+  });
+
+  it("leaves a socket that broke once connected as it was", async () => {
+    // The control: what fails after the connection is nodemailer's to report,
+    // and a reset there may have come after the message.
+    const socket = new TestSocket();
+    sendThroughHook(socket, {
+      code: "ESOCKET",
+      originalCode: "ECONNRESET",
+      command: "CONN",
+    });
+
+    const failure = await failureOf(socket, () => {
+      socket.emit("connect");
+    });
+
+    expect(failure).toMatchObject({
+      handover: "may-have-been-handed-over",
+    });
+    expect(mayHaveBeenHandedOver(failure)).toBe(true);
   });
 });

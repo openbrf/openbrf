@@ -107,8 +107,22 @@ interface Fakes {
   service: MediaService;
   rows: Map<string, Row>;
   residencies: ResidencyRow[];
-  /** Issue photos, as the file each is and who reported its issue. */
-  issuePhotos: { fileId: string; reporterPersonId: string }[];
+  /**
+   * Issue photos, as the file each is, who reported its issue, and whether the
+   * board keeps that issue to itself (by the issue or by its type).
+   */
+  issuePhotos: {
+    fileId: string;
+    reporterPersonId: string;
+    boardOnly?: boolean;
+  }[];
+  /**
+   * Files the handlers attached to an issue for each other, as the file each
+   * is and who reported its issue.
+   */
+  issueAttachments: { fileId: string; reporterPersonId: string }[];
+  /** The people the board-only rule lets into an issue the board keeps. */
+  boardHandlers: Set<string>;
   /** Images on posts in the feed, as the file each is and the post it is on. */
   postImages: { fileId: string; postId: string }[];
   objects: Map<string, Buffer>;
@@ -142,6 +156,8 @@ function build(
   const rows = new Map<string, Row>();
   const residencies = options.residencies ?? [];
   const issuePhotos: Fakes["issuePhotos"] = [];
+  const issueAttachments: Fakes["issueAttachments"] = [];
+  const boardHandlers = new Set<string>();
   const postImages: Fakes["postImages"] = [];
   const objects = new Map<string, Buffer>();
   const audited: AuditedEntry[] = [];
@@ -309,17 +325,44 @@ function build(
   };
 
   const issuePhoto = {
-    count: vi.fn(
-      async ({
-        where,
-      }: {
-        where: { fileId: string; issue: { reporterPersonId: string } };
-      }) =>
-        issuePhotos.filter(
-          (photo) =>
-            photo.fileId === where.fileId &&
-            photo.reporterPersonId === where.issue.reporterPersonId,
-        ).length,
+    findMany: vi.fn(async ({ where }: { where: { fileId: string } }) =>
+      issuePhotos
+        .filter((photo) => photo.fileId === where.fileId)
+        .map((photo) => ({
+          issue: {
+            reporterPersonId: photo.reporterPersonId,
+            boardOnly: photo.boardOnly ?? false,
+            type: { handledBy: "EVERY_HANDLER" as const },
+          },
+        })),
+    ),
+  };
+
+  const issueAttachment = {
+    findUnique: vi.fn(async ({ where }: { where: { fileId: string } }) => {
+      const attachment = issueAttachments.find(
+        (row) => row.fileId === where.fileId,
+      );
+      return attachment === undefined
+        ? null
+        : {
+            issue: {
+              reporterPersonId: attachment.reporterPersonId,
+              boardOnly: false,
+              type: { handledBy: "EVERY_HANDLER" as const },
+            },
+          };
+    }),
+  };
+
+  // A contractor's photograph on a work order (ADR 0055): none here.
+  const workOrderFile = { findUnique: vi.fn(async () => null) };
+
+  // Whether a person handles issues the board keeps to itself
+  // (`issueReaderScope`), the one person read the media route makes.
+  const person = {
+    findFirst: vi.fn(async ({ where }: { where: { AND: [{ id: string }] } }) =>
+      boardHandlers.has(where.AND[0].id) ? { id: where.AND[0].id } : null,
     ),
   };
 
@@ -334,6 +377,9 @@ function build(
     mediaFile,
     residency,
     issuePhoto,
+    issueAttachment,
+    workOrderFile,
+    person,
     postImage,
     /*
      * Rolls back, because that is the property under test rather than a
@@ -399,6 +445,8 @@ function build(
     rows,
     residencies,
     issuePhotos,
+    issueAttachments,
+    boardHandlers,
     postImages,
     objects,
     audited,
@@ -1050,6 +1098,62 @@ describe("serving", () => {
     await expect(
       fakes.service.open(id, principal({ personId: "person-2" })),
     ).rejects.toMatchObject({ reason: "not-found" });
+  });
+
+  it("serves an issue's photo to a handler only while the issue is theirs to handle", async () => {
+    const id = await upload({
+      visibility: "INTERNAL",
+      requiredCapability: "issues:handle",
+    });
+    fakes.issuePhotos.push({ fileId: id, reporterPersonId: "person-1" });
+    const handler = principal({
+      personId: "person-handler",
+      capabilities: new Set(["issues:handle"] as const),
+    });
+
+    await expect(fakes.service.open(id, handler)).resolves.toMatchObject({
+      contentType: "image/png",
+    });
+
+    // The board keeps the issue to itself: the same address is refused to a
+    // handler it shuts out, and nothing is recorded as read.
+    fakes.issuePhotos[0] = { ...fakes.issuePhotos[0]!, boardOnly: true };
+    const served = fakes.audited.length;
+    await expect(fakes.service.open(id, handler)).rejects.toMatchObject({
+      reason: "not-found",
+    });
+    expect(fakes.audited).toHaveLength(served);
+
+    fakes.boardHandlers.add("person-handler");
+    await expect(fakes.service.open(id, handler)).resolves.toMatchObject({
+      contentType: "image/png",
+    });
+    // The reporter, who holds no capability, still reads their own.
+    await expect(fakes.service.open(id, principal())).resolves.toMatchObject({
+      contentType: "image/png",
+    });
+  });
+
+  it("serves a handler's file on an issue to its handlers and never to its reporter", async () => {
+    // The reason it is a join of its own (decision 18): an `IssuePhoto` is
+    // the reporter's to read, and a file the handlers attached for each other
+    // is not.
+    const id = await upload({
+      visibility: "INTERNAL",
+      requiredCapability: "issues:handle",
+    });
+    fakes.issueAttachments.push({ fileId: id, reporterPersonId: "person-1" });
+    const handler = principal({
+      personId: "person-handler",
+      capabilities: new Set(["issues:handle"] as const),
+    });
+
+    await expect(fakes.service.open(id, handler)).resolves.toMatchObject({
+      contentType: "image/png",
+    });
+    await expect(fakes.service.open(id, principal())).rejects.toMatchObject({
+      reason: "not-found",
+    });
   });
 
   it("narrows a file to the capability it names", async () => {

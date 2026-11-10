@@ -1,3 +1,4 @@
+import type { IssueStatusMeaning } from "@openbrf/shared";
 import {
   afterEach,
   beforeEach,
@@ -122,8 +123,12 @@ interface PostFixture {
 /** An issue report made from a post, as far as the feed reads it. */
 interface IssueFixture {
   id: string;
-  status: "NEW" | "IN_PROGRESS" | "DONE";
+  /** The status as the feed reads it: its meaning alone. */
+  status: { meaning: IssueStatusMeaning };
   reporterPersonId: string | null;
+  /** Who handles it, for the board-only rule (ADR 0054). */
+  boardOnly: boolean;
+  type: { handledBy: "EVERY_HANDLER" | "BOARD" };
 }
 
 /** An earlier version of a post, kept when its author edited it. */
@@ -604,6 +609,9 @@ function build(options: {
 
   const prisma = {
     mediaFile: { count: mediaFileCount },
+    // The known faults on a page's issues (`readKnownFaults`): none here; the
+    // issue module's own suites publish them.
+    issue: { findMany: vi.fn(async () => []) },
     postImage: { createMany: postImageCreateMany },
     audience: {
       findFirst: vi.fn(
@@ -3760,10 +3768,18 @@ describe("what a reader may do with a post", () => {
     expect(withoutCapability.mayReportIssue).toBe(false);
   });
 
-  it("shows a report's status to its reporter and whoever handles issues, and offers no second report", async () => {
+  it("shows a report's status meaning to its reporter and whoever handles issues, and offers no second report", async () => {
     const { service } = house(
       [resident({ issueId: "issue-1" })],
-      [{ id: "issue-1", status: "IN_PROGRESS", reporterPersonId: SEATED.id }],
+      [
+        {
+          id: "issue-1",
+          status: { meaning: "IN_PROGRESS" as const },
+          reporterPersonId: SEATED.id,
+          boardOnly: false,
+          type: { handledBy: "EVERY_HANDLER" as const },
+        },
+      ],
     );
 
     const reporter = await service.post(
@@ -3781,12 +3797,12 @@ describe("what a reader may do with a post", () => {
 
     expect(reporter.issue).toEqual({
       id: "issue-1",
-      status: "IN_PROGRESS",
+      meaning: "IN_PROGRESS",
       reportedByReader: true,
     });
     expect(handler.issue).toEqual({
       id: "issue-1",
-      status: "IN_PROGRESS",
+      meaning: "IN_PROGRESS",
       reportedByReader: false,
     });
     // The post's author did not make the report and does not handle issues:

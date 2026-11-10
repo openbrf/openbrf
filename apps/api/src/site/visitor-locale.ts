@@ -80,7 +80,9 @@ function refusedLocales(header: string | undefined | null): Set<Locale> {
 }
 
 /** The language this instance can render that the visitor asked for most. */
-function preferredLocale(header: string | undefined | null): Locale | null {
+export function preferredLocale(
+  header: string | undefined | null,
+): Locale | null {
   if (header === undefined || header === null) {
     return null;
   }

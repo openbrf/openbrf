@@ -41,9 +41,11 @@ interface PersonClient {
  * Not "and": either one alone is enough, and a person can be under both for
  * unrelated reasons - a dispute the board is defending and a request the person
  * made about something else. One predicate for both questions below, so the
- * list and the single answer cannot come to disagree.
+ * list and the single answer cannot come to disagree, and for a purge that
+ * reads the person through a relation (the people an issue concerns,
+ * `issue-concerned-persons.ts`).
  */
-const WITHHELD: Prisma.PersonWhereInput = {
+export const WITHHELD: Prisma.PersonWhereInput = {
   OR: [
     { legalHolds: { some: { releasedAt: null } } },
     { processingRestrictedAt: { not: null } },

@@ -426,13 +426,14 @@ export function previewedNewsComments<
 }
 
 /**
- * The issue types a resident is offered: without the board's internal ones,
- * which the server offers whoever handles issues (`issue-audience.ts`). What
- * stays is what the account's residency gives it, a member's types for somebody
- * who lives here and a non-member's otherwise, as the server answered it.
+ * The issue types a resident is offered: those whose reporters include the
+ * residents (`issue-reporter-groups.ts` in the API). The server also offers
+ * whoever handles issues the board's internal types, and an account that does
+ * not live here the public's; neither is a resident's offer. A subset of what
+ * the server answered, so the preview only ever narrows.
  */
 export function previewedIssueTypes(
   types: readonly ReportableIssueType[],
 ): ReportableIssueType[] {
-  return types.filter((type) => type.audience !== "BOARD");
+  return types.filter((type) => type.reporters.includes("RESIDENTS"));
 }

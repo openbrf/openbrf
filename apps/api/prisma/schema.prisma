@@ -228,6 +228,23 @@ model Association {
   /// page.
   issueReportingPublic Boolean @default(true)
 
+  /// How many whole years after an issue of an ordinary type closes its
+  /// free-text layer is kept: the description, the free-text location, the
+  /// conversation, the internal notes and every photograph and file (ADR 0057,
+  /// decision 33). The building record - what, where, when and the outcome -
+  /// stays. The board sets it from 1 to 10, held by a CHECK; two by default,
+  /// which has no legal source and matches motions, subletting and the board
+  /// mailbox. Read when the nightly purge runs, never stamped on an issue, so a
+  /// change moves every pending date at once.
+  issueTextRetentionYears Int @default(2)
+
+  /// The same clock for an issue of a ring-fenced type (decision 32), which the
+  /// board sets apart from the one above: from 1 to 10 years after closing,
+  /// held by a CHECK, and one by default on every instance. A legal hold on the
+  /// issue, or a legal hold or a restriction on its reporter, keeps the text
+  /// longer, as on the other clock. Read when the purge runs, like the other.
+  ringFencedIssueTextRetentionYears Int @default(1)
+
   /// The deadline the bylaws (stadgar) set for motions to the general meeting,
   /// as a recurring month and day.
   ///
@@ -634,10 +651,12 @@ model Person {
   systemRoles           SystemRole[]
   invitations           Invitation[]
   memberRegisterEntries MemberRegisterEntry[]
-  transfersFrom         Transfer[]            @relation("TransferFromPerson")
-  transfersTo           Transfer[]            @relation("TransferToPerson")
+  transfersFrom         Transfer[]             @relation("TransferFromPerson")
+  transfersTo           Transfer[]             @relation("TransferToPerson")
   publicationConsents   PublicationConsent[]
   legalHolds            LegalHold[]
+  /// The issues a handler recorded as concerning this person (ADR 0057).
+  issueConcerns         IssueConcernedPerson[]
   dataSubjectRequests   DataSubjectRequest[]
   pluginAccesses        PluginAccess[]
 
@@ -1829,6 +1848,86 @@ enum AuditAction {
   PLUGIN_NON_RESIDENT_CALLER_CONSENTED
   /// The status of an issue was changed. The entry names the issue and the status either side, and the person who changed it.
   ISSUE_STATUS_CHANGED
+  /// A handler opened an issue on a named resident's behalf, or as an internal issue with no reporter. The entry names the issue, its type, the handler as its actor and the resident as its target.
+  ISSUE_OPENED
+  /// An issue was given to an assignee, given to another, or left unassigned. The entry names the issue, who did it (nobody when the type's default assigned it on filing), the new assignee as its target and the previous one in its context.
+  ISSUE_ASSIGNED
+  /// The priority of an issue was changed. The entry names the issue and the priority either side.
+  ISSUE_PRIORITY_CHANGED
+  /// The target date of an issue was set, moved or removed. The entry names the issue and the date either side.
+  ISSUE_TARGET_DATE_CHANGED
+  /// An issue was closed to all but the board, or opened again to every handler its type lets in.
+  ISSUE_ACCESS_CHANGED
+  /// A handler recorded who pays for an issue: the association, the tenant-owner, or unclear. The entry names the issue and the value either side, never an amount.
+  ISSUE_COST_RESPONSIBILITY_CHANGED
+  /// A handler was told who lives in one apartment today, to name a resident on an issue they open. The entry names the apartment and how many residents were listed, never who.
+  ISSUE_RESIDENTS_LISTED
+  /// A handler sent a work order on an issue to a contractor. The entry names the issue, the work order, the contractor and the handler as its actor, and how long the text was; never a word of it, nor the contractor's name or address.
+  ISSUE_WORK_ORDER_SENT
+  /// The board added, changed or removed a contractor on the association's list. The entry names the contractor by id, what kind of change it was, and which contact fields changed; never a name, a telephone number or an address.
+  CONTRACTOR_LIST_CHANGED
+  /// The board ring-fenced an issue type, or lifted its ring-fence. The entry names the type and the new setting.
+  ISSUE_TYPE_RING_FENCE_CHANGED
+  /// The board added an issue type. The entry names the type, the groups who may report it, who handles it, its default priority, whether it is switched on and whether it has a default assignee; never its name or who the assignee is.
+  ISSUE_TYPE_CREATED
+  /// The board changed an issue type's settings. The entry names the type and the fields that changed, with the value either side of who may report it, who handles it, its default priority and whether it is switched on; of its name, its place in the list and its default assignee only that they changed.
+  ISSUE_TYPE_CHANGED
+  /// The board removed an issue type nothing had been reported under. The entry names the type.
+  ISSUE_TYPE_REMOVED
+  /// The board added a status to an issue type, or renamed, switched on or off, moved or made default one of its statuses. The entry names the type, the status, its status meaning and the fields that changed, with whether it is switched on and whether it is the default either side; never its label.
+  ISSUE_STATUS_CONFIGURED
+  /// The board saved the responsibility guide. The entry says whether it was adopted either side and whether its lines changed; never their text.
+  ISSUE_RESPONSIBILITY_GUIDE_SAVED
+  /// An issue message was written, by the reporter or by a handler. The entry names the issue, the message, which side wrote it and the writer as its actor, never the text.
+  ISSUE_MESSAGE_SENT
+  /// A handler wrote an internal note on an issue. The entry names the issue, the note and the handler as its actor, never the text.
+  ISSUE_NOTE_ADDED
+  /// A handler published, rewrote or withdrew an issue's known fault (känt fel). The entry names the issue and the handler as its actor, and whether a notice stands afterwards, never the text.
+  ISSUE_KNOWN_FAULT_CHANGED
+  /// The resident's entry permission on an issue was given or changed, by the resident or by a handler on their behalf. The entry names the issue and the answer, whether pets and the master key were stated and the expiry day as facts, and the person who acted as its actor, never the note.
+  ISSUE_ENTRY_PERMISSION_SET
+  /// The resident's entry permission on an issue was withdrawn by hand. Closing the issue clears it too, and that is recorded on the status change.
+  ISSUE_ENTRY_PERMISSION_REMOVED
+  /// The common-area place an issue is about was set or changed. The entry names the issue and the place either side by identifier, never the issue's text.
+  ISSUE_PLACE_CHANGED
+  /// An issue was marked as a finding of an inspection. The entry names the issue, the kind, the inspection day, the due day and the protocol's attachment as facts.
+  ISSUE_FINDING_MARKED
+  /// An issue's mark as a finding of an inspection was taken off.
+  ISSUE_FINDING_REMOVED
+  /// A private link was issued to the reporter of an issue who has no account, and mailed to the address they gave (ADR 0055). The entry names the issue and the link, never the address or the token.
+  ISSUE_REPORTER_LINK_ISSUED
+  /// A handler withdrew the private link of an issue's reporter (ADR 0055). The entry names the issue, the link and the handler as its actor.
+  ISSUE_REPORTER_LINK_REVOKED
+  /// A handler gave the contractor of a work order a link to it (ADR 0055). The entry names the issue, the work order and the link, and the handler as its actor; never the token.
+  ISSUE_WORK_ORDER_LINK_ISSUED
+  /// A handler withdrew the link of a work order, or issued a new one in its place (ADR 0055). The entry names the issue, the work order and the link, and the handler as its actor.
+  ISSUE_WORK_ORDER_LINK_REVOKED
+  /// The contractor answered a work order through its link: accepted, declined or done (ADR 0055). The entry names the issue, the work order, the link and the answer, on the link's channel with no actor.
+  ISSUE_WORK_ORDER_ANSWERED
+  /// The contractor wrote a note on a work order through its link. The entry names the issue, the work order, the link and the note, never the text.
+  ISSUE_WORK_ORDER_NOTE_ADDED
+  /// The contractor added a photograph to a work order through its link. The entry names the issue, the work order, the link and the file, never its name.
+  ISSUE_WORK_ORDER_PHOTO_ADDED
+  /// A handler chose which of an issue's photographs the contractor of a work order sees through its link. The entry names the issue, the work order and how many were chosen, and the handler as its actor.
+  ISSUE_WORK_ORDER_PHOTOS_CHOSEN
+  /// A handler redacted a text on an issue or removed one of its files (ADR 0057). The entry names the issue, what was reached and the row's identifier, never the text or the file's name.
+  ISSUE_REDACTED
+  /// A legal hold was placed on an issue, so its free text outlasts its purge clock (ADR 0057).
+  ISSUE_LEGAL_HOLD_PLACED
+  /// The legal hold on an issue was released, and its purge clock runs again.
+  ISSUE_LEGAL_HOLD_RELEASED
+  /// The board set how many years after closing an issue's free text is kept. The entry names the number either side.
+  ISSUE_RETENTION_RECORDED
+  /// A handler marked an issue as a damage case, or changed the mark (decision 28). The entry names the issue, the cause and the day of the damage; never the insurer or the claim number.
+  ISSUE_DAMAGE_CASE_MARKED
+  /// A handler took the damage-case mark off an issue. The legal hold the mark placed stays until a handler releases it.
+  ISSUE_DAMAGE_CASE_REMOVED
+  /// A handler recorded a person an issue concerns (ADR 0057). The entry names the issue and the record's identifier, and the handler as its actor; never the person, whom the log would otherwise keep after the record is purged.
+  ISSUE_CONCERNED_PERSON_ADDED
+  /// The board weighed under GDPR art. 15(4) what of an issue's text goes into one person's access report (ADR 0057). The entry names the person whose report it is and how many texts were given and left out; never the issue, which would keep for good that the case concerned them, nor the texts.
+  ISSUE_ACCESS_WEIGHED
+  /// A board member read the texts of an issue to weigh them for one person's access report (ADR 0057). The entry names the person whose report it is and how many texts were read; never the issue, nor any text.
+  ISSUE_ACCESS_WEIGHING_READ
   /// A person was moved into an apartment.
   MOVE_IN_RECORDED
   /// A residency was given its move-out date.
@@ -2400,6 +2499,11 @@ enum AuditChannel {
   /// session's request is served is on this channel, whatever the call site
   /// passed.
   SUPPORT
+  /// Whoever holds a private link (privat länk, ADR 0055): a reporter without
+  /// an account answering through the link mailed to them. Never a person in
+  /// the register, so an entry on this channel has no actor, and its context
+  /// names the link.
+  LINK
 }
 
 /// Audit log. Writes happen in the same transaction as the access they record.
@@ -2463,6 +2567,9 @@ model AuditLogEntry {
   @@index([targetPersonId, createdAt])
   @@index([action, createdAt])
   @@index([channel, createdAt])
+  /// One record's history, oldest first: an issue's timeline reads its
+  /// entries by the issue they target (ADR 0054).
+  @@index([targetKind, targetId, createdAt])
   @@map("audit_log_entry")
 }
 
@@ -2556,12 +2663,12 @@ model InstalledPlugin {
   /// categories, bound and fields. The loader refuses a manifest that adds a
   /// collection, widens one's categories or lengthens its bound, and the
   /// access report labels a record from this, without the plugin's code.
-  consentedPersonRecords Json @default("[]")
+  consentedPersonRecords Json    @default("[]")
   /// The legal basis the consented entry's processing declared (ADR 0035),
   /// or null for one that declared none: the product's statement, which the
   /// portability export reads for a plugin's records, and not the board's
   /// edited copy in the record of processing activities.
-  consentedLegalBasis String?
+  consentedLegalBasis    String?
 
   /// The extension points the plugin offers and the ones it extends, as the
   /// board consented to them when this version was installed (ADR 0030).
@@ -2578,7 +2685,7 @@ model InstalledPlugin {
   /// against it as it compares the actions, so a republished version cannot
   /// add a recipient, move one or send one more. Defaulted, so every row
   /// installed before recipients existed reads as having consented to none.
-  consentedRecipients String[] @default([])
+  consentedRecipients      String[] @default([])
 
   /// The device routes the board consented to when this version was
   /// installed, each as "id:path" (ADR 0031). The loader refuses a manifest
@@ -3968,6 +4075,10 @@ model MediaFile {
   associationLogo         Association[]            @relation("AssociationLogo")
   associationLogoDark     Association[]            @relation("AssociationLogoDark")
   issuePhotos             IssuePhoto[]
+  issueAttachment         IssueAttachment?
+  workOrderPhotos         WorkOrderPhoto[]
+  workOrderExposures      WorkOrderPhotoExposure[]
+  workOrderFile           WorkOrderFile?
   document                Document?                @relation("DocumentFile")
   apartmentDocument       ApartmentDocument?       @relation("ApartmentDocumentFile")
   boardMailboxAttachments BoardMailboxAttachment[]
@@ -4217,37 +4328,125 @@ model PublicationConsent {
 // Issue reports (felanmalan).
 // ---------------------------------------------------------------------------
 
-/// Who an issue type is offered to.
+/// Who may report an issue of a type (ADR 0054). A type carries a set of these
+/// rather than one, so the website's form, the residents and the handlers can
+/// share one "Vattenläcka" rather than three rows of the same name.
 ///
-/// The audience is a property of the TYPE rather than of a report, because it
-/// decides what a person is even shown: a visitor with no account picks from
-/// the non-member types, a resident from the member types, and the board
-/// additionally from its own internal ones. The filter is applied on the server
-/// for every principal - a client that asked for the whole catalogue would
-/// otherwise learn the board's internal categories, which are the association's
-/// own business.
-enum IssueAudience {
-  /// Offered on the public form: a passer-by, a neighbour, a contractor.
-  NON_MEMBER
-  /// Offered to a signed-in resident of the house.
-  MEMBER
-  /// Internal to whoever handles issues. Never offered to a reporter who does
-  /// not already handle them.
-  BOARD
+/// The filter is applied on the server for every principal: a client that
+/// asked for the whole catalogue would otherwise learn the board's internal
+/// categories, which are the association's own business. The values are
+/// spelled once for both applications in `@openbrf/shared` (issue-status.ts),
+/// and a spec holds this enum to that list.
+enum IssueReporterGroup {
+  /// The form on the public website: a passer-by, a neighbour, a contractor.
+  /// Also a signed-in person who does not live in the house, which is what
+  /// they are to the building.
+  PUBLIC
+  /// A signed-in resident of the house.
+  RESIDENTS
+  /// Whoever handles issues, for the board's own internal types. Never offered
+  /// to a reporter who does not already handle them.
+  HANDLERS
 }
 
-/// Where an issue stands. Deliberately three states.
+/// Which of four fixed kinds of step a status is (statusbetydelse, ADR 0054).
 ///
-/// Comments, assignment and forwarding to a contractor are a later module: a
-/// status a board cannot act on is a status that goes stale, and three is what
-/// the triage queue can actually keep true.
-enum IssueStatus {
+/// A board names its own statuses per type; this is what each of them means,
+/// and it is what everything that decides reads: the queue's order, the views,
+/// reminders, the purge and the data subject access report. Never a label.
+///
+/// `NEW`, `IN_PROGRESS` and `DONE` are the values the enum this replaced held,
+/// under the name `IssueStatus`, so an audit entry written before statuses
+/// became rows still reads as a meaning. The queue's order is the list in
+/// `@openbrf/shared` and never this enum's declaration order.
+enum IssueStatusMeaning {
   NEW
   IN_PROGRESS
+  WAITING
   DONE
 }
 
-/// A category of issue, configured by the board.
+/// Whom or what an issue in the WAITING meaning waits on (vänteorsak).
+enum IssueWaitingReason {
+  REPORTER
+  CONTRACTOR
+  PARTS
+  DECISION
+}
+
+/// How an issue ended (utfall). Fixed and translated rather than written by
+/// the board: reporting reads it, and the second is a statement about BRL 7
+/// kap. a board should not be able to reword.
+enum IssueOutcome {
+  FIXED
+  TENANT_OWNER_RESPONSIBILITY
+  NO_FAULT
+  REFERRED
+  /// Written by merging an issue into another, never chosen on closing.
+  DUPLICATE
+}
+
+/// How urgent a handler judges an issue (prioritet, ADR 0054). Set by handlers,
+/// from the type's default, never by a reporter. Spelled once for both
+/// applications in `@openbrf/shared` (issue-status.ts).
+enum IssuePriority {
+  URGENT
+  NORMAL
+  LOW
+}
+
+/// Who bears the cost of an issue (kostnadsansvar, ADR 0054, decision 26), as
+/// a handler records it. Spelled once for both applications in
+/// `@openbrf/shared` (issue-responsibility.ts).
+///
+/// Deliberately no amount beside it, here or anywhere on an issue: what a
+/// tenant-owner is charged is a member charge (debitering), which links back
+/// to the issue, and a sum held here would be a second answer to what the
+/// member owes.
+enum IssueCostResponsibility {
+  /// Föreningen.
+  ASSOCIATION
+  /// Bostadsrättshavaren.
+  TENANT_OWNER
+  /// Oklart: a handler has looked and cannot yet say.
+  UNCLEAR
+}
+
+/// Who maintains a part of the home or the building (underhållsansvar), as a
+/// line of the association's responsibility guide states it (decision 27).
+enum MaintenanceResponsibility {
+  ASSOCIATION
+  TENANT_OWNER
+}
+
+/// Who handles the issues of a type (ADR 0054, decision 13): everybody holding
+/// `issues:handle`, or the board only - a board member with a seat and an
+/// administrator, never the property manager. Read inside `IssueService` on
+/// every read and every write, never by a filter above it.
+enum IssueHandledBy {
+  EVERY_HANDLER
+  BOARD
+}
+
+/// The resident's answer to whether the association or its contractor may enter
+/// the apartment an issue is about (tillträde, BRL 7 kap. 13 §). Spelled once
+/// for both applications in `@openbrf/shared` (issue-fit.ts).
+enum IssueEntryAnswer {
+  YES
+  NO
+}
+
+/// The statutory inspection an issue is a finding of (decision 31): the
+/// compulsory ventilation inspection, a lift inspection or a fire safety
+/// inspection. Spelled once for both applications in `@openbrf/shared`
+/// (issue-fit.ts).
+enum IssueFindingKind {
+  OVK
+  LIFT
+  FIRE
+}
+
+/// A category of issue, configured by the board, with its settings (ADR 0054).
 ///
 /// Monolingual by decision 59: the name is the association's own writing about
 /// its own building, stored as written and never translated. Only the interface
@@ -4255,8 +4454,13 @@ enum IssueStatus {
 model IssueType {
   id String @id @default(cuid())
 
-  name     String
-  audience IssueAudience @default(MEMBER)
+  name String
+
+  /// Who may report an issue of this type. Empty is a type nobody is offered,
+  /// which the board's screen does not let it save, but the column does not
+  /// forbid: a type the board has stopped offering to anybody is a switched-off
+  /// type in all but name.
+  reporters IssueReporterGroup[]
 
   /// Whether the type is offered for new reports. Deactivated rather than
   /// deleted once it has been used, so the issues already filed under it keep
@@ -4266,13 +4470,100 @@ model IssueType {
   /// Presentation order in the picker.
   sortOrder Int @default(0)
 
+  /// Who handles its issues: every handler, or the board only.
+  handledBy IssueHandledBy @default(EVERY_HANDLER)
+
+  /// The priority an issue of this type is filed with, such as Akut for a water
+  /// leak. A handler changes it on the issue; a reporter never sets it.
+  defaultPriority IssuePriority @default(NORMAL)
+
+  /// Who an issue of this type is assigned to when it is filed, or null for a
+  /// type whose issues land unassigned and are mailed to its handlers.
+  ///
+  /// A plain column rather than a relation, for the reason `reporterPersonId`
+  /// gives. A person who no longer handles the type when an issue is filed is
+  /// not assigned it: the issue lands unassigned instead. The data subject
+  /// access report answers for it in `issueAssignments` (ADR 0057).
+  defaultAssigneePersonId String?
+
+  /// Whether its issues are ring-fenced (avskärmad ärendetyp, decision 32 of the
+  /// issue module's plan): read by the board alone, and nothing about them
+  /// leaves it. Handled by the board only, which a CHECK holds it to, so the
+  /// property manager never reads one; no work order is written or previewed on
+  /// one (`WorkOrderService`, ADR 0055); no mail about one is sent to anybody;
+  /// it is left out of every read on `mcp` and `ai` (ADR 0056); it is offered on
+  /// no form but a signed-in one, with a warning; and its free text is removed
+  /// on a clock of its own, which the board sets apart from the other types'
+  /// (`Association.ringFencedIssueTextRetentionYears`, one year by default).
+  ///
+  /// Any type may carry it: the Swedish set a new instance starts with has
+  /// Störningar ring-fenced, and the board ring-fences another type under
+  /// issues:configure (`IssueTypeService.setRingFence`), each change audited.
+  /// It is lifted only from a type nobody has reported under, so a board cannot
+  /// hand earlier reports to the property manager or the AI package, or move
+  /// them onto the other clock, by lifting it (ADR 0054, question 5).
+  ringFenced Boolean @default(false)
+
+  /// Its statuses: at least one of each meaning, one of which is the default
+  /// of that meaning. Written with the type and never left without them.
+  statuses IssueStatus[]
+
   issues Issue[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([audience, active, sortOrder])
+  @@index([active, sortOrder])
+  @@index([defaultAssigneePersonId])
   @@map("issue_type")
+}
+
+/// One step an issue of one type can stand in (status, ADR 0054).
+///
+/// The label is the board's own text, monolingual and stored as written, as a
+/// type's name is. The meaning is fixed when the status is made and never
+/// changes: a status that moved from one meaning to another would silently
+/// reopen or close every issue standing in it.
+///
+/// One status of each meaning on a type is its default: the one an issue enters
+/// when it moves into that meaning without a status being named - a new report,
+/// a reopening. At most one per type and meaning, held by a partial unique index
+/// written by hand in the migration; at least one, because the default is the
+/// one status the service refuses to switch off, and a type is created with
+/// all four. A status an issue has stood in is switched off rather than
+/// deleted, so the timeline keeps saying what it was.
+model IssueStatus {
+  id String @id @default(cuid())
+
+  /// Cascade: a type is removed only while nothing was ever reported under it,
+  /// so its statuses are then nobody's.
+  typeId String
+  type   IssueType @relation(fields: [typeId], references: [id], onDelete: Cascade)
+
+  meaning IssueStatusMeaning
+
+  label String
+
+  isDefault Boolean @default(false)
+
+  /// Whether a handler may move an issue into it. A default status is always
+  /// active.
+  active Boolean @default(true)
+
+  /// The board's order of the statuses within one meaning, which is also the
+  /// queue's order within that meaning.
+  sortOrder Int @default(0)
+
+  issues Issue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The target of the issue's composite key, which holds an issue's status to
+  /// a status of the issue's own type.
+  @@unique([id, typeId])
+  @@index([typeId, meaning, sortOrder])
+  @@map("issue_status")
 }
 
 /// One reported issue.
@@ -4293,10 +4584,32 @@ model IssueType {
 model Issue {
   id String @id @default(cuid())
 
+  /// The issue number (ärendenummer): what a handler, the reporter and every
+  /// mail about the issue call it. Given in the order issues are filed and never
+  /// reused; a filing that rolls back skips one. A label only: nothing looks an
+  /// issue up by it, so it is never a key in an address (ADR 0055).
+  number Int @unique @default(autoincrement())
+
   typeId String
   type   IssueType @relation(fields: [typeId], references: [id], onDelete: Restrict)
 
-  status IssueStatus @default(NEW)
+  /// Where the issue stands: one of its own type's statuses. The key names the
+  /// type as well as the status, so the database refuses a status of another
+  /// type. Restrict: a status an issue stands in is switched off, never
+  /// removed.
+  statusId String
+  status   IssueStatus @relation(fields: [statusId, typeId], references: [id, typeId], onDelete: Restrict)
+
+  /// Whom the issue waits on, while its status means WAITING, and null
+  /// otherwise. The service writes it with the status and clears it on the
+  /// move out of waiting.
+  waitingReason IssueWaitingReason?
+
+  /// How the issue ended, while its status means DONE. Null on an issue that is
+  /// open, and on an issue closed before outcomes existed: the migration that
+  /// introduced them derived none, because nobody decided one (ADR 0054). A
+  /// check constraint holds it to a closed issue.
+  outcome IssueOutcome?
 
   /// The signed-in reporter, when there was one.
   ///
@@ -4320,6 +4633,60 @@ model Issue {
   reporterEmailCipher String?
   reporterEmailIndex  String?
 
+  /// The handler who opened the issue on somebody's behalf, or as an internal
+  /// issue with no reporter (decision 14); null for an issue its reporter
+  /// filed. The issue shows that a handler entered it, and which.
+  ///
+  /// A plain column, for the reason `reporterPersonId` gives. The person named
+  /// acted: the audit entry for the opening names them as its actor.
+  enteredByPersonId String?
+
+  /// Whether a handler opened the issue, which outlives the handler: erasing
+  /// them clears `enteredByPersonId` and leaves this, so the issue still says
+  /// that a handler entered it (ADR 0054, ADR 0057). Not personal data.
+  enteredByHandler Boolean @default(false)
+
+  /// The one handler the issue is given to work (ansvarig), or null while it is
+  /// unassigned. Somebody holding `issues:handle` whom the issue's type, and the
+  /// issue, let in when it was assigned. Internal: a reporter never sees it.
+  ///
+  /// A plain column, for the reason `reporterPersonId` gives. Chosen by
+  /// somebody else rather than taken, so the person named did not act, and the
+  /// data subject access report answers for it in `issueAssignments` rather
+  /// than through the audit log (ADR 0057).
+  assigneePersonId String?
+
+  /// How urgent a handler judges it, from the type's default when it was filed.
+  priority IssuePriority @default(NORMAL)
+
+  /// The day a handler means it to be done by (senast klart), or none. An issue
+  /// is overdue once the day has passed in the association's own calendar and
+  /// it is not closed. A plan rather than a promise: nothing counts time from
+  /// it.
+  targetDate DateTime? @db.Date
+
+  /// The target dates the assignee has been reminded of being past, empty while
+  /// no reminder has gone out. The overdue reminder is owed once for each target
+  /// date: a reminder job finding its date here sends nothing, so a job queued
+  /// twice for one date, or a date moved away and back after both were
+  /// reminded, reminds once. A list rather than the last date, because moving
+  /// to another date and processing its reminder must not forget the first.
+  /// Grows by one for each reminder sent. Written with the claim that queues the
+  /// mail, under the issue's lock. Not personal data.
+  overdueRemindedFor DateTime[] @default([]) @db.Date
+
+  /// Closed to every handler but the board, whatever its type allows (decision
+  /// 13). A handler tightens an issue; only the board loosens it again, and
+  /// never past its type.
+  boardOnly Boolean @default(false)
+
+  /// Who pays for it, as a handler records it, or null while nobody has said
+  /// (decision 26). Internal, like the assignee: what the reporter is told is
+  /// the outcome and what the handlers write to them. No amount, by the rule
+  /// on `IssueCostResponsibility`: a charge for it is a `MemberCharge` naming
+  /// this issue in `issueId`.
+  costResponsibility IssueCostResponsibility?
+
   /// The apartment the issue concerns, when it concerns one.
   ///
   /// SetNull rather than Restrict: an apartment removed from the register must
@@ -4333,15 +4700,124 @@ model Issue {
   /// building to whoever loaded the form.
   location String?
 
+  /// The common-area place the issue is about, from the association's own short
+  /// list (decision 30), beside the free-text location. Never an apartment: the
+  /// list is the laundry room, the lift, the yard. A building fact, so it stays
+  /// when the free text is purged (ADR 0057), and what makes a repeat fault
+  /// countable. Restrict: a place in use is switched off, never removed.
+  placeId String?
+  place   IssuePlace? @relation(fields: [placeId], references: [id], onDelete: Restrict)
+
+  /// The resident's entry permission (tillträde, decision 29), on an issue about
+  /// an apartment: the answer and, for a yes, a note on how to get in, whether
+  /// there are pets, whether the master key may be used and the day the
+  /// permission lapses. All null until somebody answers. Personal data about
+  /// somebody's home, so it is cleared when the issue closes: a CHECK holds
+  /// every one of these to null while `closedAt` is set, and the service clears
+  /// them in the transaction that closes. Not a place for a door code, which
+  /// the service refuses (`findDoorCode`).
+  entryAnswer    IssueEntryAnswer?
+  entryNote      String?
+  entryPets      Boolean?
+  entryMasterKey Boolean?
+  entryUntil     DateTime?         @db.Date
+
+  /// The mark of an inspection finding, when the issue is one (decision 31).
+  finding IssueFinding?
+
   description String
 
+  /// When a handler redacted the description or the location (ADR 0057): the
+  /// text is emptied, and this says it was taken out and when, so the issue
+  /// reads as redacted rather than as one somebody filed blank. Nothing keeps
+  /// the earlier text. A CHECK holds the text empty while its mark stands.
+  descriptionRedactedAt DateTime?
+  locationRedactedAt    DateTime?
+
+  /// When the nightly purge removed the issue's free-text layer, on its clock
+  /// or on its reporter's granted erasure request (ADR 0057). The board's
+  /// screen says so with the date rather than showing an empty issue. Written
+  /// when the text goes, also while a file attached during the run stands,
+  /// and again by the run that takes that file. Not a selector: what the
+  /// purge reaches is whatever free text still stands, so text written after
+  /// a reopening is reached on the next closing's clock.
+  freeTextRemovedAt DateTime?
+
+  /// Since when a legal hold stands on the issue, or null when none does
+  /// (rättsligt bevarandekrav, ADR 0057). While it stands, neither the clock
+  /// nor a granted erasure request removes the free-text layer: a damage case
+  /// and an inspection finding place one, and a handler may. Released by
+  /// clearing it; the audit log holds when each hold was placed and released,
+  /// as `ISSUE_LEGAL_HOLD_PLACED` and `ISSUE_LEGAL_HOLD_RELEASED`.
+  legalHoldAt DateTime?
+
   photos IssuePhoto[]
+
+  /// The insurance damage it is marked as, when a handler marked it (decision
+  /// 28).
+  damageCase IssueDamageCase?
+
+  /// The people it concerns, as a handler recorded them (ADR 0057): the
+  /// neighbour a disturbance report is about, say. Part of its free-text
+  /// layer, and removed with it.
+  concernedPersons IssueConcernedPerson[]
+
+  /// The board's art. 15(4) weighing of its text for an access report (ADR
+  /// 0057). Removed with the free-text layer.
+  accessWeighings IssueAccessWeighing[]
+
+  /// What the handlers sent contractors about it, oldest first.
+  workOrders  WorkOrder[]
+  /// The conversation with the reporter (svar), and the handlers' own notes
+  /// and files beside it, which the reporter never reads (decision 18).
+  messages    IssueMessage[]
+  notes       IssueNote[]
+  attachments IssueAttachment[]
+
+  /// The private link mailed to a reporter without an account (ADR 0055), when
+  /// one was issued.
+  reporterLink IssueReporterLink?
 
   /// The post this issue was reported from, when it was.
   post Post?
 
-  /// When the issue was closed, i.e. when its status became DONE, and null
-  /// again if it is reopened.
+  /// The issue this one was merged into as a duplicate (decision 22), while it
+  /// is closed with the outcome `DUPLICATE`; null otherwise. Merging is the
+  /// only writer of that outcome, and a check constraint holds the two
+  /// together. Its reporter follows the issue named here: their own report
+  /// shows where that one stands, and a handler may write to them from it.
+  ///
+  /// A relation rather than a plain column, because it names an issue rather
+  /// than a person. SetNull: the issue merged into goes nowhere a duplicate
+  /// should stop it going, and the duplicate keeps its outcome.
+  mergedIntoIssueId String?
+  mergedInto        Issue?  @relation("IssueDuplicates", fields: [mergedIntoIssueId], references: [id], onDelete: SetNull)
+  duplicates        Issue[] @relation("IssueDuplicates")
+
+  /// The earlier issue of the same reporter this one follows up, when the
+  /// reporter filed it from that issue after the window in which a reply would
+  /// have reopened it (ADR 0054). A plain reference without a foreign key, as
+  /// the record says: it survives the earlier issue being purged, and is read
+  /// as gone when that issue is.
+  followsIssueId String?
+
+  /// A known fault (känt fel, decision 22): a short notice a handler wrote
+  /// about this issue for the house, shown to signed-in residents and on their
+  /// report form, and on the post the issue was reported from. Never on the
+  /// public website. The handler's own words, never copied from the report.
+  ///
+  /// Shown only while the issue is open and every handler may read it: an
+  /// issue the board keeps to itself carries none, and closing an issue clears
+  /// it. Signed with a role and never a person (decision 19); who wrote it is
+  /// on the audit log, as a message's writer is. A check constraint holds the
+  /// three columns together.
+  knownFault            String?
+  knownFaultSignature   IssueSignature?
+  knownFaultPublishedAt DateTime?
+
+  /// When the issue was closed, i.e. when it moved into a status meaning DONE
+  /// from one of another meaning, and null again if it is reopened. A move
+  /// between two DONE statuses leaves it alone.
   ///
   /// Its own column rather than reading updatedAt, which is what a public-form
   /// issue's retention clock has to run on: detaching a reporter from an issue
@@ -4352,10 +4828,140 @@ model Issue {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([status, createdAt])
+  @@index([statusId, createdAt])
   @@index([reporterPersonId])
   @@index([reporterEmailIndex])
+  @@index([assigneePersonId])
+  @@index([enteredByPersonId])
+  @@index([mergedIntoIssueId])
+  @@index([followsIssueId])
+  @@index([placeId])
+  @@index([closedAt])
   @@map("issue")
+}
+
+/// What caused an insurance damage, as a handler records it on a damage case.
+/// Spelled once for both applications in `@openbrf/shared`
+/// (issue-damage-case.ts).
+enum IssueDamageCause {
+  /// Vattenskada.
+  WATER
+  /// Brand.
+  FIRE
+  /// Inbrott.
+  BURGLARY
+  /// Skadegörelse.
+  VANDALISM
+  /// Storm eller annat väder.
+  WEATHER
+  /// Annat.
+  OTHER
+}
+
+/// An issue marked as an insurance damage (skadeärende, decision 28 of the
+/// issue module's plan): the insurer, the claim number, the day of the damage
+/// and its cause.
+///
+/// A mark on an issue rather than an issue type, so a water leak filed under
+/// Vattenläcka becomes a damage case when the board reports it to the insurer.
+/// Marking an issue places a legal hold on it (`Issue.legalHoldAt`, ADR 0057)
+/// where none stands, so its free text and photographs outlast its clock for as
+/// long as the claim may need them. Taking the mark off leaves the hold: it is
+/// one date with no reason beside it, and a handler releases it as its own act.
+///
+/// Part of the issue's building record, which the purge keeps: none of it is
+/// text about a person. The insurer is a firm and the claim number the
+/// insurer's label for the claim; both are refused when they hold a personal
+/// identity number. Not on any `mcp` or `ai` read (ADR 0056 adds no field by
+/// analogy).
+model IssueDamageCase {
+  id String @id @default(cuid())
+
+  /// Cascade: the mark is part of its issue.
+  issueId String @unique
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The insurance company, as the handler wrote it.
+  insurer String
+
+  /// The insurer's number for the claim (skadenummer).
+  claimNumber String
+
+  /// The day the damage happened, in the association's calendar.
+  occurredOn DateTime @db.Date
+
+  cause IssueDamageCause
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("issue_damage_case")
+}
+
+/// A person an issue concerns who did not necessarily report it (berörd
+/// person, ADR 0057): the neighbour a report of a disturbance is about, the
+/// household behind a leak. A handler records them from the resident picker,
+/// on an issue of any type.
+///
+/// Personal data of its own, about the person named: that a case concerns
+/// them is what the case holds about them, so the record is part of the
+/// issue's free-text layer rather than its building record. It is removed
+/// with that layer (by the clock, by the reporter's granted erasure request;
+/// while a work order's text stands the row stays as a bare selector, see
+/// `recordRemovedAt`), a handler removes one as a redaction, and whatever keeps
+/// the layer keeps it:
+/// a legal hold on the issue, or a legal hold or a restriction on its reporter
+/// or on any person it concerns. Read by the handlers the issue lets in and by
+/// nobody else: never by the reporter, in a mail, a work order or a link, and
+/// never on `mcp` or `ai` (ADR 0056), where an issue concerning a person with
+/// protected personal data is left out as one such a person reported is.
+///
+/// Who recorded it is on the audit log as the actor of
+/// `ISSUE_CONCERNED_PERSON_ADDED`, which never names the person: the log
+/// outlives every purge, and would keep the record after the layer is gone.
+model IssueConcernedPerson {
+  id String @id @default(cuid())
+
+  /// Cascade: the record is part of its issue.
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The person it concerns. Chosen by a handler, so the person named did not
+  /// act.
+  ///
+  /// A relation, unlike `Issue.reporterPersonId`: the row is nothing but the
+  /// link, so the cascade that removes it with a deleted person rewrites
+  /// nothing else on the issue and vetoes nothing, and through it the clock,
+  /// the issue erasure job and the reads that leave a protected person's
+  /// issues out ask after the person's holds and protection in one condition.
+  /// The person purge never deletes a person, so it does not reach the row;
+  /// the row goes with the issue's free text.
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  /// The board's weighing of the case's text for this person's access report.
+  /// Goes with the record.
+  accessWeighings IssueAccessWeighing[]
+
+  /// When the record was taken off the issue and only the selector was kept,
+  /// null while the record stands.
+  ///
+  /// The free-text layer's removal (the clock, the reporter's granted erasure
+  /// request) ends the record, but a work order's text stands on a clock of its
+  /// own, and a hold or a restriction placed on this person later has to reach
+  /// it. So while any work order's text stands the row stays as the selector
+  /// and nothing more: no handler reads it, it counts for no list or limit, and
+  /// the issue no longer counts as having free text on its account. It still
+  /// ties the case to the person, so the cases concerning them that they did
+  /// not report (`issuesConcerningPerson`) include it while that text stands.
+  /// The transaction that erases the last work-order text deletes it.
+  recordRemovedAt DateTime?
+
+  @@unique([issueId, personId])
+  @@index([personId])
+  @@map("issue_concerned_person")
 }
 
 /// A photograph attached to an issue.
@@ -4382,6 +4988,751 @@ model IssuePhoto {
   @@unique([issueId, fileId])
   @@index([issueId, sortOrder])
   @@map("issue_photo")
+}
+
+/// A firm or tradesperson the association hires to work on the building
+/// (entreprenör): the association's own list, kept by the board.
+///
+/// Never an account, a person in the register or a handler of issues. A
+/// contractor is reached by a work order and nothing else, and reads nothing in
+/// the instance. A sole trader's name, telephone number and address are
+/// personal data all the same, which is why a contractor can be removed from
+/// the list at any time: what was sent them stays on the work order, which
+/// keeps its own copy of whom it went to. The telephone number and the address
+/// are encrypted at rest, as a reporter's address is, with no blind index:
+/// nothing looks a contractor up by either.
+///
+/// The nightly issue purge removes a contractor ten years after the last work
+/// order sent them, or after they were added if none was (ADR 0057, question
+/// 6): the general limitation period for a claim about the work
+/// (preskriptionslagen (1981:130) 2 §). On that clock alone: a work order
+/// written to them, sent or not, that still holds its text, or is on an issue
+/// under a legal hold, keeps its own copy of whom it went to, and loses it when
+/// the last of the two goes: with its text, or, for one whose text is already
+/// gone, when the hold is released.
+model Contractor {
+  id String @id @default(cuid())
+
+  name  String
+  trade String
+
+  /// For the handler to ring; never sent anywhere.
+  phoneCipher String?
+
+  /// Where a work order is mailed. Optional, because a contractor the board
+  /// rings rather than mails still belongs on the list, and is then offered
+  /// for no work order.
+  emailCipher String?
+
+  /// Whether handlers are offered the contractor for a new work order. Switched
+  /// off rather than removed by a board that stops using a firm and wants the
+  /// list to say whom it used.
+  active Boolean @default(true)
+
+  /// When a work order that linked the association's privacy notice was
+  /// accepted by the mail server for this contractor (GDPR art. 14(3)(b),
+  /// ADR 0057 question 6). While it is null the next work order mailed to
+  /// them links the notice, and is not sent while the notice is unpublished;
+  /// the board changing the name or the address clears it, because whoever
+  /// reads that address now has not been told. It speaks for the name and
+  /// address on this row only, so a work order written to earlier ones links
+  /// the notice whatever it says (`WorkOrderMailerService`).
+  privacyNoticeGivenAt DateTime?
+
+  workOrders WorkOrder[]
+
+  /// When the board added the contractor. With no work order sent them, the
+  /// ten-year clock that removes them from the list runs from here.
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, name])
+  @@map("contractor")
+}
+
+/// Whether a work order's mail went out.
+enum WorkOrderDeliveryStatus {
+  /// Written, and not yet handed to a mail server.
+  PENDING
+  /// Accepted by the mail server. Not a claim that anybody read it.
+  SENT
+  /// The mail server refused it, this instance has none configured, or the
+  /// sending stopped where nothing can tell whether it went out. The work
+  /// order is on the issue either way: what failed is the sending.
+  FAILED
+}
+
+/// What a handler sent a contractor about one issue (arbetsorder), and the
+/// record of it: who received it, when, and what it said.
+///
+/// The record is the point. GDPR art. 15(1)(c) has the association tell a
+/// person which recipients their data was disclosed to, and art. 19 has it tell
+/// each recipient of a later rectification or erasure, and neither can be
+/// answered from a mail server's log. So the row is written before the mail is
+/// sent, with a copy of the recipient as the mail addressed them and the text
+/// as it was previewed, and the sending is a job that follows the commit (the
+/// board mailbox's reply is the precedent).
+///
+/// The text is the handler's and nothing else. The mail carries no report,
+/// no reporter and no link into the application, so what leaves the instance is
+/// what the handler wrote and read back before sending (decision 23 of the issue
+/// module's plan).
+///
+/// Mailed because the contractor's own link is not yet switched on (decision
+/// 25): this is the way a work order travels until it is, and stays the
+/// record of what was sent once it is.
+model WorkOrder {
+  id String @id @default(cuid())
+
+  /// Cascade: a work order is part of its issue's record, and an issue removed
+  /// takes it along.
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The contractor on the list it was written to. SetNull: a contractor
+  /// removed from the list leaves the record of what was sent them, which
+  /// names them by the copy below.
+  contractorId String?
+  contractor   Contractor? @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+
+  /// Whom it went to, as the mail addressed them. Copied rather than read
+  /// through the contractor, so the record keeps saying who received it after
+  /// the list is corrected. The address encrypted as the contractor's is, with
+  /// the work order's id as its context.
+  ///
+  /// Both null once the board removes the contractor from the list: that
+  /// removal is how a sole trader's erasure is honoured, and it reaches the
+  /// copies on their work orders too (`ContractorService.remove`). The list's
+  /// own clock leaves them on a work order that still holds its text or is on
+  /// an issue under a legal hold, until the last of the two goes
+  /// (`retireContractor`, `eraseRecipientsLeft`), and clears them on the
+  /// others. The row stays, so the issue still records that a work order went
+  /// out, when, and what it said.
+  recipientName        String?
+  recipientEmailCipher String?
+
+  /// The work order, as the handler wrote and previewed it. Null once the
+  /// retention window after its issue was closed has run out
+  /// (`IssuePurgeService`, `WORK_ORDER_BODY_RETENTION_DAYS`), or once a
+  /// handler redacted it (`IssueRedactionService`): the text is the handler's
+  /// free text and may name people.
+  body String?
+
+  /// When a handler redacted the text (ADR 0057), so the record reads as
+  /// redacted rather than as erased by the clock. Set only over a null body,
+  /// which a check in the migration holds.
+  redactedAt DateTime?
+
+  /// The handler who sent it. A plain column, for the reason the issue's
+  /// `reporterPersonId` gives. Detached when the person is erased
+  /// (`PurgeService.purgePerson`), as the issue's `enteredByPersonId` is: the
+  /// order stays with its recipient, date and contents, and stops naming the
+  /// sender.
+  sentByPersonId String?
+
+  deliveryStatus WorkOrderDeliveryStatus @default(PENDING)
+
+  /// Why it did not go out, as a code and never as the mail server's own
+  /// words, which quote the envelope back. See `work-order-delivery.ts`.
+  deliveryFailure String?
+
+  /// When an attempt claimed it for sending, a moment before it was handed to
+  /// a mail server, and cleared again when the sending is recorded as failed.
+  /// A time here beside PENDING is a sending nothing has confirmed.
+  claimedAt DateTime?
+
+  /// When the handler sent it: the date the record answers with.
+  createdAt DateTime @default(now())
+
+  /// What the contractor answered through the work order's link (ADR 0055),
+  /// or null while they have not. A fact about the work, not free text, so it
+  /// stays with the building record when the purge removes the words.
+  answer     WorkOrderAnswer?
+  /// When the answer was given.
+  answeredAt DateTime?
+
+  links        WorkOrderLink[]
+  chosenPhotos WorkOrderPhoto[]
+  exposures    WorkOrderPhotoExposure[]
+  notes        WorkOrderNote[]
+  files        WorkOrderFile[]
+
+  /// The board's weighing of the text for an access report (ADR 0057,
+  /// question 7). Goes with the row by its cascade, and with the text: the
+  /// work-order text purge and a handler's redaction delete it.
+  accessWeighings IssueAccessWeighing[]
+
+  @@index([issueId, createdAt])
+  @@index([contractorId])
+  /// The sender's own work orders in the last hour, for the sending budget.
+  @@index([sentByPersonId, createdAt])
+  @@map("work_order")
+}
+
+/// What a contractor answered a work order through its link (ADR 0055).
+enum WorkOrderAnswer {
+  /// They take the job. The link stays open for notes, photographs and done.
+  ACCEPTED
+  /// They do not. The link ends.
+  DECLINED
+  /// They finished it. The link ends.
+  DONE
+}
+
+/// A contractor's link (arbetsorderlänk) to one work order (decision 24 of the
+/// issue module plan, ADR 0055): whoever holds it sees that work order's text
+/// and the photographs the board chose for it, answers it, and adds notes and
+/// photographs of their own. Never the report, the reporter or the
+/// conversation.
+///
+/// Built behind a switch that is off until the legal review clears it
+/// (decision 25, `OPENBRF_CONTRACTOR_LINKS_ENABLED`). While it is off nothing
+/// is issued and no token opens anything.
+///
+/// The token is never stored. `tokenDigest` is its SHA-256 digest
+/// (`hashOpaqueToken`), unique, and the link is looked up by it alone, with
+/// whether it still opens anything read in the same query on the database's
+/// clock (`work-order-link.ts`). A work order has one live link at most:
+/// issuing a new one revokes the one before, which a partial unique index in
+/// the migration holds.
+///
+/// No column names the handler who issued it. The audit entry does, and a
+/// person column here would be one more for the person purge to reach.
+model WorkOrderLink {
+  id String @id @default(cuid())
+
+  /// Cascade: a link to a work order that is gone opens nothing.
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  /// The token's SHA-256 digest, base64url.
+  tokenDigest String @unique
+
+  issuedAt  DateTime  @default(now())
+  /// Thirty days after it was issued, on the database's clock, and never moved
+  /// (`WORK_ORDER_LINK_DAYS`). A new link is the only way to more time.
+  expiresAt DateTime
+  /// When a handler withdrew it, a new link replaced it, or something it opens
+  /// stopped being one a contractor may see. A revoked link stays revoked.
+  revokedAt DateTime?
+
+  @@index([workOrderId])
+  @@map("work_order_link")
+}
+
+/// A photograph of an issue that a handler chose for the contractor of a work
+/// order to see through its link (decision 24).
+///
+/// The one way a contractor reads a file of the issue: the link serves a file
+/// only when it is chosen here for its own work order and is still on that
+/// issue. A file removed from the issue takes the row with it by its cascade,
+/// so a photograph redacted or purged stops answering on the next request.
+model WorkOrderPhoto {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  fileId String
+  file   MediaFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  @@unique([workOrderId, fileId])
+  @@index([fileId])
+  @@map("work_order_photo")
+}
+
+/// One photograph of an issue that a work order's link has shown a contractor,
+/// kept so the data subject access report can state how many were disclosed
+/// (GDPR art. 15(1)(c)) after the choice is changed or a file is removed.
+///
+/// Written by the handler's acts, never by a read of the link (ADR 0055: reads
+/// write nothing): when a link is issued, for the photographs already chosen,
+/// and when a photograph is chosen while a link stands. One row per photograph
+/// per work order, so choosing it again counts it once. The file reference is
+/// cleared, not the row, when the file is removed: the count outlives the file.
+model WorkOrderPhotoExposure {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  fileId String?
+  file   MediaFile? @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  exposedAt DateTime @default(now())
+
+  @@unique([workOrderId, fileId])
+  @@index([fileId])
+  @@map("work_order_photo_exposure")
+}
+
+/// A note a contractor wrote on a work order through its link.
+///
+/// The contractor's own words, and free text: part of the issue's free-text
+/// layer, removed with it on the board's clock (ADR 0057), and redacted by a
+/// handler like any other text there. Never shown to the reporter.
+model WorkOrderNote {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  body       String
+  /// When a handler redacted it (ADR 0057). The body is empty then.
+  redactedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([workOrderId, createdAt])
+  @@map("work_order_note")
+}
+
+/// A photograph a contractor added to a work order through its link: the
+/// first upload in the product that no account stands behind (ADR 0055).
+///
+/// Its own join, never `IssuePhoto`, which the reporter reads: the file is
+/// `INTERNAL` under `issues:handle` and read by the handlers the issue lets in
+/// (`issueFileAccess`), and by the link of its own work order. Part of the
+/// issue's free-text layer, as every photograph on an issue is.
+model WorkOrderFile {
+  id String @id @default(cuid())
+
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  /// Cascade, for the reason `IssuePhoto.fileId` gives. Unique: a file is on
+  /// one work order and decided by it alone.
+  fileId String    @unique
+  file   MediaFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([workOrderId, sortOrder])
+  @@map("work_order_file")
+}
+
+/// The association's responsibility guide (ansvarsfördelning) as a whole:
+/// whether the board has adopted it as its reading of its own bylaws
+/// (decision 27). One row, held to `id = 1` by a check in the migration, and
+/// written the first time the board saves the guide.
+///
+/// BRL 7 kap. 12 § puts the upkeep of the apartment on the tenant-owner "om
+/// inte något annat bestämts i stadgarna", so where the line runs is each
+/// association's bylaws and never a fact the platform can state. The guide
+/// the product offers is an example to start from, and stays labelled as one
+/// until the board adopts it. Reporters are shown it only once it is adopted;
+/// handlers see it either way, with the label.
+model ResponsibilityGuide {
+  id Int @id @default(1)
+
+  /// When the board said the guide follows its bylaws, or null while it is
+  /// an example. Cleared again if the board withdraws it.
+  adoptedAt DateTime?
+
+  updatedAt DateTime @updatedAt
+
+  @@map("responsibility_guide")
+}
+
+/// One line of the responsibility guide: a part of the home or the building,
+/// who maintains it, and a note. The board's own text, monolingual and stored
+/// as written, as an issue type's name is.
+///
+/// Association records rather than personal data: the board writes about its
+/// building, and the text is scanned for a personal identity number on the
+/// way in, as everything the board writes for residents to read is.
+model ResponsibilityGuideItem {
+  id String @id @default(cuid())
+
+  /// "Golvbrunn, rensning".
+  part String
+
+  responsibility MaintenanceResponsibility
+
+  /// "Ytterdörrens utsida är föreningens", or null.
+  note String?
+
+  /// The board's order, which is the order a reader is shown.
+  sortOrder Int
+
+  createdAt DateTime @default(now())
+
+  @@index([sortOrder])
+  @@map("responsibility_guide_item")
+}
+
+/// Who wrote an issue message: the reporter, or a handler for the association.
+enum IssueMessageSide {
+  REPORTER
+  HANDLER
+}
+
+/// The role a handler's message is signed with to the reporter (decision 19):
+/// the board (Styrelsen) or the property manager (Förvaltaren), never a person.
+enum IssueSignature {
+  BOARD
+  PROPERTY_MANAGER
+}
+
+/// One message in the conversation between an issue's reporter and its
+/// handlers (svar, decision 18), oldest first.
+///
+/// Its own table rather than a feed comment or a board mailbox message. A
+/// comment belongs to a post, its audience and its one-year clock, and a
+/// mailbox letter comes from a correspondent who is never a person. An issue
+/// message is read by the issue's reporter and by the handlers the issue lets
+/// in, and by nobody else, and goes with the issue's free text when that is
+/// purged (ADR 0057).
+///
+/// Never a name. A handler's message is signed to the reporter by
+/// `signature`, a role, and shown to the other handlers by `authorPersonId`,
+/// read and masked per read like every other person on an issue. A name copied
+/// onto the row would escape that masking, and outlive the person's erasure.
+model IssueMessage {
+  id String @id @default(cuid())
+
+  /// Cascade: a message is part of its issue and means nothing without it.
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  side IssueMessageSide
+
+  /// Who wrote it: the signed-in reporter, or the handler. Null on a message a
+  /// reporter without an account wrote, and once the writer is purged.
+  ///
+  /// A plain column, for the reason `Issue.reporterPersonId` gives. The writer
+  /// acted: the audit entry for the message names them as its actor.
+  authorPersonId String?
+
+  /// The role a handler's message is signed with, decided when it was written;
+  /// null on the reporter's. A CHECK holds it to the side.
+  signature IssueSignature?
+
+  /// The text. The reporter's is stored as written, as the description is. A
+  /// handler's is refused while it carries a personal identity number, as
+  /// every text the board writes back to a resident is. Empty once redacted.
+  body String
+
+  /// When a handler redacted the text (ADR 0057), which empties `body`; null
+  /// while it stands. The message stays in its place in the conversation and
+  /// says it was taken out and when.
+  redactedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  /// The board's weighing of it for an access report (ADR 0057), which goes
+  /// with it.
+  accessWeighings IssueAccessWeighing[]
+
+  @@index([issueId, createdAt])
+  @@index([authorPersonId])
+  // The queue's search (`IssueService.searchWhere`) matches a word anywhere in
+  // the text, which a B-tree cannot answer and a trigram index can (`pg_trgm`).
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin, map: "issue_message_body_trgm_idx")
+  @@map("issue_message")
+}
+
+/// What a handler writes on an issue for the other handlers (intern
+/// anteckning, decision 18): beside the conversation with the reporter and
+/// apart from it.
+///
+/// A table of its own rather than a kind of `IssueMessage`, so no read of the
+/// conversation can reach a note by forgetting a filter. Read by every handler
+/// the issue lets in, with no further layer (decision 18): an issue the board
+/// keeps to itself keeps its notes with it (decision 13). Never read by the
+/// reporter, mailed, or offered to a connected app or the AI package (ADR
+/// 0056).
+model IssueNote {
+  id String @id @default(cuid())
+
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The handler who wrote it; null once they are purged. A plain column, for
+  /// the reason `Issue.reporterPersonId` gives. The audit entry for the note
+  /// names them as its actor.
+  authorPersonId String?
+
+  /// The text, refused while it carries a personal identity number. Empty
+  /// once redacted.
+  body String
+
+  /// When a handler redacted the text (ADR 0057), as on an issue message.
+  redactedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  /// The board's weighing of it for an access report (ADR 0057), which goes
+  /// with it.
+  accessWeighings IssueAccessWeighing[]
+
+  @@index([issueId, createdAt])
+  @@index([authorPersonId])
+  // For the queue's search, as on an issue message.
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin, map: "issue_note_body_trgm_idx")
+  @@map("issue_note")
+}
+
+/// Which text on an issue a weighing is about (ADR 0057).
+enum IssueAccessPart {
+  DESCRIPTION
+  LOCATION
+  MESSAGE
+  NOTE
+  /// The text of a work order, on its own ten-year clock (question 7).
+  WORK_ORDER
+}
+
+/// Why a text is left out of a person's access report, as GDPR art. 15(4)
+/// allows (ADR 0057).
+enum IssueAccessWithholdingReason {
+  /// It would tell the person who reported the case. Only on a case somebody
+  /// else reported.
+  IDENTIFIES_REPORTER
+  /// It is about somebody other than the person whose report it is.
+  ABOUT_ANOTHER_PERSON
+}
+
+/// The board's weighing under GDPR art. 15(4) of one text on an issue for one
+/// person's data subject access report (access weighing, ADR 0057): given
+/// whole, given in part, or left out whole, for a stated reason.
+///
+/// Whose report it is: the person a concerned-person record names, where
+/// `concernedPersonId` is set, and the issue's reporter where it is null. The
+/// reporter's report weighs the internal notes and the work orders' text,
+/// because their own words and the conversation are already theirs to read. A
+/// concerned person's weighs the description, the location, every message,
+/// every note and every work order's text. A text
+/// with no row here is not yet weighed: the report gives none of it, says it
+/// awaits the board, and the board's screen will not print it until it is
+/// weighed.
+///
+/// One row per text and report: the unique index
+/// `issue_access_weighing_text_key`, written in the migration's SQL because it
+/// is on expressions, holds issue, record, part and message, note or work
+/// order unique with the reporter's report and the description and the
+/// location folded in as nulls. Every reader takes the most restrictive of the rows on one text all
+/// the same (`strictestWeighing`), so a duplicate could never give what one of
+/// them left out.
+///
+/// No column names a person: the record and the issue do. Each row goes with
+/// the text it weighs or the record whose report it is (cascade), with a
+/// handler's redaction of that text (`IssueRedactionService`), and every row on
+/// an issue but a work order's goes with its free-text layer
+/// (`IssueFreeTextService`). A work order's text is on its own clock, so its
+/// weighing goes with that text, by the work-order text purge
+/// (`IssuePurgeService`) or a redaction. The board member who weighed is the
+/// actor of `ISSUE_ACCESS_WEIGHED`.
+model IssueAccessWeighing {
+  id String @id @default(cuid())
+
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The record of a person the issue concerns, whose report this weighs.
+  /// Null: the reporter's report.
+  concernedPersonId String?
+  concernedPerson   IssueConcernedPerson? @relation(fields: [concernedPersonId], references: [id], onDelete: Cascade)
+
+  part IssueAccessPart
+
+  /// The message, the note or the work order weighed, for those parts; null
+  /// for the description and the location.
+  messageId   String?
+  message     IssueMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  noteId      String?
+  note        IssueNote?    @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  workOrderId String?
+  workOrder   WorkOrder?    @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  /// Why it is left out, whole or in part; null when it is given whole.
+  withheldBecause IssueAccessWithholdingReason?
+
+  /// The text given in part: a copy of it with the words the board left out
+  /// taken out and each place marked (`isGivenInPartOf`), which the report
+  /// gives instead of the text. Null when it is given whole or left out whole.
+  /// The text itself stands as it was written, for the issue and for every
+  /// other report. Free text of the case, so it goes where the text goes.
+  givenText String?
+
+  weighedAt DateTime @default(now())
+
+  @@index([issueId])
+  @@index([concernedPersonId])
+  @@index([messageId])
+  @@index([noteId])
+  @@index([workOrderId])
+  @@map("issue_access_weighing")
+}
+
+/// A file the handlers attach to an issue for each other: a quote, a protocol,
+/// a photograph a handler took.
+///
+/// A join of its own rather than an `IssuePhoto`, because an `IssuePhoto` is
+/// read by the issue's reporter (`issueFileAccess`), and these are not. The
+/// file is INTERNAL under `issues:handle`, and the media route reads it by the
+/// issue that links it, under the board-only rule, on every request.
+///
+/// Who uploaded it is the file's own `uploadedByPersonId`, so the join names
+/// nobody.
+model IssueAttachment {
+  id String @id @default(cuid())
+
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// Cascade, for the reason `IssuePhoto.fileId` gives. Unique, so a file is
+  /// on one issue's handler shelf and is decided by that issue alone.
+  fileId String    @unique
+  file   MediaFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+
+  /// The finding this file is the protocol of, when it is (decision 31).
+  protocolOf IssueFinding?
+
+  createdAt DateTime @default(now())
+
+  @@index([issueId, sortOrder])
+  @@map("issue_attachment")
+}
+
+/// The private link (privat länk) mailed to the reporter of an issue who has
+/// no account and left an email address on the website's form (decision 20,
+/// ADR 0055). Whoever holds it reads the issue's conversation on a page of its
+/// own and writes in it, text only, and nothing else of the issue.
+///
+/// One per issue at most, issued with the first mail to the reporter's address
+/// and never again: there is no way to ask for it to be sent once more, so the
+/// website's form cannot be turned into a way to mail somebody.
+///
+/// The token is never stored. `tokenDigest` is its SHA-256 digest
+/// (`hashOpaqueToken`), unique, and the link is looked up by it alone. Whether
+/// it still opens anything is read with it on every request, on the database's
+/// clock: not revoked, not expired, the issue's contact details not purged,
+/// and the issue not closed more than 30 days ago (`issue-reporter-link.ts`).
+model IssueReporterLink {
+  id String @id @default(cuid())
+
+  /// Cascade: a link to an issue that is gone opens nothing.
+  issueId String @unique
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The token's SHA-256 digest, base64url. Replaced only while no mail has
+  /// carried the link yet (`mailedAt` null), when a delivery that failed is
+  /// tried again with a token of its own.
+  tokenDigest String @unique
+
+  /// When the token behind `tokenDigest` was minted.
+  issuedAt DateTime @default(now())
+
+  /// When the mail carrying it was handed to the mail server; null until then.
+  mailedAt DateTime?
+
+  /// The link's own end, 365 days after the latest issue message or the day the
+  /// link was issued, whichever is later. An issue that stays open does not keep a link alive
+  /// on its own (ADR 0055).
+  expiresAt DateTime
+
+  /// When a handler withdrew it, or null. A withdrawn link stays withdrawn.
+  revokedAt DateTime?
+
+  @@index([issuedAt])
+  @@map("issue_reporter_link")
+}
+
+/// A reply the association keeps for its handlers to start an issue message
+/// from (decision 17), such as one saying that what was reported is the
+/// tenant-owner's to maintain under the bylaws.
+///
+/// The board's own text, monolingual and stored as written, as an issue type's
+/// name is. Written by `issues:configure` and read by every handler. Picking
+/// one fills the message field and sends nothing: the handler reads it, adapts
+/// it and sends it as their own message, signed as every other is.
+model IssueSavedReply {
+  id String @id @default(cuid())
+
+  /// What the handler picks it by.
+  title String
+  body  String
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sortOrder])
+  @@map("issue_saved_reply")
+}
+
+/// A common-area place an issue can be about (decision 30): the laundry room,
+/// the lift, the yard. The association's own short list, monolingual and stored
+/// as written like an issue type's name. Never an apartment: a list of homes
+/// would enumerate the building, and an issue about one has its apartment.
+///
+/// Written by `issues:configure`, read by everybody who files or handles an
+/// issue. Switched off rather than removed once an issue names it, so the count
+/// of faults in the lift survives the board tidying its list.
+model IssuePlace {
+  id String @id @default(cuid())
+
+  name String
+
+  /// Whether it is offered for new issues.
+  active Boolean @default(true)
+
+  sortOrder Int @default(0)
+
+  issues Issue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sortOrder])
+  @@map("issue_place")
+}
+
+/// The mark of a statutory inspection finding on an issue (decision 31): an
+/// OVK, lift or fire finding, with the protocol attached and a real target date.
+///
+/// A finding has no date of its own: it is the issue's target date, so the
+/// Overdue view and the reminders read it as they read any other. A finding
+/// cannot be marked without one, and the service holds the target date of an issue that carries
+/// a finding in place. A lift's must fall within a month of the inspection
+/// (BFS 2025:11 1 kap. 17 §), the only date the law sets. The inspections'
+/// schedule is the 2027 reminders' and is not here.
+///
+/// The protocol is one of the handler-only files on the issue
+/// (`IssueAttachment`), never a photograph the reporter reads. The first mark
+/// places a legal hold on the issue (`legalHoldAt`), so while it stands no
+/// redaction, clock or erasure request removes the protocol. Taking the mark
+/// off leaves the hold. SetNull: once a handler has released the hold and the
+/// file is removed from the issue - by a redaction, by the purge of the
+/// free-text layer - the mark stays as the building's record that there was a
+/// finding, without the protocol.
+model IssueFinding {
+  id String @id @default(cuid())
+
+  issueId String @unique
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  kind IssueFindingKind
+
+  /// The day of the inspection the protocol is dated.
+  inspectedOn DateTime @db.Date
+
+  protocolAttachmentId String?          @unique
+  protocolAttachment   IssueAttachment? @relation(fields: [protocolAttachmentId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind, inspectedOn])
+  @@map("issue_finding")
 }
 
 // ---------------------------------------------------------------------------
@@ -5470,8 +6821,9 @@ enum NewsDeliveryStatus {
   PENDING
   /// Accepted by the mail server. It is not a claim that anybody read it.
   SENT
-  /// The mail server refused it, or this instance has none configured. The
-  /// news item is published either way: only the mailing failed.
+  /// Not confirmed as handed over: the copy did not go out, or the send ended in
+  /// an error that leaves it unknown whether it did. `failureReason` says which.
+  /// The news item is published either way: only the mailing failed.
   FAILED
 }
 
@@ -6585,8 +7937,9 @@ enum MeetingNoticeDeliveryStatus {
   /// is not a claim that the notice was lawfully given: see MeetingNotice.
   SENT
 
-  /// The mail server refused it, or this instance has none configured. The
-  /// notice is issued either way: only this copy of it failed.
+  /// Not confirmed as handed over: the copy did not go out, or the send ended in
+  /// an error that leaves it unknown whether it did. `failureReason` says which.
+  /// The notice is issued either way: only this copy of it failed.
   FAILED
 }
 
@@ -7363,6 +8716,18 @@ model MemberCharge {
   /// Who recorded it. A plain column, per the model comment.
   recordedByPersonId String
 
+  /// The issue (ärende) the charge was made from, when it was ("Skapa
+  /// debitering", decision 26 of the issue module plan).
+  ///
+  /// The join runs from the charge to the issue and never the other way, so
+  /// the amount lives here and only here, as `KeyOrder` says of its own join.
+  /// A plain column and not a relation, so either side can go without the
+  /// other: removing the charge leaves the issue as it was, and an issue the
+  /// purge or a merge takes away leaves the charge, which is räkenskaps-
+  /// information on a seven-year clock of its own, naming an issue that no
+  /// longer answers. Set when the charge is recorded and never moved.
+  issueId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -7376,6 +8741,8 @@ model MemberCharge {
   @@index([personId, chargedOn])
   /// This apartment's charges, reached the same two ways.
   @@index([apartmentId, chargedOn])
+  /// The charges made from one issue, which its handlers read beside it.
+  @@index([issueId])
   @@map("member_charge")
 }
 

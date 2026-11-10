@@ -13,6 +13,7 @@ import {
   strikePost,
 } from "../api/feed";
 import { IssueStatusChip } from "../issues/IssueStatusChip";
+import { KnownFaultNotice } from "../issues/KnownFaultNotice";
 import { BoardControls } from "../ui/BoardMark";
 import { HINT, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
@@ -337,7 +338,7 @@ export function PostCard({
             // shown only to whoever may read the report, as the server decided.
             <div className="flex flex-wrap items-center gap-2 text-small text-ink-muted">
               <span>{t("feed.issue.label")}</span>
-              <IssueStatusChip status={post.issue.status} />
+              <IssueStatusChip meaning={post.issue.meaning} />
             </div>
           )}
         </div>
@@ -347,6 +348,13 @@ export function PostCard({
       </header>
 
       <PostContent post={post} />
+
+      {/* The known fault on the issue reported from this post: the handler's
+          notice for the house, shown to every reader of the post, while the
+          report itself stays its reporter's and its handlers'. */}
+      {post.knownFault === null ? null : (
+        <KnownFaultNotice fault={post.knownFault} />
+      )}
 
       {copied === null ? null : (
         <p role="status" className={HINT}>

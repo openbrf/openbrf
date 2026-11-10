@@ -1,12 +1,20 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import type { ReactElement, ReactNode } from "react";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import "../i18n";
 import type {
-  IssueAudience,
   IssueReporter,
-  OwnIssue,
+  IssueStatusView,
+  IssueTypeView,
   QueuedIssue,
 } from "../api/issues";
 import { IssueQueuePanel } from "./IssueQueuePanel";
@@ -17,48 +25,317 @@ import { IssueQueuePanel } from "./IssueQueuePanel";
  * The case worth having is the protected reporter. This queue is read by an
  * external property manager, and a person with protected personal data
  * (skyddade personuppgifter) is masked in it - the server sends no name, and
- * the panel must not invent one from the identifier it does get.
+ * the panel must not invent one from the identifier it does get. Nor does it
+ * name their apartment; whether the issue is about one at all is not their
+ * home and is said (`aboutApartment`).
+ *
+ * And the move between statuses (ADR 0054): the type's own statuses are
+ * offered, a status that means waiting asks whom or what for, and closing asks
+ * how the issue ended, before the save is let go.
  */
 
 const setIssueStatus = vi.fn();
+const fetchIssueHandlers = vi.fn();
+const fetchIssueTimeline = vi.fn();
+const assignIssue = vi.fn();
+const setIssuePriority = vi.fn();
+const setIssueTargetDate = vi.fn();
+const setIssueBoardOnly = vi.fn();
+const setIssueCostResponsibility = vi.fn();
+const fetchHandlerResponsibilityGuide = vi.fn();
+const fetchIssueCharges = vi.fn();
+const removeIssueFinding = vi.fn();
+/** The conversation beside the handling, read when an issue is opened. */
+const conversationReads = {
+  fetchIssueMessages: vi.fn(),
+  fetchIssueNotes: vi.fn(),
+  fetchIssueAttachments: vi.fn(),
+  fetchIssueSavedReplies: vi.fn(),
+};
 
 vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
   setIssueStatus: (input: unknown) => setIssueStatus(input),
+  fetchIssueHandlers: (id: string) => fetchIssueHandlers(id),
+  fetchIssueTimeline: (id: string) => fetchIssueTimeline(id),
+  assignIssue: (input: unknown) => assignIssue(input),
+  setIssuePriority: (input: unknown) => setIssuePriority(input),
+  setIssueTargetDate: (input: unknown) => setIssueTargetDate(input),
+  setIssueBoardOnly: (input: unknown) => setIssueBoardOnly(input),
+  fetchIssuePlaceCounts: () => Promise.resolve({ ok: true, value: [] }),
+  removeIssueFinding: (id: string) => removeIssueFinding(id),
+  fetchIssueMessages: (id: string) => conversationReads.fetchIssueMessages(id),
+  fetchIssueNotes: (id: string) => conversationReads.fetchIssueNotes(id),
+  fetchIssueAttachments: (id: string) =>
+    conversationReads.fetchIssueAttachments(id),
+  fetchIssueSavedReplies: () => conversationReads.fetchIssueSavedReplies(),
+  // The links beside the handling: none here; `IssueLifecycle.test.tsx`
+  // covers them.
+  fetchIssueLinks: () =>
+    Promise.resolve({
+      ok: true,
+      value: {
+        mergedInto: null,
+        duplicates: [],
+        duplicateCount: 0,
+        follows: null,
+        followUps: [],
+        followUpCount: 0,
+      },
+    }),
+  setIssueCostResponsibility: (input: unknown) =>
+    setIssueCostResponsibility(input),
+  fetchHandlerResponsibilityGuide: () => fetchHandlerResponsibilityGuide(),
 }));
+
+vi.mock("../charges/charges-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../charges/charges-api")>()),
+  fetchIssueCharges: (id: string) => fetchIssueCharges(id),
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    to,
+    search,
+    children,
+    className,
+    "aria-label": label,
+  }: {
+    to: string;
+    search?: { issue?: string };
+    children: ReactNode;
+    className?: string;
+    "aria-label"?: string;
+  }): ReactElement => (
+    <a
+      href={search?.issue === undefined ? to : `${to}?issue=${search.issue}`}
+      aria-label={label}
+      className={className}
+    >
+      {children}
+    </a>
+  ),
+}));
+
+function status(
+  overrides: Partial<IssueStatusView> & Pick<IssueStatusView, "id">,
+): IssueStatusView {
+  return {
+    meaning: "NEW",
+    label: "Ny",
+    isDefault: true,
+    active: true,
+    sortOrder: 0,
+    issueCount: 0,
+    ...overrides,
+  };
+}
+
+const TYPES: readonly IssueTypeView[] = [
+  {
+    id: "type-water",
+    name: "Vatten",
+    reporters: ["RESIDENTS"],
+    active: true,
+    sortOrder: 0,
+    handledBy: "EVERY_HANDLER",
+    defaultPriority: "NORMAL",
+    ringFenced: false,
+    reportCount: 1,
+    statuses: [
+      status({ id: "s-new", meaning: "NEW", label: "Ny" }),
+      status({ id: "s-doing", meaning: "IN_PROGRESS", label: "Pågår" }),
+      status({
+        id: "s-contractor",
+        meaning: "IN_PROGRESS",
+        label: "Hos rörmokaren",
+        isDefault: false,
+        sortOrder: 1,
+      }),
+      status({
+        id: "s-old",
+        meaning: "IN_PROGRESS",
+        label: "Gammal status",
+        isDefault: false,
+        active: false,
+        sortOrder: 2,
+      }),
+      status({ id: "s-waiting", meaning: "WAITING", label: "Väntar" }),
+      status({ id: "s-done", meaning: "DONE", label: "Klar" }),
+    ],
+  },
+];
 
 // The overrides are loose so a test can pair any reporter with any apartment;
 // the server only ever sends the pairings `QueuedIssue` allows.
 function issue(
-  overrides: Partial<OwnIssue> & {
-    audience?: IssueAudience;
+  overrides: Partial<Omit<QueuedIssue, "reporter">> & {
     reporter?: IssueReporter;
   } = {},
 ): QueuedIssue {
   return {
     id: "issue-1",
-    status: "NEW",
-    audience: "MEMBER",
+    meaning: "NEW",
+    status: { id: "s-new", label: "Ny" },
+    waitingReason: null,
+    outcome: null,
+    typeReporters: ["RESIDENTS"],
+    closedAt: null,
+    number: 7,
     typeId: "type-water",
     typeName: "Vatten",
     location: null,
+    place: null,
     description: "Det droppar i taket.",
     apartment: { id: "a-1", number: "1401", address: "Storgatan 12" },
+    aboutApartment: true,
+    entry: null,
+    finding: null,
     photos: [],
     reporter: { kind: "resident", personId: "p-1", name: "Rune Boende" },
     createdAt: "2026-08-20T08:00:00.000Z",
     updatedAt: "2026-08-20T08:00:00.000Z",
+    enteredByHandler: false,
+    descriptionRedactedAt: null,
+    locationRedactedAt: null,
+    freeTextRemovedAt: null,
+    typeHandledBy: "EVERY_HANDLER",
+    typeRingFenced: false,
+    priority: "NORMAL",
+    targetDate: null,
+    overdue: false,
+    assignee: null,
+    enteredBy: null,
+    boardOnly: false,
+    knownFault: null,
+    legalHoldAt: null,
+    damageCase: null,
+    costResponsibility: null,
     ...overrides,
   } as QueuedIssue;
 }
 
+/** The status select of the one row on screen. */
+function statusSelect(): HTMLElement {
+  return screen.getByLabelText("Vatten anmält 2026-08-20: status");
+}
+
+function saveButton(): HTMLElement {
+  return screen.getByRole("button", { name: "Spara status" });
+}
+
 beforeEach(() => {
   setIssueStatus.mockReset().mockResolvedValue({ ok: true, value: issue() });
+  fetchIssueHandlers.mockReset().mockResolvedValue({
+    ok: true,
+    value: [
+      { kind: "person", personId: "p-board", name: "Bea Styrelse" },
+      { kind: "protected", personId: "p-shielded" },
+      { kind: "person", personId: "p-manager", name: "Frida Förvaltare" },
+    ],
+  });
+  fetchIssueTimeline.mockReset().mockResolvedValue({ ok: true, value: [] });
+  fetchHandlerResponsibilityGuide.mockReset().mockResolvedValue({
+    ok: true,
+    value: {
+      adoptedAt: null,
+      items: [
+        {
+          part: "Golvbrunn, rensning",
+          responsibility: "TENANT_OWNER",
+          note: null,
+        },
+      ],
+    },
+  });
+  fetchIssueCharges.mockReset().mockResolvedValue({
+    ok: true,
+    value: {
+      issue: {
+        issueId: "issue-1",
+        typeName: "Vatten",
+        costResponsibility: "TENANT_OWNER",
+        party: { kind: "apartment", apartmentId: "a-1" },
+      },
+      charges: [
+        {
+          chargeId: "charge-1",
+          chargedOn: "2026-08-28",
+          chargedTo: {
+            kind: "apartment",
+            apartmentId: "a-1",
+            apartment: { state: "visible", label: "Storgatan 12 1401" },
+          },
+          amount: "1250.00",
+          vatTreatment: "EXEMPT",
+          vatRatePercent: null,
+          reason: "Ärende: Vatten",
+          handedToManagerOn: null,
+          deliveries: [],
+          issueId: "issue-1",
+        },
+      ],
+    },
+  });
+  for (const read of Object.values(conversationReads)) {
+    read.mockReset().mockResolvedValue({ ok: true, value: [] });
+  }
+  for (const write of [
+    assignIssue,
+    setIssuePriority,
+    setIssueTargetDate,
+    setIssueBoardOnly,
+    setIssueCostResponsibility,
+    removeIssueFinding,
+  ]) {
+    write.mockReset().mockResolvedValue({ ok: true, value: issue() });
+  }
+});
+
+describe("the issue number", () => {
+  it("is shown on the row, as the mail about the issue names it", () => {
+    render(
+      <IssueQueuePanel
+        issues={[issue(), issue({ id: "issue-2", number: 8 })]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText("Ärende 7")).toBeTruthy();
+    expect(screen.getByText("Ärende 8")).toBeTruthy();
+  });
+});
+
+describe("a ring-fenced issue", () => {
+  it("says on the row that it is the board's alone and leaves nothing", () => {
+    render(
+      <IssueQueuePanel
+        issues={[
+          issue({ typeRingFenced: true, typeHandledBy: "BOARD" }),
+          issue({ id: "issue-2", number: 8 }),
+        ]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+
+    // Once, on the ring-fenced row and not on the ordinary one.
+    expect(
+      screen.getAllByText(/Avskärmat ärende\. Bara styrelsen/),
+    ).toHaveLength(1);
+  });
 });
 
 describe("who reported it", () => {
   it("names an ordinary reporter", () => {
-    render(<IssueQueuePanel issues={[issue()]} onChanged={() => undefined} />);
+    render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
 
     expect(screen.getByText("Rune Boende")).toBeTruthy();
   });
@@ -67,6 +344,7 @@ describe("who reported it", () => {
     render(
       <IssueQueuePanel
         issues={[issue({ reporter: { kind: "protected" }, apartment: null })]}
+        types={TYPES}
         onChanged={() => undefined}
       />,
     );
@@ -77,7 +355,7 @@ describe("who reported it", () => {
     expect(screen.queryByText("Rune Boende")).toBeNull();
   });
 
-  it("says the apartment of a protected reporter is withheld, not missing", () => {
+  it("says the apartment of a protected reporter is withheld, not missing, where the issue is about one", () => {
     // The server sends no apartment for them: on their report it is where they
     // live. "Not about an apartment" would tell the handler something false.
     render(
@@ -86,8 +364,10 @@ describe("who reported it", () => {
           issue({
             reporter: { kind: "protected" },
             apartment: null,
+            aboutApartment: true,
           }),
         ]}
+        types={TYPES}
         onChanged={() => undefined}
       />,
     );
@@ -98,12 +378,39 @@ describe("who reported it", () => {
     expect(screen.queryByText(/gäller ingen lägenhet/i)).toBeNull();
   });
 
+  it("says a protected reporter's common-area issue is about no apartment, as for any reporter", () => {
+    // `aboutApartment` is the one fact the server gives without naming the
+    // apartment, so it tells nothing about where the reporter lives; the row
+    // then says what the fit screen beside it says.
+    render(
+      <IssueQueuePanel
+        issues={[
+          issue({
+            reporter: { kind: "protected" },
+            apartment: null,
+            aboutApartment: false,
+            place: { id: "p1", name: "Cykelrummet" },
+          }),
+        ]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText(/gäller ingen lägenhet/i)).toBeTruthy();
+    expect(screen.getByText(/Cykelrummet/)).toBeTruthy();
+    expect(
+      screen.queryByText("Visas inte, skyddade personuppgifter."),
+    ).toBeNull();
+  });
+
   it("says plainly when the register no longer holds the reporter", () => {
     // Issue data is service tier and a person can be purged out from under it.
     // The queue says so rather than breaking or inventing a name.
     render(
       <IssueQueuePanel
         issues={[issue({ reporter: { kind: "unknown" } })]}
+        types={TYPES}
         onChanged={() => undefined}
       />,
     );
@@ -116,14 +423,16 @@ describe("who reported it", () => {
       <IssueQueuePanel
         issues={[
           issue({
-            audience: "NON_MEMBER",
+            typeReporters: ["PUBLIC"],
             reporter: {
               kind: "external",
               name: "Grannen",
               email: "granne@exempel.se",
+              link: "none",
             },
           }),
         ]}
+        types={TYPES}
         onChanged={() => undefined}
       />,
     );
@@ -132,64 +441,147 @@ describe("who reported it", () => {
   });
 });
 
-describe("moving a report between the three states", () => {
-  it("takes a new one on", async () => {
-    const session = userEvent.setup();
-    render(<IssueQueuePanel issues={[issue()]} onChanged={() => undefined} />);
-
-    await session.click(
-      screen.getByRole("button", { name: /ta hand om det/i }),
-    );
-
-    await waitFor(() => {
-      expect(setIssueStatus).toHaveBeenCalledWith({
-        issueId: "issue-1",
-        status: "IN_PROGRESS",
-      });
-    });
-  });
-
-  it("marks one in progress as done", async () => {
-    const session = userEvent.setup();
+describe("moving a report to another status", () => {
+  function show(queued: QueuedIssue = issue()): void {
     render(
       <IssueQueuePanel
-        issues={[issue({ status: "IN_PROGRESS" })]}
+        issues={[queued]}
+        types={TYPES}
         onChanged={() => undefined}
       />,
     );
+  }
 
-    await session.click(
-      screen.getByRole("button", { name: /markera som klar/i }),
-    );
+  it("offers the type's switched-on statuses, grouped by meaning", () => {
+    show();
 
-    await waitFor(() => {
-      expect(setIssueStatus).toHaveBeenCalledWith({
-        issueId: "issue-1",
-        status: "DONE",
-      });
-    });
+    const select = statusSelect();
+    const groups = within(select)
+      .getAllByRole("group")
+      .map((group) => group.getAttribute("label"));
+    expect(groups).toEqual(["Ny", "Pågår", "Väntar", "Klar"]);
+    expect(
+      within(select).getByRole("option", { name: "Hos rörmokaren" }),
+    ).toBeTruthy();
+    // Switched off by the board, and this issue does not stand in it.
+    expect(
+      within(select).queryByRole("option", { name: "Gammal status" }),
+    ).toBeNull();
   });
 
-  it("reopens one that was closed too early", async () => {
+  it("offers nothing to save until the status is changed", async () => {
     const session = userEvent.setup();
-    render(
-      <IssueQueuePanel
-        issues={[issue({ status: "DONE" })]}
-        onChanged={() => undefined}
-      />,
-    );
+    show();
 
-    await session.click(screen.getByRole("button", { name: /öppna igen/i }));
+    expect(saveButton()).toHaveProperty("disabled", true);
+    await session.selectOptions(statusSelect(), "s-contractor");
+    expect(saveButton()).toHaveProperty("disabled", false);
+    await session.click(saveButton());
 
     await waitFor(() => {
       expect(setIssueStatus).toHaveBeenCalledWith({
         issueId: "issue-1",
-        status: "NEW",
+        statusId: "s-contractor",
       });
     });
   });
 
-  it("puts the saving label on the row that was clicked and no other", async () => {
+  it("asks what the issue waits for before it may wait", async () => {
+    const session = userEvent.setup();
+    show();
+
+    await session.selectOptions(statusSelect(), "s-waiting");
+    expect(saveButton()).toHaveProperty("disabled", true);
+
+    await session.selectOptions(
+      screen.getByLabelText("Vatten anmält 2026-08-20: väntar på"),
+      "CONTRACTOR",
+    );
+    await session.click(saveButton());
+
+    await waitFor(() => {
+      expect(setIssueStatus).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        statusId: "s-waiting",
+        waitingReason: "CONTRACTOR",
+      });
+    });
+  });
+
+  it("asks how the issue ended before it may close", async () => {
+    const session = userEvent.setup();
+    show();
+
+    await session.selectOptions(statusSelect(), "s-done");
+    expect(saveButton()).toHaveProperty("disabled", true);
+
+    const outcome = screen.getByLabelText("Vatten anmält 2026-08-20: utfall");
+    // A duplicate is what a merge writes, never a choice on closing.
+    expect(
+      within(outcome).queryByRole("option", { name: "Dublett" }),
+    ).toBeNull();
+    await session.selectOptions(outcome, "TENANT_OWNER_RESPONSIBILITY");
+    await session.click(saveButton());
+
+    await waitFor(() => {
+      expect(setIssueStatus).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        statusId: "s-done",
+        outcome: "TENANT_OWNER_RESPONSIBILITY",
+      });
+    });
+  });
+
+  it("says a reply is not a notice to remedy when closing it as the tenant-owner's", async () => {
+    const session = userEvent.setup();
+    show();
+
+    await session.selectOptions(statusSelect(), "s-done");
+    const outcome = screen.getByLabelText("Vatten anmält 2026-08-20: utfall");
+    await session.selectOptions(outcome, "FIXED");
+    expect(screen.queryByText(/rättelseanmaning/)).toBeNull();
+
+    await session.selectOptions(outcome, "TENANT_OWNER_RESPONSIBILITY");
+    expect(screen.getByText(/7 kap\. 12 a §/)).toBeTruthy();
+  });
+
+  it("reopens a closed issue without asking for an outcome", async () => {
+    const session = userEvent.setup();
+    show(
+      issue({
+        meaning: "DONE",
+        status: { id: "s-done", label: "Klar" },
+        outcome: "FIXED",
+        closedAt: "2026-08-21T08:00:00.000Z",
+      }),
+    );
+
+    expect(screen.getByText("Utfall: Åtgärdat")).toBeTruthy();
+    await session.selectOptions(statusSelect(), "s-new");
+    await session.click(saveButton());
+
+    await waitFor(() => {
+      expect(setIssueStatus).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        statusId: "s-new",
+      });
+    });
+  });
+
+  it("keeps a switched-off status the issue stands in on offer", () => {
+    show(
+      issue({
+        meaning: "IN_PROGRESS",
+        status: { id: "s-old", label: "Gammal status" },
+      }),
+    );
+
+    expect(
+      within(statusSelect()).getByRole("option", { name: "Gammal status" }),
+    ).toBeTruthy();
+  });
+
+  it("puts the saving label on the row that was acted on and no other", async () => {
     // One save action serves the whole panel, so without a per-row check every
     // button in the queue reads "Sparar..." when one of them is clicked.
     let release: (value: unknown) => void = () => undefined;
@@ -203,14 +595,22 @@ describe("moving a report between the three states", () => {
     const session = userEvent.setup();
     render(
       <IssueQueuePanel
-        issues={[issue(), issue({ id: "issue-2", typeName: "Värme" })]}
+        issues={[
+          issue(),
+          issue({
+            id: "issue-2",
+            createdAt: "2026-08-22T08:00:00.000Z",
+          }),
+        ]}
+        types={TYPES}
         onChanged={() => undefined}
       />,
     );
 
-    const buttons = screen.getAllByRole("button", { name: /ta hand om det/i });
-    expect(buttons).toHaveLength(2);
-    await session.click(buttons[0]!);
+    await session.selectOptions(statusSelect(), "s-doing");
+    await session.click(
+      screen.getAllByRole("button", { name: "Spara status" })[0]!,
+    );
 
     await waitFor(() => {
       expect(screen.getAllByRole("button", { name: /sparar/i })).toHaveLength(
@@ -218,41 +618,1206 @@ describe("moving a report between the three states", () => {
       );
     });
     expect(
-      screen.getAllByRole("button", { name: /ta hand om det/i }),
+      screen.getAllByRole("button", { name: "Spara status" }),
     ).toHaveLength(1);
 
     release({ ok: true, value: issue() });
   });
 
-  it("says so when the change is refused", async () => {
+  it("says so when the change is refused, and reads the queue again", async () => {
     setIssueStatus.mockResolvedValue({
       ok: false,
-      failure: { status: 404, reason: "issue-not-found" },
+      failure: { status: 404, reason: "status-not-found" },
     });
+    const onChanged = vi.fn();
 
     const session = userEvent.setup();
-    render(<IssueQueuePanel issues={[issue()]} onChanged={() => undefined} />);
-
-    await session.click(
-      screen.getByRole("button", { name: /ta hand om det/i }),
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText(/finns inte längre/i)).toBeTruthy();
-    });
-  });
-});
-
-describe("the state of a report", () => {
-  it("carries a word as well as a colour", () => {
-    // DESIGN.md: colour is never the only signal.
     render(
       <IssueQueuePanel
-        issues={[issue({ status: "IN_PROGRESS" })]}
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={onChanged}
+      />,
+    );
+
+    await session.selectOptions(statusSelect(), "s-doing");
+    await session.click(saveButton());
+
+    await waitFor(() => {
+      expect(screen.getByText(/erbjuds inte längre/i)).toBeTruthy();
+    });
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("says that nothing can be moved when the statuses could not be read", () => {
+    render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={null}
         onChanged={() => undefined}
       />,
     );
 
-    expect(screen.getByText("Pågår")).toBeTruthy();
+    expect(screen.getByText(/statusarna kunde inte läsas/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Spara status" })).toBeNull();
+    // A standing notice unless the caller says the failure is news.
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("announces the statuses' failure when the caller says it is news", () => {
+    const { rerender } = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={null}
+        onChanged={() => undefined}
+        announceTypesFailure
+      />,
+    );
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /statusarna kunde inte läsas/i,
+    );
+
+    rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={null}
+        onChanged={() => undefined}
+        onRetryTypes={() => undefined}
+        announceTypesFailure
+      />,
+    );
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /statusarna kunde inte läsas/i,
+    );
+  });
+
+  it("offers a retry of the types when the caller can read them again", async () => {
+    const onRetryTypes = vi.fn();
+    render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={null}
+        onChanged={() => undefined}
+        onRetryTypes={onRetryTypes}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(onRetryTypes).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the status of a report", () => {
+  it("shows the board's label, with a word as well as a colour", () => {
+    // DESIGN.md: colour is never the only signal.
+    render(
+      <IssueQueuePanel
+        issues={[
+          issue({
+            meaning: "WAITING",
+            status: { id: "s-waiting", label: "Väntar" },
+            waitingReason: "PARTS",
+          }),
+        ]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText("Väntar på: Reservdelar")).toBeTruthy();
+  });
+});
+
+describe("handling an issue", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function show(queued: QueuedIssue = issue(), onChanged = vi.fn()) {
+    render(
+      <IssueQueuePanel issues={[queued]} types={TYPES} onChanged={onChanged} />,
+    );
+    return onChanged;
+  }
+
+  async function openHandling(session: ReturnType<typeof userEvent.setup>) {
+    await session.click(
+      screen.getByText(
+        "Hantera Vatten: ansvarig, prioritet, senast klart, tidslinje och meddelanden",
+      ),
+    );
+  }
+
+  it("says who it is given to, how urgent it is and when it is overdue", () => {
+    show(
+      issue({
+        assignee: { kind: "protected", personId: "p-shielded" },
+        priority: "URGENT",
+        targetDate: "2026-08-25",
+        overdue: true,
+        boardOnly: true,
+        enteredBy: {
+          kind: "person",
+          personId: "p-board",
+          name: "Bea Styrelse",
+        },
+      }),
+    );
+
+    expect(
+      screen.getByText("Namnet visas inte (skyddade personuppgifter)"),
+    ).toBeTruthy();
+    expect(screen.getByText("Akut")).toBeTruthy();
+    expect(screen.getByText("Försenat")).toBeTruthy();
+    expect(screen.getByText("Bara styrelsen")).toBeTruthy();
+    expect(screen.getByText("Bea Styrelse")).toBeTruthy();
+  });
+
+  it("draws the permission to enter on an open issue about an apartment", async () => {
+    const session = userEvent.setup();
+    show();
+    await openHandling(session);
+
+    expect(await screen.findByText("Tillträde")).toBeTruthy();
+  });
+
+  it("fills the permission to enter with the answer the issue holds", async () => {
+    const session = userEvent.setup();
+    show(
+      issue({
+        entry: {
+          answer: "YES",
+          note: "Ring på hos grannen",
+          pets: true,
+          masterKey: false,
+          until: "2027-03-01",
+          expired: false,
+        },
+      }),
+    );
+    await openHandling(session);
+
+    expect(await screen.findByText("Tillträde")).toBeTruthy();
+    expect((screen.getByLabelText("Ja") as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect((screen.getByLabelText("Nej") as HTMLInputElement).checked).toBe(
+      false,
+    );
+    expect(
+      (screen.getByLabelText(/husdjur/i) as HTMLInputElement).checked,
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText("Hur man kommer in") as HTMLTextAreaElement).value,
+    ).toBe("Ring på hos grannen");
+  });
+
+  it("draws no permission to enter on an issue about the building", async () => {
+    const session = userEvent.setup();
+    show(issue({ apartment: null, aboutApartment: false }));
+    await openHandling(session);
+
+    await waitFor(() => {
+      expect(fetchIssueHandlers).toHaveBeenCalled();
+    });
+    expect(screen.queryByText("Tillträde")).toBeNull();
+  });
+
+  it("sets an overdue issue's row apart by its edge as well as its words", () => {
+    show(issue({ targetDate: "2026-08-25", overdue: true }));
+    expect(screen.getByRole("listitem").className).toContain("border-l-danger");
+  });
+
+  it("gives an issue on time no such edge", () => {
+    show(issue({ targetDate: "2026-08-25", overdue: false }));
+    expect(screen.getByRole("listitem").className).not.toContain(
+      "border-l-danger",
+    );
+  });
+
+  it("reads the handlers and the timeline only once the issue is opened", async () => {
+    const session = userEvent.setup();
+    show();
+
+    expect(fetchIssueHandlers).not.toHaveBeenCalled();
+    await openHandling(session);
+
+    await waitFor(() => {
+      expect(fetchIssueHandlers).toHaveBeenCalledWith("issue-1");
+    });
+    expect(fetchIssueTimeline).toHaveBeenCalledWith("issue-1");
+  });
+
+  it("still shows who it is given to when the list of handlers could not be read", async () => {
+    fetchIssueHandlers.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    const session = userEvent.setup();
+    show(
+      issue({
+        assignee: { kind: "person", personId: "p-board", name: "Bea Styrelse" },
+      }),
+    );
+    await openHandling(session);
+
+    const select = (await screen.findByLabelText(
+      "Vatten: ansvarig",
+    )) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(fetchIssueHandlers).toHaveBeenCalled();
+    });
+    // Not "Ej tilldelat": the form is disabled, and it must not read as if the
+    // issue were unassigned.
+    await waitFor(() => {
+      expect(select.disabled).toBe(true);
+      expect(select.value).toBe("p-board");
+      expect(select.selectedOptions[0]?.textContent).toBe("Bea Styrelse");
+    });
+  });
+
+  it("assigns it to a handler from the names-only list, and reads the queue again", async () => {
+    const session = userEvent.setup();
+    const onChanged = show();
+    await openHandling(session);
+
+    const select = await screen.findByLabelText("Vatten: ansvarig");
+    await waitFor(() => {
+      expect((select as HTMLSelectElement).disabled).toBe(false);
+    });
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual([
+      "Ej tilldelat",
+      "Bea Styrelse",
+      "Namnet visas inte (skyddade personuppgifter)",
+      "Frida Förvaltare",
+    ]);
+    await session.selectOptions(select, "p-manager");
+    const [save] = screen.getAllByRole("button", { name: "Spara" });
+    await session.click(save as HTMLElement);
+
+    await waitFor(() => {
+      expect(assignIssue).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        assigneePersonId: "p-manager",
+      });
+    });
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("sets the priority and the target date", async () => {
+    const session = userEvent.setup();
+    show();
+    await openHandling(session);
+
+    await session.selectOptions(
+      await screen.findByLabelText("Vatten: prioritet"),
+      "LOW",
+    );
+    const buttons = screen.getAllByRole("button", { name: "Spara" });
+    await session.click(buttons[1] as HTMLElement);
+    await waitFor(() => {
+      expect(setIssuePriority).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        priority: "LOW",
+      });
+    });
+
+    const date = screen.getByLabelText("Vatten: senast klart");
+    await session.type(date, "2026-09-01");
+    await session.click(
+      screen.getAllByRole("button", { name: "Spara" })[2] as HTMLElement,
+    );
+    await waitFor(() => {
+      expect(setIssueTargetDate).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        targetDate: "2026-09-01",
+      });
+    });
+  });
+
+  it.each([
+    {
+      change: "clears",
+      typed: "",
+      reason: "finding-needs-target-date",
+      message: "En anmärkning behöver ett senast klart-datum.",
+    },
+    {
+      change: "moves",
+      typed: "2026-12-01",
+      reason: "finding-target-date-too-late",
+      message:
+        "Kvarstående fel på en hiss ska åtgärdas inom en månad från besiktningen. Välj ett tidigare datum.",
+    },
+  ])(
+    "says why a finding's target date was refused when a handler $change it",
+    async ({ typed, reason, message }) => {
+      setIssueTargetDate.mockResolvedValue({
+        ok: false,
+        failure: { status: 422, reason },
+      });
+      const session = userEvent.setup();
+      show(
+        issue({
+          targetDate: "2026-04-10",
+          finding: {
+            kind: "LIFT",
+            inspectedOn: "2026-03-15",
+            protocol: { attachmentId: "att-1", fileName: "hiss.pdf" },
+          },
+        }),
+      );
+      await openHandling(session);
+
+      const date = await screen.findByLabelText("Vatten: senast klart");
+      await session.clear(date);
+      if (typed !== "") {
+        await session.type(date, typed);
+      }
+      await session.click(
+        screen.getAllByRole("button", { name: "Spara" })[2] as HTMLElement,
+      );
+
+      await waitFor(() => {
+        expect(setIssueTargetDate).toHaveBeenCalledWith({
+          issueId: "issue-1",
+          targetDate: typed === "" ? null : typed,
+        });
+      });
+      expect(await screen.findByText(message)).toBeTruthy();
+      expect(
+        screen.queryByText("Ärendet gick inte att ändra just nu. Försök igen."),
+      ).toBeNull();
+    },
+  );
+
+  it("closes an issue to the board", async () => {
+    const session = userEvent.setup();
+    show();
+    await openHandling(session);
+
+    await session.click(
+      await screen.findByLabelText("Vatten: bara styrelsen hanterar ärendet"),
+    );
+    await waitFor(() => {
+      expect(setIssueBoardOnly).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        boardOnly: true,
+      });
+    });
+  });
+
+  it("records who pays, and says a reply is not a notice to remedy once it is the tenant-owner's", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await openHandling(session);
+
+    const select = await screen.findByLabelText("Vatten: vem betalar");
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Inte angivet", "Föreningen", "Bostadsrättshavaren", "Oklart"]);
+    expect(screen.queryByText(/rättelseanmaning/)).toBeNull();
+
+    await session.selectOptions(select, "TENANT_OWNER");
+    await session.click(
+      within(select.closest("form") as HTMLElement).getByRole("button", {
+        name: "Spara",
+      }),
+    );
+    await waitFor(() => {
+      expect(setIssueCostResponsibility).toHaveBeenCalledWith({
+        issueId: "issue-1",
+        costResponsibility: "TENANT_OWNER",
+      });
+    });
+
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue({ costResponsibility: "TENANT_OWNER" })]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    expect(await screen.findByText(/7 kap\. 12 a §/)).toBeTruthy();
+  });
+
+  it("says a reply is not a notice to remedy once for an issue, not in the status form and the handling panel both", async () => {
+    const session = userEvent.setup();
+    show(issue({ costResponsibility: "TENANT_OWNER" }));
+    await openHandling(session);
+    // The panel's, which stands while the cost is the tenant-owner's.
+    expect(await screen.findAllByText(/7 kap\. 12 a §/)).toHaveLength(1);
+
+    await session.selectOptions(statusSelect(), "s-done");
+    await session.selectOptions(
+      screen.getByLabelText("Vatten anmält 2026-08-20: utfall"),
+      "TENANT_OWNER_RESPONSIBILITY",
+    );
+    // The form's draft takes it over; the panel does not repeat it. Counted in
+    // the form too, so the one sentence cannot be the panel's.
+    const statusForm = screen
+      .getByLabelText("Vatten anmält 2026-08-20: utfall")
+      .closest("form") as HTMLElement;
+    await waitFor(() => {
+      expect(screen.getAllByText(/7 kap\. 12 a §/)).toHaveLength(1);
+      expect(within(statusForm).getAllByText(/7 kap\. 12 a §/)).toHaveLength(1);
+    });
+
+    await session.selectOptions(
+      screen.getByLabelText("Vatten anmält 2026-08-20: utfall"),
+      "FIXED",
+    );
+    await waitFor(() => {
+      expect(screen.getAllByText(/7 kap\. 12 a §/)).toHaveLength(1);
+      expect(within(statusForm).queryByText(/7 kap\. 12 a §/)).toBeNull();
+    });
+  });
+
+  it("keeps saying a reply is not a notice to remedy on an issue closed as the tenant-owner's", async () => {
+    const session = userEvent.setup();
+    show(
+      issue({
+        meaning: "DONE",
+        status: { id: "s-done", label: "Klar" },
+        outcome: "TENANT_OWNER_RESPONSIBILITY",
+        closedAt: "2026-08-22T08:00:00.000Z",
+      }),
+    );
+    await openHandling(session);
+
+    expect(await screen.findByText(/7 kap\. 12 a §/)).toBeTruthy();
+  });
+
+  it("does not say it on an issue closed with another outcome", async () => {
+    const session = userEvent.setup();
+    show(
+      issue({
+        meaning: "DONE",
+        status: { id: "s-done", label: "Klar" },
+        outcome: "FIXED",
+        closedAt: "2026-08-22T08:00:00.000Z",
+      }),
+    );
+    await openHandling(session);
+    await screen.findByLabelText("Vatten: vem betalar");
+
+    expect(screen.queryByText(/7 kap\. 12 a §/)).toBeNull();
+  });
+
+  it("shows the responsibility guide labelled as an example until the board adopts it", async () => {
+    const session = userEvent.setup();
+    show();
+    await openHandling(session);
+
+    await session.click(
+      await screen.findByText("Ansvarsfördelning enligt stadgarna", {
+        selector: "summary",
+      }),
+    );
+    expect(await screen.findByText("Golvbrunn, rensning")).toBeTruthy();
+    expect(screen.getByText(/^Exempel\./)).toBeTruthy();
+  });
+
+  it("reads no charges and shows no amount to a handler who may not read charges", async () => {
+    const session = userEvent.setup();
+    show();
+    await openHandling(session);
+    await screen.findByLabelText("Vatten: vem betalar");
+
+    expect(fetchIssueCharges).not.toHaveBeenCalled();
+    expect(screen.queryByText("Debiteringar")).toBeNull();
+    expect(screen.queryByText(/1250\.00/)).toBeNull();
+    expect(screen.queryByText("Skapa debitering")).toBeNull();
+  });
+
+  it("shows the charges made from it, with the amount, and the way to make one", async () => {
+    const session = userEvent.setup();
+    render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    expect(fetchIssueCharges).toHaveBeenCalledWith("issue-1");
+    expect(
+      screen
+        .getByRole("link", { name: "Vatten: skapa debitering" })
+        .getAttribute("href"),
+    ).toBe("/board/charges?issue=issue-1");
+  });
+
+  it("says the charges are withheld, not that there are none, where the API withholds them", async () => {
+    fetchIssueCharges.mockResolvedValue({
+      ok: true,
+      value: {
+        issue: {
+          issueId: "issue-1",
+          typeName: "Vatten",
+          costResponsibility: "TENANT_OWNER",
+          party: null,
+        },
+        charges: null,
+      },
+    });
+    const session = userEvent.setup();
+    render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+
+    expect(
+      await screen.findByText(
+        "Visas inte: den som anmälde ärendet har skyddade personuppgifter, och en debitering skulle visa vem det är.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Ingen debitering har gjorts från ärendet."),
+    ).toBeNull();
+  });
+
+  it("reads the charges and the guide again when the queue brings a newer revision of the issue, so an open panel does not keep an earlier answer", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    const charges = fetchIssueCharges.mock.calls.length;
+    const guides = fetchHandlerResponsibilityGuide.mock.calls.length;
+
+    // The reporter has become protected since: the same read now withholds.
+    // Held, so that the window while the newer read is pending is seen.
+    let releaseRefresh: () => void = () => undefined;
+    fetchIssueCharges.mockReturnValueOnce(
+      new Promise((resolve) => {
+        releaseRefresh = () => {
+          resolve({
+            ok: true,
+            value: {
+              issue: {
+                issueId: "issue-1",
+                typeName: "Vatten",
+                costResponsibility: "TENANT_OWNER",
+                party: null,
+              },
+              charges: null,
+            },
+          });
+        };
+      }),
+    );
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue({ updatedAt: "2026-08-21T09:00:00.000Z" })]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    // The last answer for this issue stays while the newer read is pending.
+    await waitFor(() => {
+      expect(fetchIssueCharges.mock.calls.length).toBeGreaterThan(charges);
+    });
+    expect(screen.getByText("1250.00")).toBeTruthy();
+    releaseRefresh();
+    expect(
+      await screen.findByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeTruthy();
+    expect(screen.queryByText("1250.00")).toBeNull();
+    expect(fetchIssueCharges.mock.calls.length).toBeGreaterThan(charges);
+    expect(fetchHandlerResponsibilityGuide.mock.calls.length).toBeGreaterThan(
+      guides,
+    );
+  });
+
+  it("withholds the charges already read as soon as the queue shows the reporter as protected, though the issue's revision is the same", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    const charges = fetchIssueCharges.mock.calls.length;
+
+    // Protecting a person changes the person, not the issue's revision.
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue({ reporter: { kind: "protected" }, apartment: null })]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    expect(screen.queryByText("1250.00")).toBeNull();
+    expect(
+      screen.getByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeTruthy();
+    expect(fetchIssueCharges.mock.calls.length).toBe(charges);
+  });
+
+  it("reads the charges again when the reporter stops being protected, though the issue's revision is the same", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue({ reporter: { kind: "protected" }, apartment: null })]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(
+      await screen.findByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeTruthy();
+    const charges = fetchIssueCharges.mock.calls.length;
+
+    // The protection ends: the person changes, the issue's revision does not.
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    expect(
+      screen.queryByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeNull();
+    expect(fetchIssueCharges.mock.calls.length).toBe(charges + 1);
+  });
+
+  it("shows the charges as being read, not as withheld, when the reporter stops being protected after a read that was withheld", async () => {
+    // The first read was taken while the API withheld the charges.
+    fetchIssueCharges.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        issue: {
+          issueId: "issue-1",
+          typeName: "Vatten",
+          costResponsibility: "TENANT_OWNER",
+          party: null,
+        },
+        charges: null,
+      },
+    });
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(
+      await screen.findByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeTruthy();
+
+    // The queue shows the reporter as protected, then as not protected again.
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue({ reporter: { kind: "protected" }, apartment: null })]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    // Held, so that the window while the new read is pending is seen.
+    let release: () => void = () => undefined;
+    fetchIssueCharges.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = () => {
+          resolve({
+            ok: true,
+            value: {
+              issue: {
+                issueId: "issue-1",
+                typeName: "Vatten",
+                costResponsibility: "TENANT_OWNER",
+                party: null,
+              },
+              charges: [],
+            },
+          });
+        };
+      }),
+    );
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    expect(screen.getByText("Läser debiteringarna...")).toBeTruthy();
+    expect(
+      screen.queryByText(/Visas inte: den som anmälde ärendet/),
+    ).toBeNull();
+    release();
+    expect(
+      await screen.findByText("Ingen debitering har gjorts från ärendet."),
+    ).toBeTruthy();
+  });
+
+  it("does not read the charges or the guide again when the queue brings the same revision in a new object", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+    await openHandling(session);
+    expect(await screen.findByText("1250.00")).toBeTruthy();
+    const charges = fetchIssueCharges.mock.calls.length;
+    const guides = fetchHandlerResponsibilityGuide.mock.calls.length;
+
+    // A filter or a search reads the queue again; the issue is as it was.
+    view.rerender(
+      <IssueQueuePanel
+        issues={[issue()]}
+        types={TYPES}
+        onChanged={() => undefined}
+        canManageCharges
+      />,
+    );
+
+    expect(screen.getByText("1250.00")).toBeTruthy();
+    expect(fetchIssueCharges.mock.calls.length).toBe(charges);
+    expect(fetchHandlerResponsibilityGuide.mock.calls.length).toBe(guides);
+  });
+
+  it("offers no access switch on a type the board handles alone", async () => {
+    const session = userEvent.setup();
+    show(issue({ typeHandledBy: "BOARD" }));
+    await openHandling(session);
+
+    expect(
+      await screen.findByText(
+        "Bara styrelsen hanterar ärenden av den här typen.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByLabelText("Vatten: bara styrelsen hanterar ärendet"),
+    ).toBeNull();
+  });
+
+  it("says what each step of the timeline was, and by whom", async () => {
+    fetchIssueTimeline.mockResolvedValue({
+      ok: true,
+      value: [
+        { kind: "reported", at: "2026-08-20T08:00:00.000Z", actor: null },
+        {
+          kind: "assigned",
+          at: "2026-08-20T09:00:00.000Z",
+          actor: null,
+          assignee: {
+            kind: "person",
+            personId: "p-manager",
+            name: "Frida Förvaltare",
+          },
+          byTypeDefault: true,
+        },
+        {
+          kind: "status",
+          at: "2026-08-21T09:00:00.000Z",
+          actor: { kind: "protected", personId: "p-shielded" },
+          fromMeaning: "NEW",
+          toMeaning: "WAITING",
+          fromStatusId: "s-new",
+          toStatusId: "s-contractor",
+          waitingReason: "CONTRACTOR",
+          outcome: null,
+        },
+        {
+          kind: "workOrder",
+          at: "2026-08-21T10:00:00.000Z",
+          actor: null,
+          delivery: "failed",
+        },
+      ],
+    });
+    const session = userEvent.setup();
+    show();
+    await openHandling(session);
+
+    const timeline = (await screen.findByText("Anmält")).closest("ol");
+    expect(timeline).not.toBeNull();
+    const steps = within(timeline as HTMLElement)
+      .getAllByRole("listitem")
+      .map((step) => step.textContent);
+    expect(steps[1]).toContain(
+      "Tilldelat enligt typens standard Frida Förvaltare",
+    );
+    // The board's own name for the status, from the type.
+    expect(steps[2]).toContain("Flyttat till Hos rörmokaren");
+    expect(steps[2]).toContain("Namnet visas inte (skyddade personuppgifter)");
+    // A work order whose mail did not go is not said to have been sent.
+    expect(steps[3]).toContain("skickades inte");
+  });
+
+  it("reads the timeline again while a work order's mail is on its way, and then stops", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reported = {
+      kind: "reported",
+      at: "2026-08-20T08:00:00.000Z",
+      actor: null,
+    };
+    const workOrder = {
+      kind: "workOrder",
+      at: "2026-08-21T10:00:00.000Z",
+      actor: null,
+    };
+    fetchIssueTimeline.mockResolvedValue({
+      ok: true,
+      value: [reported, { ...workOrder, delivery: "pending" }],
+    });
+    const session = userEvent.setup({
+      advanceTimers: (ms) => vi.advanceTimersByTime(ms),
+    });
+    show();
+    await openHandling(session);
+    expect(
+      await screen.findByText("En arbetsorder är på väg till en entreprenör"),
+    ).toBeTruthy();
+
+    // The mail worker hands it to the mail server; nothing on the screen
+    // changes, so only the poll can bring the new state.
+    fetchIssueTimeline.mockResolvedValue({
+      ok: true,
+      value: [reported, { ...workOrder, delivery: "sent" }],
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(
+      await screen.findByText("En arbetsorder skickades till en entreprenör"),
+    ).toBeTruthy();
+
+    const settled = fetchIssueTimeline.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    expect(fetchIssueTimeline).toHaveBeenCalledTimes(settled);
+  });
+
+  it("drops a poll answer asked while the main read was pending, which that read then answered with newer steps", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const reported = {
+      kind: "reported",
+      at: "2026-08-20T08:00:00.000Z",
+      actor: null,
+    };
+    const workOrder = {
+      kind: "workOrder",
+      at: "2026-08-21T10:00:00.000Z",
+      actor: null,
+    };
+    const onItsWay = {
+      ok: true,
+      value: [reported, { ...workOrder, delivery: "pending" }],
+    };
+    fetchIssueTimeline.mockResolvedValue(onItsWay);
+    const session = userEvent.setup({
+      advanceTimers: (ms) => vi.advanceTimersByTime(ms),
+    });
+    const queued = issue();
+    const view = render(
+      <IssueQueuePanel
+        issues={[queued]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await openHandling(session);
+    expect(
+      await screen.findByText("En arbetsorder är på väg till en entreprenör"),
+    ).toBeTruthy();
+
+    // A newer revision starts the main read, and it is held.
+    let answerMain: (value: unknown) => void = () => undefined;
+    fetchIssueTimeline.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerMain = resolve;
+      }),
+    );
+    view.rerender(
+      <IssueQueuePanel
+        issues={[{ ...queued, updatedAt: "2026-08-21T11:00:00.000Z" }]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      expect(fetchIssueTimeline).toHaveBeenCalledTimes(2);
+    });
+
+    // The poll asks under the same revision while that read is pending, and is
+    // held too.
+    let answerPoll: (value: unknown) => void = () => undefined;
+    fetchIssueTimeline.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerPoll = resolve;
+      }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(fetchIssueTimeline).toHaveBeenCalledTimes(3);
+
+    // The main read answers with a step more, the mail still on its way, so
+    // the poll stays on; the poll's older answer, without that step, lands
+    // after it and is dropped.
+    await act(async () => {
+      answerMain({
+        ok: true,
+        value: [
+          reported,
+          { ...workOrder, delivery: "pending" },
+          {
+            kind: "status",
+            at: "2026-08-21T11:00:00.000Z",
+            actor: null,
+            fromMeaning: "NEW",
+            toMeaning: "IN_PROGRESS",
+            fromStatusId: "s-new",
+            toStatusId: "s-doing",
+            waitingReason: null,
+            outcome: null,
+          },
+        ],
+      });
+      await Promise.resolve();
+    });
+    expect(await screen.findByText(/Flyttat till Pågår/)).toBeTruthy();
+    await act(async () => {
+      answerPoll(onItsWay);
+      await Promise.resolve();
+    });
+    expect(screen.getByText(/Flyttat till Pågår/)).toBeTruthy();
+  });
+
+  it("adds a status just saved to the timeline while it stays open", async () => {
+    const reported = {
+      kind: "reported",
+      at: "2026-08-20T08:00:00.000Z",
+      actor: null,
+    };
+    fetchIssueTimeline.mockResolvedValueOnce({ ok: true, value: [reported] });
+    const session = userEvent.setup();
+    const queued = issue();
+    const view = render(
+      <IssueQueuePanel
+        issues={[queued]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await openHandling(session);
+    const timeline = (await screen.findByText("Anmält")).closest("ol");
+    expect(
+      within(timeline as HTMLElement).getAllByRole("listitem"),
+    ).toHaveLength(1);
+
+    // The status form saves and the queue reloads: the same open issue comes
+    // back in its new status, and the panel is not remounted.
+    fetchIssueTimeline.mockResolvedValue({
+      ok: true,
+      value: [
+        reported,
+        {
+          kind: "status",
+          at: "2026-08-21T09:00:00.000Z",
+          actor: null,
+          fromMeaning: "NEW",
+          toMeaning: "IN_PROGRESS",
+          fromStatusId: "s-new",
+          toStatusId: "s-doing",
+          waitingReason: null,
+          outcome: null,
+        },
+      ],
+    });
+    view.rerender(
+      <IssueQueuePanel
+        issues={[
+          {
+            ...queued,
+            meaning: "IN_PROGRESS",
+            status: { id: "s-doing", label: "Pågår" },
+            updatedAt: "2026-08-21T09:00:00.000Z",
+          },
+        ]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(await screen.findByText(/Flyttat till Pågår/)).toBeTruthy();
+    expect(fetchIssueTimeline).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads the timeline again when a finding is taken off", async () => {
+    // Taking the mark off moves neither the issue's revision nor its status,
+    // so only the save itself can tell the open timeline to read again.
+    const session = userEvent.setup();
+    render(
+      <IssueQueuePanel
+        issues={[
+          issue({
+            finding: {
+              kind: "OVK",
+              inspectedOn: "2026-03-10",
+              protocol: null,
+            },
+          }),
+        ]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await openHandling(session);
+    await waitFor(() => {
+      expect(fetchIssueTimeline).toHaveBeenCalledTimes(1);
+    });
+    // Set after the first read, so only the read the removal starts gets it.
+    fetchIssueTimeline.mockResolvedValueOnce({
+      ok: true,
+      value: [
+        {
+          kind: "finding",
+          at: "2026-08-22T09:00:00.000Z",
+          actor: null,
+          findingKind: null,
+        },
+      ],
+    });
+    expect(
+      screen.queryByText("Markeringen som besiktningsanmärkning togs bort"),
+    ).toBeNull();
+
+    await session.click(
+      await screen.findByRole("button", { name: "Ta bort markeringen" }),
+    );
+
+    await waitFor(() => {
+      expect(removeIssueFinding).toHaveBeenCalledWith("issue-1");
+    });
+    expect(
+      await screen.findByText(
+        "Markeringen som besiktningsanmärkning togs bort",
+      ),
+    ).toBeTruthy();
+    expect(fetchIssueTimeline).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops a timeline read that a newer revision superseded", async () => {
+    let answerFirst: (value: unknown) => void = () => undefined;
+    fetchIssueTimeline.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerFirst = resolve;
+      }),
+    );
+    const session = userEvent.setup();
+    const queued = issue();
+    const view = render(
+      <IssueQueuePanel
+        issues={[queued]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    await openHandling(session);
+    await waitFor(() => {
+      expect(fetchIssueTimeline).toHaveBeenCalledTimes(1);
+    });
+
+    fetchIssueTimeline.mockResolvedValue({
+      ok: true,
+      value: [
+        { kind: "reported", at: "2026-08-20T08:00:00.000Z", actor: null },
+        {
+          kind: "status",
+          at: "2026-08-21T09:00:00.000Z",
+          actor: null,
+          fromMeaning: "NEW",
+          toMeaning: "IN_PROGRESS",
+          fromStatusId: "s-new",
+          toStatusId: "s-doing",
+          waitingReason: null,
+          outcome: null,
+        },
+      ],
+    });
+    view.rerender(
+      <IssueQueuePanel
+        issues={[
+          {
+            ...queued,
+            meaning: "IN_PROGRESS",
+            status: { id: "s-doing", label: "Pågår" },
+            updatedAt: "2026-08-21T09:00:00.000Z",
+          },
+        ]}
+        types={TYPES}
+        onChanged={() => undefined}
+      />,
+    );
+    expect(await screen.findByText(/Flyttat till Pågår/)).toBeTruthy();
+
+    // The first read answers last, with the timeline as it stood before.
+    await act(async () => {
+      answerFirst({
+        ok: true,
+        value: [
+          { kind: "reported", at: "2026-08-20T08:00:00.000Z", actor: null },
+        ],
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText(/Flyttat till Pågår/)).toBeTruthy();
   });
 });

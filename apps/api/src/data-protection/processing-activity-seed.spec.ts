@@ -343,6 +343,25 @@ describe("seedRows", () => {
     expect(rowFor("issues").personalDataCategories).toContain("health");
   });
 
+  it("names everybody an issue is about or given to, a former resident among them", () => {
+    /*
+     * A reporter may have moved out since, and their issue stays with the link
+     * to them until the purge; the handlers the issues are given to and mailed
+     * are board members and the external property manager.
+     */
+    for (const category of [
+      "member",
+      "resident",
+      "formerResident",
+      "boardMember",
+      "external",
+    ]) {
+      expect(rowFor("issues").dataSubjectCategories, category).toContain(
+        category,
+      );
+    }
+  });
+
   it("says a letter to the board may carry health, money and photographs", () => {
     // Whatever somebody chose to write to their association arrives: money,
     // health, a dispute with a neighbour, and pictures of people.
@@ -502,6 +521,20 @@ describe("seedRows", () => {
         "dataProtection.processing.seed.recipients.economicManager",
       );
     }
+  });
+
+  it("names the contractors as recipients of the issues, beside the mail server their work orders go through", () => {
+    /*
+     * A work order carries what a handler wrote about an issue to a firm
+     * outside the association (art. 30(1)(d)), by mail, so the row names both;
+     * and the photographs are stored like any other upload.
+     */
+    expect(rowFor("issues").recipients).toBe(
+      "smtp.example.test " +
+        "dataProtection.processing.seed.recipients.contractors " +
+        "dataProtection.processing.seed.recipients.localDisk",
+    );
+    expect(rowFor("documents").recipients).not.toContain("contractors");
   });
 
   it("names Lantmäteriet as the recipient of the apartment register and of the reporting ledger", () => {

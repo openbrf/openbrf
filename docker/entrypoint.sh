@@ -46,7 +46,9 @@
 # Every step is idempotent and every one of these jobs runs on every `up`, so
 # an upgrade is a newer image - `docker compose -f docker-compose.prod.yml
 # --env-file .env.production pull` - followed by the same `up -d` that started
-# the instance.
+# the instance. Stop the application and back up before the `pull`, as
+# docs/deployment.md ("The upgrade, step by step") has it: a migration may
+# hold a lock the previous application's writes would wait on.
 
 set -eu
 

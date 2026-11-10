@@ -704,6 +704,7 @@ export const SITE_LAYOUT_STYLESHEET = `.site {
 .site-plugin-block th,
 .site-plugin-block td {
   border-top: 1px solid var(--obrf-border-subtle);
+  overflow-wrap: anywhere;
   padding: 0.5rem 0.75rem 0.5rem 0;
   text-align: start;
   vertical-align: top;
@@ -800,6 +801,43 @@ export const SITE_LAYOUT_STYLESHEET = `.site {
   border-color: var(--obrf-accent-trust-hover);
 }
 
+/*
+ * The responsibility guide on the report form, folded above the fields. The
+ * summary is the control that opens it, so it is a 44px target like every
+ * other control on the form.
+ */
+.site-form-guide {
+  border-bottom: 1px solid var(--obrf-border-subtle);
+  margin: 0 0 1.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.site-form-guide summary {
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 44px;
+  padding: 0.625rem 0;
+}
+
+.site-form-guide table {
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  margin: 0.5rem 0;
+  width: 100%;
+}
+
+.site-form-guide th,
+.site-form-guide td {
+  border-top: 1px solid var(--obrf-border-subtle);
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  text-align: start;
+  vertical-align: top;
+}
+
+.site-form-guide th {
+  font-weight: 600;
+}
+
 /* Colour is never the only signal: each of these carries its own words. */
 .site-form-sent {
   background: var(--obrf-status-ok-soft);
@@ -811,6 +849,70 @@ export const SITE_LAYOUT_STYLESHEET = `.site {
   background: var(--obrf-status-danger-soft);
   border-left: 4px solid var(--obrf-status-danger);
   padding: 0.75rem 1rem;
+}
+
+/*
+ * The page a reporter's private link opens: what the issue is and where it
+ * stands, then its messages, each kept as written with its line breaks. The
+ * date is register data and takes the data face, as a news item's does.
+ */
+.site-issue-facts {
+  display: grid;
+  gap: 0.25rem 1rem;
+  grid-template-columns: max-content 1fr;
+  margin: 0 0 1.5rem;
+}
+
+.site-issue-facts dt {
+  color: var(--obrf-text-secondary);
+  font-size: 0.875rem;
+}
+
+.site-issue-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.site-issue-date {
+  font-family: var(--obrf-font-data);
+}
+
+.site-issue-message {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+/*
+ * The page a contractor's link opens: the answers side by side where they fit,
+ * and the photographs as a grid of thumbnails, each a link to the whole image.
+ */
+.site-work-order-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.site-work-order-actions form {
+  margin: 0;
+}
+
+.site-work-order-photos {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+}
+
+.site-work-order-photos img {
+  aspect-ratio: 1;
+  border-radius: var(--obrf-radius-control);
+  display: block;
+  height: auto;
+  object-fit: cover;
+  width: 100%;
 }
 
 /*

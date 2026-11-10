@@ -307,19 +307,235 @@ locally the application runs from source beside the PostgreSQL that
       somebody else first
 - [x] Issue reporting: a resident reports a problem with the building from the
       application, with photographs, and follows what happens to it. The
-      issue types are the board's own - each one set to non-member, member or
-      board - and which of them a person is offered is decided on the server:
-      a resident picks from the member types, a visitor with no account from the
-      non-member ones, and the board's internal categories are shown to nobody
-      who does not handle issues. Whoever does works one queue, and moves a
-      report between new, in progress and done. The form warns that health
+      issue types are the board's own - each one offered to any of the
+      website's form, the residents and the handlers alone - and which of them
+      a person is offered is decided on the server: a resident picks from the
+      types residents may report, a visitor with no account from those the
+      website's form offers, and the board's internal categories are shown to
+      nobody who does not handle issues. A new instance starts with a Swedish
+      set of types, so the website's form takes a report from the first day.
+      Whoever handles issues works one queue, and moves a report between its
+      type's statuses: the board names them and adds its own, and each means
+      new, in progress, waiting or done, which is what the queue's order, the
+      purge and everything outside the queue read, never the board's label. A
+      wait names whom it waits on, the reporter, a contractor, parts or a
+      decision, and a close how it ended (ADR 0054). The form warns that health
       details and anything about a neighbour are read by everyone who handles
       issues, and refuses nothing: an issue report is where such detail
       legitimately arrives. A reporter with protected personal data is named to
       nobody in the queue. Whether the association's website takes reports from
       anyone is a setting, on by default, and the server already answers a
-      caller with no session with the non-member types alone; the form itself
+      caller with no session with the website form's types alone; the form itself
       is part of the public forms below
+- [x] Handling an issue: a handler gives it to an assignee, any handler the
+      issue lets in, sets its priority - urgent, normal or low - and the day it
+      is meant to be done by, and an issue past that day stands out in the
+      queue. No timer runs from either. A type files its issues with a default
+      priority and a default assignee, so a water leak lands as urgent with
+      whoever the board chose, and a type with none lands unassigned. A type is
+      handled by every handler or by the board alone, and one issue can be
+      closed to all but the board; the property manager is shown neither, by
+      the same rule inside the service on every read and write. A handler opens
+      an issue for a named resident or as an internal one with no reporter,
+      and the issue shows that a handler entered it. Each issue has a timeline
+      of who did what and when, read from the audit log. The people an issue
+      can be assigned to are named and nothing more, so the property manager is
+      never shown the address book (ADR 0054)
+- [x] Contractors and work orders: the board keeps a list of the firms it
+      hires, with a name, a trade, a telephone number and an address, and a
+      handler writes a work order to one of them from an issue. The handler
+      previews the mail before it is sent, and the work order is recorded on
+      the issue - whom it went to, when and what it said - before it is mailed,
+      so the association can say who received a person's data (GDPR art.
+      15(1)(c) and 19) whether or not the mail went out. The mail carries the
+      handler's text and nothing else from the issue: not the report, not who
+      made it, not the photographs, and no link into the application. The
+      first work order mailed to a contractor links the association's privacy
+      notice, as GDPR art. 14(3)(b) asks of a first communication; one whose
+      details the board found elsewhere is owed the notice within a month
+      even if no work order goes (art. 14(3)(a)), which the contractor list's
+      description asks the board to see to. A ring-fenced issue type
+      reaches no contractor, refused in the service, the preview included.
+      The text of a work order is erased ten years after its issue was closed,
+      the ordinary retention window chosen for it, which follows the general
+      ten-year limitation period for a claim about the work; a claim's period
+      can be interrupted or renewed and the erasure does not follow that, so a
+      legal hold on the issue or a legal hold or a restriction on the reporter
+      is what keeps the text longer. The record of whom it went to and when stays, except that
+      the board removing a contractor from the list clears their name and address from
+      the work orders written to them. The nightly purge takes a contractor off
+      the list ten years after the last work order sent them, or after they
+      were added if none was; a work order written to them, whether or not its
+      mail left, that still holds its text, or
+      is on an issue under a legal hold, keeps their name and address for as
+      long as it keeps its text or the hold stands (ADR 0057). This is how a work order travels
+      while the contractor's own link waits for its legal review (ADR 0055)
+- [x] The contractor's link, built and switched off: a handler can give the
+      contractor of a work order a link of their own, shown once, that opens
+      the work order and the photographs the board chose for it and nothing
+      else of the issue. The contractor accepts or declines it, writes notes,
+      adds photographs and marks it done there without an account. The link
+      ends after 30 days, at a decline or done, when a handler withdraws it,
+      and when anything it opens stops being one a contractor may see. It is
+      behind `OPENBRF_CONTRACTOR_LINKS_ENABLED`, off by default. The legal
+      review of a contractor as a recipient is done and left one question
+      open, whether asking for notes and photographs through the link makes
+      the contractor a processor, and the link stays off until it is answered
+      (ADR 0055)
+- [ ] Switch the contractor's link on once its legal review clears it
+- [x] Damage cases and ring-fenced issue types: a handler marks an issue as an
+      insurance damage with the insurer, the claim number, the day and the
+      cause, and the mark places a legal hold so the issue's text outlasts its
+      purge clock; a change made from a mark that another handler has changed
+      meanwhile is refused rather than written over it. The board ring-fences an issue type, as the set a new
+      instance starts with does for disturbances between neighbours: the board
+      alone reads its issues, the property manager never, and nothing about
+      them leaves the board - no work order, no mail to anybody, no new post
+      report (a link from a post that was reported before the fence stays), no
+      merge as a duplicate across the fence, no
+      connected app or AI package, and not the website's form. Its free text is
+      purged on a clock of its own, which the board sets from one to ten years
+      after closing apart from the other types' clock, one by default, unless a
+      legal hold stands on the issue or a legal hold or a restriction on its
+      reporter, and the ring-fence is never lifted from a type issues were
+      reported under. The form asks the reporter for what happened, what they
+      saw and heard and when, not for an accusation of a crime (ADR 0054,
+      decisions 28 and 32; ADR 0057, question 4)
+- [x] The people an issue concerns: a handler records the residents an issue is
+      about who did not report it, such as the neighbour a report of a
+      disturbance names, on an issue of any type, from the picker an issue is
+      opened from. Only the handlers of the issue read the list, a protected
+      resident by no name; the reporter, the mails, a work order and both links
+      carry none of it, an issue about a protected resident is left out of what
+      a connected app or the AI package reads, and the audit log records the act
+      and never the person. The record is personal data of its own and goes with
+      the issue's free text, and a legal hold or a restriction on a person it
+      concerns keeps that text as one on the reporter does (ADR 0057)
+- [x] The access report of a person an issue concerns: each case about them that
+      somebody else reported, with its number, type, dates, status and outcome,
+      and its words only as the board weighed them under art. 15(4): each text
+      given whole, given in part as a copy with words left out, or left out,
+      because it would tell who reported the case or is about somebody else,
+      with the reason and the right to complain to IMY. The text itself stays
+      as written.
+      Never the reporter, and no source. A text nobody has weighed is not
+      given, and the board's screen will not print the report until it is. The
+      weighing is the report producer's, goes with the text, and the audit log
+      names the person and never the case (ADR 0057, questions 1 and 3)
+- [x] The text of a work order in the access report, on the reporter's issues
+      and on those that concern the person: weighed by the board under art.
+      15(4) like a note, given whole, in part or left out with the reason, and
+      gone with the text by the work-order text purge or a handler's redaction
+      (ADR 0057, question 7)
+- [x] Mail about issues: a new issue to its assignee, or to the type's handlers
+      when it lands unassigned; an urgent one to every handler of its type; an
+      assignment to the new assignee; a reopened one to its assignee; and one
+      reminder to the assignee the morning after the target date has passed.
+      A mail gives the issue number, the type and a link, a mail to a handler
+      the priority too, and never anything a reporter or a handler wrote.
+      Nobody is mailed about their own action. A person whose processing is
+      restricted is checked again just before the mail is handed over, which
+      narrows the window in which a restriction is not seen but does not close
+      it. Every issue has a number, shown in the queue and on the
+      reporter's own list
+- [x] Who pays for an issue: a handler records the association, the
+      tenant-owner or unclear, and never an amount. "Create a charge" opens a
+      charge filled in from the issue, the amount is entered there and lives
+      only there, and the charge names the issue, so removing either leaves the
+      other. Whoever may read charges sees the amounts on the issue; the
+      property manager does not. The association's responsibility guide, who
+      maintains which part of the home under its own bylaws, starts from an
+      example labelled as one, is shown to handlers when they decide who pays,
+      and to reporters before they report, on the public website's issue report
+      form too, once the board adopts it. Where the
+      cost is the tenant-owner's, the screen says that a message on the issue
+      is not a notice to remedy under BRL 7 kap. 12 a § (ADR 0054)
+- [x] The conversation on an issue: the reporter and the handlers write to each
+      other on the issue itself, and a handler's message reaches the reporter
+      signed by the board or the property manager, never by a person, while the
+      handlers see who wrote it, a protected handler's name withheld. Beside it
+      the handlers keep internal notes and files of their own that the reporter
+      never sees, read by every handler the issue lets in, so an issue the
+      board keeps to itself keeps them with it. The board keeps saved replies,
+      one of them saying that what was reported is the tenant-owner's under the
+      bylaws, which a handler starts a message from. Text the board writes back
+      is refused while it carries a personal identity number. No row stores a
+      name, a mail says only that there is a new message and never what it says,
+      and no action offers it to a connected app
+      or the AI package (ADR 0056)
+- [x] After an issue closes: a reply from its reporter within 30 days of
+      closing reopens it, back to its type's in-progress status with its
+      outcome cleared (the same through a private link, for a reporter
+      without an account), and after that the reporter is offered a new report
+      linked to the old one. A handler merges a duplicate into another issue,
+      which closes it as a duplicate; its reporter keeps their own report,
+      follows where the other issue stands, and a handler writes to the
+      reporters of the merged reports they handle who have an account, each on
+      their own report (reports with no reporter or no account are counted as
+      not reached), so nobody reads another's report and a protected reporter
+      stays masked. A handler
+      publishes a short known fault on an open issue, signed by the board or
+      the property manager, which signed-in residents see on their report form
+      and on the post the issue came from, never on the public website and
+      never on an issue the board keeps to itself (ADR 0054)
+- [x] A reporter without an account: a report from the website's form that
+      left an email address is followed by a mail with a private link to a
+      page for that issue, where the reporter reads the conversation and writes
+      back, text only. The mail carries the issue's type and the link and
+      nothing anybody wrote. The link is stored only as a digest, ends 30 days
+      after the issue is closed or a year after its latest message, and can be
+      withdrawn by a handler; every link that opens nothing answers alike.
+      Page reads and messages are limited per address, messages per link as
+      well, and the form mails one address at most three links a day (ADR 0055)
+- [x] Working the issue queue: four views, Mine, Unassigned, Overdue and All,
+      each with its count, and a filter by status, type and priority with a
+      search, all applied to every view. The views open on open issues. The
+      board's front page shows how many issues are open, how many are overdue
+      and how many have no assignee, and each number opens its view. The search
+      never matches a protected reporter's name or apartment. No dashboards
+      (ADR 0054)
+- [x] Handling an issue from a connected app or the AI package: the queue and
+      one issue carry the priority, the target date, whether it is overdue and
+      the assignee, the issue types carry who handles them and their default
+      priority, and a new read names who one issue may be given to. A connected
+      app assigns an issue and sets its priority, target date and status at
+      once, as the person who signed it in, and the audit log records that it
+      came through a connected app; the AI package only proposes the same four,
+      for that person to confirm on the platform's own screen, which shows the
+      issue's number, type, status, priority and target date beside what the
+      change sets, and a status move's waiting reason and outcome. No action
+      writes to the reporter, sends anything to a contractor, reads the
+      conversation or an internal note; closing an issue ends its contractors'
+      work order links as it does on the board's screen.
+      An issue of a ring-fenced type or one a person with protected personal
+      data reported is answered as one that does not exist. The MCP Connector
+      is offered each of these once its manifest declares the personal data
+      that action carries (ADR 0056)
+- [x] What is particular to a Swedish house on an issue: on an issue about an
+      apartment the resident answers whether the association or a contractor
+      may enter - yes or no, pets, whether the master key may be used, a note on
+      how to get in and the last day - and a handler can record the answer from
+      a telephone call. It is cleared when the issue closes, a door code is
+      refused rather than stored, and no action offers it to a connected app or
+      the AI package. The board keeps a short list of common areas beside the
+      free-text location, never apartments, so a fault that keeps coming back in
+      the lift or the laundry room is counted. A handler can mark an issue as an
+      OVK, lift or fire finding with its protocol and a target date, which a
+      lift's holds to a month from the inspection (BFS 2025:11 1 kap. 17 §);
+      the inspections' schedule stays with the 2027 reminders
+- [x] The issue module end to end: one browser flow against the production
+      image takes an issue from a resident's report, with its default assignee
+      mailed, through assigning and reassigning it, the Mine, Unassigned and
+      Overdue views, a conversation with the resident and one with a reporter
+      without an account, an internal note neither reporter sees, a work order
+      to a contractor and a charge made from the issue, to its closing and its
+      reopening by the resident's reply. The same flow checks that a reporter
+      with protected personal data stays masked on the queue, the handling,
+      the work order form and the issue's charges panel,
+      that an issue of a ring-fenced type never reaches the property manager
+      or a proposal of the AI package, and that no mail it caused carries
+      anything anybody wrote, the work order mail carrying the handler's own
+      text and nothing else
 - [x] One page, one audience: the board's work on its own pages under the
       Styrelsen section, each signed on its own heading, the overview as the
       house's notice board with one line for whoever works a queue, and a phone
@@ -840,13 +1056,34 @@ Free, open source, and never moved behind a paywall.
       statutory registers and the audit log stay exempt as before. An issue or
       a document is detached from the person rather than deleted: the link to
       the person and the personal data on the row go, the record stays. An
-      issue's own description is free text the reporter wrote and is not
-      rewritten: it is the record of the problem and of its handling, which
-      the issue exists for, and a person it names who asks for erasure makes
-      a request under art. 17, handled as the box on erasure, objection and
-      restriction above says. A report filed through the public form is keyed
-      to nobody, so no person's clock reaches it and it is detached on one of
-      its own, a year after the board closed it
+      issue has two layers (ADR 0057): the building record - what it
+      concerned, when, the outcome and the apartment, where one was named -
+      stays, and its free text, conversation, notes and
+      photographs are removed a number of years after it closes, which the
+      board sets from one to ten and two by default, unless a legal hold
+      stands on the issue, or a legal hold or a restriction on its reporter. A
+      granted erasure request
+      removes the free text of the issues the person reported on the night
+      after the board grants it, once each such issue is closed and under no
+      legal hold of its own; an open or held issue keeps the request open
+      until it closes or the hold is released, and a legal hold or a
+      restriction on the reporter keeps the whole request open until it ends.
+      A handler may redact a text or
+      remove a photograph at any time, which is how an art. 17 request naming
+      an issue is carried out, except while a legal hold stands on the issue, or
+      a legal hold or a restriction on its reporter. A report filed through
+      the public form is keyed to nobody, so no
+      person's clock reaches its contact details and they are detached on one
+      of their own, a year after the board closed it. Both report forms state
+      the retention period for the free text on the issue-type clock; the
+      public form also explains the separate contact-details clock. A
+      reporter's data subject access report carries each issue's number, the
+      conversation as they read it, a handler's messages signed with a role
+      and never a name, when it closed and the earliest day its free text
+      goes, or that a legal hold on the issue keeps it. It carries the
+      internal notes on each issue as the board weighed them under art.
+      15(4), given whole, in part or left out with the reason, never who wrote one
+      (ADR 0057, question 1)
 - [x] News on the association's website and by email: an item is for the
       members unless the board publishes it to the street, and publishing mails
       every member once - a toggle, on by default - through the job queue and

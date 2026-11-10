@@ -1,47 +1,175 @@
-import { useState, type ReactElement } from "react";
+import {
+  ISSUE_CLOSING_OUTCOMES,
+  ISSUE_STATUS_MEANINGS,
+  ISSUE_WAITING_REASONS,
+  type IssueClosingOutcome,
+  type IssueWaitingReason,
+} from "@openbrf/shared";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
   type IssueReporter,
-  type IssueStatus,
+  type IssueStatusMoveInput,
+  type IssueTypeView,
   type QueuedIssue,
   setIssueStatus,
 } from "../api/issues";
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
-import { QUIET_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
+import { FIELD, LABEL, SECONDARY_BUTTON } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import {
+  ISSUE_MEANING_LABEL,
+  ISSUE_OUTCOME_LABEL,
+  ISSUE_WAITING_REASON_LABEL,
+} from "./issue-labels";
+import { IssueHandlerName } from "./IssueHandlerName";
+import { IssueConversation } from "./IssueConversation";
+import { IssueDamageCaseSection } from "./IssueDamageCase";
+import { IssueDescription, IssueLocation } from "./IssueFreeText";
+import { IssueHandling } from "./IssueHandling";
+import { IssueLifecycle } from "./IssueLifecycle";
+import { IssuePriorityChip } from "./IssuePriorityChip";
+import { IssueFreeTextSection, useIssueRedaction } from "./IssueRedaction";
 import { IssueStatusChip } from "./IssueStatusChip";
+import { IssueWorkOrders } from "./IssueWorkOrders";
 
 const QUEUE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "issue-not-found": "issues.queue.errors.issueNotFound",
+  "status-not-found": "issues.queue.errors.statusNotFound",
+  "waiting-reason-required": "issues.queue.errors.waitingReasonRequired",
+  "outcome-required": "issues.queue.errors.outcomeRequired",
+  "status-detail-not-applicable":
+    "issues.queue.errors.statusDetailNotApplicable",
   "invalid-body": "issues.queue.errors.unknown",
 };
 
-const AUDIENCE_LABEL: Readonly<
-  Record<QueuedIssue["audience"], TranslationKey>
-> = {
-  NON_MEMBER: "issues.audience.NON_MEMBER",
-  MEMBER: "issues.audience.MEMBER",
-  BOARD: "issues.audience.BOARD",
-};
+/**
+ * The refusals that mean the queue on screen is out of date: the issue is gone,
+ * or the status was switched off since the types were read. The queue is read
+ * again, as their messages say.
+ */
+const STALE_REASONS: ReadonlySet<string> = new Set([
+  "issue-not-found",
+  "status-not-found",
+]);
 
 export interface IssueQueuePanelProps {
   issues: readonly QueuedIssue[];
+  /**
+   * Every type with its statuses, which is what an issue is moved between, or
+   * null when they could not be read. Without them no issue can be moved, and
+   * the panel says so rather than offering a form that has nothing to offer.
+   */
+  types: readonly IssueTypeView[] | null;
   /** Called after a status change, so the caller can reload the queue. */
   onChanged: () => void;
+  /** Which read of the queue this is, so what an open row keeps beside it is read again with it. */
+  queueRead?: number;
+  /**
+   * Reads the types again. With it, the notice that they could not be read
+   * offers a retry; without it the notice only says so.
+   */
+  onRetryTypes?: () => void;
+  /**
+   * Whether the notice that the types could not be read is announced. Set when
+   * the read that failed was one the reader set off from this screen - a retry,
+   * or the read after a change - so the failure is news; a first read that
+   * fails is there as the reader arrives, and stays quiet as `LoadFailure`
+   * explains.
+   */
+  announceTypesFailure?: boolean;
+  /**
+   * Whether the retry beside that notice takes the focus as it is put on
+   * screen. Set when the read that failed was the retry pressed on an earlier
+   * notice, which the caller takes away while the retry is out, so the button
+   * the reader pressed went with it (`LoadFailure`'s `focusRetry`).
+   */
+  focusTypesRetry?: boolean;
+  /**
+   * Called once the render that was given `focusTypesRetry` has been
+   * committed, whether or not the notice was drawn in it, so the caller can
+   * withdraw the flag: it is for that render only, and a notice mounted again
+   * later is not to take a focus the reader has since put elsewhere.
+   */
+  onTypesRetryFocused?: () => void;
+  /**
+   * What an empty list says: which view is empty, or that nothing matches
+   * the filter. The queue as a whole, by default.
+   */
+  emptyMessage?: string;
+  /**
+   * Whether the reader holds `memberCharges:manage`, so an open issue shows
+   * the charges made from it. Courtesy only: the API refuses the read without.
+   */
+  canManageCharges?: boolean;
+  /**
+   * Whether the queue is being read again after a change to it: a status
+   * saved, an issue opened or handled. The rows on screen still show the issues
+   * as they stood before it, and a form whose draft the save carried would
+   * offer the same move twice, so the status forms and the handling controls
+   * are off until the read is back.
+   *
+   * Not set for a read that only follows the view, the filter or the search:
+   * the rows on screen are then as current as when they were read, and
+   * turning their controls off under each word typed would take the keyboard
+   * focus out of the row the handler is working in. The status forms stay on
+   * for that reason. The handling under a row is the exception (`reading`): a
+   * refusal of a handling action is shown inside its row, which the filtered
+   * answer may drop, so it goes off for these reads too. The focus a handler
+   * had in a row's handling field is lost when it goes off - one who clicks
+   * into it within the search's delay loses it as the delayed read starts - and
+   * that is accepted; the draft stays.
+   */
+  rereading?: boolean;
+  /**
+   * Whether the queue is being read for any reason, the view, the filter or
+   * the search included. Turns the handling under each row off, which a
+   * refusal of a handling action is shown in: a filtered answer that drops the
+   * row would take the refusal with it, and the handler would not learn the
+   * action was not made. This stops an action being started while a read is
+   * out and no more: one already in flight when the handler changes the filter
+   * still has its refusal shown inside a row the answer may then drop, so the
+   * handler may not learn of it. A status form's refusal is shown above the
+   * rows, so it outlives its row and the form stays on.
+   */
+  reading?: boolean;
+  /**
+   * Whether the read of the queue failed, so the list on screen would answer
+   * nothing: an empty list says nothing is waiting, a claim the caller's
+   * notice would not undo. The panel stays mounted all the same, because the
+   * status save it owns may still be out when the read fails, and a refusal
+   * of it would go with the panel. It draws nothing until a save has been
+   * refused, and then only that refusal.
+   */
+  listWithheld?: boolean;
+  /**
+   * Whether the list is being read again. Marks the list, not the panel, as
+   * busy: the notices above it (a refused save) are announced, and an alert
+   * inside a busy region may be held back by assistive technology.
+   */
+  busy?: boolean;
 }
 
 /**
  * The triage queue, for whoever handles issues.
  *
- * The three states are three buttons rather than a picker: the queue is worked
- * one row at a time and the next state is nearly always the obvious one, so
- * naming the act ("take it on", "mark as done") says more than a dropdown of
- * nouns would.
+ * Each row shows the status as the board named it, in the tone of its meaning,
+ * and offers the type's statuses to move it to (ADR 0054). A status that means
+ * waiting asks whom or what for, and closing asks how the issue ended: both are
+ * required by the server, and the form asks for them before it lets the save
+ * go rather than after a refusal.
+ *
+ * Each row says who the issue is given to, how urgent it is and the day it is
+ * meant to be done by, and stands out once that day has passed (decision 10):
+ * a heavy edge in the danger colour, the date in it, and the word overdue, so
+ * neither colour nor shape carries it alone. The handling itself, and the
+ * timeline, open under the row.
  *
  * A reporter with protected personal data is rendered without their name or
  * their apartment. The board's own address book prints both because a statutory
@@ -52,145 +180,644 @@ export interface IssueQueuePanelProps {
  */
 export function IssueQueuePanel({
   issues,
+  types,
   onChanged,
+  queueRead = 0,
+  onRetryTypes,
+  announceTypesFailure = false,
+  focusTypesRetry = false,
+  onTypesRetryFocused,
+  emptyMessage,
+  canManageCharges = false,
+  rereading = false,
+  reading = false,
+  listWithheld = false,
+  busy = false,
 }: IssueQueuePanelProps): ReactElement {
   const { t } = useTranslation();
-  const move = useSaveAction(setIssueStatus, onChanged);
+  const move = useSaveAction(setIssueStatus, onChanged, (failure) => {
+    if (STALE_REASONS.has(failure.reason)) {
+      onChanged();
+    }
+  });
   /*
    * Which row the save in flight belongs to.
    *
    * One action serves the whole panel, so without this every row reads the same
-   * save state and one click puts "saving" on every button in the queue - which
-   * is exactly the screen where a queue is long enough for that to matter. The
-   * buttons stay disabled together on purpose: only one status change should be
+   * save state and one click puts "saving" on every button in the queue. The
+   * forms stay disabled together on purpose: only one status change should be
    * in flight before the queue reloads.
    */
   const [actingOn, setActingOn] = useState<string | null>(null);
+  /*
+   * The issues whose status form is saying, from its draft, that a reply is
+   * not a notice to remedy. The sentence is on screen once for an issue: the
+   * form's while it has the draft, the handling panel's otherwise.
+   */
+  const [remedyNoticeInForm, setRemedyNoticeInForm] = useState<
+    ReadonlySet<string>
+  >(new Set());
+  const markRemedyNotice = useCallback(
+    (issueId: string, shown: boolean): void => {
+      setRemedyNoticeInForm((current) => {
+        if (current.has(issueId) === shown) {
+          return current;
+        }
+        const next = new Set(current);
+        if (shown) {
+          next.add(issueId);
+        } else {
+          next.delete(issueId);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+  /*
+   * How many work orders each issue has sent while the queue is open. The
+   * work orders and the timeline sit under two disclosures, and a sending in
+   * one is a step the other has to read again.
+   */
+  const [workOrdersSent, setWorkOrdersSent] = useState<
+    Readonly<Record<string, number>>
+  >({});
+  // After the children's layout effects, so after a notice has taken the focus.
+  useEffect(() => {
+    if (focusTypesRetry) {
+      onTypesRetryFocused?.();
+    }
+  }, [focusTypesRetry, onTypesRetryFocused]);
   const saving = move.state.kind === "saving";
+  const typeById = new Map((types ?? []).map((type) => [type.id, type]));
 
-  const next = (status: IssueStatus): IssueStatus =>
-    status === "DONE" ? "NEW" : status === "NEW" ? "IN_PROGRESS" : "DONE";
-
-  const actionKey = (status: IssueStatus): TranslationKey =>
-    status === "DONE"
-      ? "issues.queue.reopen"
-      : status === "NEW"
-        ? "issues.queue.setInProgress"
-        : "issues.queue.setDone";
+  if (listWithheld && move.state.kind !== "failed") {
+    return <></>;
+  }
 
   return (
     <Panel
       title={t("issues.queue.title")}
       description={t("issues.queue.description")}
       notice={
-        move.state.kind === "failed" ? (
-          <Notice tone="danger" live>
-            {t(
-              failureMessageKey(
-                move.state.failure,
-                QUEUE_FAILURES,
-                "issues.queue.errors.unknown",
-              ),
-            )}
-          </Notice>
-        ) : null
+        <>
+          {move.state.kind === "failed" ? (
+            <Notice tone="danger" live>
+              {t(
+                failureMessageKey(
+                  move.state.failure,
+                  QUEUE_FAILURES,
+                  "issues.queue.errors.unknown",
+                ),
+              )}
+            </Notice>
+          ) : null}
+          {/*
+            Beside a failed save, not instead of it: with no types no status
+            form renders, so the retry here is the only way back to one.
+          */}
+          {types !== null ? null : onRetryTypes === undefined ? (
+            <Notice tone="danger" live={announceTypesFailure}>
+              {t("issues.queue.statusesUnavailable")}
+            </Notice>
+          ) : (
+            <LoadFailure
+              messageKey="issues.queue.statusesUnavailable"
+              onRetry={onRetryTypes}
+              live={announceTypesFailure}
+              focusRetry={focusTypesRetry}
+            />
+          )}
+        </>
       }
     >
-      {issues.length === 0 ? (
-        <p className="text-body text-ink-muted">{t("issues.queue.empty")}</p>
+      {listWithheld ? null : issues.length === 0 ? (
+        <p
+          aria-busy={busy}
+          className={`text-body text-ink-muted ${busy ? "opacity-60" : ""}`}
+        >
+          {emptyMessage ?? t("issues.queue.empty")}
+        </p>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {issues.map((issue) => (
-            <li
-              key={issue.id}
-              className="flex flex-col gap-2 rounded-control border border-line bg-page px-3 py-3"
-            >
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-body font-semibold">
-                  {issue.typeName}
-                </span>
-                <IssueStatusChip status={issue.status} />
-                <span className="text-chip text-ink-muted uppercase">
-                  {t(AUDIENCE_LABEL[issue.audience])}
-                </span>
-                <span className="ml-auto font-data text-data text-ink-muted">
-                  {localDayOfInstant(issue.createdAt)}
-                </span>
-              </div>
-
-              <p className="text-small whitespace-pre-line">
-                {issue.description}
-              </p>
-
-              <p className="flex flex-wrap gap-4 text-small text-ink-muted">
-                <span>
-                  {t("issues.queue.reporter")}{" "}
-                  <Reporter reporter={issue.reporter} />
-                </span>
-                <span>
-                  {t("issues.mine.apartment")}{" "}
-                  {issue.reporter.kind === "protected" ? (
-                    <span>{t("issues.queue.apartmentProtected")}</span>
-                  ) : issue.apartment === null ? (
-                    <NotRecorded meaning={t("issues.mine.noApartment")} />
-                  ) : (
-                    <span className="font-data text-data">
-                      {issue.apartment.address} {issue.apartment.number}
+        <ul
+          aria-busy={busy}
+          className={`flex flex-col gap-3 ${busy ? "opacity-60" : ""}`}
+        >
+          {issues.map((issue) => {
+            const type = typeById.get(issue.typeId);
+            return (
+              <li
+                key={issue.id}
+                className={`flex flex-col gap-2 rounded-control border bg-page px-3 py-3 ${issue.overdue ? "border-l-4 border-line border-l-danger" : "border-line"}`}
+              >
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="font-data text-data text-ink-muted">
+                    {t("issues.number", { number: issue.number })}
+                  </span>
+                  <span className="text-body font-semibold">
+                    {issue.typeName}
+                  </span>
+                  <IssueStatusChip
+                    meaning={issue.meaning}
+                    label={issue.status.label}
+                  />
+                  <IssuePriorityChip priority={issue.priority} />
+                  {issue.boardOnly || issue.typeHandledBy === "BOARD" ? (
+                    <span className="text-small text-ink-muted">
+                      {t("issues.queue.boardOnly")}
+                    </span>
+                  ) : null}
+                  {issue.legalHoldAt === null ? null : (
+                    <span className="text-small text-ink-muted">
+                      {t("issues.queue.legalHold")}
                     </span>
                   )}
-                </span>
-                <span>
-                  {t("issues.mine.place")}{" "}
-                  {issue.location === null ? (
-                    <NotRecorded meaning={t("issues.mine.noPlace")} />
-                  ) : (
-                    issue.location
+                  <StatusDetail issue={issue} />
+                  <span className="ml-auto font-data text-data text-ink-muted">
+                    {localDayOfInstant(issue.createdAt)}
+                  </span>
+                </div>
+
+                <IssueDescription issue={issue} />
+
+                <p className="flex flex-wrap gap-4 text-small text-ink-muted">
+                  <span>
+                    {t("issues.queue.reporter")}{" "}
+                    <Reporter reporter={issue.reporter} />
+                  </span>
+                  <span>
+                    {t("issues.mine.apartment")}{" "}
+                    {issue.reporter.kind === "protected" &&
+                    issue.aboutApartment ? (
+                      <span>{t("issues.queue.apartmentProtected")}</span>
+                    ) : issue.apartment === null ? (
+                      <NotRecorded meaning={t("issues.mine.noApartment")} />
+                    ) : (
+                      <span className="font-data text-data">
+                        {issue.apartment.address} {issue.apartment.number}
+                      </span>
+                    )}
+                  </span>
+                  <span>
+                    {t("issues.mine.place")} <IssueLocation issue={issue} />
+                  </span>
+                  {issue.place === null ? null : (
+                    <span>
+                      {t("issues.mine.commonArea")} {issue.place.name}
+                    </span>
                   )}
-                </span>
-              </p>
+                  {issue.finding === null ? null : (
+                    <span className="font-semibold text-ink">
+                      {t("issues.queue.finding", {
+                        kind: t(
+                          `issues.fit.finding.kinds.${issue.finding.kind}`,
+                        ),
+                      })}
+                    </span>
+                  )}
+                </p>
 
-              {issue.photos.length === 0 ? null : (
-                <ul className="flex flex-wrap gap-2">
-                  {issue.photos.map((photo) => (
-                    <li key={photo.id}>
-                      {/* Content, not decoration: the photograph is the
-                          substance of the report, so a handler reading the
-                          queue by ear is told one is attached and which. */}
-                      <img
-                        src={photo.url}
-                        alt={t("issues.photos.alt", { name: photo.fileName })}
-                        className="size-20 rounded-control border border-line object-cover"
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
+                <p className="flex flex-wrap gap-4 text-small text-ink-muted">
+                  <span>
+                    {t("issues.queue.assignee")}{" "}
+                    {issue.assignee === null ? (
+                      <span className="text-ink">
+                        {t("issues.handling.unassigned")}
+                      </span>
+                    ) : (
+                      <span className="text-ink">
+                        <IssueHandlerName handler={issue.assignee} />
+                      </span>
+                    )}
+                  </span>
+                  {issue.targetDate === null ? null : (
+                    <span>
+                      {t("issues.queue.targetDate")}{" "}
+                      <span
+                        className={`font-data text-data ${issue.overdue ? "font-semibold text-danger" : "text-ink"}`}
+                      >
+                        {issue.targetDate}
+                      </span>
+                      {issue.overdue ? (
+                        <span className="font-semibold text-danger">
+                          {" "}
+                          {t("issues.queue.overdue")}
+                        </span>
+                      ) : null}
+                    </span>
+                  )}
+                  {issue.enteredBy === null ? null : (
+                    <span>
+                      {t("issues.queue.enteredBy")}{" "}
+                      <IssueHandlerName handler={issue.enteredBy} />
+                    </span>
+                  )}
+                </p>
 
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => {
-                    setActingOn(issue.id);
-                    void move.submit({
-                      issueId: issue.id,
-                      status: next(issue.status),
-                    });
+                {issue.photos.length === 0 ? null : (
+                  <ul className="flex flex-wrap gap-2">
+                    {issue.photos.map((photo) => (
+                      <li key={photo.id}>
+                        {/* Content, not decoration: the photograph is the
+                            substance of the report, so a handler reading the
+                            queue by ear is told one is attached and which. */}
+                        <img
+                          src={photo.url}
+                          alt={t("issues.photos.alt", { name: photo.fileName })}
+                          className="size-20 rounded-control border border-line object-cover"
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {type === undefined ? null : (
+                  <StatusForm
+                    // A new draft whenever the issue moves, so a form never
+                    // offers to save a change the queue has already made.
+                    key={`${issue.status.id}:${issue.waitingReason ?? ""}`}
+                    issue={issue}
+                    type={type}
+                    disabled={saving || rereading}
+                    saving={saving && actingOn === issue.id}
+                    onRemedyNoticeShown={markRemedyNotice}
+                    onDraftChanged={() => {
+                      if (move.state.kind === "failed") {
+                        move.reset();
+                      }
+                    }}
+                    onSave={(input) => {
+                      setActingOn(issue.id);
+                      void move.submit(input);
+                    }}
+                  />
+                )}
+
+                {/* Standing, as the reporter's warning is: what the board has to
+                    keep in mind about the issue whatever it does with it. */}
+                {issue.typeRingFenced ? (
+                  <Notice tone="info">
+                    {t("issues.ringFence.caseNotice")}
+                  </Notice>
+                ) : null}
+
+                <HandlingDisclosure
+                  issue={issue}
+                  type={type}
+                  candidates={issues}
+                  workOrdersSent={workOrdersSent[issue.id] ?? 0}
+                  canManageCharges={canManageCharges}
+                  locked={reading || rereading}
+                  remedyNoticeInForm={remedyNoticeInForm.has(issue.id)}
+                  queueRead={queueRead}
+                  onChanged={onChanged}
+                />
+
+                <WorkOrdersDisclosure
+                  issue={issue}
+                  onChanged={onChanged}
+                  onSent={() => {
+                    setWorkOrdersSent((counts) => ({
+                      ...counts,
+                      [issue.id]: (counts[issue.id] ?? 0) + 1,
+                    }));
                   }}
-                  className={
-                    issue.status === "DONE" ? QUIET_BUTTON : SECONDARY_BUTTON
-                  }
-                >
-                  {saving && actingOn === issue.id
-                    ? t("issues.queue.saving")
-                    : t(actionKey(issue.status))}
-                </button>
-              </div>
-            </li>
-          ))}
+                />
+              </li>
+            );
+          })}
         </ul>
       )}
     </Panel>
+  );
+}
+
+/**
+ * The handling of one issue, its timeline and its conversation, under a
+ * disclosure: read only while it is open, because each open issue reads its
+ * handlers, its timeline, its messages, notes and files, and a queue of fifty
+ * would otherwise read hundreds of times on load.
+ */
+function HandlingDisclosure({
+  issue,
+  type,
+  candidates,
+  workOrdersSent,
+  canManageCharges,
+  locked,
+  remedyNoticeInForm,
+  queueRead,
+  onChanged,
+}: {
+  issue: QueuedIssue;
+  type: IssueTypeView | undefined;
+  /** The issues on screen, which this one may be merged into. */
+  candidates: readonly QueuedIssue[];
+  workOrdersSent: number;
+  canManageCharges: boolean;
+  locked: boolean;
+  /** The status form above already says a reply is not a notice to remedy. */
+  remedyNoticeInForm: boolean;
+  queueRead: number;
+  onChanged: () => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const redaction = useIssueRedaction(issue, onChanged);
+  /*
+   * Bumped by a file uploaded in the conversation below, which the finding's
+   * protocol list above it reads again on: neither panel writes to the issue's
+   * own row, so nothing else tells the one that did not upload.
+   */
+  const [uploads, setUploads] = useState(0);
+  return (
+    <details
+      className="flex flex-col gap-3"
+      onToggle={(event) => {
+        setOpen(event.currentTarget.open);
+      }}
+    >
+      <summary className="flex min-h-11 cursor-pointer items-center text-small font-semibold">
+        {t("issues.handling.open", { type: issue.typeName })}
+      </summary>
+      {open ? (
+        <fieldset
+          disabled={locked}
+          className="m-0 flex min-w-0 flex-col gap-6 border-0 px-0 pt-2 pb-0"
+        >
+          <IssueHandling
+            issue={issue}
+            type={type}
+            workOrdersSent={workOrdersSent}
+            canManageCharges={canManageCharges}
+            remedyNoticeInForm={remedyNoticeInForm}
+            filesRevision={uploads + redaction.revision}
+            onChanged={onChanged}
+          />
+          <IssueDamageCaseSection issue={issue} onChanged={onChanged} />
+          <IssueLifecycle
+            issue={issue}
+            candidates={candidates}
+            queueRead={queueRead}
+            onChanged={onChanged}
+          />
+          <IssueFreeTextSection issue={issue} control={redaction} />
+          <IssueConversation
+            issue={issue}
+            onStale={onChanged}
+            onUploaded={() => {
+              setUploads((count) => count + 1);
+            }}
+            redaction={redaction}
+          />
+        </fieldset>
+      ) : null}
+    </details>
+  );
+}
+
+/**
+ * The work orders on one issue, under a disclosure of their own: read only
+ * while it is open, as the handling is, and apart from it because a work order
+ * is the one act on an issue that leaves the instance. A work order's text is
+ * removed here, where it is shown, and the queue is read again after it as
+ * after any other removal.
+ */
+function WorkOrdersDisclosure({
+  issue,
+  onChanged,
+  onSent,
+}: {
+  issue: QueuedIssue;
+  onChanged: () => void;
+  onSent: () => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const redaction = useIssueRedaction(issue, onChanged);
+  return (
+    <details
+      className="flex flex-col gap-3"
+      onToggle={(event) => {
+        setOpen(event.currentTarget.open);
+      }}
+    >
+      <summary className="flex min-h-11 cursor-pointer items-center text-small font-semibold">
+        {t("issues.workOrders.open", { type: issue.typeName })}
+      </summary>
+      {open ? (
+        <div className="pt-2">
+          <IssueWorkOrders
+            issue={issue}
+            onSent={onSent}
+            redaction={redaction}
+          />
+        </div>
+      ) : null}
+    </details>
+  );
+}
+
+/** Whom an issue waits on, or how it ended, beside its status. */
+function StatusDetail({ issue }: { issue: QueuedIssue }): ReactElement | null {
+  const { t } = useTranslation();
+  if (issue.meaning === "WAITING" && issue.waitingReason !== null) {
+    return (
+      <span className="text-small text-ink-muted">
+        {t("issues.queue.waitingOn", {
+          reason: t(ISSUE_WAITING_REASON_LABEL[issue.waitingReason]),
+        })}
+      </span>
+    );
+  }
+  if (issue.meaning === "DONE") {
+    return (
+      <span className="text-small text-ink-muted">
+        {issue.outcome === null
+          ? t("issues.queue.noOutcome")
+          : t("issues.queue.closedAs", {
+              outcome: t(ISSUE_OUTCOME_LABEL[issue.outcome]),
+            })}
+      </span>
+    );
+  }
+  return null;
+}
+
+/**
+ * The move of one issue to another of its type's statuses.
+ *
+ * Offers the type's statuses that are switched on, and the one the issue
+ * stands in even if the board has since switched it off, grouped by meaning.
+ * Save is offered only for a real change that carries what its meaning
+ * requires.
+ */
+function StatusForm({
+  issue,
+  type,
+  disabled,
+  saving,
+  onDraftChanged,
+  onRemedyNoticeShown,
+  onSave,
+}: {
+  issue: QueuedIssue;
+  type: IssueTypeView;
+  disabled: boolean;
+  saving: boolean;
+  onDraftChanged: () => void;
+  /** Whether this form is showing the sentence that a reply is no notice to remedy. */
+  onRemedyNoticeShown: (issueId: string, shown: boolean) => void;
+  onSave: (input: IssueStatusMoveInput) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [statusId, setStatusId] = useState(issue.status.id);
+  const [waitingReason, setWaitingReason] = useState<IssueWaitingReason | "">(
+    issue.waitingReason ?? "",
+  );
+  const [outcome, setOutcome] = useState<IssueClosingOutcome | "">("");
+
+  const offered = type.statuses.filter(
+    (status) => status.active || status.id === issue.status.id,
+  );
+  const target = offered.find((status) => status.id === statusId);
+  const meaning = target?.meaning ?? issue.meaning;
+  const asksReason = meaning === "WAITING";
+  const asksOutcome = meaning === "DONE" && issue.meaning !== "DONE";
+
+  const changed =
+    statusId !== issue.status.id ||
+    (asksReason && waitingReason !== (issue.waitingReason ?? ""));
+  const complete =
+    target !== undefined &&
+    (!asksReason || waitingReason !== "") &&
+    (!asksOutcome || outcome !== "");
+
+  const day = localDayOfInstant(issue.createdAt);
+  const named = { type: issue.typeName, day };
+
+  const issueId = issue.id;
+  const showsRemedyNotice =
+    asksOutcome && outcome === "TENANT_OWNER_RESPONSIBILITY";
+  useEffect(() => {
+    onRemedyNoticeShown(issueId, showsRemedyNotice);
+    return () => {
+      onRemedyNoticeShown(issueId, false);
+    };
+  }, [issueId, showsRemedyNotice, onRemedyNoticeShown]);
+
+  return (
+    <form
+      className="flex flex-wrap items-end gap-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!changed || !complete) {
+          return;
+        }
+        onSave({
+          issueId: issue.id,
+          statusId,
+          ...(asksReason && waitingReason !== "" ? { waitingReason } : {}),
+          ...(asksOutcome && outcome !== "" ? { outcome } : {}),
+        });
+      }}
+    >
+      <label className={`${LABEL} min-w-48`}>
+        {t("issues.queue.status")}
+        <select
+          aria-label={t("issues.queue.statusNamed", named)}
+          value={statusId}
+          disabled={disabled}
+          onChange={(event) => {
+            setStatusId(event.target.value);
+            onDraftChanged();
+          }}
+          className={FIELD}
+        >
+          {ISSUE_STATUS_MEANINGS.map((group) => {
+            const statuses = offered.filter(
+              (status) => status.meaning === group,
+            );
+            return statuses.length === 0 ? null : (
+              <optgroup key={group} label={t(ISSUE_MEANING_LABEL[group])}>
+                {statuses.map((status) => (
+                  <option key={status.id} value={status.id}>
+                    {status.label}
+                  </option>
+                ))}
+              </optgroup>
+            );
+          })}
+        </select>
+      </label>
+
+      {asksReason ? (
+        <label className={`${LABEL} min-w-40`}>
+          {t("issues.queue.waitingFor")}
+          <select
+            aria-label={t("issues.queue.waitingForNamed", named)}
+            required
+            value={waitingReason}
+            disabled={disabled}
+            onChange={(event) => {
+              setWaitingReason(event.target.value as IssueWaitingReason | "");
+              onDraftChanged();
+            }}
+            className={FIELD}
+          >
+            <option value="">{t("issues.queue.choose")}</option>
+            {ISSUE_WAITING_REASONS.map((reason) => (
+              <option key={reason} value={reason}>
+                {t(ISSUE_WAITING_REASON_LABEL[reason])}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
+      {asksOutcome ? (
+        <label className={`${LABEL} min-w-48`}>
+          {t("issues.queue.outcome")}
+          <select
+            aria-label={t("issues.queue.outcomeNamed", named)}
+            required
+            value={outcome}
+            disabled={disabled}
+            onChange={(event) => {
+              setOutcome(event.target.value as IssueClosingOutcome | "");
+              onDraftChanged();
+            }}
+            className={FIELD}
+          >
+            <option value="">{t("issues.queue.choose")}</option>
+            {ISSUE_CLOSING_OUTCOMES.map((closing) => (
+              <option key={closing} value={closing}>
+                {t(ISSUE_OUTCOME_LABEL[closing])}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
+      <button
+        type="submit"
+        disabled={disabled || !changed || !complete}
+        className={SECONDARY_BUTTON}
+      >
+        {saving ? t("issues.queue.saving") : t("issues.queue.move")}
+      </button>
+
+      {/*
+        Closing an issue as the tenant-owner's responsibility is the formal
+        step decision 27 names: a reply on the issue after it is not how the
+        association asks for something to be put right under BRL 7 kap. 12 a §.
+      */}
+      {showsRemedyNotice ? (
+        <div className="basis-full">
+          <Notice tone="info">{t("issues.handling.notANoticeToRemedy")}</Notice>
+        </div>
+      ) : null}
+    </form>
   );
 }
 

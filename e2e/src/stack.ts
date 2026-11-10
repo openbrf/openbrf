@@ -13,6 +13,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { pullWithRetry } from "./image-pull";
+import { untrustedAddresses } from "./trusted-proxies";
 
 /**
  * The compose stack the suite runs against.
@@ -51,7 +52,37 @@ const profile: (typeof PROFILES)[keyof typeof PROFILES] =
     ? PROFILES.screenshots
     : PROFILES.e2e;
 
-export const PROJECT_NAME = profile.project;
+/**
+ * The project name a run uses: the profile's own, or the one asked for if
+ * Compose would take it.
+ *
+ * Compose takes lowercase letters, digits, `-` and `_`, starting with a letter
+ * or a digit. The name also becomes a directory under the system's temporary
+ * one, so a name it would refuse fails here, at start, and not in Docker after
+ * the stack's files are written.
+ */
+function projectName(requested: string | undefined): string {
+  if (requested === undefined || requested === "") {
+    return profile.project;
+  }
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(requested)) {
+    throw new Error(
+      `OPENBRF_E2E_PROJECT="${requested}" is not a compose project name: use lowercase letters, digits, "-" and "_", starting with a letter or a digit`,
+    );
+  }
+  return requested;
+}
+
+/**
+ * The compose project, the profile's own unless OPENBRF_E2E_PROJECT names
+ * another.
+ *
+ * For a machine whose Docker other people's stacks share: a run then tears
+ * down and recreates the volumes of the project it was told to use, and never
+ * those of an `openbrf-e2e` that somebody else started. The ports are still
+ * the env file's, so two runs on one machine still take turns.
+ */
+export const PROJECT_NAME = projectName(process.env.OPENBRF_E2E_PROJECT);
 
 const ENV_FILE = resolve(e2eRoot, profile.envFile);
 
@@ -280,6 +311,56 @@ export function startStack(): void {
   writeFixtureCatalog();
   pullImages();
   compose(["up", "--build", "--detach", "--wait"], 30 * 60_000);
+  assertGatewayTrusted();
+}
+
+/**
+ * Fails the run when the suite's requests reach the application from an address
+ * TRUSTED_PROXIES does not name.
+ *
+ * The suite stands in for a proxy on the host, and its requests arrive from the
+ * gateway of the stack's Docker network (stack.env). Which network that is, is
+ * the Docker daemon's choice, from its default address pools, so a daemon with
+ * pools of its own can put the gateway outside the ranges the env file names.
+ * The application then reads no test's X-Forwarded-For, the whole run shares one
+ * sign-in budget, and what fails is a sign-in some specs later, answered 429
+ * for no reason a reader of that spec could find. Said here instead, at start,
+ * with the address to name.
+ */
+function assertGatewayTrusted(): void {
+  const gateways = execFileSync(
+    "docker",
+    [
+      "inspect",
+      "--format",
+      "{{range .NetworkSettings.Networks}}{{.Gateway}} {{end}}",
+      appContainerId(),
+    ],
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 60_000,
+    },
+  )
+    .split(/\s+/)
+    .filter((gateway) => gateway !== "");
+  // What the application was given: the environment wins over --env-file.
+  const fromEnvironment = process.env.TRUSTED_PROXIES !== undefined;
+  const trustedProxies = fromEnvironment
+    ? (process.env.TRUSTED_PROXIES ?? "")
+    : (env.TRUSTED_PROXIES ?? "");
+  const untrusted = untrustedAddresses(gateways, trustedProxies);
+  if (untrusted.length > 0) {
+    throw new Error(
+      `The stack's network gateway ${untrusted.join(", ")} is not in ` +
+        `TRUSTED_PROXIES (${trustedProxies === "" ? "empty" : trustedProxies}), ` +
+        "so the application would not read the X-Forwarded-For each test " +
+        "sends, and every test would share one sign-in budget. Add its range " +
+        (fromEnvironment
+          ? "to the TRUSTED_PROXIES this process was started with."
+          : `to TRUSTED_PROXIES in ${ENV_FILE}.`),
+    );
+  }
 }
 
 /**
@@ -680,6 +761,20 @@ export function runInNewAppContainer(
  * while it is the one being replaced.
  */
 export function appStartedAt(): Date {
+  const startedAt = execFileSync(
+    "docker",
+    ["inspect", "--format", "{{.State.StartedAt}}", appContainerId()],
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 60_000,
+    },
+  ).trim();
+  return new Date(startedAt);
+}
+
+/** The application container's id, whether it is running or not. */
+function appContainerId(): string {
   const containerId = execFileSync(
     "docker",
     // --all, because between one process and the next the container is not
@@ -696,16 +791,7 @@ export function appStartedAt(): Date {
   if (containerId === "") {
     throw new Error("The application container does not exist.");
   }
-  const startedAt = execFileSync(
-    "docker",
-    ["inspect", "--format", "{{.State.StartedAt}}", containerId],
-    {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 60_000,
-    },
-  ).trim();
-  return new Date(startedAt);
+  return containerId;
 }
 
 /**

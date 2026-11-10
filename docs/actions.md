@@ -40,8 +40,12 @@ the meeting agenda write (`meeting_set_agenda`, which the AI package can only
 propose), the read of the motions put to a meeting (`motion_meeting_list`), the
 reads of the issue queue, the issue types and the contact form inbox
 (`issue_list`, `issue_get`, `issue_type_list` and `contact_message_list`,
-[ADR 0040](adr/0040-read-actions-for-issues-and-contact-messages.md)) and the
-news and page actions the site and news assistant needs, without their deletes,
+[ADR 0040](adr/0040-read-actions-for-issues-and-contact-messages.md)), the
+read of who an issue may be assigned to and the four writes of an issue's
+handling, which the AI package can only propose (`issue_handler_list`,
+`issue_assign`, `issue_set_priority`, `issue_set_target_date` and
+`issue_set_status`, [ADR 0056](adr/0056-issue-handling-on-mcp-and-ai.md)), and
+the news and page actions the site and news assistant needs, without their deletes,
 the front page, the order of the pages and the menu
 ([ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md#news-and-pages-on-ai)),
 list `ai` today; each other group gains it in the change that needs it, after
@@ -58,7 +62,12 @@ handles, so the registry offers it, and lets it invoke or propose, only the
 actions whose `personalData` its own manifest's `personalData` covers, as the
 board consented to it. The others are refused `forbidden-surface`, with the
 missing categories under `personalData` in the refusal's details
-([Actions](plugin-contract.md#actions) in the plugin contract).
+([Actions](plugin-contract.md#actions) in the plugin contract). The MCP
+Connector is a plugin, so while its manifest declared no personal data it was
+offered no issue action that carries any: of the issue actions only
+`issue_set_priority` and `issue_set_target_date`, which carry none. Each other
+issue action is offered to it once its manifest declares the categories that
+action carries ([ADR 0056](adr/0056-issue-handling-on-mcp-and-ai.md#why-the-connector-is-offered-no-issue-action)).
 
 ## The name
 
@@ -489,6 +498,46 @@ protected personal data and the service has nothing to mask or omit. It covers
 `issue_list`, `issue_get` and `contact_message_list` and nothing else; another
 action does not rely on it by analogy but needs a decision of its own. An action
 that reads a person the register holds is bound by the rule as stated.
+
+The issue actions give a caller only what the caller handles. An issue its type,
+or the issue itself, keeps to the board is left out for a caller the board-only
+rule does not let in - the property manager - and so is a type the board
+handles alone, and `issue_type_list` counts a type's issues without the ones
+left out, by the same omission inside `IssueService` that leaves out a
+protected reporter's issue ([ADR 0054](adr/0054-issue-types-statuses-and-outcomes.md)).
+A ring-fenced issue type - such as the one for disturbances between neighbours in the set a new instance starts with - is
+left out for every caller, the board included: none of its issues is on any page
+of `issue_list` or answered by `issue_get`, which says it does not exist, the
+type is not in `issue_type_list`, and `issue_handler_list` and the four writes
+answer one as not found, as they answer an issue a reporter with protected
+personal data filed ([ADR 0056](adr/0056-issue-handling-on-mcp-and-ai.md#what-is-never-offered-on-mcp-or-ai)).
+So is an issue a handler recorded as concerning a person with protected
+personal data, by the same omission, and no action reads or writes whom an
+issue concerns, or offers the act that records one
+([ADR 0057](adr/0057-purging-issues-in-two-layers.md#the-people-an-issue-concerns)).
+Nor does any action read or record the board's art. 15(4) weighing of an
+issue's text for an access report: it is part of producing the report, which no
+action offers either
+([ADR 0057](adr/0057-purging-issues-in-two-layers.md#the-boards-weighing-under-art-154)).
+The writes land at once on `mcp`, recorded under the channel `MCP`, and are
+only proposed on `ai`; each answers with the issue's identifier and what it
+changed, never the reporter, the description or the location, and none of them
+writes to a reporter or sends anything to a contractor. Closing an issue with
+`issue_set_status` does what closing it on the board's screen does: it ends
+every link a contractor holds to the issue's work orders, and clears the
+resident's entry permission and the known fault, and reopening the issue brings
+none of them back
+([ADR 0055](adr/0055-links-for-reporters-and-contractors-without-an-account.md)).
+They are offered on `ui` as well,
+because a pending change is confirmed there, and the pending-change screen
+shows the issue they name as the person confirming it may read it.
+None of them carries the conversation on an issue: no action reads or writes an
+issue message, an internal note, a file the handlers attached or a saved reply
+([ADR 0056](adr/0056-issue-handling-on-mcp-and-ai.md)), and one that did would
+need a decision of its own. Nor do they carry the resident's answer about
+entering their apartment, the common area an issue names or the mark of an
+inspection finding: the first is about somebody's home, and all three need a
+decision of their own before an action offers them.
 
 **A withheld value is a different shape in a published output document, never an
 empty one.** Publish it as a `z.discriminatedUnion` over `z.strictObject`

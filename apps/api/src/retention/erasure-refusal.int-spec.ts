@@ -13,12 +13,17 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { EventSignupPurgeService } from "../events/event-signup-purge.service";
 import { FeedPurgeService } from "../feed/feed-purge.service";
+import { IssueErasureService } from "../issues/issue-erasure.service";
 import { KeyOrderPurgeService } from "../key-orders/key-order-purge.service";
 import { MotionPurgeService } from "../motions/motion-purge.service";
 import { PluginRecordsPurgeService } from "../plugins/plugin-records-purge.service";
 import { SubletPurgeService } from "../sublets/sublet-purge.service";
 import { grantErasure } from "../testing/erasure-requests";
 import { runSuffix } from "../testing/integration-env";
+import {
+  createIssueTypeFixture,
+  type IssueTypeFixture,
+} from "../testing/issue-fixtures";
 import { ERASURE_DOMAINS } from "./erasure-domains";
 import { PurgeService } from "./purge.service";
 
@@ -29,9 +34,9 @@ import { PurgeService } from "./purge.service";
  * and nothing else: a legal hold, a restriction of processing, a residency or
  * a board seat that has not ended, a system role and a plugin access each
  * refuse it
- * (`withheld-persons.ts`, `nothingRefusesErasure`). Seven domain jobs erase a
+ * (`withheld-persons.ts`, `nothingRefusesErasure`). The domain jobs erase a
  * person's rows on the request and the service-data purge then erases the
- * contact details and closes it. Each of the eight asks the question itself,
+ * contact details and closes it. Each of them asks the question itself,
  * inside its own transaction, so each can drift on its own back to the older
  * check that asked only about a hold - and a sitting board member's posts or a
  * resident's bookings would go while the closing job refused the same request
@@ -81,6 +86,9 @@ let audienceId: string;
 let anchorPostId: string;
 let eventId: string;
 let occurrenceId: string;
+/** The type the issues are reported under. */
+const issueTypeId = `refusal-issue-type-${suffix}`;
+let issueType: IssueTypeFixture;
 
 /** Every person a test made, for the clean-up. */
 const personIds: string[] = [];
@@ -214,6 +222,34 @@ const JOBS: readonly ErasureJob[] = [
           }
           return posts > 0;
         },
+      };
+    },
+  },
+  {
+    name: "issues",
+    async seed(personId) {
+      // Closed yesterday, so its free text is years inside the board's clock
+      // and only the request could remove it.
+      const { id } = await prisma.issue.create({
+        data: {
+          typeId: issueTypeId,
+          statusId: issueType.statusIds.DONE,
+          outcome: "FIXED",
+          reporterPersonId: personId,
+          description: "Det droppar fran taket i badrummet.",
+          closedAt: RECENT,
+        },
+        select: { id: true },
+      });
+      return {
+        erase: () => app.get(IssueErasureService).eraseIssue(id, personId, NOW),
+        standing: async () =>
+          (
+            await prisma.issue.findUniqueOrThrow({
+              where: { id },
+              select: { description: true },
+            })
+          ).description !== "",
       };
     },
   },
@@ -535,6 +571,11 @@ beforeAll(async () => {
       select: { id: true },
     })
   ).id;
+  issueType = await createIssueTypeFixture(prisma, {
+    id: issueTypeId,
+    name: `Vattenlacka ${suffix}`,
+    reporters: ["RESIDENTS"],
+  });
 }, 60_000);
 
 afterAll(async () => {
@@ -569,6 +610,8 @@ afterAll(async () => {
   );
   await step(() => prisma.audience.deleteMany({ where: { id: audienceId } }));
   await step(() => prisma.event.deleteMany({ where: { id: eventId } }));
+  await step(() => prisma.issue.deleteMany({ where: { typeId: issueTypeId } }));
+  await step(() => prisma.issueType.deleteMany({ where: { id: issueTypeId } }));
   await step(() =>
     prisma.keyOrder.deleteMany({
       where: { orderedByPersonId: { in: personIds } },
