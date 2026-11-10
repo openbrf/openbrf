@@ -340,10 +340,9 @@ describe("a page of the queue read while a reporter's data becomes protected", (
 });
 
 /**
- * The queue read across midnight: the day is taken inside the transaction, and
- * the clock turns before the rows become views. A row's `overdue` must then
- * agree with the day the list and the counts were read by, not with the day it
- * is serialised on.
+ * A person the issue concerns can have their data protected between the queue
+ * query and the construction of the views. An issue recorded on them must then
+ * be left out of the page, even though the query had let it through.
  */
 describe("a page of the queue read while a concerned person's data becomes protected", () => {
   it("leaves out the issue they are recorded on, which the query still let through", async () => {

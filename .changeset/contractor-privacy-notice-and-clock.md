@@ -34,7 +34,8 @@ whether or not its mail left, keeps the name and address it was written to for
 as long as it keeps its own text:
 until its text is erased ten years after its issue was closed, longer while a
 legal hold stands on the issue or a legal hold or a restriction stands on the
-person who reported it, and shorter if a handler redacts the text. A work order
+person who reported it or on a person the issue concerns, and shorter if a
+handler redacts the text. A work order
 whose text is already gone keeps them while a legal hold stands on its issue,
 and loses them when the hold is released. Other work orders lose the name and
 address when the contractor goes.
