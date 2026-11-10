@@ -1924,6 +1924,8 @@ enum AuditAction {
   ISSUE_DAMAGE_CASE_REMOVED
   /// A handler recorded a person an issue concerns (ADR 0057). The entry names the issue and the record's identifier, and the handler as its actor; never the person, whom the log would otherwise keep after the record is purged.
   ISSUE_CONCERNED_PERSON_ADDED
+  /// The board weighed under GDPR art. 15(4) what of an issue's text goes into one person's access report (ADR 0057). The entry names the person whose report it is and how many texts were given and left out; never the issue, which would keep for good that the case concerned them, nor the texts.
+  ISSUE_ACCESS_WEIGHED
   /// A person was moved into an apartment.
   MOVE_IN_RECORDED
   /// A residency was given its move-out date.
@@ -4756,6 +4758,10 @@ model Issue {
   /// layer, and removed with it.
   concernedPersons IssueConcernedPerson[]
 
+  /// The board's art. 15(4) weighing of its text for an access report (ADR
+  /// 0057). Removed with the free-text layer.
+  accessWeighings IssueAccessWeighing[]
+
   /// What the handlers sent contractors about it, oldest first.
   workOrders  WorkOrder[]
   /// The conversation with the reporter (svar), and the handlers' own notes
@@ -4930,6 +4936,10 @@ model IssueConcernedPerson {
   person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
+
+  /// The board's weighing of the case's text for this person's access report.
+  /// Goes with the record.
+  accessWeighings IssueAccessWeighing[]
 
   /// When the record was taken off the issue and only the selector was kept,
   /// null while the record stands.
@@ -5405,6 +5415,10 @@ model IssueMessage {
 
   createdAt DateTime @default(now())
 
+  /// The board's weighing of it for an access report (ADR 0057), which goes
+  /// with it.
+  accessWeighings IssueAccessWeighing[]
+
   @@index([issueId, createdAt])
   @@index([authorPersonId])
   // The queue's search (`IssueService.searchWhere`) matches a word anywhere in
@@ -5443,11 +5457,90 @@ model IssueNote {
 
   createdAt DateTime @default(now())
 
+  /// The board's weighing of it for an access report (ADR 0057), which goes
+  /// with it.
+  accessWeighings IssueAccessWeighing[]
+
   @@index([issueId, createdAt])
   @@index([authorPersonId])
   // For the queue's search, as on an issue message.
   @@index([body(ops: raw("gin_trgm_ops"))], type: Gin, map: "issue_note_body_trgm_idx")
   @@map("issue_note")
+}
+
+/// Which text on an issue a weighing is about (ADR 0057).
+enum IssueAccessPart {
+  DESCRIPTION
+  LOCATION
+  MESSAGE
+  NOTE
+}
+
+/// Why a text is left out of a person's access report, as GDPR art. 15(4)
+/// allows (ADR 0057).
+enum IssueAccessWithholdingReason {
+  /// It would tell the person who reported the case. Only on a case somebody
+  /// else reported.
+  IDENTIFIES_REPORTER
+  /// It is about somebody other than the person whose report it is.
+  ABOUT_ANOTHER_PERSON
+}
+
+/// The board's weighing under GDPR art. 15(4) of one text on an issue for one
+/// person's data subject access report (access weighing, ADR 0057): given
+/// whole, given in part, or left out whole, for a stated reason.
+///
+/// Whose report it is: the person a concerned-person record names, where
+/// `concernedPersonId` is set, and the issue's reporter where it is null. The
+/// reporter's report weighs only the internal notes, because their own words
+/// and the conversation are already theirs to read. A concerned person's
+/// weighs the description, the location, every message and every note. A text
+/// with no row here is not yet weighed: the report gives none of it, says it
+/// awaits the board, and the board's screen will not print it until it is
+/// weighed.
+///
+/// No column names a person: the record and the issue do. Each row goes with
+/// the text it weighs or the record whose report it is (cascade), with a
+/// handler's redaction of that text (`IssueRedactionService`), and every row on
+/// an issue goes with its free-text layer (`IssueFreeTextService`). The board
+/// member who weighed is the actor of `ISSUE_ACCESS_WEIGHED`.
+model IssueAccessWeighing {
+  id String @id @default(cuid())
+
+  issueId String
+  issue   Issue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The record of a person the issue concerns, whose report this weighs.
+  /// Null: the reporter's report.
+  concernedPersonId String?
+  concernedPerson   IssueConcernedPerson? @relation(fields: [concernedPersonId], references: [id], onDelete: Cascade)
+
+  part IssueAccessPart
+
+  /// The message or the note weighed, for those parts; null for the
+  /// description and the location.
+  messageId String?
+  message   IssueMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  noteId    String?
+  note      IssueNote?    @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  /// Why it is left out, whole or in part; null when it is given whole.
+  withheldBecause IssueAccessWithholdingReason?
+
+  /// The text given in part: a copy of it with the words the board left out
+  /// taken out and each place marked (`isGivenInPartOf`), which the report
+  /// gives instead of the text. Null when it is given whole or left out whole.
+  /// The text itself stands as it was written, for the issue and for every
+  /// other report. Free text of the case, so it goes where the text goes.
+  givenText String?
+
+  weighedAt DateTime @default(now())
+
+  @@index([issueId])
+  @@index([concernedPersonId])
+  @@index([messageId])
+  @@index([noteId])
+  @@map("issue_access_weighing")
 }
 
 /// A file the handlers attach to an issue for each other: a quote, a protocol,

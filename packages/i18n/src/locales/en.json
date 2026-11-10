@@ -470,6 +470,7 @@
         "loading": "Producing the report",
         "print": "Print",
         "printHint": "Prints as a document. Navigation and buttons stay off the paper.",
+        "notPrintable": "This report is not ready to print. Every text on it has to be weighed, and the report produced again after the last weighing, before it is printed and handed over.",
         "back": "Back to the person",
         "extendedLabel": "Extended on",
         "stamp": "Produced {{date}}",
@@ -522,7 +523,8 @@
           "retention": "Retention",
           "dataSubjectRequests": "What you have asked about your data",
           "personalDataBreaches": "Personal data breaches that reached your data",
-          "transferReversals": "Transfer reversals"
+          "transferReversals": "Transfer reversals",
+          "issuesConcerning": "Issues others reported that concern you"
         },
         "field": {
           "name": "Name",
@@ -685,7 +687,8 @@
           "eraseOn": "Erase date",
           "setAside": "Set aside",
           "nameChoice": "You chose to show your name",
-          "conversation": "Messages"
+          "conversation": "Messages",
+          "notes": "Internal notes"
         },
         "appScope": {
           "read": "Read data",
@@ -913,6 +916,7 @@
           "ISSUE_DAMAGE_CASE_MARKED": "A handler marked an issue as a damage case, or changed the mark",
           "ISSUE_DAMAGE_CASE_REMOVED": "A handler took the damage-case mark off an issue",
           "ISSUE_CONCERNED_PERSON_ADDED": "A handler recorded a person an issue concerns",
+          "ISSUE_ACCESS_WEIGHED": "The board weighed what of an issue goes into this access report",
           "MOVE_IN_RECORDED": "A move-in was recorded",
           "MOVE_OUT_RECORDED": "A move-out was recorded",
           "PLUGIN_ENABLED": "A plugin was switched on",
@@ -1048,7 +1052,65 @@
         "issuePlace": "Common area: {{place}}",
         "issueTextErasableFrom": "Free text may be erased from <data>{{date}}</data>",
         "issueLegalHold": "Free text kept under a legal hold on the issue",
-        "issueClosed": "Closed <data>{{date}}</data>"
+        "issueClosed": "Closed <data>{{date}}</data>",
+        "issuesConcerningIntro": "The association recorded that these issues concern you, and you did not report them. This report does not say who, if anyone, reported them. Each issue is listed with its number, type, dates, where it stands and how it ended. What it holds in words is given where the board weighed it could be, and beside anything left out is the reason.",
+        "issueConcernRecorded": "Recorded as concerning you <data>{{date}}</data>",
+        "weighed": {
+          "givenInPart": {
+            "IDENTIFIES_REPORTER": "Given in part: words that would tell who reported the issue are left out, each place marked {{mark}} (GDPR art. 15(4))",
+            "ABOUT_ANOTHER_PERSON": "Given in part: words about somebody else are left out, each place marked {{mark}} (GDPR art. 15(4))"
+          },
+          "withheld": {
+            "IDENTIFIES_REPORTER": "Left out: it would tell who reported the issue (GDPR art. 15(4))",
+            "ABOUT_ANOTHER_PERSON": "Left out: it is about somebody else (GDPR art. 15(4))"
+          },
+          "unweighed": "Not given: the board has not yet weighed it",
+          "notice": "Some of what these issues hold is left out, because giving it would adversely affect the rights and freedoms of others (GDPR art. 15(4)). The reason is stated beside each part left out. If you disagree, you may complain to IMY, imy.se."
+        },
+        "weighing": {
+          "pending_one": "One text in the issues below has not been weighed, so none of it is given. Weigh it before you print and hand over the report.",
+          "pending_other": "{{count}} texts in the issues below have not been weighed, so none of them are given. Weigh them before you print and hand over the report.",
+          "open": "Weigh what is given",
+          "headingLoading": "Weigh what is given",
+          "heading": "Weigh issue {{number}} ({{type}}) for this report",
+          "loading": "Reading the issue's texts...",
+          "loadFailed": "The issue's texts could not be read. Try again.",
+          "intro": {
+            "reporter": "This person reported the issue, and their own words and the conversation are given as they read them. The internal notes are not on their screen: give each note, give it in part with the words about somebody else left out, or leave it out where none of it can be given (GDPR art. 15(4)). Leave out only what you must; the report says that something was left out and why.",
+            "concerned": "This person did not report the issue, and a handler recorded that it concerns them. Its number, type, dates, status and outcome are always given. Give each text, give it in part with the words left out that would tell who reported the issue or that are about somebody else, or leave it out where none of it can be given (GDPR art. 15(4)). Leave out only what you must; the report says that something was left out and why, and never who, if anyone, reported the issue."
+          },
+          "nothing": "Nothing on this issue is left to weigh.",
+          "part": {
+            "DESCRIPTION": "Description",
+            "LOCATION": "Location",
+            "MESSAGE_REPORTER": "Message from the reporter",
+            "MESSAGE_HANDLER": "Message from a handler",
+            "NOTE": "Internal note"
+          },
+          "choice": {
+            "given": "Give it",
+            "inPart": {
+              "IDENTIFIES_REPORTER": "Give it in part: leave out the words that would tell who reported the issue",
+              "ABOUT_ANOTHER_PERSON": "Give it in part: leave out the words about somebody else"
+            },
+            "withheld": {
+              "IDENTIFIES_REPORTER": "Leave it out: it would tell who reported the issue",
+              "ABOUT_ANOTHER_PERSON": "Leave it out: it is about somebody else"
+            }
+          },
+          "copy": {
+            "label": "What the report gives",
+            "hint": "Select the words the report must not give and choose Leave out the selected words; each place is marked {{mark}}. Only take words out: the text itself stays as written.",
+            "leaveOut": "Leave out the selected words",
+            "invalid": "The copy has to keep the text's own words in their order, with each place words were left out marked {{mark}}, and keep some of the text. To give none of it, leave it out instead."
+          },
+          "chooseEach": "Choose for every text, and finish every copy given in part, before you save.",
+          "save": "Save the weighing",
+          "saving": "Saving...",
+          "saveFailed": "The weighing could not be saved. Try again.",
+          "producingAgain": "Producing the report again with the weighing...",
+          "close": "Close"
+        }
       },
       "requests": {
         "kind": {
@@ -4431,7 +4493,7 @@
     },
     "notes": {
       "title": "Internal notes",
-      "hint": "Only those who handle this issue read these. The reporter never does.",
+      "hint": "Only those who handle this issue read these here, and the reporter never sees them on screen. The reporter's access report, and that of a person the issue concerns, can still give a note once the board has weighed it (GDPR art. 15).",
       "empty": "No notes yet.",
       "label": "Note",
       "labelNamed": "{{type}}: internal note",
@@ -4705,7 +4767,7 @@
     },
     "concerned": {
       "title": "Who the issue concerns",
-      "intro": "Record the residents the issue is about when they did not report it themselves, such as the neighbour a report of a disturbance names. Only those who handle the issue see the list; the reporter is never shown it. It is part of the issue's free text: it is removed with the text, and a legal hold keeps it as it keeps the text.",
+      "intro": "Record the residents the issue is about when they did not report it themselves, such as the neighbour a report of a disturbance names. Only those who handle the issue see the list; the reporter is never shown it. It is part of the issue's free text: it is removed with the text, and a legal hold keeps it as it keeps the text. A person on the list gets the issue in their access report, and its text as far as the board weighs that it can be given, never who reported it.",
       "loading": "Reading who the issue concerns...",
       "readFailed": "Who the issue concerns could not be read just now.",
       "none": "Nobody is recorded as concerned.",
@@ -7111,7 +7173,7 @@
           "name": "Issue reports",
           "purpose": "Receiving and dealing with problems in the building, including the work orders handlers send to contractors, and telling whoever handles an issue, and whoever reported it, by email. The emails about an issue carry the issue number, the issue type and a link, and those to whoever handles it the priority too, never what anybody wrote. A work order's email carries the text a handler wrote for the contractor and nothing else from the issue; the first one to a contractor also links the association's privacy notice. An issue of a ring-fenced issue type, such as one for disturbances between neighbours, is read by the board alone and never mailed about, to anybody. A handler may record whom an issue concerns, such as the neighbour a report of a disturbance is about, chosen from who lives in an apartment today; only those who handle the issue read it.",
           "legalBasisNote": "Legitimate interest: managing the property. A reporter may volunteer data about health (art. 9). The contractor list: the contract (art. 6(1)(b)) for a contractor who is a sole trader, and legitimate interest, being able to hire and reach the firm, for a firm's contact person.",
-          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes, the photographs and the record of whom the issue concerns are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it or on a person it concerns, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, the ordinary retention window chosen for it, which follows the general ten-year limitation period for a claim about the work (preskriptionslagen 2 §); a claim's limitation period can be interrupted or renewed, and the erasure does not follow that, so a legal hold on the issue or a legal hold or a restriction on the reporter or on a person the issue concerns is what keeps the text longer; where a work order's text still stands when the rest of the issue's free text is removed, a bare internal reference to each person the issue concerns is kept, which nobody reads, so that a hold or a restriction placed on them later still keeps that text, and it is deleted with the last of it; when it was sent is kept, and whom it went to is kept while the contractor stays on the list and, once the list's own clock has removed the contractor, for as long as the work order keeps its text or its issue is under a legal hold. The board removing a contractor from the list erases the name and email address on their work orders. The free text of an issue of a ring-fenced issue type, such as one for disturbances between neighbours, is purged on a clock of its own, the number of years after closing the board sets for those issues apart from the others (1 to 10, 1 by default), unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it or on a person it concerns. A damage case places a legal hold on the issue, and so does the first mark of an inspection finding; the hold stands until a handler releases it, and a legal hold keeps the text of a ring-fenced issue past its clock as well. A contractor is removed from the association's list, with its name, trade, phone and email address, ten years after the last work order sent it, or after it was added if none was, following the general ten-year limitation period (preskriptionslagen 2 §), whatever its work orders still hold; the board can remove one sooner."
+          "retention": "What the issue concerned, when it was reported and closed, the outcome and the apartment, where one was named, are kept. The description, the location, the conversation, the internal notes, the photographs, the record of whom the issue concerns and the board's weighing of that text for an access report are removed the number of years after closing the board sets (1 to 10, 2 by default) unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it or on a person it concerns, or earlier on the reporter's granted erasure request. The link to the reporter is detached when the reporter's own personal data is purged, once that text is gone and no work order's text stands, so that a legal hold or a restriction placed on them later still keeps the text. A public-form report's contact details are purged 365 days after it is closed; if a work order was sent about it, its email address is kept in a coded form that cannot be read back until the work order's text is erased, so that a legal hold or a restriction on the person who reported it still keeps that text. The text of a work order sent to a contractor is erased ten years after its issue is closed, the ordinary retention window chosen for it, which follows the general ten-year limitation period for a claim about the work (preskriptionslagen 2 §); a claim's limitation period can be interrupted or renewed, and the erasure does not follow that, so a legal hold on the issue or a legal hold or a restriction on the reporter or on a person the issue concerns is what keeps the text longer; where a work order's text still stands when the rest of the issue's free text is removed, a bare internal reference to each person the issue concerns is kept, which nobody reads, so that a hold or a restriction placed on them later still keeps that text, and it is deleted with the last of it; when it was sent is kept, and whom it went to is kept while the contractor stays on the list and, once the list's own clock has removed the contractor, for as long as the work order keeps its text or its issue is under a legal hold. The board removing a contractor from the list erases the name and email address on their work orders. The free text of an issue of a ring-fenced issue type, such as one for disturbances between neighbours, is purged on a clock of its own, the number of years after closing the board sets for those issues apart from the others (1 to 10, 1 by default), unless a legal hold stands on the issue or a legal hold or a restriction on the person who reported it or on a person it concerns. A damage case places a legal hold on the issue, and so does the first mark of an inspection finding; the hold stands until a handler releases it, and a legal hold keeps the text of a ring-fenced issue past its clock as well. A contractor is removed from the association's list, with its name, trade, phone and email address, ten years after the last work order sent it, or after it was added if none was, following the general ten-year limitation period (preskriptionslagen 2 §), whatever its work orders still hold; the board can remove one sooner."
         },
         "documents": {
           "name": "Document archive",

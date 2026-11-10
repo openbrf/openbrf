@@ -31,6 +31,7 @@ export const DATA_SUBJECT_REPORT_SECTIONS = [
   "publicationConsents",
   "legalHolds",
   "issues",
+  "issuesConcerning",
   "issueAssignments",
   "documents",
   "apartmentDocuments",

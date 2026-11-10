@@ -31,6 +31,6 @@ works on an issue of any type.
   restriction placed on the person later still keeps that text; it is deleted
   with the last of it. The record of processing activities and the board's
   settings say so in Swedish and English.
-- **Not yet on that person's access report.** A later change carries such a
-  case to the person it concerns, without the reporter, also while only a work
-  order's text of it stands.
+- **On that person's access report.** The case reaches the person it concerns,
+  without the reporter, also while only a work order's text of it stands (see
+  the access weighing change).

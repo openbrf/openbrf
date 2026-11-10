@@ -408,9 +408,17 @@ locally the application runs from source beside the PostgreSQL that
       and never the person. The record is personal data of its own and goes with
       the issue's free text, and a legal hold or a restriction on a person it
       concerns keeps that text as one on the reporter does (ADR 0057)
-- [ ] The access report of a person an issue concerns: each case about them that
-      somebody else reported, without the reporter, after the board's art. 15(4)
-      weighing (ADR 0057, question 3)
+- [x] The access report of a person an issue concerns: each case about them that
+      somebody else reported, with its number, type, dates, status and outcome,
+      and its words only as the board weighed them under art. 15(4): each text
+      given whole, given in part as a copy with words left out, or left out,
+      because it would tell who reported the case or is about somebody else,
+      with the reason and the right to complain to IMY. The text itself stays
+      as written.
+      Never the reporter, and no source. A text nobody has weighed is not
+      given, and the board's screen will not print the report until it is. The
+      weighing is the report producer's, goes with the text, and the audit log
+      names the person and never the case (ADR 0057, questions 1 and 3)
 - [x] Mail about issues: a new issue to its assignee, or to the type's handlers
       when it lands unassigned; an urgent one to every handler of its type; an
       assignment to the new assignee; a reopened one to its assignee; and one
@@ -1064,9 +1072,10 @@ Free, open source, and never moved behind a paywall.
       reporter's data subject access report carries each issue's number, the
       conversation as they read it, a handler's messages signed with a role
       and never a name, when it closed and the earliest day its free text
-      goes, or that a legal hold on the issue keeps it. It never carries an
-      internal note, while the legal review decides whether art. 15 reaches
-      the notes about a reporter (ADR 0057, question 1)
+      goes, or that a legal hold on the issue keeps it. It carries the
+      internal notes on each issue as the board weighed them under art.
+      15(4), given whole, in part or left out with the reason, never who wrote one
+      (ADR 0057, question 1)
 - [x] News on the association's website and by email: an item is for the
       members unless the board publishes it to the street, and publishing mails
       every member once - a toggle, on by default - through the job queue and

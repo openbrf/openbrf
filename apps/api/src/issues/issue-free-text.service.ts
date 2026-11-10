@@ -153,6 +153,11 @@ export class IssueFreeTextService {
       const { count: notes } = await tx.issueNote.deleteMany({
         where: { issueId },
       });
+      // The board's weighing of the text for an access report has nothing
+      // left to weigh (ADR 0057). The rows on a message or a note went with
+      // it; those on the description, the location and a kept selector go
+      // here.
+      await tx.issueAccessWeighing.deleteMany({ where: { issueId } });
       const { count: contractorNotes } = await tx.workOrderNote.deleteMany({
         where: { workOrder: { issueId } },
       });

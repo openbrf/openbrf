@@ -252,6 +252,7 @@ export class IssueRedactionService {
           if (count === 0) {
             return false;
           }
+          await dropAccessWeighings(tx, { issueId, part: "DESCRIPTION" });
           break;
         }
         case "location": {
@@ -268,6 +269,7 @@ export class IssueRedactionService {
           if (count === 0) {
             return false;
           }
+          await dropAccessWeighings(tx, { issueId, part: "LOCATION" });
           break;
         }
         case "message":
@@ -293,8 +295,10 @@ export class IssueRedactionService {
           const data = { body: "", redactedAt: now };
           if (redaction.target === "message") {
             await tx.issueMessage.update({ where: { id: redaction.id }, data });
+            await dropAccessWeighings(tx, { messageId: redaction.id });
           } else {
             await tx.issueNote.update({ where: { id: redaction.id }, data });
+            await dropAccessWeighings(tx, { noteId: redaction.id });
           }
           break;
         }
@@ -650,4 +654,16 @@ function targetNotFound(): IssueError {
     "Nothing on this issue to redact by that identifier.",
     "redaction-target-not-found",
   );
+}
+
+/**
+ * The board's weighing of a text for an access report goes with a redaction
+ * of the text (ADR 0057): there is nothing left of it to give, and a copy the
+ * board gave in part holds some of its words.
+ */
+async function dropAccessWeighings(
+  tx: Prisma.TransactionClient,
+  where: Prisma.IssueAccessWeighingWhereInput,
+): Promise<void> {
+  await tx.issueAccessWeighing.deleteMany({ where });
 }

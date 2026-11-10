@@ -15,9 +15,8 @@ module holds about a person.
   emptied says when it was purged. Each issue states the earliest day its
   free text, conversation and photographs may be purged, on the clock of its
   issue type, or that a legal hold on the issue keeps them.
-- **Internal notes stay out of every access report**, the reporter's
-  included, while the legal review decides whether GDPR art. 15 gives a
-  reporter the notes the handlers keep about their issue.
+- **Internal notes** reach the reporter's access report only as the board
+  weighs each under GDPR art. 15(4) (see the access weighing change).
 - **The report forms say how long the report is kept.** The residents' form
   states the number of years after closing that the issue's free text is
   kept, that the issue's apartment or common area stays after that, and that a

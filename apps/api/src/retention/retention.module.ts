@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 
 import { DataSubjectReportController } from "./data-subject-report.controller";
 import { DataSubjectReportService } from "./data-subject-report.service";
+import { IssueAccessWeighingService } from "./issue-access-weighing.service";
 import { LegalHoldController } from "./legal-hold.controller";
 import { LegalHoldService } from "./legal-hold.service";
 import { PurgeService } from "./purge.service";
@@ -25,7 +26,12 @@ import { PurgeService } from "./purge.service";
  */
 @Module({
   controllers: [LegalHoldController, DataSubjectReportController],
-  providers: [LegalHoldService, PurgeService, DataSubjectReportService],
+  providers: [
+    LegalHoldService,
+    PurgeService,
+    DataSubjectReportService,
+    IssueAccessWeighingService,
+  ],
   exports: [LegalHoldService, PurgeService, DataSubjectReportService],
 })
 export class RetentionModule {}

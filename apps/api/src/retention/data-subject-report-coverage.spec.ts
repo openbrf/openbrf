@@ -185,10 +185,19 @@ const COLUMN_COVERAGE = {
   /*
    * A person a handler recorded an issue as concerning: chosen by somebody
    * else, so they did not act, and the entry recording it names nobody but
-   * the handler. The section that carries such a case to the person, without
-   * its reporter (ADR 0057, question 3), is a change of its own.
+   * the handler. The case reaches them in `issuesConcerning`, without its
+   * reporter and with its words as the board weighed them (ADR 0057,
+   * question 3).
    */
-  IssueConcernedPerson: { personId: { notReported: "gap" } },
+  IssueConcernedPerson: { personId: { sections: ["issuesConcerning"] } },
+  /*
+   * The board's weighing of a case's text for the report of a person it
+   * concerns, through their record: what that section gives and leaves out.
+   * Who weighed is the actor of `ISSUE_ACCESS_WEIGHED`.
+   */
+  IssueAccessWeighing: {
+    concernedPersonId: { sections: ["issuesConcerning"] },
+  },
   // The handler who sent a work order is its sending's actor.
   WorkOrder: { sentByPersonId: { actedAs: ["ISSUE_WORK_ORDER_SENT"] } },
   /*
@@ -196,9 +205,9 @@ const COLUMN_COVERAGE = {
    * internal note, is the actor of its entry (ADR 0057), which is what reaches
    * the writer's report. The words of the conversation reach the reporter's
    * through the issue, in its `issues` section as the reporter reads them,
-   * signed with a role and never a handler's name. An internal note's do not:
-   * whether art. 15 gives a reporter the notes about their issue is the legal
-   * review's question (ADR 0057, question 1), and the section's type says so.
+   * signed with a role and never a handler's name. An internal note's reach
+   * it too, in the same section, each as the board weighed it under art.
+   * 15(4) (ADR 0057, question 1), and never with its author.
    */
   IssueMessage: { authorPersonId: { actedAs: ["ISSUE_MESSAGE_SENT"] } },
   IssueNote: { authorPersonId: { actedAs: ["ISSUE_NOTE_ADDED"] } },
@@ -420,7 +429,9 @@ type DisclosureCoverage =
 const DISCLOSURE_COVERAGE = {
   WorkOrder: {
     // The contractor as the mail addressed them; null once they were removed.
-    recipientName: { sections: ["issues"] },
+    // On a case somebody else reported, the report of a person it concerns
+    // names them too.
+    recipientName: { sections: ["issues", "issuesConcerning"] },
     // The contractor's address is theirs, not the reporter's.
     recipientEmailCipher: { withheld: "recipientsOwnData" },
     // The handler's text: the report names the recipient and the date instead.
@@ -452,7 +463,6 @@ const WORK_ORDER_PERSONAL_COLUMNS: readonly ColumnsOf["WorkOrder"][] = [
 const NAMED_GAPS = [
   "ContactSubmission.handledByPersonId",
   "ImportSession.createdById",
-  "IssueConcernedPerson.personId",
   "MeetingAttendance.onBehalfOfPersonId",
   "SignupRequest.emailIndex",
 ];

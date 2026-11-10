@@ -18,8 +18,11 @@
 /** A sign on a row (skylt-chip). The label is an i18n key, never the API's. */
 import type {
   AuditChannelName,
+  IssueAccessPart,
+  IssueAccessWithholdingReason,
   IssueCostResponsibility,
   IssueOutcome,
+  IssueSignature,
   IssueStatusMeaning,
   IssueWaitingReason,
 } from "@openbrf/shared";
@@ -530,6 +533,7 @@ export type ReportAuditAction =
   | "ISSUE_DAMAGE_CASE_MARKED"
   | "ISSUE_DAMAGE_CASE_REMOVED"
   | "ISSUE_CONCERNED_PERSON_ADDED"
+  | "ISSUE_ACCESS_WEIGHED"
   | "ISSUE_RESIDENTS_LISTED"
   | "ISSUE_WORK_ORDER_SENT"
   | "ISSUE_WORK_ORDER_LINK_ISSUED"
@@ -890,21 +894,49 @@ export interface DataSubjectReport {
      */
     messages: OwnIssueMessage[];
     /**
-     * Whom the issue was sent to, oldest first. `recipientName` is null once
-     * the contractor was removed from the list. Never the text or an address.
+     * The internal notes, oldest first, each as the board weighed it for this
+     * report under art. 15(4) (ADR 0057). Never who wrote one.
      */
-    workOrders: {
-      recipientName: string | null;
-      /** When it was written and queued; whether it went is `deliveryStatus`. */
+    notes: ReportIssueNote[];
+    workOrders: ReportIssueWorkOrder[];
+  }[];
+  /**
+   * Cases a handler recorded as concerning this person that somebody else
+   * reported (ADR 0057). The case always; its words only as the board weighed
+   * them; never its reporter.
+   */
+  issuesConcerning: {
+    issueId: string;
+    number: number;
+    typeName: string;
+    meaning: IssueStatusMeaning;
+    outcome: IssueOutcome | null;
+    waitingReason: IssueWaitingReason | null;
+    /** When a handler recorded that the case concerns this person. */
+    recordedAt: string;
+    reportedAt: string;
+    closedAt: string | null;
+    freeTextErasableFrom: string | null;
+    onLegalHold: boolean;
+    freeTextRemovedAt: string | null;
+    /** Null once redacted or removed, which the dates beside it say. */
+    description: ReportWeighedText | null;
+    descriptionRedactedAt: string | null;
+    /** Null where none was given, or once redacted or removed. */
+    location: ReportWeighedText | null;
+    locationRedactedAt: string | null;
+    messages: {
+      messageId: string;
       writtenAt: string;
-      deliveryStatus: "PENDING" | "SENT" | "FAILED";
-      /** A failure known not to have gone out: "not sent", not "not confirmed". */
-      notSent: boolean;
-      /** Whether the contractor was given a link to the work order (ADR 0055). */
-      linkGiven: boolean;
-      /** How many of the issue's photographs the board chose for the link. */
-      photosShared: number;
+      side: "REPORTER" | "HANDLER";
+      /** The role a handler signed it with; null on the reporter's. */
+      signature: IssueSignature | null;
+      redactedAt: string | null;
+      content: ReportWeighedText | null;
     }[];
+    notes: ReportIssueNote[];
+    photographs: number;
+    workOrders: ReportIssueWorkOrder[];
   }[];
   documents: {
     documentId: string;
@@ -1611,7 +1643,7 @@ export class RegisterRequestError extends Error {
  * passed.
  */
 interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH";
+  method?: "GET" | "POST" | "PATCH" | "PUT";
   /** Already serialised JSON. */
   body?: string;
   signal?: AbortSignal;
@@ -1982,6 +2014,110 @@ export function fetchDataSubjectReport(
     // differently from an empty object.
     { method: "POST", body: "{}", signal },
   );
+}
+
+/**
+ * A text on an issue as the report gives it after the board's art. 15(4)
+ * weighing (ADR 0057): whole, in part as the board's copy with words left out
+ * and why, left out whole and why, or not yet weighed, in which case none of
+ * it is given.
+ */
+export type ReportWeighedText =
+  | { state: "given"; text: string }
+  | {
+      state: "givenInPart";
+      text: string;
+      because: IssueAccessWithholdingReason;
+    }
+  | { state: "withheld"; because: IssueAccessWithholdingReason }
+  | { state: "unweighed" };
+
+/** An internal note on an issue, as an access report carries it. */
+export interface ReportIssueNote {
+  noteId: string;
+  writtenAt: string;
+  /** When a handler redacted it; `content` is then null. */
+  redactedAt: string | null;
+  content: ReportWeighedText | null;
+}
+
+/**
+ * Whom an issue was sent to, oldest first. `recipientName` is null once the
+ * contractor was removed from the list. Never the text or an address.
+ */
+export interface ReportIssueWorkOrder {
+  recipientName: string | null;
+  /** When it was written and queued; whether it went is `deliveryStatus`. */
+  writtenAt: string;
+  deliveryStatus: "PENDING" | "SENT" | "FAILED";
+  /** A failure known not to have gone out: "not sent", not "not confirmed". */
+  notSent: boolean;
+  /** Whether the contractor was given a link to the work order (ADR 0055). */
+  linkGiven: boolean;
+  /** How many of the issue's photographs the board chose for the link. */
+  photosShared: number;
+}
+
+/**
+ * The texts of one issue that one person's report weighs, with their words,
+ * for the board alone (`IssueAccessWeighingView` on the server). Never part of
+ * the printed report.
+ */
+export interface IssueAccessWeighing {
+  issueId: string;
+  number: number;
+  typeName: string;
+  /** The person reported the issue, or a handler recorded it as concerning them. */
+  report: "reporter" | "concerned";
+  texts: {
+    part: IssueAccessPart;
+    id: string | null;
+    writtenAt: string;
+    side: "REPORTER" | "HANDLER" | null;
+    text: string;
+    /**
+     * `given`, the reason it is left out, whole or in part, or null while
+     * unweighed.
+     */
+    decision: "given" | IssueAccessWithholdingReason | null;
+    /** The board's copy where it gave the text in part; null otherwise. */
+    givenText: string | null;
+  }[];
+}
+
+/**
+ * One text's weighing, as the board sends it: no reason to give it whole, a
+ * reason to leave it out whole, or a reason and a copy to give it in part.
+ */
+export interface IssueAccessDecision {
+  part: IssueAccessPart;
+  id: string | null;
+  withheldBecause: IssueAccessWithholdingReason | null;
+  givenText: string | null;
+}
+
+function weighingPath(personId: string, issueId: string): string {
+  return `/api/data-subject-reports/persons/${encodeURIComponent(personId)}/issues/${encodeURIComponent(issueId)}/weighing`;
+}
+
+export function fetchIssueAccessWeighing(
+  personId: string,
+  issueId: string,
+  signal: AbortSignal,
+): Promise<IssueAccessWeighing> {
+  return request(weighingPath(personId, issueId), { signal });
+}
+
+/** Records the weighing, replacing the one before it, and answers it. */
+export function saveIssueAccessWeighing(
+  personId: string,
+  issueId: string,
+  decisions: readonly IssueAccessDecision[],
+): Promise<IssueAccessWeighing> {
+  return request(weighingPath(personId, issueId), {
+    method: "PUT",
+    body: JSON.stringify({ decisions }),
+  });
 }
 
 /** A plugin's own text, in each language its locale files give it. */

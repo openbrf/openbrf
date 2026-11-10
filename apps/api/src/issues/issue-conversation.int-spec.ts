@@ -985,7 +985,7 @@ describe("mcp and ai", () => {
 });
 
 describe("the data subject access report", () => {
-  it("gives a reporter their issues and conversations, and no internal note on any issue", async () => {
+  it("gives a reporter their issues and conversations, and no internal note's words before the board weighs it", async () => {
     const own = await filed(plain);
     const neighbours = await filed(plain, {
       reporterPersonId: neighbour.personId,
@@ -1027,8 +1027,13 @@ describe("the data subject access report", () => {
     expect(report.issues.map((entry) => entry.issueId)).not.toContain(
       neighbours,
     );
+    // The note on their own issue is listed, and none of its words are given
+    // until the board weighs it (ADR 0057); the one on the neighbour's issue
+    // is not theirs at all.
+    expect(issue?.notes).toEqual([
+      expect.objectContaining({ content: { state: "unweighed" } }),
+    ]);
     const text = JSON.stringify(report);
-    // No internal note, about them or anybody, and no other reporter's words.
     expect(text).not.toContain(`Anteckning om Rune ${tag}`);
     expect(text).not.toContain(`Rune igen ${tag}`);
     expect(text).not.toContain(`Grannens ${tag}`);

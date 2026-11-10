@@ -1,9 +1,18 @@
 import {
   type AuditChannelName,
   type DataSubjectReportSection,
+  type IssueAccessWithholdingReason,
+  ISSUE_ACCESS_LEFT_OUT_MARK,
   ISSUE_REDACTION_TARGETS,
 } from "@openbrf/shared";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Trans, useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReactElement, ReactNode } from "react";
@@ -28,6 +37,7 @@ import { AUDIT_CHANNEL_LABEL } from "./audit-channel-label";
 import { PurgedMark, RedactedMark } from "../issues/IssueFreeText";
 import { DATA_TAGS } from "../ui/data-tags";
 import { ExtensionNote } from "./ExtensionNote";
+import { IssueAccessWeighingPanel } from "./IssueAccessWeighingPanel";
 import {
   DATA_CELL,
   DOCUMENT,
@@ -50,17 +60,22 @@ import {
   type ConsentScope,
   type DataSubjectReport as Report,
   type EarlierVersion,
+  type IssueAccessDecision,
   type MeetingNoticeDeliveryFailure,
   type NewsDeliveryFailure,
   type RegisterReportKind,
   type ReportAuditAction,
   type ReportDeliveryReceipt,
+  type ReportIssueNote,
+  type ReportIssueWorkOrder,
   type ReportPluginText,
+  type ReportWeighedText,
   type TerminationKind,
   type TransferReportBasis,
   type TransferReversalKind,
   RegisterRequestError,
   fetchDataSubjectReport,
+  saveIssueAccessWeighing,
 } from "./register-api";
 import { usePanelHeadingFocus } from "./use-panel-heading-focus";
 
@@ -112,6 +127,7 @@ export const SECTION_TITLE = {
   publicationConsents: "register.person.report.section.consents",
   legalHolds: "register.person.report.section.legalHolds",
   issues: "register.person.report.section.issues",
+  issuesConcerning: "register.person.report.section.issuesConcerning",
   issueAssignments: "register.person.report.section.issueAssignments",
   documents: "register.person.report.section.documents",
   apartmentDocuments: "register.person.report.section.apartmentDocuments",
@@ -621,6 +637,7 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ISSUE_DAMAGE_CASE_REMOVED",
   ISSUE_CONCERNED_PERSON_ADDED:
     "register.person.report.action.ISSUE_CONCERNED_PERSON_ADDED",
+  ISSUE_ACCESS_WEIGHED: "register.person.report.action.ISSUE_ACCESS_WEIGHED",
   ISSUE_RESIDENTS_LISTED:
     "register.person.report.action.ISSUE_RESIDENTS_LISTED",
   ISSUE_WORK_ORDER_SENT: "register.person.report.action.ISSUE_WORK_ORDER_SENT",
@@ -942,6 +959,34 @@ export function DataSubjectReport({
   const [report, setReport] = useState<Report | null>(null);
   const [failure, setFailure] = useState<TranslationKey | null>(null);
   const [attempt, setAttempt] = useState(0);
+  /*
+   * The issue whose texts the board is weighing for this report under art.
+   * 15(4) (ADR 0057), and which opening of the panel it is, or null. One at a
+   * time, under the section it is in. A save answers only the opening that
+   * sent it, so one still in flight when the board closed that panel, or
+   * opened another, never closes the panel open now or loses its choices.
+   */
+  const [weighingPanel, setWeighingPanel] = useState<{
+    issueId: string;
+    opening: number;
+  } | null>(null);
+  const openings = useRef(0);
+  const weighingIssueId = weighingPanel?.issueId ?? null;
+  /*
+   * One weighing save at a time for the whole report, whichever panel sent
+   * it: the report owns the save, so closing a panel neither drops it nor lets
+   * the next panel send a second beside it.
+   */
+  const savingWeighing = useRef(false);
+  const [weighingSaving, setWeighingSaving] = useState(false);
+  /*
+   * A weighing was saved, or may have been, since the report on screen was
+   * produced, so what it gives may have changed. The report is produced again,
+   * and until it arrives the one on screen stays, so a panel open on it keeps
+   * its choices, but is not printed: a document printed in between could carry
+   * the weighing before it.
+   */
+  const [stale, setStale] = useState(false);
 
   /*
    * One request per mount, and one more only when the board member asks again
@@ -955,6 +1000,7 @@ export function DataSubjectReport({
     void (async () => {
       try {
         setReport(await fetchDataSubjectReport(personId, controller.signal));
+        setStale(false);
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
@@ -1023,6 +1069,99 @@ export function DataSubjectReport({
    */
   const nothing = t("register.person.report.nothing");
 
+  /*
+   * The texts nobody has weighed yet. The report gives none of their words,
+   * and a report handed over in that state would leave them out without a
+   * reason, so it is not printed until they are weighed.
+   */
+  const unweighed = report === null ? 0 : unweighedTexts(report);
+
+  /*
+   * Whether the document may go on paper: produced, every text on it weighed,
+   * no weighing being saved, and none saved since. A save in flight counts
+   * from the moment it is sent: the server may commit it, withholding words
+   * the document on screen still gives, before the answer comes back. Not only
+   * the button: while it may not, the document is kept off the page for the
+   * browser's own print as well, and a sentence saying why is printed instead.
+   */
+  const printable =
+    report !== null && unweighed === 0 && !weighingSaving && !stale;
+
+  function openWeighing(issueId: string): void {
+    openings.current += 1;
+    setWeighingPanel({ issueId, opening: openings.current });
+  }
+
+  function produceAgain(): void {
+    setStale(true);
+    setFailure(null);
+    setAttempt((previous) => previous + 1);
+  }
+
+  /*
+   * Saves a panel's weighing and answers whether it was saved. Saved, the
+   * panel that sent it closes if it is still the one open, and the report is
+   * produced again to show it. Not found: the issue left the report since it
+   * was produced (its record was taken off, or its text removed), which the
+   * report produced again says. A failure the server may have committed
+   * behind, such as a lost connection, produces the report again too, and
+   * keeps the panel's choices to try again.
+   */
+  async function saveWeighing(
+    panel: { issueId: string; opening: number },
+    decisions: IssueAccessDecision[],
+  ): Promise<boolean> {
+    if (savingWeighing.current) {
+      return false;
+    }
+    savingWeighing.current = true;
+    setWeighingSaving(true);
+    try {
+      await saveIssueAccessWeighing(personId, panel.issueId, decisions);
+    } catch (error) {
+      const status =
+        error instanceof RegisterRequestError ? error.status : null;
+      if (status !== 404) {
+        // Refused, nothing changed; otherwise the save may have landed.
+        if (status === null || status >= 500) {
+          produceAgain();
+        }
+        return false;
+      }
+    } finally {
+      savingWeighing.current = false;
+      setWeighingSaving(false);
+    }
+    setWeighingPanel((open) =>
+      open !== null && open.opening === panel.opening ? null : open,
+    );
+    produceAgain();
+    return true;
+  }
+
+  /** The open panel, wired to the report's save. */
+  function weighingPanelFor(issues: readonly { issueId: string }[]) {
+    const panel = weighingPanel;
+    if (
+      panel === null ||
+      !issues.some((issue) => issue.issueId === panel.issueId)
+    ) {
+      return null;
+    }
+    return (
+      <IssueAccessWeighingPanel
+        key={`${panel.issueId}:${String(panel.opening)}`}
+        personId={personId}
+        issueId={panel.issueId}
+        saving={weighingSaving}
+        onSave={(decisions) => saveWeighing(panel, decisions)}
+        onClose={() => {
+          setWeighingPanel(null);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
@@ -1043,13 +1182,37 @@ export function DataSubjectReport({
             onClick={() => {
               window.print();
             }}
-            disabled={report === null}
+            disabled={!printable}
             className={SECONDARY_BUTTON}
           >
             {screenT("register.person.report.print")}
           </button>
         </div>
       </header>
+
+      {unweighed > 0 ? (
+        <div className="print:hidden">
+          <Notice tone="warn">
+            {screenT("register.person.report.weighing.pending", {
+              count: unweighed,
+            })}
+          </Notice>
+        </div>
+      ) : null}
+
+      {stale && failure === null ? (
+        <p role="status" className="text-body text-ink-muted print:hidden">
+          {screenT("register.person.report.weighing.producingAgain")}
+        </p>
+      ) : null}
+
+      {/* What the browser's own print gives while the document may not go on
+          paper: this, and not a report with texts left out for no reason. */}
+      {report !== null && !printable ? (
+        <p className="hidden text-body print:block">
+          {screenT("register.person.report.notPrintable")}
+        </p>
+      ) : null}
 
       <p className="text-small text-ink-muted print:hidden">
         {screenT("register.person.report.printHint")}
@@ -1089,7 +1252,7 @@ export function DataSubjectReport({
           <article
             {...DOCUMENT_ATTRIBUTE}
             lang={report.person.preferredLocale}
-            className={DOCUMENT}
+            className={printable ? DOCUMENT : `${DOCUMENT} print:hidden`}
           >
             <header className="flex flex-col gap-1">
               <h2 className="text-headline">
@@ -1700,6 +1863,7 @@ export function DataSubjectReport({
                   "register.person.report.field.location",
                   "register.person.report.field.description",
                   "register.person.report.field.conversation",
+                  "register.person.report.field.notes",
                   "register.person.report.field.photographs",
                   "register.person.report.field.workOrders",
                 ]}
@@ -1713,6 +1877,14 @@ export function DataSubjectReport({
                         {t("issues.number", { number: issue.number })}
                       </span>
                       {issue.typeName}
+                      {issue.notes.some((note) => note.content !== null) ? (
+                        <WeighButton
+                          open={weighingIssueId === issue.issueId}
+                          onClick={() => {
+                            openWeighing(issue.issueId);
+                          }}
+                        />
+                      ) : null}
                     </td>
                     <td className={TEXT_CELL}>
                       {t(ISSUE_MEANING_LABEL[issue.meaning])}
@@ -1877,42 +2049,194 @@ export function DataSubjectReport({
                         ))
                       )}
                     </td>
+                    {/* The internal notes, each as the board weighed it for
+                      this report under art. 15(4), and never who wrote one
+                      (ADR 0057). */}
+                    <td className={TEXT_CELL}>
+                      <IssueNotes
+                        notes={issue.notes}
+                        freeTextRemovedAt={issue.freeTextRemovedAt}
+                      />
+                    </td>
                     <td className={DATA_CELL}>{String(issue.photographs)}</td>
                     {/* Whom the issue was sent to and when (art. 15(1)(c)):
                       never the work order's text, which is the handler's and
                       may name somebody else. */}
                     <td className={TEXT_CELL}>
-                      {issue.workOrders.length === 0
-                        ? nothing
-                        : issue.workOrders.map((order, index) => (
-                            <span key={index} className="block">
-                              <span className="font-data text-data">
-                                {day(order.writtenAt)}
-                              </span>{" "}
-                              {order.recipientName ??
-                                t(
-                                  "register.person.report.workOrder.removedContractor",
-                                )}
-                              {" · "}
-                              {t(
-                                WORK_ORDER_DELIVERY_LABEL[
-                                  order.notSent
-                                    ? "NOT_SENT"
-                                    : order.deliveryStatus
-                                ],
-                              )}
-                              {order.linkGiven
-                                ? ` · ${t(
-                                    "register.person.report.field.workOrderLinkGiven",
-                                    { count: order.photosShared },
-                                  )}`
-                                : null}
-                            </span>
-                          ))}
+                      <IssueWorkOrders orders={issue.workOrders} />
                     </td>
                   </tr>
                 ))}
               </Rows>
+              {report.issues.some((issue) =>
+                issue.notes.some((note) => leftOutOf(note.content)),
+              ) ? (
+                <WithheldNotice />
+              ) : null}
+              {weighingPanelFor(report.issues)}
+            </Section>
+
+            {/* The cases somebody else reported that a handler recorded as
+              concerning this person (ADR 0057): the case always, its words
+              only as the board weighed them, and never who reported it. */}
+            <Section section="issuesConcerning">
+              {report.issuesConcerning.length === 0 ? null : (
+                <p className={FIELD_TEXT}>
+                  {t("register.person.report.issuesConcerningIntro")}
+                </p>
+              )}
+              <Rows
+                empty={report.issuesConcerning.length === 0}
+                headings={[
+                  "register.person.report.field.type",
+                  "register.person.report.field.status",
+                  "register.person.report.field.date",
+                  "register.person.report.field.location",
+                  "register.person.report.field.description",
+                  "register.person.report.field.conversation",
+                  "register.person.report.field.notes",
+                  "register.person.report.field.photographs",
+                  "register.person.report.field.workOrders",
+                ]}
+              >
+                {report.issuesConcerning.map((issue) => (
+                  <tr key={issue.issueId} className={ROW}>
+                    <td className={TEXT_CELL}>
+                      <span className="block font-data text-data">
+                        {t("issues.number", { number: issue.number })}
+                      </span>
+                      {issue.typeName}
+                      {weighableTexts(issue).length > 0 ? (
+                        <WeighButton
+                          open={weighingIssueId === issue.issueId}
+                          onClick={() => {
+                            openWeighing(issue.issueId);
+                          }}
+                        />
+                      ) : null}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {t(ISSUE_MEANING_LABEL[issue.meaning])}
+                      {issue.outcome !== null && (
+                        <span className="block">
+                          {t(ISSUE_OUTCOME_LABEL[issue.outcome])}
+                        </span>
+                      )}
+                      {issue.waitingReason !== null && (
+                        <span className="block">
+                          {t(ISSUE_WAITING_REASON_LABEL[issue.waitingReason])}
+                        </span>
+                      )}
+                    </td>
+                    <td className={DATA_CELL}>
+                      {day(issue.reportedAt)}
+                      {issue.closedAt === null ? null : (
+                        <span className="block">
+                          <Trans
+                            t={t}
+                            i18nKey="register.person.report.issueClosed"
+                            values={{ date: day(issue.closedAt) }}
+                            components={DATA_TAGS}
+                          />
+                        </span>
+                      )}
+                      <span className="block">
+                        <Trans
+                          t={t}
+                          i18nKey="register.person.report.issueConcernRecorded"
+                          values={{ date: day(issue.recordedAt) }}
+                          components={DATA_TAGS}
+                        />
+                      </span>
+                      {issue.onLegalHold ? (
+                        <span className="block">
+                          {t("register.person.report.issueLegalHold")}
+                        </span>
+                      ) : issue.freeTextErasableFrom === null ? null : (
+                        <span className="block">
+                          <Trans
+                            t={t}
+                            i18nKey="register.person.report.issueTextErasableFrom"
+                            values={{ date: issue.freeTextErasableFrom }}
+                            components={DATA_TAGS}
+                          />
+                        </span>
+                      )}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {issue.locationRedactedAt !== null ? (
+                        <RedactedMark at={issue.locationRedactedAt} t={t} />
+                      ) : issue.location === null &&
+                        issue.freeTextRemovedAt !== null ? (
+                        <PurgedMark at={issue.freeTextRemovedAt} t={t} />
+                      ) : issue.location === null ? (
+                        nothing
+                      ) : (
+                        <WeighedText content={issue.location} />
+                      )}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      {issue.freeTextRemovedAt !== null &&
+                      issue.description === null ? (
+                        <PurgedMark at={issue.freeTextRemovedAt} t={t} />
+                      ) : issue.descriptionRedactedAt !== null ? (
+                        <RedactedMark at={issue.descriptionRedactedAt} t={t} />
+                      ) : issue.description === null ? (
+                        nothing
+                      ) : (
+                        <WeighedText content={issue.description} />
+                      )}
+                    </td>
+                    {/* The reporter's messages are marked as the reporter's
+                      and never named; a handler's are signed with a role. */}
+                    <td className={TEXT_CELL}>
+                      {issue.messages.length === 0 ? (
+                        issue.freeTextRemovedAt !== null ? (
+                          <PurgedMark at={issue.freeTextRemovedAt} t={t} />
+                        ) : (
+                          nothing
+                        )
+                      ) : (
+                        issue.messages.map((message) => (
+                          <span key={message.messageId} className="mb-1 block">
+                            <span className="block">
+                              <span className="font-data text-data">
+                                {day(message.writtenAt)}
+                              </span>{" "}
+                              {message.signature === null
+                                ? t("issues.conversation.reporter")
+                                : t(ISSUE_SIGNATURE_LABEL[message.signature])}
+                            </span>
+                            {message.content === null ? (
+                              message.redactedAt === null ? null : (
+                                <RedactedMark at={message.redactedAt} t={t} />
+                              )
+                            ) : (
+                              <WeighedText content={message.content} />
+                            )}
+                          </span>
+                        ))
+                      )}
+                    </td>
+                    <td className={TEXT_CELL}>
+                      <IssueNotes
+                        notes={issue.notes}
+                        freeTextRemovedAt={issue.freeTextRemovedAt}
+                      />
+                    </td>
+                    <td className={DATA_CELL}>{String(issue.photographs)}</td>
+                    <td className={TEXT_CELL}>
+                      <IssueWorkOrders orders={issue.workOrders} />
+                    </td>
+                  </tr>
+                ))}
+              </Rows>
+              {report.issuesConcerning.some((issue) =>
+                weighableTexts(issue).some(leftOutOf),
+              ) ? (
+                <WithheldNotice />
+              ) : null}
+              {weighingPanelFor(report.issuesConcerning)}
             </Section>
 
             <Section section="issueAssignments">
@@ -3514,6 +3838,206 @@ function DispatchingPlugin({
  * it. Named by the report's own key rather than by a translation key, so a
  * heading cannot be printed that the title map does not hold.
  */
+/**
+ * The texts of a case somebody else reported that the report weighs, as it
+ * gives them: the description, the location, each message and each note,
+ * leaving out what a handler redacted or the purge removed.
+ */
+function weighableTexts(
+  issue: Report["issuesConcerning"][number],
+): ReportWeighedText[] {
+  return [
+    issue.description,
+    issue.location,
+    ...issue.messages.map((message) => message.content),
+    ...issue.notes.map((note) => note.content),
+  ].filter((content) => content !== null);
+}
+
+/** How many texts on the report nobody has weighed yet (ADR 0057). */
+function unweighedTexts(report: Report): number {
+  return [
+    ...report.issues.flatMap((issue) =>
+      issue.notes.map((note) => note.content),
+    ),
+    ...report.issuesConcerning.flatMap(weighableTexts),
+  ].filter((content) => content?.state === "unweighed").length;
+}
+
+const WITHHELD_LABEL = {
+  IDENTIFIES_REPORTER:
+    "register.person.report.weighed.withheld.IDENTIFIES_REPORTER",
+  ABOUT_ANOTHER_PERSON:
+    "register.person.report.weighed.withheld.ABOUT_ANOTHER_PERSON",
+} as const satisfies Record<IssueAccessWithholdingReason, TranslationKey>;
+
+const GIVEN_IN_PART_LABEL = {
+  IDENTIFIES_REPORTER:
+    "register.person.report.weighed.givenInPart.IDENTIFIES_REPORTER",
+  ABOUT_ANOTHER_PERSON:
+    "register.person.report.weighed.givenInPart.ABOUT_ANOTHER_PERSON",
+} as const satisfies Record<IssueAccessWithholdingReason, TranslationKey>;
+
+/**
+ * Whether the board left something of a text out, whole or in part, which
+ * the report has to say under art. 15(4) (`WithheldNotice`).
+ */
+function leftOutOf(content: ReportWeighedText | null): boolean {
+  return content?.state === "withheld" || content?.state === "givenInPart";
+}
+
+/**
+ * A text as the board weighed it: the words where it gave them, the board's
+ * copy and the reason where it gave them in part, the reason where it left
+ * them out, and that it is not weighed yet where nobody has. Never a word the
+ * board left out.
+ */
+function WeighedText({
+  content,
+}: {
+  content: ReportWeighedText;
+}): ReactElement {
+  const t = useDocumentTranslation();
+  switch (content.state) {
+    case "given":
+      return <span className="block whitespace-pre-line">{content.text}</span>;
+    case "givenInPart":
+      return (
+        <>
+          <span className="block whitespace-pre-line">{content.text}</span>
+          <span className="block text-ink-muted">
+            {t(GIVEN_IN_PART_LABEL[content.because], {
+              mark: ISSUE_ACCESS_LEFT_OUT_MARK,
+            })}
+          </span>
+        </>
+      );
+    case "withheld":
+      return (
+        <span className="block text-ink-muted">
+          {t(WITHHELD_LABEL[content.because])}
+        </span>
+      );
+    case "unweighed":
+      return (
+        <span className="block text-ink-muted">
+          {t("register.person.report.weighed.unweighed")}
+        </span>
+      );
+  }
+}
+
+/** The internal notes on an issue, oldest first, each as weighed. */
+function IssueNotes({
+  notes,
+  freeTextRemovedAt,
+}: {
+  notes: readonly ReportIssueNote[];
+  freeTextRemovedAt: string | null;
+}): ReactElement {
+  const t = useDocumentTranslation();
+  if (notes.length === 0) {
+    return freeTextRemovedAt === null ? (
+      <>{t("register.person.report.nothing")}</>
+    ) : (
+      <PurgedMark at={freeTextRemovedAt} t={t} />
+    );
+  }
+  return (
+    <>
+      {notes.map((note) => (
+        <span key={note.noteId} className="mb-1 block">
+          <span className="block font-data text-data">
+            {day(note.writtenAt)}
+          </span>
+          {note.content === null ? (
+            note.redactedAt === null ? null : (
+              <RedactedMark at={note.redactedAt} t={t} />
+            )
+          ) : (
+            <WeighedText content={note.content} />
+          )}
+        </span>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Whom an issue was sent to and when (art. 15(1)(c)): never the work order's
+ * text, which is the handler's and may name somebody else.
+ */
+function IssueWorkOrders({
+  orders,
+}: {
+  orders: readonly ReportIssueWorkOrder[];
+}): ReactElement {
+  const t = useDocumentTranslation();
+  if (orders.length === 0) {
+    return <>{t("register.person.report.nothing")}</>;
+  }
+  return (
+    <>
+      {orders.map((order, index) => (
+        <span key={index} className="block">
+          <span className="font-data text-data">{day(order.writtenAt)}</span>{" "}
+          {order.recipientName ??
+            t("register.person.report.workOrder.removedContractor")}
+          {" · "}
+          {t(
+            WORK_ORDER_DELIVERY_LABEL[
+              order.notSent ? "NOT_SENT" : order.deliveryStatus
+            ],
+          )}
+          {order.linkGiven
+            ? ` · ${t("register.person.report.field.workOrderLinkGiven", {
+                count: order.photosShared,
+              })}`
+            : null}
+        </span>
+      ))}
+    </>
+  );
+}
+
+/**
+ * What a report that leaves something out has to say (GDPR art. 15(4); EDPB
+ * Guidelines 01/2022, para 174): that it did, why, and that the person may
+ * complain to IMY. The reason for each text is beside it.
+ */
+function WithheldNotice(): ReactElement {
+  const t = useDocumentTranslation();
+  return (
+    <p className={FIELD_TEXT}>{t("register.person.report.weighed.notice")}</p>
+  );
+}
+
+/**
+ * The board's way into weighing an issue's texts for this report. On the
+ * screen only: the paper carries the outcome, never the control.
+ */
+function WeighButton({
+  open,
+  onClick,
+}: {
+  open: boolean;
+  onClick: () => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <span className="mt-2 block print:hidden">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-expanded={open}
+        className={SECONDARY_BUTTON}
+      >
+        {t("register.person.report.weighing.open")}
+      </button>
+    </span>
+  );
+}
+
 function Section({
   section,
   children,
