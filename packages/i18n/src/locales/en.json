@@ -524,7 +524,7 @@
           "dataSubjectRequests": "What you have asked about your data",
           "personalDataBreaches": "Personal data breaches that reached your data",
           "transferReversals": "Transfer reversals",
-          "issuesConcerning": "Issues others reported that concern you"
+          "issuesConcerning": "Issues that concern you, where you are not recorded as the reporter"
         },
         "field": {
           "name": "Name",
@@ -1054,7 +1054,7 @@
         "issueTextErasableFrom": "Free text may be erased from <data>{{date}}</data>",
         "issueLegalHold": "Free text kept under a legal hold on the issue",
         "issueClosed": "Closed <data>{{date}}</data>",
-        "issuesConcerningIntro": "The association recorded that these issues concern you, and you did not report them. This report does not say who, if anyone, reported them. Each issue is listed with its number, type, dates, where it stands and how it ended. What it holds in words is given where the board weighed it could be, and beside anything left out is the reason.",
+        "issuesConcerningIntro": "The association recorded that these issues concern you, and you are not recorded as their reporter. This report does not say who, if anyone, reported them. Each issue is listed with its number, type, dates, where it stands and how it ended. What it holds in words is given where the board weighed it could be, and beside anything left out is the reason.",
         "issueConcernRecorded": "Recorded as concerning you <data>{{date}}</data>",
         "weighed": {
           "givenInPart": {
@@ -1078,7 +1078,7 @@
           "loadFailed": "The issue's texts could not be read. Try again.",
           "intro": {
             "reporter": "This person reported the issue, and their own words and the conversation are given as they read them. The internal notes are not on their screen: give each note, give it in part with the words about somebody else left out, or leave it out where none of it can be given (GDPR art. 15(4)). Leave out only what you must; the report says that something was left out and why.",
-            "concerned": "This person did not report the issue, and a handler recorded that it concerns them. Its number, type, dates, status and outcome are always given. Give each text, give it in part with the words left out that would tell who reported the issue or that are about somebody else, or leave it out where none of it can be given (GDPR art. 15(4)). Leave out only what you must; the report says that something was left out and why, and never who, if anyone, reported the issue."
+            "concerned": "This person is not recorded as the issue's reporter, and a handler recorded that it concerns them. Its number, type, dates, status and outcome are always given. Give each text, give it in part with the words left out that would tell who reported the issue or that are about somebody else, or leave it out where none of it can be given (GDPR art. 15(4)). Leave out only what you must; the report says that something was left out and why, and never who, if anyone, reported the issue."
           },
           "nothing": "Nothing on this issue is left to weigh.",
           "part": {
@@ -4768,7 +4768,7 @@
     },
     "concerned": {
       "title": "Who the issue concerns",
-      "intro": "Record the residents the issue is about when they did not report it themselves, such as the neighbour a report of a disturbance names. Only those who handle the issue see the list; the reporter is never shown it. It is part of the issue's free text: it is removed with the text, and a legal hold keeps it as it keeps the text. A person on the list gets the issue in their access report, and its text as far as the board weighs that it can be given, never who reported it.",
+      "intro": "Record the residents the issue is about when they are not recorded as its reporter, such as the neighbour a report of a disturbance names. Only those who handle the issue see the list; the reporter is never shown it. It is part of the issue's free text: it is removed with the text, and a legal hold keeps it as it keeps the text. A person on the list gets the issue in their access report, and its text as far as the board weighs that it can be given, never who reported it.",
       "loading": "Reading who the issue concerns...",
       "readFailed": "Who the issue concerns could not be read just now.",
       "none": "Nobody is recorded as concerned.",
