@@ -2231,7 +2231,9 @@ enum AuditAction {
   /// a person. The entry names the row and never its text.
   PROCESSING_ACTIVITY_RECORDED
   /// A row of the record was edited by the board. The entry names which fields
-  /// changed and never their contents.
+  /// changed and never their contents. A board adopting the product's own
+  /// wording for a seeded row it had edited is such an edit, and its entry says
+  /// so with `adoptedProductText`.
   PROCESSING_ACTIVITY_UPDATED
   /// A processing stopped, e.g. the plugin doing it was removed. The row stays
   /// with its end date; the entry records who ended it.

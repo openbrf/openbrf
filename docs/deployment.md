@@ -526,6 +526,34 @@ GRANT USAGE ON SCHEMA extensions TO openbrf_owner;  -- or the OWNER_DB_USER role
 The runtime role needs nothing on that schema: it writes and searches the
 indexed tables without naming the extension.
 
+## The database's time zone
+
+The connection the application reads and writes its data through, and the one
+the demo-data seed uses, ask for the UTC time zone when they open, whatever the
+server's `TimeZone` is. A database in another zone therefore cannot shift a time
+the application writes with SQL of its own. This holds for a managed database
+and for one you installed yourself, and needs nothing set in the database. An
+`options` parameter in `DATABASE_URL` or `DATABASE_URL_RUNTIME` is kept, or the
+`PGOPTIONS` environment variable when the URL has none, with the request for UTC
+after it. These connections use the server's setting instead:
+
+- the migrations and the deploy steps' own sessions;
+- the job queue's connections;
+- the person re-index lock's session and the plugin and theme install lock's
+  session, each opened on its own to hold a database lock. Neither reads or
+  writes a time: they run only `pg_try_advisory_lock`, `pg_advisory_lock` and
+  `set_config('lock_timeout', ...)`, and a `SELECT 1` to tell a dropped session
+  from a live one;
+- the startup check that the runtime role is the constrained one. It runs one
+  `SELECT` on the role's attributes and ownership, writes nothing and reads no
+  time.
+
+Only the migrations, the deploy steps and the job queue can therefore write a
+time that a database in another zone shifts. The shipped PostgreSQL
+image is UTC; a database of your own whose zone is not should be set to UTC with
+`ALTER DATABASE ... SET TimeZone TO 'UTC'`, which the schema owner check above
+accepts.
+
 ## The database passwords
 
 None of the three has to be supplied. Each one the env file leaves empty is
