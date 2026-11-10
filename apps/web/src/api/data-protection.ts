@@ -1,4 +1,5 @@
 import type {
+  ActivityField,
   DataSubjectCategory,
   PersonalDataCategory,
 } from "@openbrf/shared";
@@ -164,7 +165,24 @@ export interface ProcessingActivityView {
    * one that was read, and to answer `activity-changed` if it is not.
    */
   revision: number;
+  /**
+   * Whether the product's own statement for this row now says something the
+   * row does not. Only ever true on a seeded row the board has edited, which
+   * the seed no longer refreshes.
+   */
+  productDiffers: boolean;
+  /** What the product says now, for each field where the row says otherwise. */
+  productText: ProductText;
+  /**
+   * True on a seeded row the board has edited when the server could not work
+   * out the product's statement for this read. `productDiffers` is then false
+   * because nothing was compared, not because the texts agree.
+   */
+  productTextUnavailable: boolean;
 }
+
+/** The product's statement of a row, for the fields where it differs. */
+export type ProductText = Partial<Pick<ProcessingActivityView, ActivityField>>;
 
 export interface ProcessingRecord {
   controller: {
@@ -362,6 +380,26 @@ export function updateProcessingActivity(
   return apiRequest(
     "PUT",
     `/api/data-protection/processing-activities/${activityId}`,
+    input,
+  );
+}
+
+/**
+ * Writes the product's current wording into the named fields of a seeded row
+ * the board has edited. Names the fields and never their values: the server
+ * writes the product's statement as it computes it.
+ */
+export function adoptProductText(
+  activityId: string,
+  input: {
+    fields: ActivityField[];
+    /** @see ProcessingActivityView.revision */
+    expectedRevision: number;
+  },
+): Promise<ApiResult<ProcessingActivityView>> {
+  return apiRequest(
+    "POST",
+    `/api/data-protection/processing-activities/${activityId}/adopt-product-text`,
     input,
   );
 }

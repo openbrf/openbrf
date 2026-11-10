@@ -168,7 +168,12 @@ export function DataProtectionScreen({
               void load();
             }}
           />
-          <ProcessingActivitiesPanel record={data.record} />
+          <ProcessingActivitiesPanel
+            record={data.record}
+            onAdopted={() => {
+              void load();
+            }}
+          />
           <ProcessorAgreementsPanel
             processors={data.processors}
             onRecorded={() => {
