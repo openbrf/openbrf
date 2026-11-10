@@ -5,6 +5,7 @@ import {
 import { Test } from "@nestjs/testing";
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -40,7 +41,7 @@ import {
   pluginProcessorKey,
 } from "./processor-key";
 import type { ProcessorView } from "./processor-agreement.service";
-import { SEED_KEYS } from "./processing-activity-seed";
+import { SEED_KEYS, seedRows, type SeedRow } from "./processing-activity-seed";
 import type { ProcessingRecord } from "./processing-activity.service";
 import { BREACH_REMINDER_QUEUE } from "./breach-reminder.queue";
 import type { BreachView } from "./breach.service";
@@ -1631,6 +1632,329 @@ describe("record of processing", () => {
         namingPurpose: row.purpose === seededPurpose ? 2 : 1,
       });
     }
+  });
+
+  describe("a board-edited row whose product text has moved on", () => {
+    /*
+     * The seed never overwrites a row the board has edited, so a correction to
+     * the product's own wording never reaches it. The screen shows the board
+     * where the two now differ and lets it take the product's wording; nothing
+     * takes it for the board.
+     *
+     * Two rows no other case here edits, and each is put back as it was in
+     * `finally`: the seeded rows are one set on this shared database, and a row
+     * left edited would stop following the product for every other suite.
+     */
+    const EDITED = "keyOrders";
+    const UNEDITED = "subletApplications";
+
+    /** The product's statement of a row, as the service computes it. */
+    async function productRow(key: string): Promise<SeedRow> {
+      const association = await prisma.association.findUnique({
+        where: { id: 1 },
+        select: { defaultLocale: true },
+      });
+      const rows = seedRows(
+        app.get(I18nService).translatorFor(association?.defaultLocale),
+        await app.get(ProcessorFactsService).read(),
+      );
+      const row = rows.find((candidate) => candidate.sourceKey === key);
+      if (row === undefined) {
+        throw new Error(`the product has no ${key} row`);
+      }
+      return row;
+    }
+
+    /** Seeds in the association's own language, the one `read` compares in. */
+    async function seedInAssociationLocale(): Promise<void> {
+      const association = await prisma.association.findUnique({
+        where: { id: 1 },
+        select: { defaultLocale: true },
+      });
+      await app
+        .get(ProcessingActivityService)
+        .seed(
+          app.get(I18nService).translatorFor(association?.defaultLocale),
+          await app.get(ProcessorFactsService).read(),
+        );
+    }
+
+    async function activityOf(key: string) {
+      const activity = (await readRecord()).activities.find(
+        (candidate) => candidate.sourceKey === key,
+      );
+      if (activity === undefined) {
+        throw new Error(`the seed did not write the ${key} row`);
+      }
+      return activity;
+    }
+
+    function adopt(activityId: string, payload: Record<string, unknown>) {
+      return inject({
+        method: "POST",
+        url: `/api/data-protection/processing-activities/${activityId}/adopt-product-text`,
+        payload,
+        headers: { cookie: boardCookie },
+      });
+    }
+
+    const boardRetention = `Tills nyckeln lamnas tillbaka, enligt styrelsen ${suffix}.`;
+    let restore: () => Promise<void> = async () => undefined;
+
+    beforeEach(async () => {
+      await seedInAssociationLocale();
+      const snapshot = await prisma.processingActivity.findUniqueOrThrow({
+        where: { sourceKey: EDITED },
+        select: { retention: true, purpose: true, updatedByPersonId: true },
+      });
+      restore = async () => {
+        await prisma.processingActivity.update({
+          where: { sourceKey: EDITED },
+          data: snapshot,
+        });
+      };
+
+      const target = await activityOf(EDITED);
+      const edited = await inject({
+        method: "PUT",
+        url: `/api/data-protection/processing-activities/${target.activityId}`,
+        payload: { retention: boardRetention },
+        headers: { cookie: boardCookie },
+      });
+      expect(edited.statusCode).toBe(200);
+    });
+
+    afterEach(async () => {
+      await restore();
+    });
+
+    it("names each field where the product says something else, with the product's value", async () => {
+      const product = await productRow(EDITED);
+      const row = await activityOf(EDITED);
+
+      expect(row.seeded).toBe(false);
+      expect(row.retention).toBe(boardRetention);
+      expect(row.productDiffers).toBe(true);
+      expect(row.productTextUnavailable).toBe(false);
+      // Only the field the board changed: every other field still says what
+      // the product says, and is not offered as a difference.
+      expect(row.productText).toEqual({ retention: product.retention });
+    });
+
+    it("says nothing about a row the seed still refreshes", async () => {
+      const row = await activityOf(UNEDITED);
+      expect(row.seeded).toBe(true);
+      expect(row.productDiffers).toBe(false);
+      expect(row.productText).toEqual({});
+      expect(row.productTextUnavailable).toBe(false);
+
+      // Nor about any row that is not a board-edited seeded one.
+      for (const activity of (await readRecord()).activities) {
+        if (activity.seeded || activity.sourceKey === null) {
+          expect(activity.productDiffers).toBe(false);
+        }
+      }
+    });
+
+    it("keeps the board's wording through a seed, and goes on showing the difference", async () => {
+      await seedInAssociationLocale();
+
+      const row = await activityOf(EDITED);
+      expect(row.retention).toBe(boardRetention);
+      expect(row.productDiffers).toBe(true);
+    });
+
+    it("adopts the product's wording, audited, and leaves the row the board's", async () => {
+      const product = await productRow(EDITED);
+      const target = await activityOf(EDITED);
+      const where = {
+        action: "PROCESSING_ACTIVITY_UPDATED" as const,
+        targetId: target.activityId,
+      };
+      const before = new Set(
+        (
+          await prisma.auditLogEntry.findMany({ where, select: { id: true } })
+        ).map((entry) => entry.id),
+      );
+
+      const response = await adopt(target.activityId, {
+        fields: ["retention"],
+        expectedRevision: target.revision,
+      });
+      expect(response.statusCode).toBe(200);
+      const adopted = response.json<ProcessingRecord["activities"][number]>();
+      expect(adopted.retention).toBe(product.retention);
+      expect(adopted.productDiffers).toBe(false);
+      expect(adopted.seeded).toBe(false);
+      expect(adopted.revision).toBeGreaterThan(target.revision);
+
+      const stored = await prisma.processingActivity.findUniqueOrThrow({
+        where: { id: target.activityId },
+        select: { retention: true, updatedByPersonId: true },
+      });
+      expect(stored).toEqual({
+        retention: product.retention,
+        updatedByPersonId: board.personId,
+      });
+
+      const entries = (
+        await prisma.auditLogEntry.findMany({
+          where,
+          select: { id: true, actorPersonId: true, context: true },
+        })
+      ).filter((entry) => !before.has(entry.id));
+      expect(entries).toEqual([
+        {
+          id: expect.any(String),
+          actorPersonId: board.personId,
+          context: { fields: ["retention"], adoptedProductText: true },
+        },
+      ]);
+
+      // The row is still the board's, so a later move of the product's
+      // wording is shown again rather than written over it. The product
+      // cannot be made to move here, so the row is put back to an older
+      // wording, which is the same difference seen from the other side.
+      await prisma.processingActivity.update({
+        where: { id: target.activityId },
+        data: { retention: "Produktens tidigare formulering." },
+      });
+      await seedInAssociationLocale();
+      const later = await activityOf(EDITED);
+      expect(later.retention).toBe("Produktens tidigare formulering.");
+      expect(later.productText).toEqual({ retention: product.retention });
+    });
+
+    it("writes the product's value and never one the caller sends", async () => {
+      const product = await productRow(EDITED);
+      const target = await activityOf(EDITED);
+
+      const response = await adopt(target.activityId, {
+        fields: ["retention"],
+        retention: "Text som klienten hittat pa.",
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json<{ retention: string }>().retention).toBe(
+        product.retention,
+      );
+    });
+
+    it("writes and audits nothing for a field that already says what the product says", async () => {
+      const target = await activityOf(EDITED);
+      expect(target.productText).not.toHaveProperty("name");
+      const where = {
+        action: "PROCESSING_ACTIVITY_UPDATED" as const,
+        targetId: target.activityId,
+      };
+      const before = await prisma.auditLogEntry.count({ where });
+
+      const response = await adopt(target.activityId, {
+        fields: ["name"],
+        expectedRevision: target.revision,
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json<{ revision: number }>().revision).toBe(
+        target.revision,
+      );
+      expect(await prisma.auditLogEntry.count({ where })).toBe(before);
+      // And the difference that is there is still shown.
+      expect((await activityOf(EDITED)).productDiffers).toBe(true);
+    });
+
+    it("refuses a stale adoption even where there is nothing left to write", async () => {
+      const product = await productRow(EDITED);
+      const target = await activityOf(EDITED);
+      // Another board member's save brings the field back into line, so the
+      // adoption below would write nothing; its copy is still not the row.
+      const moved = await inject({
+        method: "PUT",
+        url: `/api/data-protection/processing-activities/${target.activityId}`,
+        payload: { retention: product.retention },
+        headers: { cookie: boardCookie },
+      });
+      expect(moved.statusCode).toBe(200);
+
+      const stale = await adopt(target.activityId, {
+        fields: ["retention"],
+        expectedRevision: target.revision,
+      });
+      expect(stale.statusCode).toBe(409);
+      expect(reasonOf(stale)).toBe("activity-changed");
+    });
+
+    it("refuses an adoption built on a copy somebody else has replaced", async () => {
+      const target = await activityOf(EDITED);
+      const moved = await inject({
+        method: "PUT",
+        url: `/api/data-protection/processing-activities/${target.activityId}`,
+        payload: {
+          purpose: "Kollegans egen beskrivning av nyckelbestallningar.",
+        },
+        headers: { cookie: boardCookie },
+      });
+      expect(moved.statusCode).toBe(200);
+
+      const stale = await adopt(target.activityId, {
+        fields: ["retention"],
+        expectedRevision: target.revision,
+      });
+      expect(stale.statusCode).toBe(409);
+      expect(reasonOf(stale)).toBe("activity-changed");
+
+      const row = await prisma.processingActivity.findUniqueOrThrow({
+        where: { id: target.activityId },
+        select: { retention: true },
+      });
+      expect(row.retention).toBe(boardRetention);
+    });
+
+    it("refuses to adopt on a row with no product text to differ from", async () => {
+      const unedited = await activityOf(UNEDITED);
+      const refused = await adopt(unedited.activityId, {
+        fields: ["retention"],
+      });
+      expect(refused.statusCode).toBe(409);
+      expect(reasonOf(refused)).toBe("no-product-text");
+
+      const stored = await prisma.processingActivity.findUniqueOrThrow({
+        where: { id: unedited.activityId },
+        select: { updatedByPersonId: true },
+      });
+      // Still following the product, which an adoption would have ended.
+      expect(stored.updatedByPersonId).toBeNull();
+
+      const created = await inject({
+        method: "POST",
+        url: "/api/data-protection/processing-activities",
+        payload: {
+          name: `Parkeringsko ${suffix}`,
+          purpose: "Halla reda pa kon till parkeringsplatserna.",
+          legalBasis: "LEGITIMATE_INTEREST",
+          dataSubjectCategories: ["member"],
+          personalDataCategories: ["name", "apartment"],
+          thirdCountryTransfer: false,
+          retention: "Tills platsen tilldelas.",
+        },
+        headers: { cookie: boardCookie },
+      });
+      expect(created.statusCode).toBe(201);
+      const own = created.json<{
+        activityId: string;
+        productDiffers: boolean;
+      }>();
+      try {
+        expect(own.productDiffers).toBe(false);
+        const ownRefused = await adopt(own.activityId, {
+          fields: ["retention"],
+        });
+        expect(ownRefused.statusCode).toBe(409);
+        expect(reasonOf(ownRefused)).toBe("no-product-text");
+      } finally {
+        await prisma.processingActivity.deleteMany({
+          where: { id: own.activityId },
+        });
+      }
+    });
   });
 
   it("takes a processing the board performs outside the application", async () => {

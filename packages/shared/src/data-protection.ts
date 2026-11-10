@@ -99,3 +99,28 @@ export const DATA_SUBJECT_CATEGORIES = [
 ] as const;
 
 export type DataSubjectCategory = (typeof DATA_SUBJECT_CATEGORIES)[number];
+
+/**
+ * The fields of a processing activity a board writes and the product seeds,
+ * in the order the record lists them.
+ *
+ * The server validates an adoption against this list and the board's screen
+ * offers it, so both read the one list. The API checks each name against its
+ * input type where it imports this.
+ */
+export const ACTIVITY_FIELDS = [
+  "name",
+  "purpose",
+  "legalBasis",
+  "legalBasisNote",
+  "dataSubjectCategories",
+  "personalDataCategories",
+  "recipients",
+  "thirdCountryTransfer",
+  "thirdCountrySafeguards",
+  "retention",
+  "securityMeasures",
+] as const;
+
+/** One field of a row the board writes and the seed authors. */
+export type ActivityField = (typeof ACTIVITY_FIELDS)[number];
