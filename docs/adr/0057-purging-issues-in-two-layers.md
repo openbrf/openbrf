@@ -541,6 +541,14 @@ board weighs every such text before the report gives it (access weighing,
   every other report, and a legal hold that keeps a handler from redacting it
   does not keep the board from giving it in part. A handler's redaction remains
   the way to take words out of the case for everybody.
+- **The text of a work order is not weighed, and is not in the report.** It is
+  the handler's own words to a contractor and may name the person or somebody
+  else. The report gives each work order's recipient, date, whether the mail went
+  out, whether the contractor was given a link and how many photographs it
+  showed (art. 15(1)(c)), on the reporter's own issues and on those that concern
+  the person, and never the body, so no weighing covers it and no reason for
+  leaving it out is printed. While a work order's text stands, that leaves the
+  copy under art. 15(3) short of it: question 7 below.
 - **A text nobody has weighed is not given.** The report lists it, by date and
   part, as not yet weighed, and gives none of it. The board's screen counts
   those and does not print the report until each is weighed, so a report is not
@@ -639,6 +647,12 @@ review:
    sole trader's name and telephone number in the contractor register, which is
    not a person in the register: on which report, and on which clock. See
    [The contractor register](#the-contractor-register).
+7. **The text of a work order in the access report.** Whether it is part of the
+   copy a person is given, on a case they reported and on one that concerns them,
+   and if so how the board weighs it under art. 15(4) like the other texts of
+   the case. Today the report gives the recipient and the date and never the
+   words, which leaves a gap while the text stands (ten years after closing,
+   unless a handler redacted it first). A follow-up change takes it up.
 
 ### The legal review's answer to question 4
 

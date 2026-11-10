@@ -1053,7 +1053,7 @@
         "issueTextErasableFrom": "Free text may be erased from <data>{{date}}</data>",
         "issueLegalHold": "Free text kept under a legal hold on the issue",
         "issueClosed": "Closed <data>{{date}}</data>",
-        "issuesConcerningIntro": "Somebody else reported these issues, and the association recorded that they concern you. This report does not say who reported them. Each issue is listed with its number, type, dates, where it stands and how it ended. What it holds in words is given where the board weighed it could be, and beside anything left out is the reason.",
+        "issuesConcerningIntro": "The association recorded that these issues concern you, and you did not report them. This report does not say who, if anyone, reported them. Each issue is listed with its number, type, dates, where it stands and how it ended. What it holds in words is given where the board weighed it could be, and beside anything left out is the reason.",
         "issueConcernRecorded": "Recorded as concerning you <data>{{date}}</data>",
         "weighed": {
           "givenInPart": {
@@ -1077,7 +1077,7 @@
           "loadFailed": "The issue's texts could not be read. Try again.",
           "intro": {
             "reporter": "This person reported the issue, and their own words and the conversation are given as they read them. The internal notes are not on their screen: give each note, give it in part with the words about somebody else left out, or leave it out where none of it can be given (GDPR art. 15(4)). Leave out only what you must; the report says that something was left out and why.",
-            "concerned": "Somebody else reported this issue, and a handler recorded that it concerns this person. Its number, type, dates, status and outcome are always given. Give each text, give it in part with the words left out that would tell who reported the issue or that are about somebody else, or leave it out where none of it can be given (GDPR art. 15(4)). Leave out only what you must; the report says that something was left out and why, and never who reported the issue."
+            "concerned": "This person did not report the issue, and a handler recorded that it concerns them. Its number, type, dates, status and outcome are always given. Give each text, give it in part with the words left out that would tell who reported the issue or that are about somebody else, or leave it out where none of it can be given (GDPR art. 15(4)). Leave out only what you must; the report says that something was left out and why, and never who, if anyone, reported the issue."
           },
           "nothing": "Nothing on this issue is left to weigh.",
           "part": {
