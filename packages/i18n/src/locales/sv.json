@@ -470,6 +470,7 @@
         "loading": "Tar fram registerutdraget",
         "print": "Skriv ut",
         "printHint": "Skrivs ut som ett dokument. Navigering och knappar följer inte med på pappret.",
+        "notPrintable": "Utdraget är inte klart att skriva ut. Varje text i det måste prövas, och utdraget tas fram på nytt efter den senaste prövningen, innan det skrivs ut och lämnas över.",
         "back": "Tillbaka till personen",
         "extendedLabel": "Förlängd",
         "stamp": "Framtaget {{date}}",
@@ -1055,12 +1056,16 @@
         "issuesConcerningIntro": "Någon annan har anmält de här ärendena, och föreningen har antecknat att de gäller dig. Utdraget säger inte vem som anmälde dem. Varje ärende står med sitt nummer, sin typ, sina datum, hur det står till och hur det slutade. Det som ärendet innehåller i text lämnas ut där styrelsen efter prövning bedömt att det kan lämnas ut, och vid det som utelämnats står skälet.",
         "issueConcernRecorded": "Antecknat som att det gäller dig <data>{{date}}</data>",
         "weighed": {
+          "givenInPart": {
+            "IDENTIFIES_REPORTER": "Delvis utlämnat: ord som skulle avslöja vem som anmälde ärendet är utelämnade, och varje ställe är markerat {{mark}} (artikel 15.4 i dataskyddsförordningen)",
+            "ABOUT_ANOTHER_PERSON": "Delvis utlämnat: ord som handlar om någon annan är utelämnade, och varje ställe är markerat {{mark}} (artikel 15.4 i dataskyddsförordningen)"
+          },
           "withheld": {
             "IDENTIFIES_REPORTER": "Utelämnat: det skulle avslöja vem som anmälde ärendet (artikel 15.4 i dataskyddsförordningen)",
             "ABOUT_ANOTHER_PERSON": "Utelämnat: det handlar om någon annan (artikel 15.4 i dataskyddsförordningen)"
           },
           "unweighed": "Inte utlämnat: styrelsen har ännu inte prövat det",
-          "notice": "En del av det som ärendena innehåller har utelämnats, eftersom det skulle inverka negativt på andras rättigheter och friheter att lämna ut det (artikel 15.4 i dataskyddsförordningen). Skälet står vid varje del som utelämnats. Om du inte håller med kan du klaga hos Integritetsskyddsmyndigheten (IMY), imy.se."
+          "notice": "En del av det som ärendena innehåller har utelämnats, eftersom det skulle inverka negativt på andras rättigheter och friheter att lämna ut det (artikel 15.4 i dataskyddsförordningen). Skälet står vid varje del som utelämnats. Om du inte håller med kan du klaga hos IMY, imy.se."
         },
         "weighing": {
           "pending_one": "En text i ärendena nedan är inte prövad, och inget av den lämnas ut. Pröva den innan du skriver ut och lämnar över utdraget.",
@@ -1071,8 +1076,8 @@
           "loading": "Läser ärendets texter...",
           "loadFailed": "Ärendets texter gick inte att läsa. Försök igen.",
           "intro": {
-            "reporter": "Personen anmälde ärendet, och deras egna ord och meddelandena lämnas ut som de läser dem. De interna anteckningarna syns inte för dem: lämna ut varje anteckning, eller utelämna den där den handlar om någon annan (artikel 15.4 i dataskyddsförordningen). Utelämna bara det du måste; utdraget säger att något utelämnats och varför.",
-            "concerned": "Någon annan anmälde ärendet, och en handläggare har antecknat att det gäller den här personen. Ärendets nummer, typ, datum, status och utfall lämnas alltid ut. Lämna ut varje text, eller utelämna den där den skulle avslöja vem som anmälde ärendet eller handlar om någon annan (artikel 15.4 i dataskyddsförordningen). Utelämna bara det du måste; utdraget säger att något utelämnats och varför, och aldrig vem som anmälde ärendet."
+            "reporter": "Personen anmälde ärendet, och deras egna ord och meddelandena lämnas ut som de läser dem. De interna anteckningarna syns inte för dem: lämna ut varje anteckning, lämna ut den delvis med orden om någon annan utelämnade, eller utelämna den där inget av den kan lämnas ut (artikel 15.4 i dataskyddsförordningen). Utelämna bara det du måste; utdraget säger att något utelämnats och varför.",
+            "concerned": "Någon annan anmälde ärendet, och en handläggare har antecknat att det gäller den här personen. Ärendets nummer, typ, datum, status och utfall lämnas alltid ut. Lämna ut varje text, lämna ut den delvis med de ord utelämnade som skulle avslöja vem som anmälde ärendet eller som handlar om någon annan, eller utelämna den där inget av den kan lämnas ut (artikel 15.4 i dataskyddsförordningen). Utelämna bara det du måste; utdraget säger att något utelämnats och varför, och aldrig vem som anmälde ärendet."
           },
           "nothing": "Det finns inget kvar att pröva i ärendet.",
           "part": {
@@ -1084,13 +1089,26 @@
           },
           "choice": {
             "given": "Lämna ut",
-            "IDENTIFIES_REPORTER": "Utelämna: det skulle avslöja vem som anmälde ärendet",
-            "ABOUT_ANOTHER_PERSON": "Utelämna: det handlar om någon annan"
+            "inPart": {
+              "IDENTIFIES_REPORTER": "Lämna ut delvis: utelämna orden som skulle avslöja vem som anmälde ärendet",
+              "ABOUT_ANOTHER_PERSON": "Lämna ut delvis: utelämna orden om någon annan"
+            },
+            "withheld": {
+              "IDENTIFIES_REPORTER": "Utelämna: det skulle avslöja vem som anmälde ärendet",
+              "ABOUT_ANOTHER_PERSON": "Utelämna: det handlar om någon annan"
+            }
           },
-          "chooseEach": "Välj för varje text innan du sparar.",
+          "copy": {
+            "label": "Det som lämnas ut",
+            "hint": "Markera orden som inte får lämnas ut och välj Utelämna de markerade orden; varje ställe märks {{mark}}. Ta bara bort ord: själva texten står kvar som den skrevs.",
+            "leaveOut": "Utelämna de markerade orden",
+            "invalid": "Kopian måste behålla textens egna ord i deras ordning, med varje ställe där ord utelämnats märkt {{mark}}, och behålla något av texten. Ska inget av den lämnas ut, utelämna den i stället."
+          },
+          "chooseEach": "Välj för varje text, och gör klart varje kopia som lämnas ut delvis, innan du sparar.",
           "save": "Spara prövningen",
           "saving": "Sparar...",
           "saveFailed": "Prövningen gick inte att spara. Försök igen.",
+          "producingAgain": "Tar fram utdraget på nytt med prövningen...",
           "close": "Stäng"
         }
       },

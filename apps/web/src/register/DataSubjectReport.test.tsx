@@ -2574,17 +2574,17 @@ describe("what the board weighed under art. 15(4)", () => {
       ),
     ).toBeTruthy();
     // That something was left out, why, and where to complain.
-    expect(
-      within(section).getByText(/klaga hos Integritetsskyddsmyndigheten/),
-    ).toBeTruthy();
+    expect(within(section).getByText(/klaga hos IMY, imy\.se/)).toBeTruthy();
     expect(
       within(section).getByText(/säger inte vem som anmälde/),
     ).toBeTruthy();
-    // Weighed throughout, so it prints.
+    // Weighed throughout, so it prints, from the button and the browser alike.
     expect(
       (screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement)
         .disabled,
     ).toBe(false);
+    expect(printedDocument().classList.contains("print:hidden")).toBe(false);
+    expect(screen.queryByText(NOT_PRINTABLE)).toBeNull();
   });
 
   it("gives none of an unweighed note, and will not print until it is weighed", async () => {
@@ -2628,10 +2628,45 @@ describe("what the board weighed under art. 15(4)", () => {
       (screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+    // The browser's own print gets no further than the button: the document
+    // stays off the page, and the page says why instead.
+    expect(printedDocument().classList.contains("print:hidden")).toBe(true);
+    const instead = screen.getByText(NOT_PRINTABLE);
+    expect(instead.classList.contains("hidden")).toBe(true);
+    expect(instead.classList.contains("print:block")).toBe(true);
     // Nothing was left out, so the report says nothing of a complaint.
+    expect(within(section).queryByText(/klaga hos IMY/)).toBeNull();
+  });
+
+  it("prints a text given in part as the board's copy, with the reason and none of the words left out", async () => {
+    const [concerning] = FULL_REPORT.issuesConcerning;
+    if (concerning === undefined) throw new Error("the fixture holds a case");
+    renderReport({
+      ...FULL_REPORT,
+      issuesConcerning: [
+        {
+          ...concerning,
+          description: {
+            state: "givenInPart",
+            text: "Jag […] hör grannen spela musik varje natt.",
+            because: "IDENTIFIES_REPORTER",
+          },
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const section = sectionOf(inSwedish(SECTION_TITLE.issuesConcerning));
     expect(
-      within(section).queryByText(/Integritetsskyddsmyndigheten/),
-    ).toBeNull();
+      within(section).getByText("Jag […] hör grannen spela musik varje natt."),
+    ).toBeTruthy();
+    expect(
+      within(section).getByText(
+        "Delvis utlämnat: ord som skulle avslöja vem som anmälde ärendet är utelämnade, och varje ställe är markerat […] (artikel 15.4 i dataskyddsförordningen)",
+      ),
+    ).toBeTruthy();
+    // Something was left out, so the report says why and where to complain.
+    expect(within(section).getByText(/klaga hos IMY/)).toBeTruthy();
   });
 
   it("opens the board's weighing from the issue, and produces the report again once it is saved", async () => {
@@ -2650,6 +2685,7 @@ describe("what the board weighed under art. 15(4)", () => {
           side: null,
           text: "Grannen i 1202 har klagat förut.",
           decision: null,
+          givenText: null,
         },
       ],
     });
@@ -2692,10 +2728,180 @@ describe("what the board weighed under art. 15(4)", () => {
     expect(saveIssueAccessWeighing).toHaveBeenCalledWith(
       FULL_REPORT.person.personId,
       issue.issueId,
-      [{ part: "NOTE", id: "note-1", withheldBecause: "ABOUT_ANOTHER_PERSON" }],
+      [
+        {
+          part: "NOTE",
+          id: "note-1",
+          withheldBecause: "ABOUT_ANOTHER_PERSON",
+          givenText: null,
+        },
+      ],
     );
   });
+
+  it("keeps a newer panel's choices when a save sent from a closed one completes, and sends one save at a time", async () => {
+    const [issue] = FULL_REPORT.issues;
+    const [concerning] = FULL_REPORT.issuesConcerning;
+    if (issue === undefined || concerning === undefined) {
+      throw new Error("the fixture holds an issue and a case");
+    }
+    const report: Report = {
+      ...FULL_REPORT,
+      issues: [
+        {
+          ...issue,
+          notes: [
+            {
+              noteId: "note-1",
+              writtenAt: "2026-01-06T08:00:00.000Z",
+              redactedAt: null,
+              content: { state: "given", text: "Ringde om porten." },
+            },
+          ],
+        },
+      ],
+    };
+    fetchIssueAccessWeighing.mockImplementation((_person, issueId) =>
+      Promise.resolve(
+        issueId === issue.issueId
+          ? {
+              issueId,
+              number: issue.number,
+              typeName: issue.typeName,
+              report: "reporter",
+              texts: [
+                {
+                  part: "NOTE",
+                  id: "note-1",
+                  writtenAt: "2026-01-06T08:00:00.000Z",
+                  side: null,
+                  text: "Ringde om porten.",
+                  decision: "given",
+                  givenText: null,
+                },
+              ],
+            }
+          : {
+              issueId,
+              number: concerning.number,
+              typeName: concerning.typeName,
+              report: "concerned",
+              texts: [
+                {
+                  part: "LOCATION",
+                  id: null,
+                  writtenAt: "2026-01-07T21:00:00.000Z",
+                  side: null,
+                  text: "Trapphuset",
+                  decision: "given",
+                  givenText: null,
+                },
+              ],
+            },
+      ),
+    );
+    let landFirstSave: (value: unknown) => void = () => undefined;
+    saveIssueAccessWeighing.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          landFirstSave = resolve;
+        }),
+    );
+    let produceAgain: (value: Report) => void = () => undefined;
+    fetchDataSubjectReport.mockResolvedValueOnce(report).mockImplementationOnce(
+      () =>
+        new Promise<Report>((resolve) => {
+          produceAgain = resolve;
+        }),
+    );
+    render(
+      <DataSubjectReport personId={report.person.personId} onClose={noop} />,
+    );
+    await screen.findByText("Brf Eksemplet");
+
+    // A save on the reporter's issue, still in flight when its panel closes.
+    fireEvent.click(
+      within(sectionOf(inSwedish(SECTION_TITLE.issues))).getByRole("button", {
+        name: "Pröva vad som lämnas ut",
+      }),
+    );
+    await screen.findByRole("heading", { name: /Pröva ärende/ });
+    fireEvent.click(
+      screen.getByRole("radio", {
+        name: "Utelämna: det handlar om någon annan",
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Spara prövningen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stäng" }));
+
+    // Another panel, and a choice changed on it.
+    fireEvent.click(
+      within(sectionOf(inSwedish(SECTION_TITLE.issuesConcerning))).getByRole(
+        "button",
+        { name: "Pröva vad som lämnas ut" },
+      ),
+    );
+    const leaveOut = await screen.findByRole("radio", {
+      name: "Utelämna: det handlar om någon annan",
+    });
+    fireEvent.click(leaveOut);
+    // The first save is still in flight, so this one does not send beside it.
+    expect(
+      (screen.getByRole("button", { name: "Sparar..." }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(saveIssueAccessWeighing).toHaveBeenCalledTimes(1);
+
+    landFirstSave({});
+    await waitFor(() => {
+      expect(fetchDataSubjectReport).toHaveBeenCalledTimes(2);
+    });
+    // The newer panel is open, with its choice, beside the report on screen.
+    expect(leaveOut.isConnected).toBe(true);
+    expect((leaveOut as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText("Trapphuset", { selector: "p" })).toBeTruthy();
+    // Until the report is produced again, it does not print.
+    expect(
+      (screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(printedDocument().classList.contains("print:hidden")).toBe(true);
+    expect(
+      screen.getByText("Tar fram utdraget på nytt med prövningen..."),
+    ).toBeTruthy();
+
+    produceAgain(report);
+    await waitFor(() => {
+      expect(
+        (screen.getByRole("button", { name: "Skriv ut" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false);
+    });
+    expect(leaveOut.isConnected).toBe(true);
+    expect((leaveOut as HTMLInputElement).checked).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Spara prövningen",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
 });
+
+/** The sentence the browser's own print gives while the report may not print. */
+const NOT_PRINTABLE = /^Utdraget är inte klart att skriva ut\./;
+
+/** The document as the print stylesheet finds it. */
+function printedDocument(): HTMLElement {
+  const document_ = document.querySelector<HTMLElement>(
+    '[data-print="document"]',
+  );
+  if (document_ === null) {
+    throw new Error("The report renders no document to print.");
+  }
+  return document_;
+}
 
 describe("what the feed holds about this person", () => {
   it("prints what a post and a comment said before each edit", async () => {

@@ -2018,11 +2018,17 @@ export function fetchDataSubjectReport(
 
 /**
  * A text on an issue as the report gives it after the board's art. 15(4)
- * weighing (ADR 0057): whole, left out for a reason, or not yet weighed, in
- * which case none of it is given.
+ * weighing (ADR 0057): whole, in part as the board's copy with words left out
+ * and why, left out whole and why, or not yet weighed, in which case none of
+ * it is given.
  */
 export type ReportWeighedText =
   | { state: "given"; text: string }
+  | {
+      state: "givenInPart";
+      text: string;
+      because: IssueAccessWithholdingReason;
+    }
   | { state: "withheld"; because: IssueAccessWithholdingReason }
   | { state: "unweighed" };
 
@@ -2069,16 +2075,25 @@ export interface IssueAccessWeighing {
     writtenAt: string;
     side: "REPORTER" | "HANDLER" | null;
     text: string;
-    /** `given`, the reason it is left out, or null while unweighed. */
+    /**
+     * `given`, the reason it is left out, whole or in part, or null while
+     * unweighed.
+     */
     decision: "given" | IssueAccessWithholdingReason | null;
+    /** The board's copy where it gave the text in part; null otherwise. */
+    givenText: string | null;
   }[];
 }
 
-/** One text's weighing, as the board sends it. */
+/**
+ * One text's weighing, as the board sends it: no reason to give it whole, a
+ * reason to leave it out whole, or a reason and a copy to give it in part.
+ */
 export interface IssueAccessDecision {
   part: IssueAccessPart;
   id: string | null;
   withheldBecause: IssueAccessWithholdingReason | null;
+  givenText: string | null;
 }
 
 function weighingPath(personId: string, issueId: string): string {

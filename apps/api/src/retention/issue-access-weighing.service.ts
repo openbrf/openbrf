@@ -1,7 +1,8 @@
 import { HttpStatus, Injectable } from "@nestjs/common";
-import type {
-  IssueAccessPart,
-  IssueAccessWithholdingReason,
+import {
+  type IssueAccessPart,
+  type IssueAccessWithholdingReason,
+  isGivenInPartOf,
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
@@ -13,7 +14,9 @@ import { lockIssue } from "../issues/issue-lock";
 import { ISSUE_MESSAGE_ORDER } from "../issues/issue-message-view";
 import {
   ISSUE_NOTE_ORDER,
+  type StandingWeighing,
   WEIGHED_NOTE_SELECT,
+  WEIGHING_SELECT,
   weighingKey,
 } from "./issue-access-weighing";
 
@@ -29,13 +32,20 @@ import {
  *   weigh (it weighs only the notes). Also a text named twice.
  * - `reason-not-allowed`: the reporter's own report cannot leave a note out for
  *   telling them who reported their own case.
+ * - `copy-not-in-part`: a text given in part came with a copy that is not the
+ *   text with words left out: it adds or moves a word, marks no place where
+ *   one was left out, or keeps nothing or everything. Or it came with no
+ *   reason for what it leaves out.
  */
 export class IssueAccessWeighingError extends DomainError {
   readonly status: number;
 
   constructor(
     readonly reason:
-      "issue-not-in-report" | "text-not-weighable" | "reason-not-allowed",
+      | "issue-not-in-report"
+      | "text-not-weighable"
+      | "reason-not-allowed"
+      | "copy-not-in-part",
     message: string,
   ) {
     super(message);
@@ -60,10 +70,16 @@ export interface IssueAccessWeighingText {
   side: "REPORTER" | "HANDLER" | null;
   text: string;
   /**
-   * The weighing that stands: `given`, the reason it is left out, or null
-   * while nobody has weighed it for this report.
+   * The weighing that stands: `given`, the reason it is left out, whole or in
+   * part, or null while nobody has weighed it for this report.
    */
   decision: "given" | IssueAccessWithholdingReason | null;
+  /**
+   * The board's copy where it gave the text in part, which the report gives
+   * instead of the text; null where it is given whole, left out whole or not
+   * weighed.
+   */
+  givenText: string | null;
 }
 
 /**
@@ -85,11 +101,15 @@ export interface IssueAccessWeighingView {
   texts: IssueAccessWeighingText[];
 }
 
-/** One text's weighing, as the board sends it. */
+/**
+ * One text's weighing, as the board sends it: no reason to give it whole, a
+ * reason to leave it out whole, or a reason and a copy to give it in part.
+ */
 export interface IssueAccessDecisionInput {
   part: IssueAccessPart;
   id: string | null;
   withheldBecause: IssueAccessWithholdingReason | null;
+  givenText: string | null;
 }
 
 type Db = Prisma.TransactionClient;
@@ -101,7 +121,9 @@ type Db = Prisma.TransactionClient;
  * Held by whoever may produce the report: the weighing is part of producing
  * it, and the producer reads every text the report would carry. The words are
  * read here for the board to weigh, and never written to the log; the report
- * gives only what the board gave.
+ * gives only what the board gave. A text given in part is given as the board's
+ * copy of it, which can only take words out (`isGivenInPartOf`), so the text
+ * itself stays as written for the issue and for every other report.
  *
  * A weighing replaces the one before it for that report and issue, in one
  * transaction under the issue's lock, so two board members weighing at once
@@ -169,6 +191,16 @@ export class IssueAccessWeighingService {
             "A reporter's own report does not leave a note out for naming them.",
           );
         }
+        if (
+          decision.givenText !== null &&
+          (decision.withheldBecause === null ||
+            !isGivenInPartOf(decision.givenText, text.text))
+        ) {
+          throw new IssueAccessWeighingError(
+            "copy-not-in-part",
+            "A text given in part needs a reason and a copy that only leaves words out.",
+          );
+        }
       }
 
       await tx.issueAccessWeighing.deleteMany({
@@ -183,19 +215,24 @@ export class IssueAccessWeighingService {
             messageId: decision.part === "MESSAGE" ? decision.id : null,
             noteId: decision.part === "NOTE" ? decision.id : null,
             withheldBecause: decision.withheldBecause,
+            givenText: decision.givenText,
           })),
         });
       }
 
-      const withheld = input.decisions.filter(
-        (decision) => decision.withheldBecause !== null,
+      const given = input.decisions.filter(
+        (decision) => decision.withheldBecause === null,
+      ).length;
+      const givenInPart = input.decisions.filter(
+        (decision) => decision.givenText !== null,
       ).length;
       /*
        * The person whose report it is and how much was weighed, never the
        * issue: the log is never purged, and an entry naming the issue beside
        * the person would keep for good that the case concerned them, after
        * the record and its text are gone (as `ISSUE_CONCERNED_PERSON_ADDED`
-       * keeps the person out). Nor any text.
+       * keeps the person out). Nor any text, the copies given in part
+       * included.
        */
       await this.audit.record(
         {
@@ -204,8 +241,9 @@ export class IssueAccessWeighingService {
           actorPersonId: input.actorPersonId,
           targetPersonId: input.personId,
           context: {
-            given: input.decisions.length - withheld,
-            withheld,
+            given,
+            givenInPart,
+            withheld: input.decisions.length - given - givenInPart,
           },
         },
         tx,
@@ -236,7 +274,7 @@ export class IssueAccessWeighingService {
             ...WEIGHED_NOTE_SELECT,
             accessWeighings: {
               where: { concernedPersonId: null },
-              select: { withheldBecause: true },
+              select: WEIGHING_SELECT,
             },
           },
         },
@@ -257,7 +295,7 @@ export class IssueAccessWeighingService {
                   writtenAt: note.createdAt.toISOString(),
                   side: null,
                   text: note.body,
-                  decision: decisionOf(note.accessWeighings[0]),
+                  ...decisionOf(note.accessWeighings[0]),
                 },
               ]
             : [],
@@ -284,7 +322,7 @@ export class IssueAccessWeighingService {
                 part: true,
                 messageId: true,
                 noteId: true,
-                withheldBecause: true,
+                ...WEIGHING_SELECT,
               },
             },
           },
@@ -327,7 +365,7 @@ export class IssueAccessWeighingService {
         writtenAt: reportedAt,
         side: null,
         text: concerning.description,
-        decision: decided("DESCRIPTION", null),
+        ...decided("DESCRIPTION", null),
       });
     }
     if (
@@ -340,7 +378,7 @@ export class IssueAccessWeighingService {
         writtenAt: reportedAt,
         side: null,
         text: concerning.location,
-        decision: decided("LOCATION", null),
+        ...decided("LOCATION", null),
       });
     }
     for (const message of concerning.messages) {
@@ -351,7 +389,7 @@ export class IssueAccessWeighingService {
           writtenAt: message.createdAt.toISOString(),
           side: message.side,
           text: message.body,
-          decision: decided("MESSAGE", message.id),
+          ...decided("MESSAGE", message.id),
         });
       }
     }
@@ -363,7 +401,7 @@ export class IssueAccessWeighingService {
           writtenAt: note.createdAt.toISOString(),
           side: null,
           text: note.body,
-          decision: decided("NOTE", note.id),
+          ...decided("NOTE", note.id),
         });
       }
     }
@@ -396,8 +434,12 @@ function standing(text: string, redactedAt: Date | null): boolean {
 }
 
 function decisionOf(
-  weighing:
-    { withheldBecause: IssueAccessWithholdingReason | null } | undefined,
-): IssueAccessWeighingText["decision"] {
-  return weighing === undefined ? null : (weighing.withheldBecause ?? "given");
+  weighing: StandingWeighing | undefined,
+): Pick<IssueAccessWeighingText, "decision" | "givenText"> {
+  return weighing === undefined
+    ? { decision: null, givenText: null }
+    : {
+        decision: weighing.withheldBecause ?? "given",
+        givenText: weighing.givenText,
+      };
 }

@@ -114,8 +114,10 @@ export {
 } from "./issue-retention.ts";
 export { ISSUE_CONCERNED_PERSON_LIMIT } from "./issue-concerned-persons.ts";
 export {
+  ISSUE_ACCESS_LEFT_OUT_MARK,
   ISSUE_ACCESS_PARTS,
   ISSUE_ACCESS_WITHHOLDING_REASONS,
+  isGivenInPartOf,
 } from "./issue-access-weighing.ts";
 export type {
   IssueAccessPart,

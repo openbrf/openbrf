@@ -12,6 +12,7 @@ import {
 import {
   ISSUE_ACCESS_PARTS,
   ISSUE_ACCESS_WITHHOLDING_REASONS,
+  ISSUE_CONVERSATION_LIMITS,
 } from "@openbrf/shared";
 import { z } from "zod";
 
@@ -26,9 +27,11 @@ import {
 } from "./issue-access-weighing.service";
 
 /**
- * A weighing as the board sends it: every text it weighed, each given or left
- * out for a reason. A text the board did not send stays unweighed. Bounded far
- * above any issue's texts, so a body cannot be made a load.
+ * A weighing as the board sends it: every text it weighed, each given whole,
+ * given in part as a copy with words left out, or left out whole, for a
+ * reason. A text the board did not send stays unweighed. Bounded far above any
+ * issue's texts, so a body cannot be made a load; a copy, which only takes
+ * words out of a text, is bounded as twice the longest text, for its marks.
  */
 const weighingSchema = z.object({
   decisions: z
@@ -37,6 +40,11 @@ const weighingSchema = z.object({
         part: z.enum(ISSUE_ACCESS_PARTS),
         id: z.string().min(1).max(64).nullable(),
         withheldBecause: z.enum(ISSUE_ACCESS_WITHHOLDING_REASONS).nullable(),
+        givenText: z
+          .string()
+          .max(2 * ISSUE_CONVERSATION_LIMITS.body)
+          .nullable()
+          .default(null),
       }),
     )
     .max(2000),

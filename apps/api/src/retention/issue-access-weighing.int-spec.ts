@@ -9,6 +9,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
 import { IssueFreeTextService } from "../issues/issue-free-text.service";
+import { IssueRedactionService } from "../issues/issue-redaction.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import {
   createIssueTypeFixture,
@@ -26,9 +27,10 @@ import type { IssueAccessWeighingView } from "./issue-access-weighing.service";
  * the internal notes on their issue only as the board weighed each, and never
  * who wrote one. A person a handler recorded as concerned gets the case
  * somebody else reported: always its number, type, dates and where it stands,
- * its words only as weighed, and never its reporter. The weighing is the
- * board's, under the report's own gate, and the log names the person and never
- * the issue.
+ * its words only as weighed, and never its reporter. A text given in part is
+ * given as the board's copy with words left out, and the text itself stays as
+ * written. The weighing is the board's, under the report's own gate, and the
+ * log names the person and never the issue.
  */
 
 loadEnvForIntegrationTests();
@@ -494,7 +496,7 @@ describe("a case about a person who did not report it", () => {
       channel: "WEB",
       targetKind: null,
       targetId: null,
-      context: { given: 0, withheld: 1 },
+      context: { given: 0, givenInPart: 0, withheld: 1 },
     });
     expect(JSON.stringify(entries[0])).not.toContain(issue.id);
     expect(JSON.stringify(entries[0])).not.toContain("Rökning");
@@ -602,5 +604,193 @@ describe("a case about a person who did not report it", () => {
     expect(
       await prisma.issueAccessWeighing.count({ where: { issueId: purged.id } }),
     ).toBe(0);
+  });
+});
+
+describe("a text given in part", () => {
+  it("gives the board's copy in its place, and leaves the text as written for everybody else", async () => {
+    const description = `Jag i lägenhet 1102 hör grannen spela musik varje natt ${suffix}`;
+    const copy = `Jag […] hör grannen spela musik varje natt ${suffix}`;
+    const issue = await filed({
+      reporterPersonId: reporter.personId,
+      description,
+    });
+    await prisma.issueConcernedPerson.create({
+      data: { issueId: issue.id, personId: neighbour.personId },
+    });
+
+    const saved = await weigh(neighbour.personId, issue.id, [
+      {
+        part: "DESCRIPTION",
+        id: null,
+        withheldBecause: "IDENTIFIES_REPORTER",
+        givenText: copy,
+      },
+    ]);
+    expect(saved.statusCode).toBe(200);
+    expect((saved.json() as IssueAccessWeighingView).texts).toEqual([
+      expect.objectContaining({
+        part: "DESCRIPTION",
+        text: description,
+        decision: "IDENTIFIES_REPORTER",
+        givenText: copy,
+      }),
+    ]);
+
+    const report = await reportOf(neighbour.personId);
+    const entry = report.issuesConcerning.find(
+      (item) => item.issueId === issue.id,
+    );
+    expect(entry?.description).toEqual({
+      state: "givenInPart",
+      text: copy,
+      because: "IDENTIFIES_REPORTER",
+    });
+    // None of the words left out.
+    expect(JSON.stringify(report.issuesConcerning)).not.toContain("1102");
+
+    // The text itself is untouched: on the issue, and on the reporter's own
+    // report, which gives them their own words whole.
+    expect(
+      await prisma.issue.findUniqueOrThrow({
+        where: { id: issue.id },
+        select: { description: true, descriptionRedactedAt: true },
+      }),
+    ).toEqual({ description, descriptionRedactedAt: null });
+    expect(
+      (await reportOf(reporter.personId)).issues.find(
+        (item) => item.issueId === issue.id,
+      )?.description,
+    ).toBe(description);
+
+    const [entryLogged] = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "ISSUE_ACCESS_WEIGHED",
+        actorPersonId: board.personId,
+        targetPersonId: neighbour.personId,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 1,
+    });
+    expect(entryLogged?.context).toEqual({
+      given: 0,
+      givenInPart: 1,
+      withheld: 0,
+    });
+    // Never the copy either.
+    expect(JSON.stringify(entryLogged)).not.toContain("grannen spela");
+  });
+
+  it("refuses a copy that is not the text with words left out, and keeps the weighing before it", async () => {
+    const description = `Grannen i 1205 röker på balkongen ${suffix}`;
+    const issue = await filed({
+      reporterPersonId: reporter.personId,
+      description,
+    });
+    await prisma.issueConcernedPerson.create({
+      data: { issueId: issue.id, personId: neighbour.personId },
+    });
+    const standing = `Grannen […] röker på balkongen ${suffix}`;
+    expect(
+      (
+        await weigh(neighbour.personId, issue.id, [
+          {
+            part: "DESCRIPTION",
+            id: null,
+            withheldBecause: "IDENTIFIES_REPORTER",
+            givenText: standing,
+          },
+        ])
+      ).statusCode,
+    ).toBe(200);
+
+    for (const refused of [
+      // A word the text does not hold.
+      {
+        withheldBecause: "IDENTIFIES_REPORTER",
+        givenText: `Grannen […] röker ofta på balkongen ${suffix}`,
+      },
+      // Words gone with no mark where they were.
+      {
+        withheldBecause: "IDENTIFIES_REPORTER",
+        givenText: `Grannen röker på balkongen ${suffix}`,
+      },
+      // Nothing of it kept: that is leaving it out.
+      { withheldBecause: "IDENTIFIES_REPORTER", givenText: "[…]" },
+      // A copy with no reason for what it leaves out.
+      { withheldBecause: null, givenText: standing },
+    ]) {
+      const response = await weigh(neighbour.personId, issue.id, [
+        { part: "DESCRIPTION", id: null, ...refused },
+      ]);
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toMatchObject({ reason: "copy-not-in-part" });
+    }
+    expect((await readWeighing(neighbour.personId, issue.id)).texts).toEqual([
+      expect.objectContaining({
+        decision: "IDENTIFIES_REPORTER",
+        givenText: standing,
+      }),
+    ]);
+  });
+
+  it("goes with a handler's redaction of the text, the copy with it", async () => {
+    const issue = await filed({
+      reporterPersonId: reporter.personId,
+      description: `Grannen i 1301 spelar trummor ${suffix}`,
+    });
+    await prisma.issueConcernedPerson.create({
+      data: { issueId: issue.id, personId: neighbour.personId },
+    });
+    const written = await note(issue.id, `Ringt 1301 om trummorna ${suffix}`);
+    expect(
+      (
+        await weigh(neighbour.personId, issue.id, [
+          {
+            part: "DESCRIPTION",
+            id: null,
+            withheldBecause: "IDENTIFIES_REPORTER",
+            givenText: `Grannen […] spelar trummor ${suffix}`,
+          },
+          {
+            part: "NOTE",
+            id: written.id,
+            withheldBecause: "ABOUT_ANOTHER_PERSON",
+            givenText: `Ringt […] om trummorna ${suffix}`,
+          },
+        ])
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await weigh(reporter.personId, issue.id, [
+          {
+            part: "NOTE",
+            id: written.id,
+            withheldBecause: "ABOUT_ANOTHER_PERSON",
+            givenText: `Ringt […] om trummorna ${suffix}`,
+          },
+        ])
+      ).statusCode,
+    ).toBe(200);
+
+    const redaction = app.get(IssueRedactionService);
+    await redaction.redact(board.personId, issue.id, {
+      target: "description",
+    });
+    await redaction.redact(board.personId, issue.id, {
+      target: "note",
+      id: written.id,
+    });
+
+    // Nothing of either text is left in a weighing, for either report.
+    expect(
+      await prisma.issueAccessWeighing.count({ where: { issueId: issue.id } }),
+    ).toBe(0);
+    const entry = (await reportOf(neighbour.personId)).issuesConcerning.find(
+      (item) => item.issueId === issue.id,
+    );
+    expect(entry?.description).toBeNull();
+    expect(JSON.stringify(entry)).not.toContain("trummor");
   });
 });

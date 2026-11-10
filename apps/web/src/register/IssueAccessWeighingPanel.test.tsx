@@ -3,26 +3,24 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import { IssueAccessWeighingPanel } from "./IssueAccessWeighingPanel";
-import type { IssueAccessWeighing } from "./register-api";
+import type { IssueAccessDecision, IssueAccessWeighing } from "./register-api";
 
 /**
  * The board's art. 15(4) weighing of one issue for one access report (ADR
- * 0057): every text needs a choice before it saves, a reporter's own report
- * offers no leaving out for naming them, one save runs at a time, and a failed
- * save keeps the choices to try again.
+ * 0057): every text needs a choice before it saves, a text given in part is
+ * saved only as a copy that leaves words out, a reporter's own report offers
+ * no leaving out for naming them, no save is sent while one is in flight, and
+ * a failed save keeps the choices to try again. The report owns the save
+ * (`DataSubjectReport.test.tsx` covers a save outliving its panel).
  */
 
-const { fetchIssueAccessWeighing, saveIssueAccessWeighing } = vi.hoisted(
-  () => ({
-    fetchIssueAccessWeighing: vi.fn(),
-    saveIssueAccessWeighing: vi.fn(),
-  }),
-);
+const { fetchIssueAccessWeighing } = vi.hoisted(() => ({
+  fetchIssueAccessWeighing: vi.fn(),
+}));
 
 vi.mock("./register-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./register-api")>()),
   fetchIssueAccessWeighing,
-  saveIssueAccessWeighing,
 }));
 
 const CONCERNED: IssueAccessWeighing = {
@@ -38,6 +36,7 @@ const CONCERNED: IssueAccessWeighing = {
       side: null,
       text: "Jag i 1102 hör musik varje natt.",
       decision: null,
+      givenText: null,
     },
     {
       part: "MESSAGE",
@@ -46,6 +45,7 @@ const CONCERNED: IssueAccessWeighing = {
       side: "HANDLER",
       text: "Vi har pratat med grannen.",
       decision: "given",
+      givenText: null,
     },
   ],
 };
@@ -61,23 +61,31 @@ const REPORTER: IssueAccessWeighing = {
       side: null,
       text: "Ringde om porten.",
       decision: null,
+      givenText: null,
     },
   ],
 };
 
-function renderPanel() {
-  const onSaved = vi.fn();
+function renderPanel(
+  onSave: (decisions: IssueAccessDecision[]) => Promise<boolean> = vi.fn(() =>
+    Promise.resolve(true),
+  ),
+  saving = false,
+) {
   const onClose = vi.fn();
-  render(
+  const view = render(
     <IssueAccessWeighingPanel
       personId="person-1"
       issueId="issue-1"
+      saving={saving}
+      onSave={onSave}
       onClose={onClose}
-      onSaved={onSaved}
     />,
   );
-  return { onSaved, onClose };
+  return { onSave, onClose, view };
 }
+
+function noop(): void {}
 
 function saveButton(): HTMLButtonElement {
   return screen.getByRole("button", {
@@ -92,15 +100,12 @@ beforeEach(() => {
 describe("the board's weighing of an issue for an access report", () => {
   it("saves only once every text has a choice, and sends each as chosen", async () => {
     fetchIssueAccessWeighing.mockResolvedValue(CONCERNED);
-    saveIssueAccessWeighing.mockResolvedValue(CONCERNED);
-    const { onSaved } = renderPanel();
+    const { onSave } = renderPanel();
 
     await screen.findByText("Jag i 1102 hör musik varje natt.");
     // The message's earlier weighing stands; the description has none yet.
     expect(saveButton().disabled).toBe(true);
-    expect(
-      screen.getByText("Välj för varje text innan du sparar."),
-    ).toBeTruthy();
+    expect(screen.getByText(/^Välj för varje text/)).toBeTruthy();
 
     fireEvent.click(
       screen.getAllByRole("radio", {
@@ -111,20 +116,106 @@ describe("the board's weighing of an issue for an access report", () => {
     fireEvent.click(saveButton());
 
     await waitFor(() => {
-      expect(onSaved).toHaveBeenCalledTimes(1);
+      expect(onSave).toHaveBeenCalledTimes(1);
     });
-    expect(saveIssueAccessWeighing).toHaveBeenCalledWith(
-      "person-1",
-      "issue-1",
-      [
-        {
-          part: "DESCRIPTION",
-          id: null,
-          withheldBecause: "IDENTIFIES_REPORTER",
-        },
-        { part: "MESSAGE", id: "message-1", withheldBecause: null },
-      ],
+    expect(onSave).toHaveBeenCalledWith([
+      {
+        part: "DESCRIPTION",
+        id: null,
+        withheldBecause: "IDENTIFIES_REPORTER",
+        givenText: null,
+      },
+      {
+        part: "MESSAGE",
+        id: "message-1",
+        withheldBecause: null,
+        givenText: null,
+      },
+    ]);
+  });
+
+  it("gives a text in part as a copy that only leaves words out, each place marked", async () => {
+    fetchIssueAccessWeighing.mockResolvedValue(CONCERNED);
+    const { onSave } = renderPanel();
+
+    await screen.findByText("Jag i 1102 hör musik varje natt.");
+    fireEvent.click(
+      screen.getAllByRole("radio", {
+        name: "Lämna ut delvis: utelämna orden som skulle avslöja vem som anmälde ärendet",
+      })[0] as HTMLElement,
     );
+    // The copy starts as the whole text, which leaves nothing out yet.
+    const copy = screen.getByRole("textbox", {
+      name: "Det som lämnas ut",
+    }) as HTMLTextAreaElement;
+    expect(copy.value).toBe("Jag i 1102 hör musik varje natt.");
+    expect(saveButton().disabled).toBe(true);
+
+    // Select "i 1102" and leave it out.
+    copy.setSelectionRange(4, 10);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Utelämna de markerade orden" }),
+    );
+    expect(copy.value).toBe("Jag […] hör musik varje natt.");
+    expect(saveButton().disabled).toBe(false);
+
+    // A word the text does not hold is not saved.
+    fireEvent.change(copy, {
+      target: { value: "Jag […] hör hög musik varje natt." },
+    });
+    expect(saveButton().disabled).toBe(true);
+    expect(copy.getAttribute("aria-invalid")).toBe("true");
+    fireEvent.change(copy, {
+      target: { value: "Jag […] hör musik varje natt." },
+    });
+
+    fireEvent.click(saveButton());
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+    expect(onSave).toHaveBeenCalledWith([
+      {
+        part: "DESCRIPTION",
+        id: null,
+        withheldBecause: "IDENTIFIES_REPORTER",
+        givenText: "Jag […] hör musik varje natt.",
+      },
+      {
+        part: "MESSAGE",
+        id: "message-1",
+        withheldBecause: null,
+        givenText: null,
+      },
+    ]);
+  });
+
+  it("offers again a copy the board gave in part before", async () => {
+    const [description] = CONCERNED.texts;
+    if (description === undefined) throw new Error("the fixture holds a text");
+    fetchIssueAccessWeighing.mockResolvedValue({
+      ...CONCERNED,
+      texts: [
+        {
+          ...description,
+          decision: "ABOUT_ANOTHER_PERSON",
+          givenText: "Jag i 1102 hör […]",
+        },
+      ],
+    } satisfies IssueAccessWeighing);
+    renderPanel();
+
+    const copy = (await screen.findByRole("textbox", {
+      name: "Det som lämnas ut",
+    })) as HTMLTextAreaElement;
+    expect(copy.value).toBe("Jag i 1102 hör […]");
+    expect(
+      (
+        screen.getByRole("radio", {
+          name: "Lämna ut delvis: utelämna orden om någon annan",
+        }) as HTMLInputElement
+      ).checked,
+    ).toBe(true);
+    expect(saveButton().disabled).toBe(false);
   });
 
   it("offers a reporter's own report no leaving out for naming them", async () => {
@@ -142,28 +233,37 @@ describe("the board's weighing of an issue for an access report", () => {
         name: "Utelämna: det skulle avslöja vem som anmälde ärendet",
       }),
     ).toBeNull();
+    expect(
+      screen.queryByRole("radio", {
+        name: "Lämna ut delvis: utelämna orden som skulle avslöja vem som anmälde ärendet",
+      }),
+    ).toBeNull();
   });
 
-  it("sends one save at a time, and keeps the choices when a save fails", async () => {
+  it("sends nothing while a save is in flight, and keeps the choices when a save fails", async () => {
     fetchIssueAccessWeighing.mockResolvedValue(REPORTER);
-    let fail: (reason: unknown) => void = () => undefined;
-    saveIssueAccessWeighing.mockImplementation(
-      () =>
-        new Promise((_, reject) => {
-          fail = reject;
-        }),
-    );
-    const { onSaved } = renderPanel();
+    const onSave = vi.fn(() => Promise.resolve(false));
+    const { view } = renderPanel(onSave, true);
 
     await screen.findByText("Ringde om porten.");
+    const saving = screen.getByRole("button", { name: "Sparar..." });
+    expect((saving as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(saving);
+    expect(onSave).not.toHaveBeenCalled();
+
+    view.rerender(
+      <IssueAccessWeighingPanel
+        personId="person-1"
+        issueId="issue-1"
+        saving={false}
+        onSave={onSave}
+        onClose={noop}
+      />,
+    );
     fireEvent.click(screen.getByRole("radio", { name: "Lämna ut" }));
     fireEvent.click(saveButton());
-    fireEvent.click(screen.getByRole("button", { name: "Sparar..." }));
-    expect(saveIssueAccessWeighing).toHaveBeenCalledTimes(1);
-
-    fail(new Error("offline"));
     await screen.findByText("Prövningen gick inte att spara. Försök igen.");
-    expect(onSaved).not.toHaveBeenCalled();
+    expect(onSave).toHaveBeenCalledTimes(1);
     expect(
       (screen.getByRole("radio", { name: "Lämna ut" }) as HTMLInputElement)
         .checked,

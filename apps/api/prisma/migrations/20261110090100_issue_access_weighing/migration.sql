@@ -1,7 +1,8 @@
 -- The board's weighing under GDPR art. 15(4) of an issue's text for one
--- person's access report (ADR 0057): a row per text and report, given whole or
--- left out for a stated reason. Removed with the text, with the record whose
--- report it is, and with the issue's free-text layer.
+-- person's access report (ADR 0057): a row per text and report, given whole,
+-- given in part as a copy with words left out, or left out whole, for a stated
+-- reason. Removed with the text, with the record whose report it is, and with
+-- the issue's free-text layer.
 --
 -- In one transaction, so a failure leaves none of the types, the table, its
 -- indexes and its keys behind: Prisma runs each statement on its own, and a
@@ -20,6 +21,7 @@ CREATE TABLE "issue_access_weighing" (
   "messageId" TEXT,
   "noteId" TEXT,
   "withheldBecause" "IssueAccessWithholdingReason",
+  "givenText" TEXT,
   "weighedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
   CONSTRAINT "issue_access_weighing_pkey" PRIMARY KEY ("id"),
@@ -34,6 +36,12 @@ CREATE TABLE "issue_access_weighing" (
   CONSTRAINT "issue_access_weighing_reporter_check" CHECK (
     "concernedPersonId" IS NOT NULL
     OR ("part" = 'NOTE' AND "withheldBecause" IS DISTINCT FROM 'IDENTIFIES_REPORTER')
+  ),
+  -- A text given in part has a reason for what it leaves out, and a copy with
+  -- something in it; a text given whole or left out whole has no copy.
+  CONSTRAINT "issue_access_weighing_given_text_check" CHECK (
+    "givenText" IS NULL
+    OR ("withheldBecause" IS NOT NULL AND btrim("givenText") <> '')
   )
 );
 

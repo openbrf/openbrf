@@ -633,8 +633,8 @@ export interface ReportIssue {
    * 01/2022, Example 15, paras 96-97; ADR 0057, question 1). The reporter
    * never reads one on their own screen (decision 18), and a note may hold
    * words about somebody else, so each is given only as the board weighed it
-   * under art. 15(4) for this report: whole, or left out for a stated reason.
-   * Never who wrote it.
+   * under art. 15(4) for this report: whole, in part, or left out, for a
+   * stated reason. Never who wrote it.
    */
   notes: ReportIssueNote[];
   /**
@@ -650,13 +650,21 @@ export interface ReportIssue {
  * weighing under art. 15(4) (access weighing, ADR 0057).
  *
  * - `given`: the text whole, as it stands.
- * - `withheld`: left out, and why. Never any of the words.
+ * - `givenInPart`: the board's copy of the text, with the words it left out
+ *   taken out and each place marked, and why they were left out. Never the
+ *   words left out.
+ * - `withheld`: left out whole, and why. Never any of the words.
  * - `unweighed`: nobody has weighed it for this report yet, so none of it is
  *   given. The board's screen says so and does not print the report until it
  *   is weighed.
  */
 export type ReportWeighedText =
   | { state: "given"; text: string }
+  | {
+      state: "givenInPart";
+      text: string;
+      because: IssueAccessWithholdingReason;
+    }
   | { state: "withheld"; because: IssueAccessWithholdingReason }
   | { state: "unweighed" };
 

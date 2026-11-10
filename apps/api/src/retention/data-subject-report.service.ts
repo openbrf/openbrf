@@ -103,6 +103,7 @@ import {
   WEIGHED_NOTE_SELECT,
   reportNote,
   reportWorkOrder,
+  WEIGHING_SELECT,
   weighedText,
   weighingKey,
 } from "./issue-access-weighing";
@@ -751,7 +752,7 @@ export class DataSubjectReportService {
             ...WEIGHED_NOTE_SELECT,
             accessWeighings: {
               where: { concernedPersonId: null },
-              select: { withheldBecause: true },
+              select: WEIGHING_SELECT,
             },
           },
         },
@@ -825,7 +826,7 @@ export class DataSubjectReportService {
                 part: true,
                 messageId: true,
                 noteId: true,
-                withheldBecause: true,
+                ...WEIGHING_SELECT,
               },
             },
           },

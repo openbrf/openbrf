@@ -2,9 +2,17 @@ import {
   type AuditChannelName,
   type DataSubjectReportSection,
   type IssueAccessWithholdingReason,
+  ISSUE_ACCESS_LEFT_OUT_MARK,
   ISSUE_REDACTION_TARGETS,
 } from "@openbrf/shared";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Trans, useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReactElement, ReactNode } from "react";
@@ -52,6 +60,7 @@ import {
   type ConsentScope,
   type DataSubjectReport as Report,
   type EarlierVersion,
+  type IssueAccessDecision,
   type MeetingNoticeDeliveryFailure,
   type NewsDeliveryFailure,
   type RegisterReportKind,
@@ -66,6 +75,7 @@ import {
   type TransferReversalKind,
   RegisterRequestError,
   fetchDataSubjectReport,
+  saveIssueAccessWeighing,
 } from "./register-api";
 import { usePanelHeadingFocus } from "./use-panel-heading-focus";
 
@@ -951,9 +961,32 @@ export function DataSubjectReport({
   const [attempt, setAttempt] = useState(0);
   /*
    * The issue whose texts the board is weighing for this report under art.
-   * 15(4) (ADR 0057), or null. One at a time, under the section it is in.
+   * 15(4) (ADR 0057), and which opening of the panel it is, or null. One at a
+   * time, under the section it is in. A save answers only the opening that
+   * sent it, so one still in flight when the board closed that panel, or
+   * opened another, never closes the panel open now or loses its choices.
    */
-  const [weighingIssueId, setWeighingIssueId] = useState<string | null>(null);
+  const [weighingPanel, setWeighingPanel] = useState<{
+    issueId: string;
+    opening: number;
+  } | null>(null);
+  const openings = useRef(0);
+  const weighingIssueId = weighingPanel?.issueId ?? null;
+  /*
+   * One weighing save at a time for the whole report, whichever panel sent
+   * it: the report owns the save, so closing a panel neither drops it nor lets
+   * the next panel send a second beside it.
+   */
+  const savingWeighing = useRef(false);
+  const [weighingSaving, setWeighingSaving] = useState(false);
+  /*
+   * A weighing was saved, or may have been, since the report on screen was
+   * produced, so what it gives may have changed. The report is produced again,
+   * and until it arrives the one on screen stays, so a panel open on it keeps
+   * its choices, but is not printed: a document printed in between could carry
+   * the weighing before it.
+   */
+  const [stale, setStale] = useState(false);
 
   /*
    * One request per mount, and one more only when the board member asks again
@@ -967,6 +1000,7 @@ export function DataSubjectReport({
     void (async () => {
       try {
         setReport(await fetchDataSubjectReport(personId, controller.signal));
+        setStale(false);
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
@@ -1043,15 +1077,86 @@ export function DataSubjectReport({
   const unweighed = report === null ? 0 : unweighedTexts(report);
 
   /*
-   * A saved weighing changes what the report gives, so the report is produced
-   * again, and the one on screen goes first: a document printed in between
-   * would carry the weighing before it.
+   * Whether the document may go on paper: produced, every text on it weighed,
+   * and no weighing saved since. Not only the button: while it may not, the
+   * document is kept off the page for the browser's own print as well, and a
+   * sentence saying why is printed instead.
    */
-  function weighed(): void {
-    setWeighingIssueId(null);
-    setReport(null);
+  const printable = report !== null && unweighed === 0 && !stale;
+
+  function openWeighing(issueId: string): void {
+    openings.current += 1;
+    setWeighingPanel({ issueId, opening: openings.current });
+  }
+
+  function produceAgain(): void {
+    setStale(true);
     setFailure(null);
     setAttempt((previous) => previous + 1);
+  }
+
+  /*
+   * Saves a panel's weighing and answers whether it was saved. Saved, the
+   * panel that sent it closes if it is still the one open, and the report is
+   * produced again to show it. Not found: the issue left the report since it
+   * was produced (its record was taken off, or its text removed), which the
+   * report produced again says. A failure the server may have committed
+   * behind, such as a lost connection, produces the report again too, and
+   * keeps the panel's choices to try again.
+   */
+  async function saveWeighing(
+    panel: { issueId: string; opening: number },
+    decisions: IssueAccessDecision[],
+  ): Promise<boolean> {
+    if (savingWeighing.current) {
+      return false;
+    }
+    savingWeighing.current = true;
+    setWeighingSaving(true);
+    try {
+      await saveIssueAccessWeighing(personId, panel.issueId, decisions);
+    } catch (error) {
+      const status =
+        error instanceof RegisterRequestError ? error.status : null;
+      if (status !== 404) {
+        // Refused, nothing changed; otherwise the save may have landed.
+        if (status === null || status >= 500) {
+          produceAgain();
+        }
+        return false;
+      }
+    } finally {
+      savingWeighing.current = false;
+      setWeighingSaving(false);
+    }
+    setWeighingPanel((open) =>
+      open !== null && open.opening === panel.opening ? null : open,
+    );
+    produceAgain();
+    return true;
+  }
+
+  /** The open panel, wired to the report's save. */
+  function weighingPanelFor(issues: readonly { issueId: string }[]) {
+    const panel = weighingPanel;
+    if (
+      panel === null ||
+      !issues.some((issue) => issue.issueId === panel.issueId)
+    ) {
+      return null;
+    }
+    return (
+      <IssueAccessWeighingPanel
+        key={`${panel.issueId}:${String(panel.opening)}`}
+        personId={personId}
+        issueId={panel.issueId}
+        saving={weighingSaving}
+        onSave={(decisions) => saveWeighing(panel, decisions)}
+        onClose={() => {
+          setWeighingPanel(null);
+        }}
+      />
+    );
   }
 
   return (
@@ -1074,7 +1179,7 @@ export function DataSubjectReport({
             onClick={() => {
               window.print();
             }}
-            disabled={report === null || unweighed > 0}
+            disabled={!printable}
             className={SECONDARY_BUTTON}
           >
             {screenT("register.person.report.print")}
@@ -1090,6 +1195,20 @@ export function DataSubjectReport({
             })}
           </Notice>
         </div>
+      ) : null}
+
+      {stale && failure === null ? (
+        <p role="status" className="text-body text-ink-muted print:hidden">
+          {screenT("register.person.report.weighing.producingAgain")}
+        </p>
+      ) : null}
+
+      {/* What the browser's own print gives while the document may not go on
+          paper: this, and not a report with texts left out for no reason. */}
+      {report !== null && !printable ? (
+        <p className="hidden text-body print:block">
+          {screenT("register.person.report.notPrintable")}
+        </p>
       ) : null}
 
       <p className="text-small text-ink-muted print:hidden">
@@ -1130,7 +1249,7 @@ export function DataSubjectReport({
           <article
             {...DOCUMENT_ATTRIBUTE}
             lang={report.person.preferredLocale}
-            className={DOCUMENT}
+            className={printable ? DOCUMENT : `${DOCUMENT} print:hidden`}
           >
             <header className="flex flex-col gap-1">
               <h2 className="text-headline">
@@ -1759,7 +1878,7 @@ export function DataSubjectReport({
                         <WeighButton
                           open={weighingIssueId === issue.issueId}
                           onClick={() => {
-                            setWeighingIssueId(issue.issueId);
+                            openWeighing(issue.issueId);
                           }}
                         />
                       ) : null}
@@ -1947,24 +2066,11 @@ export function DataSubjectReport({
                 ))}
               </Rows>
               {report.issues.some((issue) =>
-                issue.notes.some((note) => note.content?.state === "withheld"),
+                issue.notes.some((note) => leftOutOf(note.content)),
               ) ? (
                 <WithheldNotice />
               ) : null}
-              {weighingIssueId !== null &&
-              report.issues.some(
-                (issue) => issue.issueId === weighingIssueId,
-              ) ? (
-                <IssueAccessWeighingPanel
-                  key={weighingIssueId}
-                  personId={personId}
-                  issueId={weighingIssueId}
-                  onClose={() => {
-                    setWeighingIssueId(null);
-                  }}
-                  onSaved={weighed}
-                />
-              ) : null}
+              {weighingPanelFor(report.issues)}
             </Section>
 
             {/* The cases somebody else reported that a handler recorded as
@@ -2001,7 +2107,7 @@ export function DataSubjectReport({
                         <WeighButton
                           open={weighingIssueId === issue.issueId}
                           onClick={() => {
-                            setWeighingIssueId(issue.issueId);
+                            openWeighing(issue.issueId);
                           }}
                         />
                       ) : null}
@@ -2123,26 +2229,11 @@ export function DataSubjectReport({
                 ))}
               </Rows>
               {report.issuesConcerning.some((issue) =>
-                weighableTexts(issue).some(
-                  (content) => content.state === "withheld",
-                ),
+                weighableTexts(issue).some(leftOutOf),
               ) ? (
                 <WithheldNotice />
               ) : null}
-              {weighingIssueId !== null &&
-              report.issuesConcerning.some(
-                (issue) => issue.issueId === weighingIssueId,
-              ) ? (
-                <IssueAccessWeighingPanel
-                  key={weighingIssueId}
-                  personId={personId}
-                  issueId={weighingIssueId}
-                  onClose={() => {
-                    setWeighingIssueId(null);
-                  }}
-                  onSaved={weighed}
-                />
-              ) : null}
+              {weighingPanelFor(report.issuesConcerning)}
             </Section>
 
             <Section section="issueAssignments">
@@ -3777,10 +3868,26 @@ const WITHHELD_LABEL = {
     "register.person.report.weighed.withheld.ABOUT_ANOTHER_PERSON",
 } as const satisfies Record<IssueAccessWithholdingReason, TranslationKey>;
 
+const GIVEN_IN_PART_LABEL = {
+  IDENTIFIES_REPORTER:
+    "register.person.report.weighed.givenInPart.IDENTIFIES_REPORTER",
+  ABOUT_ANOTHER_PERSON:
+    "register.person.report.weighed.givenInPart.ABOUT_ANOTHER_PERSON",
+} as const satisfies Record<IssueAccessWithholdingReason, TranslationKey>;
+
 /**
- * A text as the board weighed it: the words where it gave them, the reason
- * where it left them out, and that it is not weighed yet where nobody has.
- * Never a word of a text left out.
+ * Whether the board left something of a text out, whole or in part, which
+ * the report has to say under art. 15(4) (`WithheldNotice`).
+ */
+function leftOutOf(content: ReportWeighedText | null): boolean {
+  return content?.state === "withheld" || content?.state === "givenInPart";
+}
+
+/**
+ * A text as the board weighed it: the words where it gave them, the board's
+ * copy and the reason where it gave them in part, the reason where it left
+ * them out, and that it is not weighed yet where nobody has. Never a word the
+ * board left out.
  */
 function WeighedText({
   content,
@@ -3791,6 +3898,17 @@ function WeighedText({
   switch (content.state) {
     case "given":
       return <span className="block whitespace-pre-line">{content.text}</span>;
+    case "givenInPart":
+      return (
+        <>
+          <span className="block whitespace-pre-line">{content.text}</span>
+          <span className="block text-ink-muted">
+            {t(GIVEN_IN_PART_LABEL[content.because], {
+              mark: ISSUE_ACCESS_LEFT_OUT_MARK,
+            })}
+          </span>
+        </>
+      );
     case "withheld":
       return (
         <span className="block text-ink-muted">

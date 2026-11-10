@@ -5488,7 +5488,7 @@ enum IssueAccessWithholdingReason {
 
 /// The board's weighing under GDPR art. 15(4) of one text on an issue for one
 /// person's data subject access report (access weighing, ADR 0057): given
-/// whole, or left out for a stated reason.
+/// whole, given in part, or left out whole, for a stated reason.
 ///
 /// Whose report it is: the person a concerned-person record names, where
 /// `concernedPersonId` is set, and the issue's reporter where it is null. The
@@ -5500,9 +5500,10 @@ enum IssueAccessWithholdingReason {
 /// weighed.
 ///
 /// No column names a person: the record and the issue do. Each row goes with
-/// the text it weighs or the record whose report it is (cascade), and every
-/// row on an issue goes with its free-text layer (`IssueFreeTextService`).
-/// The board member who weighed is the actor of `ISSUE_ACCESS_WEIGHED`.
+/// the text it weighs or the record whose report it is (cascade), with a
+/// handler's redaction of that text (`IssueRedactionService`), and every row on
+/// an issue goes with its free-text layer (`IssueFreeTextService`). The board
+/// member who weighed is the actor of `ISSUE_ACCESS_WEIGHED`.
 model IssueAccessWeighing {
   id String @id @default(cuid())
 
@@ -5523,8 +5524,15 @@ model IssueAccessWeighing {
   noteId    String?
   note      IssueNote?    @relation(fields: [noteId], references: [id], onDelete: Cascade)
 
-  /// Why it is left out; null when it is given.
+  /// Why it is left out, whole or in part; null when it is given whole.
   withheldBecause IssueAccessWithholdingReason?
+
+  /// The text given in part: a copy of it with the words the board left out
+  /// taken out and each place marked (`isGivenInPartOf`), which the report
+  /// gives instead of the text. Null when it is given whole or left out whole.
+  /// The text itself stands as it was written, for the issue and for every
+  /// other report. Free text of the case, so it goes where the text goes.
+  givenText String?
 
   weighedAt DateTime @default(now())
 

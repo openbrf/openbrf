@@ -411,8 +411,10 @@ locally the application runs from source beside the PostgreSQL that
 - [x] The access report of a person an issue concerns: each case about them that
       somebody else reported, with its number, type, dates, status and outcome,
       and its words only as the board weighed them under art. 15(4): each text
-      given whole or left out because it would tell who reported the case or is
-      about somebody else, with the reason and the right to complain to IMY.
+      given whole, given in part as a copy with words left out, or left out,
+      because it would tell who reported the case or is about somebody else,
+      with the reason and the right to complain to IMY. The text itself stays
+      as written.
       Never the reporter, and no source. A text nobody has weighed is not
       given, and the board's screen will not print the report until it is. The
       weighing is the report producer's, goes with the text, and the audit log
@@ -1072,7 +1074,7 @@ Free, open source, and never moved behind a paywall.
       and never a name, when it closed and the earliest day its free text
       goes, or that a legal hold on the issue keeps it. It carries the
       internal notes on each issue as the board weighed them under art.
-      15(4), given whole or left out with the reason, never who wrote one
+      15(4), given whole, in part or left out with the reason, never who wrote one
       (ADR 0057, question 1)
 - [x] News on the association's website and by email: an item is for the
       members unless the board publishes it to the street, and publishing mails

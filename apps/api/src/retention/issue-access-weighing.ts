@@ -39,28 +39,46 @@ export function weighingKey(part: IssueAccessPart, id: string | null): string {
   return part === "MESSAGE" || part === "NOTE" ? `${part}:${id ?? ""}` : part;
 }
 
+/** What of a weighing the report reads: the reason, and a copy given in part. */
+export const WEIGHING_SELECT = {
+  withheldBecause: true,
+  givenText: true,
+} as const satisfies Prisma.IssueAccessWeighingSelect;
+
+/** One text's weighing, as the report and the board's screen read it. */
+export interface StandingWeighing {
+  withheldBecause: IssueAccessWithholdingReason | null;
+  givenText: string | null;
+}
+
 /**
- * A text as the report gives it: whole where the board gave it, the reason
- * where it left it out, and nothing of it where nobody weighed it yet.
+ * A text as the report gives it: whole where the board gave it, the board's
+ * copy where it gave it in part, the reason where it left it out, and nothing
+ * of it where nobody weighed it yet.
  */
 export function weighedText(
   text: string,
-  weighing:
-    { withheldBecause: IssueAccessWithholdingReason | null } | undefined,
+  weighing: StandingWeighing | undefined,
 ): ReportWeighedText {
   if (weighing === undefined) {
     return { state: "unweighed" };
   }
-  return weighing.withheldBecause === null
-    ? { state: "given", text }
-    : { state: "withheld", because: weighing.withheldBecause };
+  if (weighing.withheldBecause === null) {
+    return { state: "given", text };
+  }
+  return weighing.givenText === null
+    ? { state: "withheld", because: weighing.withheldBecause }
+    : {
+        state: "givenInPart",
+        text: weighing.givenText,
+        because: weighing.withheldBecause,
+      };
 }
 
 /** An internal note as a report carries it, weighed for that report. */
 export function reportNote(
   note: Prisma.IssueNoteGetPayload<{ select: typeof WEIGHED_NOTE_SELECT }>,
-  weighing:
-    { withheldBecause: IssueAccessWithholdingReason | null } | undefined,
+  weighing: StandingWeighing | undefined,
 ): ReportIssueNote {
   return {
     noteId: note.id,

@@ -517,19 +517,35 @@ board weighs every such text before the report gives it (access weighing,
   description, the free-text location, each issue message and each internal
   note. A text a handler redacted, or the purge removed, has nothing left to
   give and is not weighed.
-- **What a weighing says.** Each text is given whole, or left out for one of
-  two reasons: it would tell who reported the case (only on a case somebody
-  else reported), or it is about somebody else. A text cannot be given in part:
-  a handler who wants a sentence gone redacts it on the issue, which removes it
-  for everybody. The report prints a given text whole, and for a text left out
-  its date, its part and the reason, never a word of it, with a sentence saying
-  that something was left out under art. 15(4) and that the person may
-  complain to IMY.
+- **What a weighing says.** Each text is given whole, given in part, or left
+  out whole. The last two each name one of two reasons: it would tell who
+  reported the case (only on a case somebody else reported), or it is about
+  somebody else. The report prints a text given whole as it stands; a text
+  given in part as the board's copy, with the reason; and for a text left out
+  whole its date, its part and the reason. It never prints a word the board left
+  out. Where it left anything out, a sentence says that something was left out
+  under art. 15(4) and that the person may complain to IMY.
+- **Given in part, as a copy.** Redact rather than refuse (para 173): a message
+  such as "I in apartment 1102 hear the neighbour playing music every night"
+  cannot give the allegation without the words that tell who made it, unless
+  those words can be taken out. So the board takes them out of a copy of the
+  text, made for this one report, and the report gives the copy. Each place
+  words were left out is marked `[…]`, so the reader sees that something is
+  missing, and where. The copy can only take words out: the server stores it
+  only if what is left is the text's own words, in their order, with at least
+  one place marked, and something both kept and left out (`isGivenInPartOf`).
+  The text itself stays as written, for the issue, for its reporter and for
+  every other report, and a legal hold that keeps a handler from redacting it
+  does not keep the board from giving it in part. A handler's redaction remains
+  the way to take words out of the case for everybody.
 - **A text nobody has weighed is not given.** The report lists it, by date and
   part, as not yet weighed, and gives none of it. The board's screen counts
   those and does not print the report until each is weighed, so a report is not
-  handed over with something left out for no stated reason. A note written
-  after a weighing has not been weighed.
+  handed over with something left out for no stated reason. Not the button
+  alone: while a text is unweighed, or the report is being produced again after
+  a weighing, the document is kept off the page for the browser's own print as
+  well, and a sentence saying why it cannot be printed is printed instead. A
+  note written after a weighing has not been weighed.
 - **Who weighs.** Whoever may produce the report (`addressBook:read` and
   `protectedData:reveal`), on the report's own screen, because the weighing is
   part of producing it. The producer reads every text the report would carry
@@ -548,13 +564,18 @@ board weighs every such text before the report gives it (access weighing,
   goes with the message or note it weighs, with the record of whom the case
   concerns whose report it is (both by cascade), and with the layer when the
   clock or the reporter's granted erasure removes it (`IssueFreeTextService`),
-  the rows on the description and the location included. A handler's redaction
-  of one text leaves its row with nothing to give. It names no person by
-  column; the record and the issue do.
+  the rows on the description and the location included. A copy given in part
+  holds some of the case's words, so it goes the same way, and also with a
+  handler's redaction of the text it was made from, which removes every
+  weighing of that text (`IssueRedactionService`): a redacted text has nothing
+  left to give, and its words must not stay behind in a copy. A copy is in the
+  report it was made for and in no other; the text it was made from is already
+  in every report that gives it. It names no person by column; the record and
+  the issue do.
 - **The log names the person, never the case.** `ISSUE_ACCESS_WEIGHED` names
   the board member as its actor, the person whose report it is as its target,
-  and how many texts were given and left out. Never the issue, and never a
-  word: the log outlives every purge, and an entry naming both the case and the
+  and how many texts were given whole, given in part and left out. Never the
+  issue, and never a word, a copy's included: the log outlives every purge, and an entry naming both the case and the
   person would keep, for good, that the case concerned them. It is on the
   timeline of no issue.
 

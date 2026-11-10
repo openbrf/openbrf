@@ -1,25 +1,45 @@
 import {
+  ISSUE_ACCESS_LEFT_OUT_MARK,
   type IssueAccessWithholdingReason,
   ISSUE_ACCESS_WITHHOLDING_REASONS,
+  isGivenInPartOf,
 } from "@openbrf/shared";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
-import { PANEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
+import {
+  FIELD_MULTILINE,
+  LABEL,
+  PANEL,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+} from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import {
+  type IssueAccessDecision,
   type IssueAccessWeighing,
-  RegisterRequestError,
   fetchIssueAccessWeighing,
-  saveIssueAccessWeighing,
 } from "./register-api";
 import { usePanelHeadingFocus } from "./use-panel-heading-focus";
 
-/** What the board chose for one text: give it, or leave it out for a reason. */
-type Choice = "given" | IssueAccessWithholdingReason;
+/**
+ * What the board chose for one text: give it whole, give it in part as a copy
+ * with the words it must not give left out, or leave it out whole, each but
+ * the first for a reason.
+ */
+type Choice =
+  | { kind: "given" }
+  | { kind: "inPart"; because: IssueAccessWithholdingReason; text: string }
+  | { kind: "withheld"; because: IssueAccessWithholdingReason };
+
+/** A choice as its radio names it: the kind, and for the last two the reason. */
+type Option =
+  | "given"
+  | `inPart:${IssueAccessWithholdingReason}`
+  | `withheld:${IssueAccessWithholdingReason}`;
 
 type Text = IssueAccessWeighing["texts"][number];
 
@@ -28,19 +48,51 @@ function keyOf(text: Pick<Text, "part" | "id">): string {
   return `${text.part}:${text.id ?? ""}`;
 }
 
+function optionOf(choice: Choice | undefined): Option | undefined {
+  if (choice === undefined || choice.kind === "given") {
+    return choice?.kind;
+  }
+  return `${choice.kind}:${choice.because}`;
+}
+
+/** The weighing that stands for a text, as the panel offers it again. */
+function standingChoice(text: Text): Choice | undefined {
+  if (text.decision === null) {
+    return undefined;
+  }
+  if (text.decision === "given") {
+    return { kind: "given" };
+  }
+  return text.givenText === null
+    ? { kind: "withheld", because: text.decision }
+    : { kind: "inPart", because: text.decision, text: text.givenText };
+}
+
+/** Whether a choice can be saved: a copy given in part must only leave out. */
+function settled(choice: Choice | undefined, text: Text): boolean {
+  return (
+    choice !== undefined &&
+    (choice.kind !== "inPart" || isGivenInPartOf(choice.text, text.text))
+  );
+}
+
 const PART_LABEL = {
   DESCRIPTION: "register.person.report.weighing.part.DESCRIPTION",
   LOCATION: "register.person.report.weighing.part.LOCATION",
   NOTE: "register.person.report.weighing.part.NOTE",
 } as const satisfies Record<Exclude<Text["part"], "MESSAGE">, TranslationKey>;
 
-const CHOICE_LABEL = {
+const OPTION_LABEL = {
   given: "register.person.report.weighing.choice.given",
-  IDENTIFIES_REPORTER:
-    "register.person.report.weighing.choice.IDENTIFIES_REPORTER",
-  ABOUT_ANOTHER_PERSON:
-    "register.person.report.weighing.choice.ABOUT_ANOTHER_PERSON",
-} as const satisfies Record<Choice, TranslationKey>;
+  "inPart:IDENTIFIES_REPORTER":
+    "register.person.report.weighing.choice.inPart.IDENTIFIES_REPORTER",
+  "inPart:ABOUT_ANOTHER_PERSON":
+    "register.person.report.weighing.choice.inPart.ABOUT_ANOTHER_PERSON",
+  "withheld:IDENTIFIES_REPORTER":
+    "register.person.report.weighing.choice.withheld.IDENTIFIES_REPORTER",
+  "withheld:ABOUT_ANOTHER_PERSON":
+    "register.person.report.weighing.choice.withheld.ABOUT_ANOTHER_PERSON",
+} as const satisfies Record<Option, TranslationKey>;
 
 function partLabel(text: Text): TranslationKey {
   if (text.part !== "MESSAGE") {
@@ -59,9 +111,18 @@ function day(instant: string): string {
 export interface IssueAccessWeighingPanelProps {
   personId: string;
   issueId: string;
+  /**
+   * Whether a weighing for this report is being saved, from this panel or
+   * one closed before it: one save at a time across the report.
+   */
+  saving: boolean;
+  /**
+   * Saves the weighing, replacing the one before it, and answers whether it
+   * was saved. The report owns the save, so a save outlives the panel that
+   * sent it and never acts on a panel opened after it.
+   */
+  onSave: (decisions: IssueAccessDecision[]) => Promise<boolean>;
   onClose: () => void;
-  /** The weighing was saved: the report is produced again to show it. */
-  onSaved: () => void;
 }
 
 /**
@@ -69,20 +130,24 @@ export interface IssueAccessWeighingPanelProps {
  * person's access report (ADR 0057).
  *
  * On the board's screen and never on the paper: it shows the words the report
- * may leave out, so the board can weigh them. Each text is given whole or left
- * out for a stated reason, and the report prints the reason and none of the
- * words. A reporter's own report weighs only the internal notes, and never
- * leaves one out for telling them who reported their own case.
+ * may leave out, so the board can weigh them. Each text is given whole, given
+ * in part, or left out whole, for a stated reason. To give it in part the
+ * board takes the words it must not give out of a copy of it, each place
+ * marked, and the report prints that copy and the reason; the text itself
+ * stays as written. The report never prints a word left out. A reporter's own
+ * report weighs only the internal notes, and never leaves anything out for
+ * telling them who reported their own case.
  *
  * Saved whole: every text the panel shows needs a choice, and the save
- * replaces the weighing before it. One save at a time, and a failed save keeps
- * the choices on screen to try again.
+ * replaces the weighing before it. A failed save keeps the choices on screen
+ * to try again.
  */
 export function IssueAccessWeighingPanel({
   personId,
   issueId,
+  saving,
+  onSave,
   onClose,
-  onSaved,
 }: IssueAccessWeighingPanelProps): ReactElement {
   const { t } = useTranslation();
   const heading = usePanelHeadingFocus();
@@ -90,10 +155,7 @@ export function IssueAccessWeighingPanel({
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [choices, setChoices] = useState<Record<string, Choice>>({});
-  const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
-  // A second click while a save is in flight must not send a second one.
-  const inFlight = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -107,9 +169,10 @@ export function IssueAccessWeighingPanel({
         setWeighing(loaded);
         setChoices(
           Object.fromEntries(
-            loaded.texts.flatMap((text) =>
-              text.decision === null ? [] : [[keyOf(text), text.decision]],
-            ),
+            loaded.texts.flatMap((text) => {
+              const choice = standingChoice(text);
+              return choice === undefined ? [] : [[keyOf(text), choice]];
+            }),
           ),
         );
       } catch (error) {
@@ -128,44 +191,72 @@ export function IssueAccessWeighingPanel({
     weighing?.report === "reporter"
       ? (["ABOUT_ANOTHER_PERSON"] as const)
       : ISSUE_ACCESS_WITHHOLDING_REASONS;
-  const options: readonly Choice[] = ["given", ...reasons];
+  const options: readonly Option[] = [
+    "given",
+    ...reasons.map((reason) => `inPart:${reason}` as const),
+    ...reasons.map((reason) => `withheld:${reason}` as const),
+  ];
   const complete =
     weighing !== null &&
-    weighing.texts.every((text) => choices[keyOf(text)] !== undefined);
+    weighing.texts.every((text) => settled(choices[keyOf(text)], text));
+
+  function choose(text: Text, option: Option): void {
+    const key = keyOf(text);
+    setChoices((previous) => {
+      const before = previous[key];
+      let next: Choice;
+      if (option === "given") {
+        next = { kind: "given" };
+      } else {
+        const [kind, because] = option.split(":") as [
+          "inPart" | "withheld",
+          IssueAccessWithholdingReason,
+        ];
+        next =
+          kind === "withheld"
+            ? { kind, because }
+            : {
+                kind,
+                because,
+                // A copy already begun is kept when only the reason changes;
+                // a new one starts as the whole text, to take words out of.
+                text: before?.kind === "inPart" ? before.text : text.text,
+              };
+      }
+      return { ...previous, [key]: next };
+    });
+    setSaveFailed(false);
+  }
+
+  function editCopy(text: Text, copy: string): void {
+    const key = keyOf(text);
+    setChoices((previous) => {
+      const before = previous[key];
+      return before?.kind === "inPart"
+        ? { ...previous, [key]: { ...before, text: copy } }
+        : previous;
+    });
+    setSaveFailed(false);
+  }
 
   async function save(current: IssueAccessWeighing): Promise<void> {
-    if (inFlight.current) {
-      return;
-    }
-    inFlight.current = true;
-    setSaving(true);
     setSaveFailed(false);
-    try {
-      await saveIssueAccessWeighing(
-        personId,
-        issueId,
-        current.texts.map((text) => {
-          const choice = choices[keyOf(text)];
-          return {
-            part: text.part,
-            id: text.id,
-            withheldBecause:
-              choice === undefined || choice === "given" ? null : choice,
-          };
-        }),
-      );
-      onSaved();
-    } catch (error) {
-      // Not found: the issue left the report since it was produced (its record
-      // was taken off, or its text removed). The report produced again says so.
-      if (error instanceof RegisterRequestError && error.status === 404) {
-        onSaved();
-        return;
-      }
+    const saved = await onSave(
+      current.texts.map((text) => {
+        const choice = choices[keyOf(text)];
+        return {
+          part: text.part,
+          id: text.id,
+          withheldBecause:
+            choice === undefined || choice.kind === "given"
+              ? null
+              : choice.because,
+          givenText: choice?.kind === "inPart" ? choice.text : null,
+        };
+      }),
+    );
+    if (!saved) {
       setSaveFailed(true);
-    } finally {
-      inFlight.current = false;
-      setSaving(false);
     }
   }
 
@@ -224,6 +315,7 @@ export function IssueAccessWeighingPanel({
           ) : (
             weighing.texts.map((text) => {
               const key = keyOf(text);
+              const choice = choices[key];
               return (
                 <fieldset
                   key={key}
@@ -248,19 +340,24 @@ export function IssueAccessWeighingPanel({
                         type="radio"
                         name={`weighing-${issueId}-${key}`}
                         value={option}
-                        checked={choices[key] === option}
+                        checked={optionOf(choice) === option}
                         onChange={() => {
-                          setChoices((previous) => ({
-                            ...previous,
-                            [key]: option,
-                          }));
-                          setSaveFailed(false);
+                          choose(text, option);
                         }}
                         className="size-4"
                       />
-                      {t(CHOICE_LABEL[option])}
+                      {t(OPTION_LABEL[option])}
                     </label>
                   ))}
+                  {choice?.kind === "inPart" ? (
+                    <PartialCopy
+                      copy={choice.text}
+                      original={text.text}
+                      onChange={(copy) => {
+                        editCopy(text, copy);
+                      }}
+                    />
+                  ) : null}
                 </fieldset>
               );
             })
@@ -301,5 +398,93 @@ export function IssueAccessWeighingPanel({
         </button>
       </div>
     </section>
+  );
+}
+
+/**
+ * The copy of a text the report gives in part. It starts as the whole text;
+ * the board selects the words the report must not give and leaves them out,
+ * and each place is marked `ISSUE_ACCESS_LEFT_OUT_MARK`. Typing in it is
+ * allowed, but a copy that adds or moves a word is not saved
+ * (`isGivenInPartOf`), so the report never gives words the case does not hold.
+ */
+function PartialCopy({
+  copy,
+  original,
+  onChange,
+}: {
+  copy: string;
+  original: string;
+  onChange: (copy: string) => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const field = useRef<HTMLTextAreaElement>(null);
+  const id = useId();
+  const valid = isGivenInPartOf(copy, original);
+
+  function leaveOutSelection(): void {
+    const area = field.current;
+    if (area === null || area.selectionStart === area.selectionEnd) {
+      area?.focus();
+      return;
+    }
+    const start = area.selectionStart;
+    const next =
+      copy.slice(0, start) +
+      ISSUE_ACCESS_LEFT_OUT_MARK +
+      copy.slice(area.selectionEnd);
+    onChange(next);
+    // Back to the copy, just after the mark, for the next words to go.
+    requestAnimationFrame(() => {
+      area.focus();
+      const caret = start + ISSUE_ACCESS_LEFT_OUT_MARK.length;
+      area.setSelectionRange(caret, caret);
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <label className={LABEL} htmlFor={`${id}-copy`}>
+        {t("register.person.report.weighing.copy.label")}
+      </label>
+      <p id={`${id}-hint`} className="max-w-2xl text-small text-ink-muted">
+        {t("register.person.report.weighing.copy.hint", {
+          mark: ISSUE_ACCESS_LEFT_OUT_MARK,
+        })}
+      </p>
+      <textarea
+        id={`${id}-copy`}
+        ref={field}
+        value={copy}
+        rows={4}
+        aria-invalid={!valid}
+        aria-describedby={valid ? `${id}-hint` : `${id}-hint ${id}-invalid`}
+        onChange={(event) => {
+          onChange(event.target.value);
+        }}
+        className={`${FIELD_MULTILINE} max-w-2xl`}
+      />
+      {valid ? null : (
+        <p id={`${id}-invalid`} className="max-w-2xl text-small text-danger">
+          {t("register.person.report.weighing.copy.invalid", {
+            mark: ISSUE_ACCESS_LEFT_OUT_MARK,
+          })}
+        </p>
+      )}
+      <div>
+        <button
+          type="button"
+          // Keeps the selection in the copy: a click would otherwise move focus
+          // before the words are read.
+          onMouseDown={(event) => {
+            event.preventDefault();
+          }}
+          onClick={leaveOutSelection}
+          className={SECONDARY_BUTTON}
+        >
+          {t("register.person.report.weighing.copy.leaveOut")}
+        </button>
+      </div>
+    </div>
   );
 }
