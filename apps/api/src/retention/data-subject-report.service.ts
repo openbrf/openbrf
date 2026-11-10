@@ -100,12 +100,15 @@ import { dueOn } from "../data-protection/data-subject-request";
 import { connectedAppHost } from "../connected-apps/client-host";
 import {
   ISSUE_NOTE_ORDER,
+  KEYED_WEIGHING_SELECT,
   WEIGHED_NOTE_SELECT,
   reportNote,
   reportWorkOrder,
+  strictestWeighing,
   WEIGHING_SELECT,
   weighedText,
   weighingKey,
+  weighingsByText,
 } from "./issue-access-weighing";
 import { ExportSlots } from "./export-slots";
 import { computePurgeDate } from "./purge-date";
@@ -821,14 +824,7 @@ export class DataSubjectReportService {
           where: { personId },
           select: {
             createdAt: true,
-            accessWeighings: {
-              select: {
-                part: true,
-                messageId: true,
-                noteId: true,
-                ...WEIGHING_SELECT,
-              },
-            },
+            accessWeighings: { select: KEYED_WEIGHING_SELECT },
           },
         },
         messages: {
@@ -1953,7 +1949,7 @@ export class DataSubjectReportService {
         photographs: issue._count.photos,
         messages: issue.messages.map(toReporterView),
         notes: issue.notes.map((note) =>
-          reportNote(note, note.accessWeighings[0]),
+          reportNote(note, strictestWeighing(note.accessWeighings)),
         ),
         workOrders: issue.workOrders.map(reportWorkOrder),
       })),
@@ -1961,12 +1957,7 @@ export class DataSubjectReportService {
         // One record per person on an issue (the unique key), and the where
         // found the issue through it.
         const record = issue.concernedPersons[0];
-        const weighings = new Map(
-          (record?.accessWeighings ?? []).map((weighing) => [
-            weighingKey(weighing.part, weighing.messageId ?? weighing.noteId),
-            weighing,
-          ]),
-        );
+        const weighings = weighingsByText(record?.accessWeighings ?? []);
         const weighed = (
           part: IssueAccessPart,
           text: string | null,

@@ -576,7 +576,11 @@ board weighs every such text before the report gives it (access weighing,
   that person and that case, in one transaction under the issue's lock, so two
   board members saving at once leave one weighing whole and not a mix. The
   reporter's weighing and each concerned person's are apart: a note may be
-  given to one and left out of the other's.
+  given to one and left out of the other's. The database holds a text to one
+  row per report (`issue_access_weighing_text_key`), and every reader takes the
+  most restrictive row on a text all the same: left out whole before given in
+  part before given whole, and two copies given in part that differ leave it
+  out whole. A second row could never give what the first left out.
 - **Personal data of its own, gone with the text.** A weighing row says which
   text of a case went into whose report, so it is in the free-text layer: it
   goes with the message or note it weighs, with the record of whom the case
@@ -595,7 +599,10 @@ board weighs every such text before the report gives it (access weighing,
   and how many texts were given whole, given in part and left out. Never the
   issue, and never a word, a copy's included: the log outlives every purge, and an entry naming both the case and the
   person would keep, for good, that the case concerned them. It is on the
-  timeline of no issue.
+  timeline of no issue. Reading the texts to weigh them gives the words of the
+  case, not only what the report would, so it is logged too, the same way:
+  `ISSUE_ACCESS_WEIGHING_READ` names the board member, the person and how many
+  texts were read, never the issue or a word.
 
 The `issuesConcerning` section carries such a case with its number, its type,
 its meaning and outcome, why it waits, when it was reported, closed and

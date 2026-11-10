@@ -1926,6 +1926,8 @@ enum AuditAction {
   ISSUE_CONCERNED_PERSON_ADDED
   /// The board weighed under GDPR art. 15(4) what of an issue's text goes into one person's access report (ADR 0057). The entry names the person whose report it is and how many texts were given and left out; never the issue, which would keep for good that the case concerned them, nor the texts.
   ISSUE_ACCESS_WEIGHED
+  /// A board member read the texts of an issue to weigh them for one person's access report (ADR 0057). The entry names the person whose report it is and how many texts were read; never the issue, nor any text.
+  ISSUE_ACCESS_WEIGHING_READ
   /// A person was moved into an apartment.
   MOVE_IN_RECORDED
   /// A residency was given its move-out date.
@@ -5500,6 +5502,14 @@ enum IssueAccessWithholdingReason {
 /// with no row here is not yet weighed: the report gives none of it, says it
 /// awaits the board, and the board's screen will not print it until it is
 /// weighed.
+///
+/// One row per text and report: the unique index
+/// `issue_access_weighing_text_key`, written in the migration's SQL because it
+/// is on expressions, holds issue, record, part and message or note unique with
+/// the reporter's report and the description and the location folded in as
+/// nulls. Every reader takes the most restrictive of the rows on one text all
+/// the same (`strictestWeighing`), so a duplicate could never give what one of
+/// them left out.
 ///
 /// No column names a person: the record and the issue do. Each row goes with
 /// the text it weighs or the record whose report it is (cascade), with a

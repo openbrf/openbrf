@@ -638,6 +638,8 @@ const AUDIT_ACTION_LABEL = {
   ISSUE_CONCERNED_PERSON_ADDED:
     "register.person.report.action.ISSUE_CONCERNED_PERSON_ADDED",
   ISSUE_ACCESS_WEIGHED: "register.person.report.action.ISSUE_ACCESS_WEIGHED",
+  ISSUE_ACCESS_WEIGHING_READ:
+    "register.person.report.action.ISSUE_ACCESS_WEIGHING_READ",
   ISSUE_RESIDENTS_LISTED:
     "register.person.report.action.ISSUE_RESIDENTS_LISTED",
   ISSUE_WORK_ORDER_SENT: "register.person.report.action.ISSUE_WORK_ORDER_SENT",

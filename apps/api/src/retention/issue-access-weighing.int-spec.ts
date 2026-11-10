@@ -502,6 +502,104 @@ describe("a case about a person who did not report it", () => {
     expect(JSON.stringify(entries[0])).not.toContain("Rökning");
   });
 
+  it("logs a read of the texts against the person, and never the issue or the text", async () => {
+    const issue = await filed({
+      reporterPersonId: null,
+      description: `Grillning på gården ${suffix}`,
+    });
+    await prisma.issueConcernedPerson.create({
+      data: { issueId: issue.id, personId: neighbour.personId },
+    });
+    // The neighbour's report is read by other cases here too: this read's
+    // entry is the one that was not there before it.
+    const readsOf = {
+      action: "ISSUE_ACCESS_WEIGHING_READ" as const,
+      actorPersonId: board.personId,
+      targetPersonId: neighbour.personId,
+    };
+    const before = new Set(
+      (
+        await prisma.auditLogEntry.findMany({
+          where: readsOf,
+          select: { id: true },
+        })
+      ).map((entry) => entry.id),
+    );
+
+    const view = await readWeighing(neighbour.personId, issue.id);
+    expect(view.texts).toHaveLength(1);
+
+    const entries = (
+      await prisma.auditLogEntry.findMany({ where: readsOf })
+    ).filter((entry) => !before.has(entry.id));
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      channel: "WEB",
+      targetKind: null,
+      targetId: null,
+      context: { texts: 1 },
+    });
+    expect(JSON.stringify(entries[0])).not.toContain(issue.id);
+    expect(JSON.stringify(entries[0])).not.toContain("Grillning");
+
+    // A refused read gives nothing, and logs nothing.
+    const refused = await inject({
+      method: "GET",
+      url: weighingUrl(stranger.personId, issue.id),
+      cookie: cookies[board.personId],
+    });
+    expect(refused.statusCode).toBe(404);
+    expect(
+      await prisma.auditLogEntry.count({
+        where: {
+          action: "ISSUE_ACCESS_WEIGHING_READ",
+          targetPersonId: stranger.personId,
+        },
+      }),
+    ).toBe(0);
+  });
+
+  it("holds a text to one weighing per report, the reporter's and the description's included", async () => {
+    const issue = await filed({
+      reporterPersonId: reporter.personId,
+      description: `Buller från tvättstugan ${suffix}`,
+    });
+    const record = await prisma.issueConcernedPerson.create({
+      data: { issueId: issue.id, personId: neighbour.personId },
+      select: { id: true },
+    });
+    const written = await note(issue.id, `Pratat med båda ${suffix}`);
+
+    // Each with a null in it, which a plain unique key would hold distinct:
+    // the reporter's report has no record, the description no message or note.
+    const rows = [
+      { concernedPersonId: null, part: "NOTE" as const, noteId: written.id },
+      { concernedPersonId: record.id, part: "DESCRIPTION" as const },
+      {
+        concernedPersonId: record.id,
+        part: "NOTE" as const,
+        noteId: written.id,
+      },
+    ];
+    for (const row of rows) {
+      await prisma.issueAccessWeighing.create({
+        data: { issueId: issue.id, ...row, withheldBecause: null },
+      });
+      await expect(
+        prisma.issueAccessWeighing.create({
+          data: {
+            issueId: issue.id,
+            ...row,
+            withheldBecause: "ABOUT_ANOTHER_PERSON",
+          },
+        }),
+      ).rejects.toMatchObject({ code: "P2002" });
+    }
+    expect(
+      await prisma.issueAccessWeighing.count({ where: { issueId: issue.id } }),
+    ).toBe(rows.length);
+  });
+
   it("is the report's own gate, and refuses an issue the report does not carry", async () => {
     const issue = await filed({
       reporterPersonId: reporter.personId,

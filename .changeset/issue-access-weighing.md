@@ -42,13 +42,18 @@ The board weighs what of their text is given, as GDPR art. 15(4) asks.
   so words the board has just left out are not printed from the report still
   on screen. A note written after the board weighed an issue is not given
   until it is weighed.
+- **One weighing per text.** The database holds each text to one weighing per
+  report, and the report and the board's screen read the most restrictive one
+  should two ever stand, so a second weighing can never give what the first
+  left out.
 - **Purged with the text.** A weighing, and a copy given in part with it,
   goes with the text it weighs, with a handler's redaction of that text, with
   the record of whom the issue concerns, and with the issue's free text when
   the clock or a granted erasure request removes it. The audit log records the
   weighing against the person whose report it is, with how many texts were
-  given whole, given in part and left out. It never names the issue or any of
-  the text.
+  given whole, given in part and left out, and each time a board member reads
+  an issue's texts to weigh them, with how many there were. It never names the
+  issue or any of the text.
 - **Wording.** The handlers' hint on internal notes, the intro to whom an issue
   concerns and the record of processing activities' issues row say so in
   Swedish and English.
