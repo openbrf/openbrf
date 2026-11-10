@@ -431,6 +431,15 @@ describe("a database already holding the index that tells work orders apart", ()
 describe("a database built in the order of the migrations", () => {
   it("sets nothing aside before the work orders came, and puts nothing back", async () => {
     const result = await rolledBack(async (tx) => {
+      const at = await issueWithWorkOrders(tx, 0);
+      // The raw insert and read: the generated model selects the column this
+      // case drops next.
+      await tx.$executeRaw`
+        INSERT INTO "issue_access_weighing"
+          ("id", "issueId", "concernedPersonId", "part")
+        VALUES
+          (${`awm-description-${suffix}`}, ${at.issueId}, ${at.concernedPersonId}, 'DESCRIPTION')
+      `;
       // As it stood when the uniqueness migration ran: no work orders weighed.
       await tx.$executeRawUnsafe(
         `ALTER TABLE "issue_access_weighing" DROP COLUMN "workOrderId"`,
@@ -438,9 +447,13 @@ describe("a database built in the order of the migrations", () => {
       await tx.$executeRawUnsafe(ASIDE);
       const asideAfterAside = await asideTableLeft(tx);
       await tx.$executeRawUnsafe(BACK);
-      return { asideAfterAside };
+      const rows = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "issue_access_weighing" WHERE "issueId" = ${at.issueId}
+      `;
+      return { asideAfterAside, ids: rows.map((row) => row.id) };
     });
 
     expect(result.asideAfterAside).toBe(false);
+    expect(result.ids).toEqual([`awm-description-${suffix}`]);
   });
 });

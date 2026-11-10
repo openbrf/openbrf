@@ -3095,7 +3095,7 @@ export const SCREENS: readonly Screen[] = [
           first: true,
         },
       },
-      { scrollTo: { heading: /^Pröva ärende .+ för utdraget$/ } },
+      { scrollTo: { heading: /^Pröva ärende .+ för utdraget$/, first: true } },
     ],
     waitFor: { label: /^Lämna ut$/ },
   },
