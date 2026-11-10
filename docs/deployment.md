@@ -1246,10 +1246,14 @@ association whose public reports more than that in an hour.
 A handler can give the contractor of a work order a link of their own, at
 `/arbetsorder/obrf_wo_...` (ADR 0055), which opens that work order and the
 photographs the board chose for it, and through which the contractor answers
-it, writes notes and adds photographs without an account. It is switched off
-until the legal review of a contractor as a recipient of the association's
-data clears it: `OPENBRF_CONTRACTOR_LINKS_ENABLED=true` in the env file (the
-production Compose file passes it on to the application) switches it on, and
+it, writes notes and adds photographs without an account. It is switched off.
+The legal review of a contractor as a recipient of the association's data is
+done and left one question open: whether asking a contractor for notes and
+photographs through the link makes them a processor for the association. It
+stays off until that is answered, and an association that switches it on
+before then takes that question on itself.
+`OPENBRF_CONTRACTOR_LINKS_ENABLED=true` in the env file (the production Compose
+file passes it on to the application) switches it on, and
 turning it off again makes every link refuse at once, and a link that has not
 expired or ended opens again if it is switched back on. With it off, every
 address under `/arbetsorder/` answers the same 404 as a link that never
