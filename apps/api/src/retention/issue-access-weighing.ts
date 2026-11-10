@@ -45,10 +45,83 @@ export const WEIGHING_SELECT = {
   givenText: true,
 } as const satisfies Prisma.IssueAccessWeighingSelect;
 
+/** A weighing with the text it weighs, for `weighingsByText`. */
+export const KEYED_WEIGHING_SELECT = {
+  part: true,
+  messageId: true,
+  noteId: true,
+  ...WEIGHING_SELECT,
+} as const satisfies Prisma.IssueAccessWeighingSelect;
+
 /** One text's weighing, as the report and the board's screen read it. */
 export interface StandingWeighing {
   withheldBecause: IssueAccessWithholdingReason | null;
   givenText: string | null;
+}
+
+/** A weighing row as read with the text it weighs. */
+export interface KeyedWeighing extends StandingWeighing {
+  part: IssueAccessPart;
+  messageId: string | null;
+  noteId: string | null;
+}
+
+/** How much of a text a weighing keeps back: whole, in part, or nothing. */
+function restriction(weighing: StandingWeighing): number {
+  if (weighing.withheldBecause === null) {
+    return 0;
+  }
+  return weighing.givenText === null ? 2 : 1;
+}
+
+/**
+ * The weighing that stands of the rows on one text for one report: the most
+ * restrictive of them. The unique index `issue_access_weighing_text_key` holds
+ * a text to one row per report; should two ever stand, a text left out whole
+ * outweighs one given in part, which outweighs one given whole, and two copies
+ * given in part that differ leave the text out whole, since neither copy is
+ * known to leave out what the other does. So a second row never gives what
+ * the first left out. Undefined where there is no row: the text is unweighed.
+ */
+export function strictestWeighing(
+  rows: readonly StandingWeighing[],
+): StandingWeighing | undefined {
+  let strictest: StandingWeighing | undefined;
+  for (const row of rows) {
+    if (strictest === undefined || restriction(row) > restriction(strictest)) {
+      strictest = row;
+    } else if (
+      restriction(row) === 1 &&
+      restriction(strictest) === 1 &&
+      row.givenText !== strictest.givenText
+    ) {
+      strictest = {
+        withheldBecause: strictest.withheldBecause,
+        givenText: null,
+      };
+    }
+  }
+  return strictest;
+}
+
+/**
+ * The weighing that stands of each text on one report, by `weighingKey`, the
+ * most restrictive where a text has more than one row (`strictestWeighing`).
+ */
+export function weighingsByText(
+  rows: readonly KeyedWeighing[],
+): Map<string, StandingWeighing> {
+  const byText = new Map<string, StandingWeighing[]>();
+  for (const row of rows) {
+    const key = weighingKey(row.part, row.messageId ?? row.noteId);
+    byText.set(key, [...(byText.get(key) ?? []), row]);
+  }
+  return new Map(
+    [...byText].flatMap(([key, standing]) => {
+      const strictest = strictestWeighing(standing);
+      return strictest === undefined ? [] : [[key, strictest] as const];
+    }),
+  );
 }
 
 /**

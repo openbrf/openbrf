@@ -917,6 +917,7 @@
           "ISSUE_DAMAGE_CASE_REMOVED": "En handläggare tog bort skadeärendemarkeringen från ett ärende",
           "ISSUE_CONCERNED_PERSON_ADDED": "En handläggare antecknade en person som ett ärende gäller",
           "ISSUE_ACCESS_WEIGHED": "Styrelsen vägde vad av ett ärende som tas med i registerutdraget",
+          "ISSUE_ACCESS_WEIGHING_READ": "Styrelsen läste ett ärendes texter för att väga dem för registerutdraget",
           "MOVE_IN_RECORDED": "En inflyttning registrerades",
           "MOVE_OUT_RECORDED": "En utflyttning registrerades",
           "PLUGIN_ENABLED": "Ett tillägg slogs på",

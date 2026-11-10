@@ -917,6 +917,7 @@
           "ISSUE_DAMAGE_CASE_REMOVED": "A handler took the damage-case mark off an issue",
           "ISSUE_CONCERNED_PERSON_ADDED": "A handler recorded a person an issue concerns",
           "ISSUE_ACCESS_WEIGHED": "The board weighed what of an issue goes into this access report",
+          "ISSUE_ACCESS_WEIGHING_READ": "The board read the texts of an issue to weigh them for this access report",
           "MOVE_IN_RECORDED": "A move-in was recorded",
           "MOVE_OUT_RECORDED": "A move-out was recorded",
           "PLUGIN_ENABLED": "A plugin was switched on",
