@@ -111,7 +111,7 @@ export interface WorkOrderView {
   /**
    * Null once the board removed the contractor from the list, which erases
    * them from it; or, once the list's own clock removed them, when the work
-   * order's text went (ADR 0057).
+   * order's text went and no legal hold on its issue kept it (ADR 0057).
    */
   recipientName: string | null;
   recipientEmail: string | null;
