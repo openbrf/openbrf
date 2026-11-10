@@ -658,7 +658,7 @@ review:
    the case. Today the report gives the recipient and the date and never the
    words, which leaves a gap while the text stands. Ten years after closing is
    the ordinary clock, not a date after which the text is gone: a legal hold or
-   a restriction keeps it longer ([the clocks](#the-two-clocks)), and a
+   a restriction keeps it longer ([the clock](#the-clock)), and a
    handler's redaction ends it sooner. Where a hold or restriction stands, the
    text is still there and still part of the art. 15(3) copy. A follow-up change
    takes it up.
