@@ -6,8 +6,8 @@
 ---
 
 A handler records whom an issue concerns: the residents an issue is about who
-did not report it, such as the neighbour a report of a disturbance names. It
-works on an issue of any type.
+are not recorded as its reporter, such as the neighbour a report of a
+disturbance names. It works on an issue of any type.
 
 - **Picked as a resident is picked.** The handler chooses an apartment and then
   who lives there today, as when opening an issue for a resident. The list

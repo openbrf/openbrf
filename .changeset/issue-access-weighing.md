@@ -6,7 +6,8 @@
 ---
 
 The data subject access report now carries the internal notes on the issues a
-person reported, and the issues that concern them but that they did not report.
+person reported, and the issues that concern them where they are not recorded
+as the reporter.
 The board weighs what of their text is given, as GDPR art. 15(4) asks.
 
 - **The reporter's internal notes.** Each issue a person reported lists the
@@ -14,9 +15,9 @@ The board weighs what of their text is given, as GDPR art. 15(4) asks.
   note on their own screen, and a note may hold words about somebody else, so
   each one is given only as the board weighed it: whole, in part, or left out
   because it is about somebody else.
-- **Issues others reported that concern you.** A new section lists each issue a
-  handler recorded as concerning the person, and which the person did not
-  report. It always gives the issue's number, type, dates, where it stands, how it ended,
+- **Issues that concern you, where you are not recorded as the reporter.** A new
+  section lists each issue a handler recorded as concerning the person, and
+  where the person is not recorded as the reporter. It always gives the issue's number, type, dates, where it stands, how it ended,
   how many photographs it holds and whom it was sent to. Its description,
   location, messages and internal notes are given only as the board weighed
   each: whole, in part, or left out because it would tell who reported the
