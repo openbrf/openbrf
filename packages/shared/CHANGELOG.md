@@ -384,9 +384,14 @@
   - **Inspection findings.** A handler marks an issue as a finding of a
     ventilation inspection (OVK), a lift inspection or a fire inspection, with
     the day, the protocol (a handlers' file) and a target date the Overdue view
-    and reminders read. A lift finding's date must fall within a month of the
-    inspection (BFS 2025:11, 1 kap. 17 §). The first mark places a legal hold
-    on the issue; taking the mark off leaves the hold.
+    and reminders read. The application requires a lift finding's date to fall
+    within a month of the inspection. That is its own limit, not the legal
+    deadline: BFS 2025:11, 1 kap. 17 § sets one month for a defect that is not
+    immediate and remains after a recurring inspection, other findings have
+    other requirements, and an immediate safety risk can prohibit use of the
+    lift until it is put right. The board meets those itself; a date the
+    application accepts does not show that it has. The first mark places a legal
+    hold on the issue; taking the mark off leaves the hold.
 
   ## Cost responsibility, charges and the responsibility guide
   - **Cost responsibility.** A handler records whether the association, the
@@ -581,9 +586,13 @@
     it. A legal hold or restriction on the reporter does the same for their
     issues.
   - **Redaction.** A handler can redact the description, the location, a message
-    or a note, and remove a photograph or a file, at any time. Nothing keeps the
-    earlier words. This is how the board carries out an erasure request from
-    somebody named in an issue another person reported.
+    or a note, and remove a photograph or a file, at any time except while a
+    legal hold stands on the issue, or a legal hold or a restriction stands on
+    its reporter or on a person the issue concerns. The application refuses it
+    then, so an erasure request about the issue waits until the hold or
+    restriction is released. Nothing keeps the earlier words. This is how the
+    board carries out an erasure request from somebody named in an issue another
+    person reported.
   - **Erasure requests.** A granted erasure request removes the free text of the
     issues the person reported on the night after it is granted. An issue still
     open, or under a legal hold, is kept until it closes or the hold is released,
