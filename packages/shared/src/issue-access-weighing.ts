@@ -2,11 +2,11 @@
  * The board's art. 15(4) weighing of an issue's text for one person's data
  * subject access report (access weighing, ADR 0057).
  *
- * A person's report carries the internal notes on the issues they reported,
- * and the case a handler recorded as concerning them that somebody else
- * reported. Either may hold words about somebody else, and the second holds
- * the reporter's own words, so art. 15(4) has the board weigh each text before
- * it is given: given whole, given in part with the words it must not give left
+ * A person's report carries the internal notes and the work orders' text on
+ * the issues they reported, and the case a handler recorded as concerning them
+ * that somebody else reported. Either may hold words about somebody else, and
+ * the second holds the reporter's own words, so art. 15(4) has the board weigh
+ * each text before it is given: given whole, given in part with the words it must not give left
  * out, or left out whole, each for a stated reason. The report names the
  * reason, and never the words left out.
  *
@@ -15,18 +15,29 @@
  */
 
 /**
- * Which text on the issue a weighing is about. A message and a note are named
- * by their identifier beside the part; the description and the free-text
- * location are one each.
+ * Which text on the issue a weighing is about. A message, a note and a work
+ * order are named by their identifier beside the part
+ * (`issueAccessPartHasId`); the description and the free-text location are one
+ * each. A work order's text is the handler's words to a contractor, and stands
+ * on a clock of its own after the rest of the free text is gone.
  */
 export const ISSUE_ACCESS_PARTS = [
   "DESCRIPTION",
   "LOCATION",
   "MESSAGE",
   "NOTE",
+  "WORK_ORDER",
 ] as const;
 
 export type IssueAccessPart = (typeof ISSUE_ACCESS_PARTS)[number];
+
+/**
+ * Whether a weighing of `part` names its text by an identifier: a message, a
+ * note or a work order, of which an issue holds many.
+ */
+export function issueAccessPartHasId(part: IssueAccessPart): boolean {
+  return part === "MESSAGE" || part === "NOTE" || part === "WORK_ORDER";
+}
 
 /**
  * Why a text is left out of the report, as art. 15(4) allows (EDPB Guidelines

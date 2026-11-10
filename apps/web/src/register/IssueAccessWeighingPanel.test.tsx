@@ -34,6 +34,7 @@ const CONCERNED: IssueAccessWeighing = {
       id: null,
       writtenAt: "2026-01-07T21:00:00.000Z",
       side: null,
+      recipientName: null,
       text: "Jag i 1102 hör musik varje natt.",
       decision: null,
       givenText: null,
@@ -43,6 +44,7 @@ const CONCERNED: IssueAccessWeighing = {
       id: "message-1",
       writtenAt: "2026-01-08T09:00:00.000Z",
       side: "HANDLER",
+      recipientName: null,
       text: "Vi har pratat med grannen.",
       decision: "given",
       givenText: null,
@@ -59,6 +61,7 @@ const REPORTER: IssueAccessWeighing = {
       id: "note-1",
       writtenAt: "2026-01-08T09:00:00.000Z",
       side: null,
+      recipientName: null,
       text: "Ringde om porten.",
       decision: null,
       givenText: null,
@@ -238,6 +241,77 @@ describe("the board's weighing of an issue for an access report", () => {
         name: "Lämna ut delvis: utelämna orden som skulle avslöja vem som anmälde ärendet",
       }),
     ).toBeNull();
+  });
+
+  it("weighs a work order's text on a reporter's report, named by whom it went to", async () => {
+    // ADR 0057, question 7: the handler's words to a contractor are part of
+    // the reporter's copy, weighed as a note is.
+    fetchIssueAccessWeighing.mockResolvedValue({
+      ...REPORTER,
+      texts: [
+        {
+          part: "WORK_ORDER",
+          id: "work-order-1",
+          writtenAt: "2026-01-09T09:00:00.000Z",
+          side: null,
+          recipientName: "Rörmokare Ab",
+          text: "Byt packningen i 1102, grannen i 1103 klagar på läckan.",
+          decision: null,
+          givenText: null,
+        },
+        {
+          part: "WORK_ORDER",
+          id: "work-order-2",
+          writtenAt: "2026-01-10T09:00:00.000Z",
+          side: null,
+          recipientName: null,
+          text: "Kontrollera avloppet.",
+          decision: "given",
+          givenText: null,
+        },
+      ],
+    } satisfies IssueAccessWeighing);
+    const { onSave } = renderPanel();
+
+    await screen.findByText(
+      "Byt packningen i 1102, grannen i 1103 klagar på läckan.",
+    );
+    expect(screen.getByText("Arbetsorder till Rörmokare Ab")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Arbetsorder till en entreprenör som sedan tagits bort från listan",
+      ),
+    ).toBeTruthy();
+    // The reporter's own report never leaves a text out for naming them.
+    expect(
+      screen.queryByRole("radio", {
+        name: "Utelämna: det skulle avslöja vem som anmälde ärendet",
+      }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getAllByRole("radio", {
+        name: "Utelämna: det handlar om någon annan",
+      })[0] as HTMLElement,
+    );
+    fireEvent.click(saveButton());
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+    expect(onSave).toHaveBeenCalledWith([
+      {
+        part: "WORK_ORDER",
+        id: "work-order-1",
+        withheldBecause: "ABOUT_ANOTHER_PERSON",
+        givenText: null,
+      },
+      {
+        part: "WORK_ORDER",
+        id: "work-order-2",
+        withheldBecause: null,
+        givenText: null,
+      },
+    ]);
   });
 
   it("sends nothing while a save is in flight, and keeps the choices when a save fails", async () => {

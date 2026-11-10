@@ -8,7 +8,8 @@ Accepted, with the questions under [Open questions](#open-questions) left to the
 owner and to the legal review the issue module plan names, except questions 1, 3
 and 4, which the legal review answered on 2026-11-09
 ([The board's weighing under art. 15(4)](#the-boards-weighing-under-art-154),
-[below](#the-legal-reviews-answer-to-question-4)). Amends
+[below](#the-legal-reviews-answer-to-question-4)), and question 7, which follows
+from the answers to 1 and 3 (2026-11-10). Amends
 [ADR 0019](0019-every-column-that-names-a-person-is-answered-for.md): a column
 naming a person somebody else chose is answered by a section, and this record
 says which. The fourth of four records for the issue module (ADRs 0054 to 0057),
@@ -388,8 +389,8 @@ open (question 2).
 
 The `issues` section keeps reading the cases a person reported, and gains what
 the module adds to them: the status's meaning, the outcome, the issue messages
-the reporter can read on their own case, the internal notes as the board weighed
-them ([below](#the-boards-weighing-under-art-154)), and the date the free-text
+the reporter can read on their own case, the internal notes and the text of each
+work order as the board weighed them ([below](#the-boards-weighing-under-art-154)), and the date the free-text
 layer is removed, now that one exists. It never carries the assignee, a
 handler's name or an internal note's author.
 
@@ -511,12 +512,12 @@ left out and why, and that the person may complain to IMY (para 174). So the
 board weighs every such text before the report gives it (access weighing,
 `IssueAccessWeighing`):
 
-- **What is weighed.** For the reporter's own report, each internal note: their
-  own words and the conversation are theirs already, as the reporter's screen
-  shows them. For a person a case concerns, every text of the case: the
-  description, the free-text location, each issue message and each internal
-  note. A text a handler redacted, or the purge removed, has nothing left to
-  give and is not weighed.
+- **What is weighed.** For the reporter's own report, each internal note and the
+  text of each work order: their own words and the conversation are theirs
+  already, as the reporter's screen shows them. For a person a case concerns,
+  every text of the case: the description, the free-text location, each issue
+  message, each internal note and the text of each work order. A text a handler
+  redacted, or the purge removed, has nothing left to give and is not weighed.
 - **What a weighing says.** Each text is given whole, given in part, or left
   out whole. The last two each name one of two reasons: it would tell who
   reported the case (only on a case somebody else reported), or it is about
@@ -541,14 +542,20 @@ board weighs every such text before the report gives it (access weighing,
   every other report, and a legal hold that keeps a handler from redacting it
   does not keep the board from giving it in part. A handler's redaction remains
   the way to take words out of the case for everybody.
-- **The text of a work order is not weighed, and is not in the report.** It is
-  the handler's own words to a contractor and may name the person or somebody
-  else. The report gives each work order's recipient, date, whether the mail went
-  out, whether the contractor was given a link and how many photographs it
-  showed (art. 15(1)(c)), on the reporter's own issues and on those that concern
-  the person, and never the body, so no weighing covers it and no reason for
-  leaving it out is printed. While a work order's text stands, that leaves the
-  copy under art. 15(3) short of it: question 7 below.
+- **The text of a work order is weighed like a note** (question 7). It is the
+  handler's own words to a contractor, about the case and often about the
+  person: whose apartment, what is wrong there, when to come. So while it stands
+  it is part of the copy under art. 15(3), on the reporter's own issues and on
+  those that concern the person, and it may name somebody else or tell who
+  reported a case, as a note may. The report gives each work order's recipient,
+  date, whether the mail went out, whether the contractor was given a link and
+  how many photographs it showed (art. 15(1)(c)), and its text as the board
+  weighed it for that report, with the same choices and reasons as any other
+  text: never the contractor's address, nor who sent it. A text a handler
+  redacted says so, with the date; one the clock erased says that its retention
+  period ran out. The contractor's own notes through a work order's link
+  (ADR 0055) are not on the report; the link stays off until the legal review
+  clears it.
 - **A text nobody has weighed is not given.** The report lists it, by date and
   part, as not yet weighed, and gives none of it. The board's screen counts
   those and does not print the report until each is weighed, so a report is not
@@ -582,7 +589,12 @@ board weighs every such text before the report gives it (access weighing,
   goes with the message or note it weighs, with the record of whom the case
   concerns whose report it is (both by cascade), and with the layer when the
   clock or the reporter's granted erasure removes it (`IssueFreeTextService`),
-  the rows on the description and the location included. A copy given in part
+  the rows on the description and the location included. A work order's text
+  is not in that layer: it stands on its own ten-year clock, in the reporter's
+  report and, through the bare selector, in that of each person the case
+  concerns, so its weighing stands with it and goes with the text, by the
+  work-order text purge (`IssuePurgeService`), a handler's redaction or the
+  work order's own removal (cascade). A copy given in part
   holds some of the case's words, so it goes the same way, and also with a
   handler's redaction of the text it was made from, which removes every
   weighing of that text (`IssueRedactionService`): a redacted text has nothing
@@ -601,7 +613,8 @@ The `issuesConcerning` section carries such a case with its number, its type,
 its meaning and outcome, why it waits, when it was reported, closed and
 recorded as concerning the person, the date its text is removed or that a hold
 on it keeps it, how many photographs it holds, and whom it was sent to (art.
-15(1)(c)), and its words only as the board weighed them. Never its reporter in
+15(1)(c)), and its words, its work orders' text included, only as the board
+weighed them. Never its reporter in
 any form: no name, no apartment, no address, no link, and no other source.
 Whether the reporter may be withheld as the source under art. 15(1)(g) is still
 open for counsel (question 3), so the report names none, and says so. Like
@@ -652,16 +665,20 @@ review:
    sole trader's name and telephone number in the contractor register, which is
    not a person in the register: on which report, and on which clock. See
    [The contractor register](#the-contractor-register).
-7. **The text of a work order in the access report.** Whether it is part of the
-   copy a person is given, on a case they reported and on one that concerns them,
-   and if so how the board weighs it under art. 15(4) like the other texts of
-   the case. Today the report gives the recipient and the date and never the
-   words, which leaves a gap while the text stands. Ten years after closing is
-   the ordinary clock, not a date after which the text is gone: a legal hold or
-   a restriction keeps it longer ([the clock](#the-clock)), and a
-   handler's redaction ends it sooner. Where a hold or restriction stands, the
-   text is still there and still part of the art. 15(3) copy. A follow-up change
-   takes it up.
+7. **The text of a work order in the access report**: answered on 2026-11-10,
+   from the legal review's answers to questions 1 and 3, which rest on the same
+   sources. A work order is the handlers' words about the case, as a note is
+   (EDPB Guidelines 01/2022, Example 15 and paras 96-97), and art. 15(3) gives
+   the copy of what is processed for as long as it is: ten years after closing
+   is the ordinary clock and not a date after which the text is gone, as a legal
+   hold or a restriction keeps it longer ([the clock](#the-clock)). So it is in
+   the copy, on a case the person reported and on one that concerns them, and the
+   board weighs it under art. 15(4) as it weighs a note
+   ([The board's weighing under art. 15(4)](#the-boards-weighing-under-art-154)).
+   It was not put to counsel on its own. The memo exemption in dataskyddslagen
+   5 kap. 2 §, which this release does not rely on for a note either, would not
+   reach a work order that went out: it does not cover data disclosed to a third
+   party.
 
 ### The legal review's answer to question 4
 

@@ -419,6 +419,11 @@ locally the application runs from source beside the PostgreSQL that
       given, and the board's screen will not print the report until it is. The
       weighing is the report producer's, goes with the text, and the audit log
       names the person and never the case (ADR 0057, questions 1 and 3)
+- [x] The text of a work order in the access report, on the reporter's issues
+      and on those that concern the person: weighed by the board under art.
+      15(4) like a note, given whole, in part or left out with the reason, and
+      gone with the text by the work-order text purge or a handler's redaction
+      (ADR 0057, question 7)
 - [x] Mail about issues: a new issue to its assignee, or to the type's handlers
       when it lands unassigned; an urgent one to every handler of its type; an
       assignment to the new assignee; a reopened one to its assignee; and one

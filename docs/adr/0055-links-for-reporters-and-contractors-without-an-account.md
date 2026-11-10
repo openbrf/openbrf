@@ -549,8 +549,10 @@ interrupts the limitation, which starts a new period (preskriptionslagen 5-7
 the text is erased when its 3,653 days have run, and a claim still open under
 preskriptionslagen loses its evidence. Placing the hold is the handler's act,
 not the system's. A reporter's data subject access report lists, under each of their issues, the
-work orders sent about it: to whom, when, and whether the mail went out, not
-the text, which may be about other people.
+work orders sent about it: to whom, when, and whether the mail went out, and,
+while it stands, the text as the board weighed it under art. 15(4), because it
+may be about other people ([ADR 0057](0057-purging-issues-in-two-layers.md#the-boards-weighing-under-art-154),
+question 7). The report of a person a case concerns gives it the same way.
 
 The worker claims a work order and reads what it mails in one statement, a
 conditional update that returns the recipient and the text, and it claims only

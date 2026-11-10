@@ -640,7 +640,8 @@ export interface ReportIssue {
   /**
    * The work orders a handler sent a contractor about it, oldest first: the
    * recipients this issue was disclosed to, which GDPR art. 15(1)(c) has the
-   * report name.
+   * report name, and each one's text as the board weighed it for this report
+   * (ADR 0057, question 7).
    */
   workOrders: ReportIssueWorkOrder[];
 }
@@ -706,8 +707,8 @@ export interface ReportConcerningIssueMessage {
  * The case itself is always here: its number, its type, its dates, where it
  * stands and how it ended. Withholding a case whole is not what art. 15(4)
  * allows (EDPB, para 168). What it holds in words, the description, the
- * location, the conversation and the internal notes, is given only as the
- * board weighed it for this report, because it is the reporter's words and the
+ * location, the conversation, the internal notes and the text of each work
+ * order, is given only as the board weighed it for this report, because it is the reporter's words and the
  * handlers' and may tell who reported it (paras 172-173).
  *
  * Never the reporter: no name, no apartment, no address, no link. Nor its
@@ -748,22 +749,24 @@ export interface ReportIssueConcerning {
   photographs: number;
   /**
    * The contractors the case was sent to (art. 15(1)(c)), as on `ReportIssue`:
-   * whom, when and whether it went out, never the text.
+   * whom, when and whether it went out, and the text as the board weighed it.
    */
   workOrders: ReportIssueWorkOrder[];
 }
 
 /**
- * One work order sent about an issue this person reported: whom it went to,
- * when, and whether the mail went out.
+ * One work order sent about an issue on this person's report: whom it went
+ * to, when, whether the mail went out, and what it said.
  *
- * Never the text of the work order. It is the handler's own words to a firm
- * and may name other people - a neighbour, another household - whom art. 15(4)
- * keeps off this person's copy; the recipient and the date are what the
- * article asks for. Nor the contractor's address, which is the contractor's
- * personal data rather than the reporter's.
+ * The text is the handler's own words to a firm, and part of the copy art.
+ * 15(3) gives while it stands (ADR 0057, question 7). It may name other people
+ * - a neighbour, another household - or tell who reported a case, so it is
+ * given only as the board weighed it under art. 15(4), as an internal note is.
+ * Never the contractor's address, which is the contractor's personal data
+ * rather than this person's, nor who sent it.
  */
 export interface ReportIssueWorkOrder {
+  workOrderId: string;
   /**
    * The contractor as the mail addressed them. Null once the contractor was
    * removed from the association's list, which erases their name from the
@@ -794,6 +797,14 @@ export interface ReportIssueWorkOrder {
    * choice is changed or a file is removed.
    */
   photosShared: number;
+  /** When a handler redacted the text (ADR 0057); `content` is then null. */
+  redactedAt: string | null;
+  /**
+   * The text as the board weighed it for this report. Null once a handler
+   * redacted it, which `redactedAt` says, or once its retention window ran
+   * out and the purge erased it.
+   */
+  content: ReportWeighedText | null;
 }
 
 /**

@@ -320,6 +320,7 @@ export class IssueRedactionService {
             where: { id: redaction.id },
             data: { body: null, redactedAt: now },
           });
+          await dropAccessWeighings(tx, { workOrderId: redaction.id });
           // A copy of whom it went to, kept past its contractor's time on the
           // list for this text's sake, goes with the text: no hold stands on
           // the issue, or the redaction would have been refused.

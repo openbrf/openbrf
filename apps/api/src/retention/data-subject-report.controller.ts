@@ -13,6 +13,7 @@ import {
   ISSUE_ACCESS_PARTS,
   ISSUE_ACCESS_WITHHOLDING_REASONS,
   ISSUE_CONVERSATION_LIMITS,
+  WORK_ORDER_LIMITS,
 } from "@openbrf/shared";
 import { z } from "zod";
 
@@ -31,7 +32,8 @@ import {
  * given in part as a copy with words left out, or left out whole, for a
  * reason. A text the board did not send stays unweighed. Bounded far above any
  * issue's texts, so a body cannot be made a load; a copy, which only takes
- * words out of a text, is bounded as twice the longest text, for its marks.
+ * words out of a text, is bounded as twice the longest text, a message's or a
+ * work order's, for its marks.
  */
 const weighingSchema = z.object({
   decisions: z
@@ -42,7 +44,10 @@ const weighingSchema = z.object({
         withheldBecause: z.enum(ISSUE_ACCESS_WITHHOLDING_REASONS).nullable(),
         givenText: z
           .string()
-          .max(2 * ISSUE_CONVERSATION_LIMITS.body)
+          .max(
+            2 *
+              Math.max(ISSUE_CONVERSATION_LIMITS.body, WORK_ORDER_LIMITS.body),
+          )
           .nullable()
           .default(null),
       }),
@@ -101,9 +106,9 @@ export class DataSubjectReportController {
 
   /**
    * The texts of one issue that this person's report weighs, with their words,
-   * for the board to weigh under art. 15(4) (ADR 0057): the internal notes on
-   * an issue they reported, every text of one a handler recorded as
-   * concerning them. Never part of the report itself, which carries only
+   * for the board to weigh under art. 15(4) (ADR 0057): the internal notes and
+   * the work orders' text on an issue they reported, every text of one a
+   * handler recorded as concerning them. Never part of the report itself, which carries only
    * what the board gave.
    *
    * A read without an audit entry of its own: it is a step in producing the

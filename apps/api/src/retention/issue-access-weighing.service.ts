@@ -3,6 +3,7 @@ import {
   type IssueAccessPart,
   type IssueAccessWithholdingReason,
   isGivenInPartOf,
+  issueAccessPartHasId,
 } from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
@@ -16,8 +17,11 @@ import {
   ISSUE_NOTE_ORDER,
   type StandingWeighing,
   WEIGHED_NOTE_SELECT,
+  WEIGHED_WORK_ORDER_SELECT,
   WEIGHING_SELECT,
+  weighedTextId,
   weighingKey,
+  WORK_ORDER_ORDER,
 } from "./issue-access-weighing";
 
 /**
@@ -29,9 +33,10 @@ import {
  *   found, as an unknown issue is.
  * - `text-not-weighable`: a text named is not one this report weighs: not on
  *   the issue, redacted, removed, or a part the reporter's report does not
- *   weigh (it weighs only the notes). Also a text named twice.
- * - `reason-not-allowed`: the reporter's own report cannot leave a note out for
- *   telling them who reported their own case.
+ *   weigh (it weighs only the notes and the work orders' text). Also a text
+ *   named twice.
+ * - `reason-not-allowed`: the reporter's own report cannot leave a text out
+ *   for telling them who reported their own case.
  * - `copy-not-in-part`: a text given in part came with a copy that is not the
  *   text with words left out: it adds or moves a word, marks no place where
  *   one was left out, or keeps nothing or everything. Or it came with no
@@ -59,7 +64,10 @@ export class IssueAccessWeighingError extends DomainError {
 /** One text the board weighs, with its words, for the board alone. */
 export interface IssueAccessWeighingText {
   part: IssueAccessPart;
-  /** The message or the note; null for the description and the location. */
+  /**
+   * The message, the note or the work order; null for the description and the
+   * location.
+   */
   id: string | null;
   /** When it was written; the issue's report date for its description. */
   writtenAt: string;
@@ -68,6 +76,12 @@ export interface IssueAccessWeighingText {
    * description, the location and a note.
    */
   side: "REPORTER" | "HANDLER" | null;
+  /**
+   * Whom a work order went to, as the mail addressed them, so the board can
+   * tell one from another; null once the contractor was removed from the list,
+   * and for every other part.
+   */
+  recipientName: string | null;
   text: string;
   /**
    * The weighing that stands: `given`, the reason it is left out, whole or in
@@ -93,9 +107,9 @@ export interface IssueAccessWeighingView {
   typeName: string;
   /**
    * Whose report: the person reported the issue (`reporter`), or a handler
-   * recorded it as concerning them (`concerned`). The first weighs the notes,
-   * the second every text, and only the second may leave one out for telling
-   * who reported the case.
+   * recorded it as concerning them (`concerned`). The first weighs the notes
+   * and the work orders' text, the second every text, and only the second may
+   * leave one out for telling who reported the case.
    */
   report: "reporter" | "concerned";
   texts: IssueAccessWeighingText[];
@@ -173,8 +187,7 @@ export class IssueAccessWeighingService {
         if (
           text === undefined ||
           seen.has(key) ||
-          (decision.id !== null) !==
-            (decision.part === "MESSAGE" || decision.part === "NOTE")
+          (decision.id !== null) !== issueAccessPartHasId(decision.part)
         ) {
           throw new IssueAccessWeighingError(
             "text-not-weighable",
@@ -188,7 +201,7 @@ export class IssueAccessWeighingService {
         ) {
           throw new IssueAccessWeighingError(
             "reason-not-allowed",
-            "A reporter's own report does not leave a note out for naming them.",
+            "A reporter's own report does not leave a text out for naming them.",
           );
         }
         if (
@@ -214,6 +227,7 @@ export class IssueAccessWeighingService {
             part: decision.part,
             messageId: decision.part === "MESSAGE" ? decision.id : null,
             noteId: decision.part === "NOTE" ? decision.id : null,
+            workOrderId: decision.part === "WORK_ORDER" ? decision.id : null,
             withheldBecause: decision.withheldBecause,
             givenText: decision.givenText,
           })),
@@ -278,6 +292,16 @@ export class IssueAccessWeighingService {
             },
           },
         },
+        workOrders: {
+          orderBy: WORK_ORDER_ORDER,
+          select: {
+            ...WEIGHED_WORK_ORDER_SELECT,
+            accessWeighings: {
+              where: { concernedPersonId: null },
+              select: WEIGHING_SELECT,
+            },
+          },
+        },
       },
     });
     if (reported !== null) {
@@ -286,20 +310,26 @@ export class IssueAccessWeighingService {
         number: reported.number,
         typeName: reported.type.name,
         report: "reporter",
-        texts: reported.notes.flatMap((note) =>
-          standing(note.body, note.redactedAt)
-            ? [
-                {
-                  part: "NOTE" as const,
-                  id: note.id,
-                  writtenAt: note.createdAt.toISOString(),
-                  side: null,
-                  text: note.body,
-                  ...decisionOf(note.accessWeighings[0]),
-                },
-              ]
-            : [],
-        ),
+        texts: [
+          ...reported.notes.flatMap((note) =>
+            standing(note.body, note.redactedAt)
+              ? [
+                  {
+                    part: "NOTE" as const,
+                    id: note.id,
+                    writtenAt: note.createdAt.toISOString(),
+                    side: null,
+                    recipientName: null,
+                    text: note.body,
+                    ...decisionOf(note.accessWeighings[0]),
+                  },
+                ]
+              : [],
+          ),
+          ...reported.workOrders.flatMap((order) =>
+            workOrderText(order, order.accessWeighings[0]),
+          ),
+        ],
       };
     }
 
@@ -322,6 +352,7 @@ export class IssueAccessWeighingService {
                 part: true,
                 messageId: true,
                 noteId: true,
+                workOrderId: true,
                 ...WEIGHING_SELECT,
               },
             },
@@ -338,6 +369,10 @@ export class IssueAccessWeighingService {
           },
         },
         notes: { orderBy: ISSUE_NOTE_ORDER, select: WEIGHED_NOTE_SELECT },
+        workOrders: {
+          orderBy: WORK_ORDER_ORDER,
+          select: WEIGHED_WORK_ORDER_SELECT,
+        },
       },
     });
     if (concerning === null) {
@@ -349,7 +384,7 @@ export class IssueAccessWeighingService {
     const weighings = new Map(
       (concerning.concernedPersons[0]?.accessWeighings ?? []).map(
         (weighing) => [
-          weighingKey(weighing.part, weighing.messageId ?? weighing.noteId),
+          weighingKey(weighing.part, weighedTextId(weighing)),
           weighing,
         ],
       ),
@@ -364,6 +399,7 @@ export class IssueAccessWeighingService {
         id: null,
         writtenAt: reportedAt,
         side: null,
+        recipientName: null,
         text: concerning.description,
         ...decided("DESCRIPTION", null),
       });
@@ -377,6 +413,7 @@ export class IssueAccessWeighingService {
         id: null,
         writtenAt: reportedAt,
         side: null,
+        recipientName: null,
         text: concerning.location,
         ...decided("LOCATION", null),
       });
@@ -388,6 +425,7 @@ export class IssueAccessWeighingService {
           id: message.id,
           writtenAt: message.createdAt.toISOString(),
           side: message.side,
+          recipientName: null,
           text: message.body,
           ...decided("MESSAGE", message.id),
         });
@@ -400,10 +438,19 @@ export class IssueAccessWeighingService {
           id: note.id,
           writtenAt: note.createdAt.toISOString(),
           side: null,
+          recipientName: null,
           text: note.body,
           ...decided("NOTE", note.id),
         });
       }
+    }
+    for (const order of concerning.workOrders) {
+      texts.push(
+        ...workOrderText(
+          order,
+          weighings.get(weighingKey("WORK_ORDER", order.id)),
+        ),
+      );
     }
     return {
       issueId: concerning.id,
@@ -426,6 +473,32 @@ async function recordOf(
     select: { id: true },
   });
   return record.id;
+}
+
+/**
+ * A work order's text as the board weighs it, or nothing where a handler
+ * redacted it or the purge erased it: there is nothing left of it to give.
+ */
+function workOrderText(
+  order: Prisma.WorkOrderGetPayload<{
+    select: typeof WEIGHED_WORK_ORDER_SELECT;
+  }>,
+  weighing: StandingWeighing | undefined,
+): IssueAccessWeighingText[] {
+  if (order.body === null || !standing(order.body, order.redactedAt)) {
+    return [];
+  }
+  return [
+    {
+      part: "WORK_ORDER",
+      id: order.id,
+      writtenAt: order.createdAt.toISOString(),
+      side: null,
+      recipientName: order.recipientName,
+      text: order.body,
+      ...decisionOf(weighing),
+    },
+  ];
 }
 
 /** A text there is something of to give: not redacted, not removed. */

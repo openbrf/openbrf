@@ -391,7 +391,8 @@ number, shown in the queue, on the reporter's own list and in every mail.
   with whom it went to, when, what it said and who sent it (GDPR art. 15(1)(c)
   and 19), and its mail shows as on its way, sent, not sent or unconfirmed. The
   audit log records the length of the text and none of its words. A reporter's
-  data subject access report lists the work orders sent about their issues.
+  data subject access report lists the work orders sent about their issues,
+  with each one's text as the board weighed it.
 - **Retention.** The text of a work order is erased ten years after its issue
   closed, following the general limitation period for a claim about the work.
   The erasure does not follow an interrupted or renewed limitation period: a
