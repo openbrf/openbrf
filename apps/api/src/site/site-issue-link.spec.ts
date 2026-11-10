@@ -49,15 +49,19 @@ function chromeFor(locale: "en" | "sv"): SiteChrome {
   };
 }
 
-/** The text of the `<dt>` and `<dd>` pairs of the page's facts, in order. */
+/**
+ * The text of the `<dt>` and `<dd>` pairs of the page's facts, in order. The
+ * only markup inside a `<dd>` is the `<time>` around the date, which the
+ * pattern steps over, so no tag is stripped from the text.
+ */
 function facts(html: string): [string, string][] {
   const list =
     /<dl class="site-issue-facts">(.*?)<\/dl>/s.exec(html)?.[1] ?? "";
-  const text = (fragment: string): string =>
-    fragment.replace(/<[^>]*>/g, "").trim();
-  return [...list.matchAll(/<dt>(.*?)<\/dt><dd>(.*?)<\/dd>/gs)].map(
-    ([, term, value]) => [text(term ?? ""), text(value ?? "")],
-  );
+  return [
+    ...list.matchAll(
+      /<dt>([^<]*)<\/dt><dd>(?:<time[^>]*>)?([^<]*)(?:<\/time>)?<\/dd>/g,
+    ),
+  ].map(([, term, value]) => [term ?? "", value ?? ""]);
 }
 
 describe("the reporter's link page's facts", () => {
