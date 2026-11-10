@@ -228,6 +228,20 @@ export const NOTIFIED_REPORTS_PER_REPORTER_PER_HOUR = 5;
  */
 export const NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR = 10;
 
+/**
+ * How many messages written through one issue's private link (ADR 0055) in an
+ * hour have the handlers mailed about.
+ *
+ * A link has no person behind it to count against, so the budget is the
+ * link's own, counted on the issue it opens. Lower than a signed-in
+ * reporter's: a link can be forwarded or leak, and whoever holds it writes on
+ * the same budget, so this bounds what any number of holders can make the
+ * handlers' inboxes take. Past it the message is stored and shown in the
+ * conversation as always, and only the mail about it is left out; the link's
+ * own limits on writing (`REPORTER_LINK_MESSAGES_PER_HOUR`) still apply.
+ */
+export const NOTIFIED_MESSAGES_PER_LINK_PER_HOUR = 5;
+
 const HOUR_MS = 60 * 60 * 1000;
 
 /** The length of the clock-hour slot within which one person is told of one assignment or reopening once. */
@@ -318,9 +332,14 @@ export interface IssueOverdueJob {
  * Who wrote an issue message, and which stored message it is, for the mail
  * that says there is a new one. The message is required: its notice names it,
  * so a delivery that finds it erased by the free-text purge sends nothing.
+ *
+ * `reporter` is a signed-in reporter on their own issue; `link` is whoever
+ * holds the private link of a report from the website's form (ADR 0055), who
+ * has no person behind them.
  */
 export type IssueMessageAuthor =
   | { kind: "reporter"; messageId: string }
+  | { kind: "link"; messageId: string }
   | { kind: "handler"; personId: string; messageId: string };
 
 /** What every decision here reads of an issue. */
@@ -611,13 +630,19 @@ export class IssueMailer implements OnModuleInit {
    * A reporter's goes to the assignee, or to every handler of the issue when it
    * has none, while the reporter's budget lasts: at most
    * {@link NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR} of their messages in an
-   * hour are mailed about, whichever issues they are on. A handler's goes to
-   * the reporter when the reporter has an account; a reporter from the
-   * website's form has the private link instead (ADR 0055). An internal note
-   * is not an issue message and is mailed to nobody.
+   * hour are mailed about, whichever issues they are on. One written through
+   * the private link of a report from the website's form goes to the same
+   * people while the link's budget lasts: at most
+   * {@link NOTIFIED_MESSAGES_PER_LINK_PER_HOUR} of the link's messages in an
+   * hour. A handler's goes to the reporter when the reporter has an account;
+   * a reporter from the website's form has the private link instead (ADR
+   * 0055). An internal note is not an issue message and is mailed to nobody.
    *
    * Called after the message is stored, in the same transaction, so the
-   * budget counts it among the reporter's messages of the hour.
+   * budget counts it among the reporter's messages of the hour. A link's
+   * caller holds the issue's lock (`lockIssueForHandling`), which every
+   * message through the link takes, so two at the same moment each see the
+   * other.
    */
   async messageInTransaction(
     tx: Prisma.TransactionClient,
@@ -629,10 +654,27 @@ export class IssueMailer implements OnModuleInit {
     if (issue === null) {
       return 0;
     }
+    if (author.kind === "link") {
+      if (await this.linkMessageBudgetSpent(tx, issueId, now)) {
+        this.logger.warn(
+          `Issue ${issueId} has a message through its reporter's link but nobody was mailed: the link's messages for the hour have been.`,
+        );
+        return 0;
+      }
+      // Nobody is left out as the actor: there is no person behind a link.
+      return this.queue(
+        tx,
+        issueId,
+        await this.assigneeOrHandlers(tx, issue, "message", now),
+        null,
+        { messageId: author.messageId },
+      );
+    }
     if (author.kind === "reporter") {
       const reporter = issue.reporterPersonId;
-      // Only a reporter with an account writes on an issue, and they are its
+      // A signed-in reporter writes on their own issue, so they are its
       // reporter; with nobody to count the message against, nobody is mailed.
+      // A link's message is `link`, above.
       if (reporter === null) {
         return 0;
       }
@@ -1222,6 +1264,33 @@ export class IssueMailer implements OnModuleInit {
       },
     });
     return written > NOTIFIED_MESSAGES_PER_REPORTER_PER_HOUR;
+  }
+
+  /**
+   * Whether the messages written through this issue's private link in the past
+   * hour, the one just stored among them, are more than the handlers are
+   * mailed about.
+   *
+   * A link's message is a reporter's message with no person behind it. The
+   * caller holds the issue's lock, which every message through the link takes
+   * and holds until it commits, so the bound is exact. The hour is judged on
+   * the API's clock, the one that stamps `createdAt`, as the link's own limit
+   * on writing is.
+   */
+  private async linkMessageBudgetSpent(
+    tx: Prisma.TransactionClient,
+    issueId: string,
+    now: Date,
+  ): Promise<boolean> {
+    const written = await tx.issueMessage.count({
+      where: {
+        issueId,
+        side: "REPORTER",
+        authorPersonId: null,
+        createdAt: { gt: new Date(now.getTime() - HOUR_MS) },
+      },
+    });
+    return written > NOTIFIED_MESSAGES_PER_LINK_PER_HOUR;
   }
 
   /** Queues one delivery per person, leaving out the person who acted. */

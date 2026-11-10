@@ -25,6 +25,7 @@ import { lockIssueType } from "../issues/issue-lock";
 import {
   ISSUE_NOTICE_QUEUE,
   ISSUE_OVERDUE_QUEUE,
+  NOTIFIED_MESSAGES_PER_LINK_PER_HOUR,
 } from "../issues/issue-mailer.service";
 import { lockIssueForHandling } from "../issues/issue-lock";
 import { IssuePurgeService } from "../issues/issue-purge.service";
@@ -505,6 +506,60 @@ describe("a reporter without an account", () => {
     });
     expect(after.body).toContain("Tack, jag är hemma efter tolv.");
     expect(after.body).toContain("Ditt meddelande har skickats");
+  });
+
+  it("alerts the assignee of an open issue to each message, within the link's hourly budget", async () => {
+    const { issueId, token } = await reported();
+    await prisma.issue.update({
+      where: { id: issueId },
+      data: {
+        statusId: publicType.statusIds.IN_PROGRESS,
+        assigneePersonId: board.personId,
+      },
+    });
+
+    const notices = async () =>
+      (
+        await prisma.$queryRawUnsafe<
+          { data: { personId: string; event: string; messageId?: string } }[]
+        >(
+          "SELECT data FROM pgboss.job WHERE name = $1 AND data->>'issueId' = $2 AND data->>'event' = 'message' ORDER BY created_on, id",
+          ISSUE_NOTICE_QUEUE,
+          issueId,
+        )
+      ).map((notice) => notice.data);
+
+    const first = await post(token, "Porten går att öppna nu, men inte låsa.");
+    expect(first.headers.location).toBe(`/arende/${token}?svar=sent`);
+    const message = await prisma.issueMessage.findFirstOrThrow({
+      where: { issueId, side: "REPORTER" },
+      select: { id: true },
+    });
+    // The assignee is told there is a message, naming the stored message and
+    // carrying nothing it says.
+    expect(await notices()).toEqual([
+      {
+        issueId,
+        personId: board.personId,
+        event: "message",
+        messageId: message.id,
+      },
+    ]);
+
+    for (let n = 1; n < NOTIFIED_MESSAGES_PER_LINK_PER_HOUR; n += 1) {
+      expect(
+        (await post(token, `Ett svar till ${String(n)}`)).headers.location,
+      ).toBe(`/arende/${token}?svar=sent`);
+    }
+    expect(await notices()).toHaveLength(NOTIFIED_MESSAGES_PER_LINK_PER_HOUR);
+
+    // Past the link's budget the message is stored, and nobody is mailed.
+    const past = await post(token, "Ett svar för mycket");
+    expect(past.headers.location).toBe(`/arende/${token}?svar=sent`);
+    expect(
+      await prisma.issueMessage.count({ where: { issueId, side: "REPORTER" } }),
+    ).toBe(NOTIFIED_MESSAGES_PER_LINK_PER_HOUR + 1);
+    expect(await notices()).toHaveLength(NOTIFIED_MESSAGES_PER_LINK_PER_HOUR);
   });
 
   it("is not mailed, and gets no follow-up, without an address", async () => {

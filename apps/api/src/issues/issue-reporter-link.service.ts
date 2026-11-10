@@ -688,7 +688,9 @@ export class IssueReporterLinkService implements OnModuleInit {
    * was being written is answered as it is now. The link's budget is counted
    * in the same transaction. The message has no author: there is no person
    * behind a link, and its audit entry is on the link's own channel, naming the
-   * link.
+   * link. The assignee, or every handler of an issue nobody has, is mailed
+   * that there is a message, within the link's hourly budget
+   * (`NOTIFIED_MESSAGES_PER_LINK_PER_HOUR`), never what it says.
    */
   async reply(token: string, body: string): Promise<ReporterLinkReplyOutcome> {
     if (!hasReporterLinkTokenForm(token)) {
@@ -771,6 +773,13 @@ export class IssueReporterLinkService implements OnModuleInit {
         },
         tx,
       );
+      // The assignee, or the issue's handlers, are told there is a message, as
+      // they are of a signed-in reporter's, while the link's budget lasts.
+      // Under the issue's lock taken above, which the budget counts under.
+      await this.mailer.messageInTransaction(tx, link.issueId, {
+        kind: "link",
+        messageId: message.id,
+      });
       return { kind: "sent" as const, issueId: link.issueId, reopens };
     });
 

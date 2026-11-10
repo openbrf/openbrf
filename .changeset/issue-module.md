@@ -211,7 +211,9 @@ reporter wrote on the form.
   Every link that opens nothing gets the same page, which says that a new
   report can be made on the association's website if it takes them.
 - **Limits.** Thirty page reads and five messages a minute from one address,
-  and ten messages an hour and a hundred in all through one link.
+  and ten messages an hour and a hundred in all through one link. Of a link's
+  messages, five in an hour are mailed about to whoever handles the issue; the
+  rest are stored and shown without a mail.
 
 ## Mail
 
@@ -224,8 +226,9 @@ number, shown in the queue, on the reporter's own list and in every mail.
   mails the new assignee, once within the same clock hour. The assignee is
   reminded once, the morning after the target date, while the issue is not
   done; a new target date that passes gives a new reminder. A reopened issue
-  goes to its assignee, or to everybody who handles it. A reporter's message
-  mails the assignee, or everybody who handles the issue; a handler's message
+  goes to its assignee, or to everybody who handles it. A reporter's message,
+  signed in or through the private link, mails the assignee, or everybody who
+  handles the issue; a handler's message
   mails the reporter when they have an account; an internal note and a known
   fault mail nobody.
 - **Who is not.** Nobody is mailed about their own action. A board-only issue
