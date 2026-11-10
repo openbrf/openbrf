@@ -1,6 +1,7 @@
 import { Logger } from "@nestjs/common";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { createHash } from "node:crypto";
+import { Client } from "pg";
 import {
   afterAll,
   afterEach,
@@ -958,16 +959,19 @@ describe("B. lifetime and revocation", () => {
     },
   );
 
-  describe("in a database session outside UTC", () => {
-    // Auckland is 12 or 13 hours ahead of UTC, far more than the hour the
-    // limit counts, so a cutoff read in the session's zone lands on the
-    // wrong side of every message below.
+  describe("with a time zone outside UTC in the connection string", () => {
+    // The application pins its sessions to UTC whatever the connection string
+    // asks for (database/session-time-zone.ts), so an operator's zone cannot
+    // move the hour's cutoff. Auckland is 12 or 13 hours ahead of UTC, far
+    // more than the hour the limit counts, so a cutoff read as local
+    // wall-clock time in that zone would land on the wrong side of every
+    // message below.
     const ZONE = "Pacific/Auckland";
+    const url = new URL(applicationDatabaseUrl(baseEnv));
+    url.searchParams.set("options", `-c TimeZone=${ZONE}`);
     let zoned: NestFastifyApplication | undefined;
 
     beforeAll(async () => {
-      const url = new URL(applicationDatabaseUrl(baseEnv));
-      url.searchParams.set("options", `-c TimeZone=${ZONE}`);
       const env: Env = {
         ...baseEnv,
         DATABASE_URL_RUNTIME: url.toString(),
@@ -991,12 +995,6 @@ describe("B. lifetime and revocation", () => {
           process.env.DATABASE_URL_RUNTIME = runtimeBefore;
         }
       }
-      // The application's own connections run in the zone, not this suite's.
-      const [session] = await zonedApp().get(PrismaService).$queryRaw<
-        { zone: string }[]
-      >`
-          SELECT current_setting('TimeZone') AS "zone"`;
-      expect(session?.zone).toBe(ZONE);
     }, 180_000);
 
     // The application is closed only when it was created, so a failed boot
@@ -1007,10 +1005,36 @@ describe("B. lifetime and revocation", () => {
 
     const zonedApp = (): NestFastifyApplication => {
       if (!zoned) {
-        throw new Error("The application in the non-UTC session did not boot");
+        throw new Error(
+          "The application with a zone in its connection string did not boot",
+        );
       }
       return zoned;
     };
+
+    it("B4: the zone reaches a connection that does not pin it", async () => {
+      // What makes the next case mean anything: were the option lost on the
+      // way to the server, the application's session would report UTC
+      // without the pin.
+      const plain = new Client({ connectionString: url.toString() });
+      await plain.connect();
+      try {
+        const { rows } = await plain.query<{ zone: string }>(
+          `SELECT current_setting('TimeZone') AS "zone"`,
+        );
+        expect(rows[0]?.zone).toBe(ZONE);
+      } finally {
+        await plain.end();
+      }
+    });
+
+    it("B4: the application's session stays in UTC", async () => {
+      const [session] = await zonedApp().get(PrismaService).$queryRaw<
+        { zone: string }[]
+      >`
+          SELECT current_setting('TimeZone') AS "zone"`;
+      expect(session?.zone).toBe("UTC");
+    });
 
     it.each([
       {
@@ -1024,7 +1048,7 @@ describe("B. lifetime and revocation", () => {
         outcome: "sent" as const,
       },
     ])(
-      "B4: the hour's limit counts the messages $name the same instant as in UTC",
+      "B4: the hour's limit counts the messages $name on UTC wall-clock time",
       async ({ ageMs, outcome }) => {
         const { issueId, token } = await reported();
         await closedWithReporterMessages(issueId, ageMs);
