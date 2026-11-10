@@ -524,7 +524,7 @@
           "dataSubjectRequests": "What you have asked about your data",
           "personalDataBreaches": "Personal data breaches that reached your data",
           "transferReversals": "Transfer reversals",
-          "issuesConcerning": "Issues others reported that concern you"
+          "issuesConcerning": "Issues that concern you and that you did not report"
         },
         "field": {
           "name": "Name",

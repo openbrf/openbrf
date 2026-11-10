@@ -14,7 +14,7 @@ The board weighs what of their text is given, as GDPR art. 15(4) asks.
   note on their own screen, and a note may hold words about somebody else, so
   each one is given only as the board weighed it: whole, in part, or left out
   because it is about somebody else.
-- **Issues others reported that concern you.** A new section lists each issue a
+- **Issues that concern you and that you did not report.** A new section lists each issue a
   handler recorded as concerning the person, and which the person did not
   report. It always gives the issue's number, type, dates, where it stands, how it ended,
   how many photographs it holds and whom it was sent to. Its description,

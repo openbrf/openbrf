@@ -524,7 +524,7 @@
           "dataSubjectRequests": "Vad du har begärt om dina uppgifter",
           "personalDataBreaches": "Personuppgiftsincidenter som rört dina uppgifter",
           "transferReversals": "Hävda och återgångna överlåtelser",
-          "issuesConcerning": "Ärenden som andra anmält och som gäller dig"
+          "issuesConcerning": "Ärenden som gäller dig och som du inte har anmält"
         },
         "field": {
           "name": "Namn",
