@@ -290,8 +290,8 @@ importers:
         specifier: ^0.8.3
         version: 0.8.3
       i18next:
-        specifier: ^26.7.1
-        version: 26.7.1(typescript@7.0.2)
+        specifier: ^27.1.1
+        version: 27.1.1(typescript@7.0.2)
       nodemailer:
         specifier: ^10.4.0
         version: 10.4.0
@@ -3480,14 +3480,6 @@ packages:
   human-id@4.2.1:
     resolution: {integrity: sha512-zPGsiS+dWoTZtZ4AtpA9Y+BdSFSNWvnouNlWNoUFyAM6xHOHmdCvqO3k8AIbdamCOv4gUFUVNPf6rJFfc4UiJw==}
     hasBin: true
-
-  i18next@26.7.1:
-    resolution: {integrity: sha512-cX+3RRVczel/V2kCMTACckSGSpqgtWYEA6beXNYVms7dOQiHojdPYHD26lT4IKimNeoGWrLvtPgjftbRvmZJVw==}
-    peerDependencies:
-      typescript: ^5 || ^6 || ^7
-    peerDependenciesMeta:
-      typescript:
-        optional: true
 
   i18next@27.1.1:
     resolution: {integrity: sha512-Qq3aJizS3RXQ30crhx9BKQLrHoa6GKpgrOJjVZ9vgj3EBxAddrmVfDNUrAMxSUimw5Jc+ld4SSZUAzf1q4nGyQ==}
@@ -7465,10 +7457,6 @@ snapshots:
       toidentifier: 1.0.1
 
   human-id@4.2.1: {}
-
-  i18next@26.7.1(typescript@7.0.2):
-    optionalDependencies:
-      typescript: 7.0.2
 
   i18next@27.1.1(typescript@7.0.2):
     optionalDependencies:
