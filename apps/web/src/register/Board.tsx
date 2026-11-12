@@ -1,4 +1,5 @@
 import { MAX_ADDRESS_BOOK_SEARCH_LENGTH } from "@openbrf/shared";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
@@ -134,7 +135,7 @@ function Tab({
  * printed in the row below.
  */
 function groupLabel<TRow extends DirectoryRow>(
-  t: (key: TranslationKey, options?: Record<string, unknown>) => string,
+  t: TFunction,
   group: FloorGroup<TRow>,
 ): string {
   if (group.floor === null) {
