@@ -89,6 +89,13 @@ export default defineConfig({
       "i18next/no-literal-string": "error",
       // Vite and Vitest are reached through vite-plus, which pins them.
       "vite-plus/prefer-vite-plus-imports": "error",
+      // Oxlint's port of the React Compiler check reports the flag an effect
+      // declares and its cleanup sets (`let active = true; return () => {
+      // active = false; };`), the way React's own documentation drops a stale
+      // response, and reports it in some effects and not in identical others.
+      // The flag lives and dies with one run of the effect, so nothing it
+      // reports there is a render reading changed state.
+      "react/immutability": "off",
       "no-restricted-imports": boundaries([]),
     },
     // A later entry replaces an earlier one's rule for the files both match.
