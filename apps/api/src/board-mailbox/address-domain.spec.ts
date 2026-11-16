@@ -134,9 +134,26 @@ describe("addressDomainIdentity", () => {
   });
 
   it("knows every script of the runtime's Unicode data", () => {
-    const known = SCRIPT_CODES.map((code) => String.raw`\p{sc=${code}}`).join(
-      "",
-    );
+    // Scripts newer than the Unicode data of the official Node.js builds
+    // (Unicode 17); a runtime with that data does not know them yet.
+    const newerThanRuntime = new Set(["Jurc", "Pcun", "Seal"]);
+    const knownByRuntime = (code: string) => {
+      try {
+        new RegExp(String.raw`\p{sc=${code}}`, "u");
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    expect(
+      SCRIPT_CODES.filter(
+        (code) => !knownByRuntime(code) && !newerThanRuntime.has(code),
+      ),
+    ).toEqual([]);
+
+    const known = SCRIPT_CODES.filter(knownByRuntime)
+      .map((code) => String.raw`\p{sc=${code}}`)
+      .join("");
     const unknown = new RegExp(
       String.raw`[^${known}\p{sc=Zyyy}\p{sc=Zinh}\p{sc=Zzzz}]`,
       "u",
