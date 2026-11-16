@@ -60,7 +60,7 @@
 # (scripts/ci-images.mjs, e2e/src/stack.ts), because both registries meter
 # anonymous pulls per address and CI runners share theirs. The image built is
 # the same either way.
-FROM public.ecr.aws/docker/library/node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS base
+FROM public.ecr.aws/docker/library/node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS base
 ENV PNPM_HOME=/usr/local/pnpm \
     PATH=/usr/local/pnpm:/opt/pnpm/node_modules/.bin:$PATH
 RUN apt-get update \
