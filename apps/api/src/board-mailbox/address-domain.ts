@@ -24,6 +24,8 @@ export interface AddressDomainIdentity {
  * ISO 15924 code. Common, Inherited and Unknown are not scripts a lookalike is
  * made of and are not listed. A test holds this list to the runtime's Unicode
  * data, so that a script Unicode adds is not one a warning can be avoided with.
+ * The list may be ahead of the runtime: the official Node.js builds bundle
+ * Unicode 17, while a build linked to the system's ICU can have Unicode 18.
  */
 export const SCRIPT_CODES: readonly string[] = `
   Adlm Aghb Ahom Arab Armi Armn Avst Bali Bamu Bass Batk Beng Berf Bhks Bopo
