@@ -94,6 +94,22 @@ minimumReleaseAgeExclude:
   - "@voidzero-dev/vite-plus-win32-arm64-msvc@1.2.0"
   - "@voidzero-dev/vite-plus-win32-x64-msvc@1.2.0"
   - vite-plus@1.2.0
+  - "@pnpm/exe.android-arm64@12.22.0"
+  - "@pnpm/exe.android-x64@12.22.0"
+  - "@pnpm/exe.darwin-arm64@12.22.0"
+  - "@pnpm/exe.darwin-x64@12.22.0"
+  - "@pnpm/exe.freebsd-x64@12.22.0"
+  - "@pnpm/exe.linux-arm64-musl@12.22.0"
+  - "@pnpm/exe.linux-arm64@12.22.0"
+  - "@pnpm/exe.linux-ppc64@12.22.0"
+  - "@pnpm/exe.linux-riscv64@12.22.0"
+  - "@pnpm/exe.linux-s390x@12.22.0"
+  - "@pnpm/exe.linux-x64-musl@12.22.0"
+  - "@pnpm/exe.linux-x64@12.22.0"
+  - "@pnpm/exe.netbsd-x64@12.22.0"
+  - "@pnpm/exe.win32-arm64@12.22.0"
+  - "@pnpm/exe.win32-x64@12.22.0"
+  - pnpm@12.22.0
 
 # An optional peer whose declared range trails the version this repository
 # runs. It is not loaded here, so the range is a statement about upstream's
