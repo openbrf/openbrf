@@ -69,8 +69,11 @@ describe("while an order is being placed", () => {
       "Vilken dörr, eller vad den ska användas till",
     );
     await user.selectOptions(screen.getByLabelText("Vad du behöver"), "TAG");
-    await user.clear(quantity);
-    await user.type(quantity, "3");
+    // Type over the selected count, as a person does: clearing a number field
+    // leaves React's "0" in it, so typing after it gives "03".
+    await user.tripleClick(quantity);
+    await user.keyboard("3");
+    expect(quantity.value).toBe("3");
     await user.type(note, "Cykelrummet");
     expect(note.matches(":disabled")).toBe(false);
 
