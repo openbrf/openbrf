@@ -94,22 +94,23 @@ minimumReleaseAgeExclude:
   - "@voidzero-dev/vite-plus-win32-arm64-msvc@1.2.0"
   - "@voidzero-dev/vite-plus-win32-x64-msvc@1.2.0"
   - vite-plus@1.2.0
-  - "@pnpm/exe.android-arm64@12.22.0"
-  - "@pnpm/exe.android-x64@12.22.0"
-  - "@pnpm/exe.darwin-arm64@12.22.0"
-  - "@pnpm/exe.darwin-x64@12.22.0"
-  - "@pnpm/exe.freebsd-x64@12.22.0"
-  - "@pnpm/exe.linux-arm64-musl@12.22.0"
-  - "@pnpm/exe.linux-arm64@12.22.0"
-  - "@pnpm/exe.linux-ppc64@12.22.0"
-  - "@pnpm/exe.linux-riscv64@12.22.0"
-  - "@pnpm/exe.linux-s390x@12.22.0"
-  - "@pnpm/exe.linux-x64-musl@12.22.0"
-  - "@pnpm/exe.linux-x64@12.22.0"
-  - "@pnpm/exe.netbsd-x64@12.22.0"
-  - "@pnpm/exe.win32-arm64@12.22.0"
-  - "@pnpm/exe.win32-x64@12.22.0"
-  - pnpm@12.22.0
+  - "@pnpm/exe.android-arm64@12.22.0 || 12.23.0"
+  - "@pnpm/exe.android-x64@12.22.0 || 12.23.0"
+  - "@pnpm/exe.darwin-arm64@12.22.0 || 12.23.0"
+  - "@pnpm/exe.darwin-x64@12.22.0 || 12.23.0"
+  - "@pnpm/exe.freebsd-x64@12.22.0 || 12.23.0"
+  - "@pnpm/exe.linux-arm64-musl@12.22.0 || 12.23.0"
+  - "@pnpm/exe.linux-arm64@12.22.0 || 12.23.0"
+  - "@pnpm/exe.linux-ppc64@12.22.0 || 12.23.0"
+  - "@pnpm/exe.linux-riscv64@12.22.0 || 12.23.0"
+  - "@pnpm/exe.linux-s390x@12.22.0 || 12.23.0"
+  - "@pnpm/exe.linux-x64-musl@12.22.0 || 12.23.0"
+  - "@pnpm/exe.linux-x64@12.22.0 || 12.23.0"
+  - "@pnpm/exe.netbsd-x64@12.22.0 || 12.23.0"
+  - "@pnpm/exe.win32-arm64@12.22.0 || 12.23.0"
+  - "@pnpm/exe.win32-x64@12.22.0 || 12.23.0"
+  - pnpm@12.22.0 || 12.23.0
+  - "@pnpm/exe.linux-loong64@12.23.0"
 
 # An optional peer whose declared range trails the version this repository
 # runs. It is not loaded here, so the range is a statement about upstream's
@@ -147,6 +148,14 @@ overrides:
   # practical exposure here is nil, but the fix is free if Prisma's config
   # loader works with v8.
   deepmerge-ts: ">=8.0.0"
+  # GHSA-7589-6fvf-x4pw: a ReDoS in the regular expression Effect compiles for
+  # Schema.TemplateLiteral. Fixed in 3.22.1. @prisma/config pins effect at an
+  # exact 3.20.0 and uses it only at CLI time, to load our own prisma.config.ts,
+  # which hands it no outside input, so the exposure here is nil, but the pin is
+  # what the package ships and only an override moves it.
+  # Scoped to that parent and bounded to 3.x, so a major nobody has looked at
+  # cannot arrive through it.
+  "@prisma/config>effect": "^3.22.1"
   # @nestjs/platform-fastify pins fastify to an exact patch, which can trail
   # the version apps/api declares. Two copies then land in the tree, and a
   # plugin registered against one of them does not type-check against the
