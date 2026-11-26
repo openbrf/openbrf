@@ -34,7 +34,10 @@ hooks`, `vp staged`), Node version management (`vp env`) and a CI action
   so the Vite that `@module-federation/vite`, `@tailwindcss/vite` and
   `@vitejs/plugin-react` import is the one `vp build` runs. The plugins'
   `vite` peer ranges name Vite's version numbers and cannot match Vite+'s, so
-  `peerDependencyRules.allowAny` accepts it.
+  `peerDependencyRules.allowAny` accepts it. (Amended 2026-11-26: since Vite+
+  1.7.0, `@voidzero-dev/vite-plus-core` carries Vite's version with a build
+  number, 8.3.8000 for Vite 8.3. The peer ranges match it, and the `allowAny`
+  exception is removed.)
 - **Same script names, `vp` behind them.** `lint` is `vp lint .` and `test` is
   `vp test run` in every package; apps/web's `dev`, `build` and `preview` are
   `vp dev`, `vp build` and `vp preview`. Turborepo and CI call the scripts, so
@@ -91,7 +94,11 @@ hooks`, `vp staged`), Node version management (`vp env`) and a CI action
 ## Consequences
 
 - Vite, Vitest and Oxlint move only when `vite-plus` releases, and together:
-  one Dependabot bump of the catalog entry instead of several.
+  one Dependabot bump of the catalog entry instead of several. Since Vite+
+  1.7.0 the catalog's `vite` alias and `vite-plus` carry different numbers,
+  and Dependabot moves `vite-plus` alone. Its bump then needs the `vite` alias
+  set to the `@voidzero-dev/vite-plus-core` version `vite-plus` depends on;
+  until it is, `vp build` refuses to start.
 - A contributor who expects `vite.config.ts` at the root to configure the web
   client finds a lint configuration instead. apps/web's own `vite.config.ts`
   is the one that builds it, and the root file says so.
