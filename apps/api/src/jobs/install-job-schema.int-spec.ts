@@ -43,7 +43,7 @@ const UPGRADE_VERSION = 45;
  * one after. A pg-boss release that adds a migration fails them until it is
  * raised, so its builds are looked at before the upgrade ships.
  */
-const LATEST_VERSION = 46;
+const LATEST_VERSION = 47;
 /** The index that migration adds to every job table. */
 const INDEX_SUFFIX = "_i13";
 
