@@ -120,11 +120,6 @@ peerDependencyRules:
     # The SQLite adapter's peer, held at 12 upstream. See the override below
     # for why 13 is what gets installed.
     "better-auth>better-sqlite3": "13"
-  # Vite plugins declare a `vite` peer by Vite's own version (^8 and so on).
-  # The `vite` they get is Vite+'s build of it, which carries Vite+'s version
-  # number (see `catalog` below), so no range they declare can match it.
-  allowAny:
-    - vite
 
 # Transitive dependency advisories we resolve ahead of the upstream package.
 overrides:
@@ -209,6 +204,13 @@ packageExtensions:
 # one exact version, used by every package that builds, tests or lints. `vite`
 # names Vite+'s own build of Vite, so that the Vite a plugin imports is the one
 # `vp build` runs.
+#
+# Since Vite+ 1.7.0 its build of Vite carries Vite's own version with a build
+# number (8.3.8000 is Vite 8.3), not Vite+'s, so the plugins' `vite` peer
+# ranges match it without an exception. The two entries no longer share a
+# number, and a Dependabot bump moves `vite-plus` alone: set `vite` to the
+# `@voidzero-dev/vite-plus-core` version that `vite-plus` depends on, or
+# `vp build` refuses to start.
 catalog:
-  vite: npm:@voidzero-dev/vite-plus-core@1.6.0
+  vite: npm:@voidzero-dev/vite-plus-core@8.3.8000
   vite-plus: 1.7.0
